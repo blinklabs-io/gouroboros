@@ -64,7 +64,13 @@ type DiagnosticOptions struct {
 	MaxArrayItems int
 	MaxByteLength int
 	CardanoAware  bool
-	ParseLimits   DiagnosticParseLimits
+	// MaxOutputBytes caps the bytes one render may write; output past it is
+	// replaced by a truncation marker. Zero or negative selects a default
+	// proportional to the encoded size of the rendered node, which leaves
+	// renders of ordinary inputs untouched but stops a small, deeply nested
+	// input from producing output quadratic in its depth.
+	MaxOutputBytes int
+	ParseLimits    DiagnosticParseLimits
 }
 
 // DiagnosticParseLimits bounds tree construction independently of rendering.
@@ -636,56 +642,61 @@ func (n *DiagnosticNode) GetPathToOffset(offset int) []string {
 	return n.collectPath(offset, []string{})
 }
 
+// collectPath descends exactly one child per level and never backtracks, so
+// it extends the one path slice in place. Copying the path at each level
+// would cost time and memory quadratic in the nesting depth.
 func (n *DiagnosticNode) collectPath(offset int, path []string) []string {
-	switch n.Type {
-	case DiagTypeArray:
-		for i := range n.Children {
-			child := &n.Children[i]
-			if offset >= child.Offset && offset < child.Offset+child.Length {
-				next := append(
-					append([]string(nil), path...),
-					fmt.Sprintf("[%d]", i),
-				)
-				return child.collectPath(offset, next)
+	for {
+		var next *DiagnosticNode
+		switch n.Type {
+		case DiagTypeArray:
+			for i := range n.Children {
+				child := &n.Children[i]
+				if offset >= child.Offset &&
+					offset < child.Offset+child.Length {
+					path = append(path, fmt.Sprintf("[%d]", i))
+					next = child
+					break
+				}
 			}
+		case DiagTypeMap:
+			for i := 0; i+1 < len(n.Children); i += 2 {
+				keyChild := &n.Children[i]
+				valChild := &n.Children[i+1]
+				if offset >= keyChild.Offset &&
+					offset < keyChild.Offset+keyChild.Length {
+					path = append(path, mapKeyPathSegment(keyChild))
+					next = keyChild
+					break
+				}
+				if offset >= valChild.Offset &&
+					offset < valChild.Offset+valChild.Length {
+					path = append(path, mapKeyPathSegment(keyChild))
+					next = valChild
+					break
+				}
+			}
+		case DiagTypeTag:
+			if len(n.Children) > 0 {
+				child := &n.Children[0]
+				if offset >= child.Offset &&
+					offset < child.Offset+child.Length {
+					next = child
+				}
+			}
+		case DiagTypeUint,
+			DiagTypeNint,
+			DiagTypeBytes,
+			DiagTypeText,
+			DiagTypeSimple,
+			DiagTypeFloat:
+			// Leaf types contribute no further path segments.
 		}
-	case DiagTypeMap:
-		for i := 0; i+1 < len(n.Children); i += 2 {
-			keyChild := &n.Children[i]
-			valChild := &n.Children[i+1]
-			if offset >= keyChild.Offset &&
-				offset < keyChild.Offset+keyChild.Length {
-				next := append(
-					append([]string(nil), path...),
-					mapKeyPathSegment(keyChild),
-				)
-				return keyChild.collectPath(offset, next)
-			}
-			if offset >= valChild.Offset &&
-				offset < valChild.Offset+valChild.Length {
-				next := append(
-					append([]string(nil), path...),
-					mapKeyPathSegment(keyChild),
-				)
-				return valChild.collectPath(offset, next)
-			}
+		if next == nil {
+			return path
 		}
-	case DiagTypeTag:
-		if len(n.Children) > 0 {
-			child := &n.Children[0]
-			if offset >= child.Offset && offset < child.Offset+child.Length {
-				return child.collectPath(offset, path)
-			}
-		}
-	case DiagTypeUint,
-		DiagTypeNint,
-		DiagTypeBytes,
-		DiagTypeText,
-		DiagTypeSimple,
-		DiagTypeFloat:
-		// Leaf types contribute no further path segments.
+		n = next
 	}
-	return path
 }
 
 func mapKeyPathSegment(n *DiagnosticNode) string {
@@ -710,32 +721,38 @@ func mapKeyPathSegment(n *DiagnosticNode) string {
 
 // FormatHexDump returns a hex dump with CBOR structure annotations.
 // Each row pairs an offset and the relevant bytes with the structural meaning
-// of those bytes, indented to reflect nesting.
+// of those bytes, indented to reflect nesting. Output past
+// opts.MaxOutputBytes is replaced by a truncation marker.
 func (n *DiagnosticNode) FormatHexDump(opts DiagnosticOptions) string {
 	opts.normalize()
-	var b strings.Builder
-	fmt.Fprintf(&b, "%-8s%-42s%s\n", "Offset", "Hex", "Structure")
-	fmt.Fprintf(
-		&b,
+	w := newDiagnosticWriter(opts, n)
+	w.printf("%-8s%-42s%s\n", "Offset", "Hex", "Structure")
+	w.printf(
 		"%-8s%-42s%s\n",
 		"------",
 		strings.Repeat("-", 40),
 		"------------------",
 	)
-	n.writeHexDump(&b, opts, 0, "")
-	return b.String()
+	n.writeHexDump(w, opts, 0, "")
+	out := w.result("")
+	if w.truncated {
+		out += "\n"
+	}
+	return out
 }
 
 func (n *DiagnosticNode) writeHexDump(
-	b *strings.Builder,
+	w *diagnosticWriter,
 	opts DiagnosticOptions,
 	depth int,
 	role string,
 ) {
+	if w.truncated {
+		return
+	}
 	indent := strings.Repeat("| ", depth)
 	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		fmt.Fprintf(
-			b,
+		w.printf(
 			"%-8s%-42s%s\n",
 			fmt.Sprintf("%04x", n.Offset),
 			"...",
@@ -751,8 +768,7 @@ func (n *DiagnosticNode) writeHexDump(
 	if role != "" {
 		label = role + ": " + label
 	}
-	fmt.Fprintf(
-		b,
+	w.printf(
 		"%-8s%-42s%s\n",
 		fmt.Sprintf("%04x", n.Offset),
 		formatHexBytes(headerBytes, 0),
@@ -768,8 +784,7 @@ func (n *DiagnosticNode) writeHexDump(
 		if maxShow <= 0 {
 			maxShow = 4
 		}
-		fmt.Fprintf(
-			b,
+		w.printf(
 			"%-8s%-42s%s\n",
 			fmt.Sprintf("%04x", contentOffset),
 			formatHexBytes(contentBytes, maxShow),
@@ -784,11 +799,10 @@ func (n *DiagnosticNode) writeHexDump(
 			limit = opts.MaxArrayItems
 		}
 		for i := 0; i < limit; i++ {
-			n.Children[i].writeHexDump(b, opts, depth+1, "")
+			n.Children[i].writeHexDump(w, opts, depth+1, "")
 		}
 		if limit < len(n.Children) {
-			fmt.Fprintf(
-				b,
+			w.printf(
 				"%-8s%-42s%s\n",
 				"",
 				"...",
@@ -802,12 +816,11 @@ func (n *DiagnosticNode) writeHexDump(
 			limit = opts.MaxArrayItems
 		}
 		for i := 0; i < limit; i++ {
-			n.Children[i*2].writeHexDump(b, opts, depth+1, "key")
-			n.Children[i*2+1].writeHexDump(b, opts, depth+1, "value")
+			n.Children[i*2].writeHexDump(w, opts, depth+1, "key")
+			n.Children[i*2+1].writeHexDump(w, opts, depth+1, "value")
 		}
 		if limit < pairCount {
-			fmt.Fprintf(
-				b,
+			w.printf(
 				"%-8s%-42s%s\n",
 				"",
 				"...",
@@ -816,12 +829,12 @@ func (n *DiagnosticNode) writeHexDump(
 		}
 	case DiagTypeTag:
 		if len(n.Children) > 0 {
-			n.Children[0].writeHexDump(b, opts, depth+1, "")
+			n.Children[0].writeHexDump(w, opts, depth+1, "")
 		}
 	case DiagTypeBytes, DiagTypeText:
 		if n.Indefinite {
 			for i := range n.Children {
-				n.Children[i].writeHexDump(b, opts, depth+1, "")
+				n.Children[i].writeHexDump(w, opts, depth+1, "")
 			}
 		}
 	case DiagTypeUint, DiagTypeNint, DiagTypeSimple, DiagTypeFloat:
@@ -922,245 +935,266 @@ func formatHexBytes(data []byte, maxBytes int) string {
 	return strings.Join(parts, " ") + fmt.Sprintf(" ... (%d bytes)", len(data))
 }
 
-// FormatDiagnostic returns RFC 8949 diagnostic notation string.
+// FormatDiagnostic returns RFC 8949 diagnostic notation string. Output past
+// opts.MaxOutputBytes is replaced by a truncation marker.
 func (n *DiagnosticNode) FormatDiagnostic(opts DiagnosticOptions) string {
 	opts.normalize()
-	out := n.formatCompact(opts, 0)
+	w := newDiagnosticWriter(opts, n)
+	n.writeCompact(w, opts, 0)
 	if opts.ShowOffsets {
-		out = fmt.Sprintf(
-			"%s  / @%d-%d /",
-			out,
-			n.Offset,
-			n.Offset+n.Length,
-		)
+		w.printf("  / @%d-%d /", n.Offset, n.Offset+n.Length)
 	}
 	if opts.ShowHex {
-		out = fmt.Sprintf("%s  / %x /", out, n.RawBytes)
+		w.printf("  / %x /", n.RawBytes)
 	}
-	return out
+	return w.result("")
 }
 
 // FormatDiagnosticPretty returns multi-line indented diagnostic notation.
+// Output past opts.MaxOutputBytes is replaced by a truncation marker.
 func (n *DiagnosticNode) FormatDiagnosticPretty(opts DiagnosticOptions) string {
 	opts.normalize()
-	out := n.formatPretty(opts, 0)
+	w := newDiagnosticWriter(opts, n)
+	n.writePretty(w, opts, 0)
 	if opts.ShowHex {
-		out = fmt.Sprintf("%s  / %x /", out, n.RawBytes)
+		w.printf("  / %x /", n.RawBytes)
 	}
-	return out
+	return w.result("\n")
 }
 
+// formatCompact renders n on one line within the default output cap.
 func (n *DiagnosticNode) formatCompact(
 	opts DiagnosticOptions,
 	depth int,
 ) string {
+	w := newDiagnosticWriter(opts, n)
+	n.writeCompact(w, opts, depth)
+	return w.result("")
+}
+
+// writeCompact streams n's one-line form into w and reports whether rendering
+// may continue. Streaming matters: returning a string per node recopies every
+// nested rendering at each enclosing level, quadratic in the nesting depth.
+func (n *DiagnosticNode) writeCompact(
+	w *diagnosticWriter,
+	opts DiagnosticOptions,
+	depth int,
+) bool {
 	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		return "..."
+		return w.write("...")
 	}
 	switch n.Type {
 	case DiagTypeUint, DiagTypeNint:
-		return fmt.Sprintf("%v", n.Value)
+		return w.printf("%v", n.Value)
 	case DiagTypeBytes:
 		if n.Indefinite {
-			items := make([]string, 0)
-			for i := range n.Children {
-				if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
-					items = append(items, "...")
-					break
-				}
-				items = append(
-					items,
-					n.Children[i].formatCompact(opts, depth+1),
-				)
-			}
-			return "(_ " + strings.Join(items, ", ") + ")"
+			return n.writeCompactChunks(w, opts, depth)
 		}
 		b, _ := n.Value.([]byte)
 		if opts.MaxByteLength > 0 && len(b) > opts.MaxByteLength {
-			return fmt.Sprintf(
+			return w.printf(
 				"h'%s...'",
 				hex.EncodeToString(b[:opts.MaxByteLength]),
 			)
 		}
-		return fmt.Sprintf("h'%s'", hex.EncodeToString(b))
+		return w.printf("h'%s'", hex.EncodeToString(b))
 	case DiagTypeText:
 		if n.Indefinite {
-			items := make([]string, 0)
-			for i := range n.Children {
-				if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
-					items = append(items, "...")
-					break
-				}
-				items = append(
-					items,
-					n.Children[i].formatCompact(opts, depth+1),
-				)
-			}
-			return "(_ " + strings.Join(items, ", ") + ")"
+			return n.writeCompactChunks(w, opts, depth)
 		}
 		s, _ := n.Value.(string)
-		return strconv.Quote(s)
+		return w.write(strconv.Quote(s))
 	case DiagTypeArray:
-		items := make([]string, 0)
-		for i := range n.Children {
-			if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
-				items = append(items, "...")
-				break
-			}
-			items = append(items, n.Children[i].formatCompact(opts, depth+1))
-		}
-		return "[" + strings.Join(items, ", ") + "]"
+		return w.write("[") &&
+			n.writeCompactItems(w, opts, depth) &&
+			w.write("]")
 	case DiagTypeMap:
-		pairs := make([]string, 0)
+		if !w.write("{") {
+			return false
+		}
 		for i := 0; i+1 < len(n.Children); i += 2 {
+			if i > 0 && !w.write(", ") {
+				return false
+			}
 			if opts.MaxArrayItems > 0 && (i/2) >= opts.MaxArrayItems {
-				pairs = append(pairs, "...")
+				if !w.write("...") {
+					return false
+				}
 				break
 			}
-			keyStr := n.Children[i].formatCompact(opts, depth+1)
-			valStr := n.Children[i+1].formatCompact(opts, depth+1)
-			pairs = append(pairs, fmt.Sprintf("%s: %s", keyStr, valStr))
+			if !n.Children[i].writeCompact(w, opts, depth+1) ||
+				!w.write(": ") ||
+				!n.Children[i+1].writeCompact(w, opts, depth+1) {
+				return false
+			}
 		}
-		return "{" + strings.Join(pairs, ", ") + "}"
+		return w.write("}")
 	case DiagTypeTag:
 		tagNum := uint64(0)
 		if n.Tag != nil {
 			tagNum = *n.Tag
 		}
-		content := "null"
-		if len(n.Children) > 0 {
-			content = n.Children[0].formatCompact(opts, depth+1)
-		}
+		open := fmt.Sprintf("%d(", tagNum)
 		if opts.CardanoAware {
 			switch tagNum {
 			case CborTagSet:
-				return fmt.Sprintf("set(%s)", content)
+				open = "set("
 			case CborTagMap:
-				return fmt.Sprintf("map(%s)", content)
+				open = "map("
 			case CborTagCbor:
-				return fmt.Sprintf("cbor(%s)", content)
+				open = "cbor("
 			case CborTagRational:
-				return fmt.Sprintf("rational(%s)", content)
+				open = "rational("
 			}
 		}
-		return fmt.Sprintf("%d(%s)", tagNum, content)
+		if !w.write(open) {
+			return false
+		}
+		if len(n.Children) > 0 {
+			if !n.Children[0].writeCompact(w, opts, depth+1) {
+				return false
+			}
+		} else if !w.write("null") {
+			return false
+		}
+		return w.write(")")
 	case DiagTypeFloat:
 		switch v := n.Value.(type) {
 		case float64:
-			return strconv.FormatFloat(v, 'g', -1, 64)
+			return w.write(strconv.FormatFloat(v, 'g', -1, 64))
 		case float32:
-			return strconv.FormatFloat(float64(v), 'g', -1, 32)
+			return w.write(strconv.FormatFloat(float64(v), 'g', -1, 32))
 		default:
-			return fmt.Sprintf("%v", n.Value)
+			return w.printf("%v", n.Value)
 		}
 	case DiagTypeSimple:
 		switch v := n.Value.(type) {
 		case nil:
-			return "null"
+			return w.write("null")
 		case bool:
 			if v {
-				return "true"
+				return w.write("true")
 			}
-			return "false"
+			return w.write("false")
 		case uint8:
 			// CBOR simple values that are not mapped to bool/null/undefined.
-			return fmt.Sprintf("simple(%d)", v)
+			return w.printf("simple(%d)", v)
 		default:
-			return fmt.Sprintf("%v", v)
+			return w.printf("%v", v)
 		}
 	default:
-		return fmt.Sprintf("%v", n.Value)
+		return w.printf("%v", n.Value)
 	}
 }
 
-func (n *DiagnosticNode) formatPretty(
+// writeCompactChunks renders an indefinite-length string as "(_ chunk, ...)".
+func (n *DiagnosticNode) writeCompactChunks(
+	w *diagnosticWriter,
 	opts DiagnosticOptions,
 	depth int,
-) string {
+) bool {
+	return w.write("(_ ") &&
+		n.writeCompactItems(w, opts, depth) &&
+		w.write(")")
+}
+
+// writeCompactItems writes n's children separated by ", ", eliding those
+// past MaxArrayItems.
+func (n *DiagnosticNode) writeCompactItems(
+	w *diagnosticWriter,
+	opts DiagnosticOptions,
+	depth int,
+) bool {
+	for i := range n.Children {
+		if i > 0 && !w.write(", ") {
+			return false
+		}
+		if opts.MaxArrayItems > 0 && i >= opts.MaxArrayItems {
+			return w.write("...")
+		}
+		if !n.Children[i].writeCompact(w, opts, depth+1) {
+			return false
+		}
+	}
+	return true
+}
+
+// writePretty streams n's multi-line form into w and reports whether
+// rendering may continue.
+func (n *DiagnosticNode) writePretty(
+	w *diagnosticWriter,
+	opts DiagnosticOptions,
+	depth int,
+) bool {
 	if opts.MaxDepth > 0 && depth >= opts.MaxDepth {
-		return "..."
+		return w.write("...")
 	}
-	prefix := strings.Repeat(opts.IndentString, depth)
+	if !w.writeRepeat(opts.IndentString, depth) {
+		return false
+	}
 	if n.Type != DiagTypeArray && n.Type != DiagTypeMap {
-		line := n.formatCompact(opts, depth)
-		if opts.ShowOffsets {
-			return fmt.Sprintf(
-				"%s%s  / @%d /",
-				prefix,
-				line,
-				n.Offset,
-			)
-		}
-		return prefix + line
+		return n.writeCompact(w, opts, depth) &&
+			(!opts.ShowOffsets || w.printf("  / @%d /", n.Offset))
 	}
-	if n.Type == DiagTypeArray {
-		header := prefix + "["
-		if opts.ShowOffsets {
-			header = fmt.Sprintf("%s  / @%d /", header, n.Offset)
-		}
-		lines := []string{header}
-		limit := len(n.Children)
-		if opts.MaxArrayItems > 0 && limit > opts.MaxArrayItems {
-			limit = opts.MaxArrayItems
-		}
-		for i := 0; i < limit; i++ {
-			itemLine := n.Children[i].formatPretty(opts, depth+1)
-			if i < limit-1 {
-				itemLine += ","
-			}
-			lines = append(lines, itemLine)
-		}
-		if limit < len(n.Children) {
-			lines = append(
-				lines,
-				strings.Repeat(opts.IndentString, depth+1)+"...",
-			)
-		}
-		footer := prefix + "]"
-		if opts.ShowOffsets {
-			footer = fmt.Sprintf("%s  / end @%d /", footer, n.Offset+n.Length)
-		}
-		lines = append(lines, footer)
-		return strings.Join(lines, "\n")
+	open, closing, count := "[", "]", len(n.Children)
+	if n.Type == DiagTypeMap {
+		open, closing, count = "{", "}", len(n.Children)/2
 	}
-	header := prefix + "{"
-	if opts.ShowOffsets {
-		header = fmt.Sprintf("%s  / @%d /", header, n.Offset)
-	}
-	lines := []string{header}
-	pairCount := len(n.Children) / 2
-	limit := pairCount
+	limit := count
 	if opts.MaxArrayItems > 0 && limit > opts.MaxArrayItems {
 		limit = opts.MaxArrayItems
 	}
+	if !w.write(open) ||
+		(opts.ShowOffsets && !w.printf("  / @%d /", n.Offset)) {
+		return false
+	}
 	for i := 0; i < limit; i++ {
-		keyLine := n.Children[i*2].formatCompact(opts, depth+1)
-		valNode := n.Children[i*2+1]
-		entryPrefix := strings.Repeat(opts.IndentString, depth+1)
-		hasMoreEntries := i < pairCount-1 || limit < pairCount
-		if valNode.Type == DiagTypeArray || valNode.Type == DiagTypeMap {
-			lines = append(lines, fmt.Sprintf("%s%s:", entryPrefix, keyLine))
-			valPretty := valNode.formatPretty(opts, depth+2)
-			if hasMoreEntries {
-				valPretty += ","
-			}
-			lines = append(lines, valPretty)
-			continue
+		if !w.write("\n") ||
+			!n.writePrettyEntry(w, opts, depth, i, limit, count) {
+			return false
 		}
-		valLine := valNode.formatCompact(opts, depth+1)
-		entry := fmt.Sprintf("%s%s: %s", entryPrefix, keyLine, valLine)
-		if hasMoreEntries {
-			entry += ","
+	}
+	if limit < count {
+		if !w.write("\n") ||
+			!w.writeRepeat(opts.IndentString, depth+1) ||
+			!w.write("...") {
+			return false
 		}
-		lines = append(lines, entry)
 	}
-	if limit < pairCount {
-		lines = append(lines, strings.Repeat(opts.IndentString, depth+1)+"...")
+	return w.write("\n") &&
+		w.writeRepeat(opts.IndentString, depth) &&
+		w.write(closing) &&
+		(!opts.ShowOffsets || w.printf("  / end @%d /", n.Offset+n.Length))
+}
+
+// writePrettyEntry writes entry i of the array or map n, which has count
+// entries of which limit are shown. An array item is followed by a comma
+// unless it is the last one shown, so an elision marker never follows a comma;
+// a map entry is followed by one unless it is the last in the map, so the
+// marker does.
+func (n *DiagnosticNode) writePrettyEntry(
+	w *diagnosticWriter,
+	opts DiagnosticOptions,
+	depth int,
+	i int,
+	limit int,
+	count int,
+) bool {
+	if n.Type == DiagTypeArray {
+		return n.Children[i].writePretty(w, opts, depth+1) &&
+			(i >= limit-1 || w.write(","))
 	}
-	footer := prefix + "}"
-	if opts.ShowOffsets {
-		footer = fmt.Sprintf("%s  / end @%d /", footer, n.Offset+n.Length)
+	key, val := &n.Children[i*2], &n.Children[i*2+1]
+	if !w.writeRepeat(opts.IndentString, depth+1) ||
+		!key.writeCompact(w, opts, depth+1) {
+		return false
 	}
-	lines = append(lines, footer)
-	return strings.Join(lines, "\n")
+	if val.Type == DiagTypeArray || val.Type == DiagTypeMap {
+		if !w.write(":\n") || !val.writePretty(w, opts, depth+2) {
+			return false
+		}
+	} else if !w.write(": ") || !val.writeCompact(w, opts, depth+1) {
+		return false
+	}
+	return i >= count-1 || w.write(",")
 }
