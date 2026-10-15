@@ -246,6 +246,11 @@ func TestGetPathToOffsetCopiesNoPrefixes(t *testing.T) {
 		path := node.GetPathToOffset(len(data) - 1)
 		runtime.ReadMemStats(&after)
 
+		// The explicit nil check also tells nilaway that indexing is safe;
+		// it does not model require.Len as a guarantee.
+		if path == nil {
+			t.Fatalf("%s: no path to the deepest offset", kind)
+		}
 		require.Len(t, path, depth, kind)
 		if kind == "array" {
 			assert.Equal(t, "[0]", path[0])
