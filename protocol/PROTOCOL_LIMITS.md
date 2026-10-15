@@ -167,9 +167,9 @@ arrive during the Idle transition.
 | --- | ---: | ---: |
 | Receive queue size | 512 messages | 384 |
 | Total expected in-flight request bytes | — | 9,011,200 (100 × 88 KiB) |
-| Blocks per range | configurable | 2,160 |
-| Encoded bytes per range | configurable | 214,106,112 |
-| Total range lifetime | configurable | 36 hours 1 minute |
+| Blocks per range | configurable | 2,161 |
+| Encoded bytes per range | configurable | 214,205,235 |
+| Total range lifetime | configurable | 36 hours 3 minutes |
 
 `WithRecvQueueSize` rejects values outside the receive-queue range. The
 in-flight byte bound applies to client request pipelining and blocks the

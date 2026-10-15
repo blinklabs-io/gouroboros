@@ -193,9 +193,9 @@ const DefaultRequestExpectedBytes uint64 = 88 * 1024
 // blockFetchPipeliningMax (100) times the maximum block body size (88 KiB).
 const DefaultMaxInFlightBytes uint64 = 100 * DefaultRequestExpectedBytes
 
-// DefaultMaxBlocksPerRange admits one Cardano security window, matching the
-// default number of pending blocks accepted by the block pipeline.
-const DefaultMaxBlocksPerRange uint64 = pipeline.DefaultMaxPendingBlocks
+// DefaultMaxBlocksPerRange admits one inclusive Cardano security window: the
+// caller's starting block plus the default number of pending blocks.
+const DefaultMaxBlocksPerRange uint64 = pipeline.DefaultMaxPendingBlocks + 1
 
 // DefaultMaxRangeBytes admits DefaultMaxBlocksPerRange maximum-size mainnet
 // block bodies, with the same 10% allowance used by the block-fetch ingress

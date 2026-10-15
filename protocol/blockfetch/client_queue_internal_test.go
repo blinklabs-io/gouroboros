@@ -814,6 +814,30 @@ func TestBlockFetchZeroRangeLimitsUseSecureDefaults(t *testing.T) {
 	)
 }
 
+func TestRangeRequestDefaultBlockLimitAllowsInclusiveSecurityWindow(t *testing.T) {
+	require.Equal(
+		t,
+		uint64(pipeline.DefaultMaxPendingBlocks+1),
+		DefaultMaxBlocksPerRange,
+	)
+	req := &rangeRequest{deadline: time.Now().Add(time.Hour)}
+	for range DefaultMaxBlocksPerRange {
+		require.NoError(t, req.chargeBlock(
+			time.Now(),
+			1,
+			DefaultMaxBlocksPerRange,
+			DefaultMaxRangeBytes,
+		))
+	}
+	require.Equal(t, DefaultMaxBlocksPerRange, req.blocksReceived)
+	require.ErrorIs(t, req.chargeBlock(
+		time.Now(),
+		1,
+		DefaultMaxBlocksPerRange,
+		DefaultMaxRangeBytes,
+	), ErrRangeBlockLimit)
+}
+
 // shutdownRaceIterations bounds how many times a test drives a select whose
 // cases are all ready. Go chooses uniformly at random among ready cases, so
 // correct code passes every iteration while a branch that discards an
