@@ -2719,14 +2719,7 @@ func TestValidateStageWorkerPool_NumWorkersValidation(t *testing.T) {
 // This is a regression test for the race condition where Stop() could close submitChan
 // between the stopped.Load() check and the channel send in Submit().
 func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
-	var block testdata.TestBlock
-	for _, candidate := range testdata.GetTestBlocks() {
-		if candidate.Name == "Shelley" {
-			block = candidate
-			break
-		}
-	}
-	require.NotEmpty(t, block.Cbor, "Shelley test block not found")
+	block := getValidShelleyBlock(t)
 	tip := createTestTip(1000, 500)
 
 	// Run multiple iterations to increase likelihood of hitting the race
@@ -2736,9 +2729,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 			WithBlockTypeResolver(resolveTestBlockType),
 			WithChainContextValidator(acceptTestChainContext),
 			WithEta0Provider(
-				StaticEta0Provider(
-					shelleyBlockEta0,
-				),
+				StaticEta0Provider(shelleyBlockEta0),
 			),
 			WithSlotsPerKesPeriod(129600),
 			WithVerifyConfig(validatingTestVerifyConfig(t)),
@@ -2760,7 +2751,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 		go func(ctx context.Context) {
 			defer wg.Done()
 			for range 10 {
-				err := p.Submit(ctx, uint(block.BlockType), block.Cbor, tip)
+				err := p.Submit(ctx, block.BlockType, block.Cbor, tip)
 				// Either no error, ErrPipelineStopped, or context.Canceled is acceptable.
 				// context.Canceled occurs when Stop() cancels the context before Submit
 				// can complete its channel send.

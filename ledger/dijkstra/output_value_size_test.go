@@ -1,0 +1,90 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dijkstra
+
+import (
+	"math/big"
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/stretchr/testify/require"
+)
+
+// indefiniteMapHeaderOutputValue returns a one-policy output value with 256
+// assets and the length of its definite-length encoding. cardano-ledger
+// measures the 256-entry asset map with a 2-byte indefinite header where the
+// definite header costs 3, so the ledger size is one byte less.
+func indefiniteMapHeaderOutputValue(
+	t *testing.T,
+) (mary.MaryTransactionOutputValue, uint) {
+	t.Helper()
+	assets := make(map[cbor.ByteString]*big.Int, 256)
+	for i := range 256 {
+		assets[cbor.NewByteString([]byte{byte(i >> 8), byte(i)})] = big.NewInt(1)
+	}
+	multiAsset := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{{}: assets},
+	)
+	value := mary.MaryTransactionOutputValue{Amount: 1, Assets: &multiAsset}
+	encoded, err := cbor.Encode(&value)
+	require.NoError(t, err)
+	return value, uint(len(encoded))
+}
+
+func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
+	t.Parallel()
+	value, definiteSize := indefiniteMapHeaderOutputValue(t)
+	testCases := []struct {
+		name         string
+		maxValueSize uint
+		wantErr      bool
+	}{
+		{"ledger size equals limit", definiteSize - 1, false},
+		{"ledger size above limit", definiteSize - 2, true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tx := &DijkstraTransaction{
+				Body: DijkstraTransactionBody{
+					TxOutputs: []DijkstraTransactionOutput{
+						{Output: babbage.BabbageTransactionOutput{OutputAmount: value}},
+					},
+				},
+			}
+			err := UtxoValidateOutputTooBigUtxo(
+				tx,
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&DijkstraProtocolParameters{
+					ConwayProtocolParameters: conway.ConwayProtocolParameters{
+						MaxValueSize: tc.maxValueSize,
+					},
+				},
+			)
+			if tc.wantErr {
+				var tooBig mary.OutputTooBigUtxoError
+				require.ErrorAs(t, err, &tooBig)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
