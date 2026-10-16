@@ -583,8 +583,19 @@ pipeline := pipeline.NewBlockPipeline(
 )
 if err := pipeline.Start(ctx); err != nil { ... }
 if err := pipeline.Submit(ctx, blockType, rawBlock, tip); err != nil { ... }
-for result := range pipeline.Results() { ... }
+for result := range pipeline.Results() {
+    consume(result)
+    result.Release()
+}
 ```
+
+Pipeline admission reserves the raw and decoded full block CBOR copies against
+`MaxRawCborBytes` before allocating a `BlockItem`. A result stays charged until
+the consumer receives it from the results channel. The consumer then owns the
+item and should call `BlockItem.Release()` when finished to clear the raw and
+decoded CBOR; received results are no longer included in the pipeline budget. A
+zero byte limit selects `DefaultMaxRawCborBytes`, and stopping the pipeline
+retires internally owned items and results that shutdown drains.
 
 ## Testing
 

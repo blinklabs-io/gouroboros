@@ -64,7 +64,8 @@ type Pipeline interface {
 	// The context allows callers to handle timeouts or cancellations when the
 	// pipeline is full and applying backpressure.
 	Submit(ctx context.Context, blockType uint, rawCbor []byte, tip pcommon.Tip) error
-	// Results returns a channel of successfully processed block items.
+	// Results returns a channel of successfully processed block items. Callers
+	// must call BlockItem.Release after consuming each received item.
 	Results() <-chan *BlockItem
 	// Errors returns a channel of processing errors.
 	Errors() <-chan error

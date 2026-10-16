@@ -33,6 +33,12 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 // ErrPipelineNotStarted is returned when trying to use a pipeline that hasn't been started.
 var ErrPipelineNotStarted = errors.New("pipeline not started")
 
+// ErrRawCborBudgetExceeded is returned when one block's retained full CBOR
+// copies cannot fit within the pipeline byte budget.
+var ErrRawCborBudgetExceeded = errors.New(
+	"pipeline: raw CBOR byte budget exceeded",
+)
+
 // ErrMissingVerifyConfigProvider indicates missing ordered ledger state.
 var ErrMissingVerifyConfigProvider = errors.New(
 	"ordered verification config provider is required",
@@ -224,8 +230,11 @@ type BlockPipeline struct {
 	submitChan    chan *BlockItem
 	decodedChan   chan *BlockItem
 	validatedChan chan *BlockItem
+	resultsQueue  chan *BlockItem
 	resultsChan   chan *BlockItem
+	drainResults  chan chan []*BlockItem
 	errorsChan    chan error
+	resultsDone   chan struct{}
 
 	// Metrics
 	metrics *PipelineMetrics
@@ -247,15 +256,25 @@ type BlockPipeline struct {
 	submitGate     chan struct{}
 	completionMu   sync.Mutex
 	completionChan chan struct{}
+	rawBudgetMu    sync.Mutex
+	rawBytesInUse  uint64
+	rawBytesFreed  chan struct{}
+	activeItemsMu  sync.Mutex
+	activeItems    map[*BlockItem]struct{}
 	// Test hooks must be installed before Start. They make blocked Submit/Fence
 	// interleavings deterministic without changing production behavior.
 	testSubmitLocked func()
+	// testRawBudgetWait is called immediately before Submit waits for retained
+	// CBOR budget. It is nil in production.
+	testRawBudgetWait func()
 	// testSubmitReady is called after Submit's cancellation and stopping checks,
 	// immediately before its enqueue select. It is nil in production and lets
 	// tests synchronize cancellation at the backpressure boundary.
-	testSubmitReady   func()
-	testFenceBoundary func(uint64)
-	testProcessedFunc func(uint64)
+	testSubmitReady    func()
+	testFenceBoundary  func(uint64)
+	testProcessedFunc  func(uint64)
+	testResultsForward func()
+	testResultHandoff  func(*BlockItem)
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -273,12 +292,108 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 		opt(&config)
 	}
 	p := &BlockPipeline{
-		config:     config,
-		metrics:    NewPipelineMetrics(config.MetricsWindowSize),
-		submitGate: make(chan struct{}, 1),
+		config:        config,
+		metrics:       NewPipelineMetrics(config.MetricsWindowSize),
+		submitGate:    make(chan struct{}, 1),
+		rawBytesFreed: make(chan struct{}),
+		activeItems:   make(map[*BlockItem]struct{}),
 	}
 	p.submitGate <- struct{}{}
 	return p
+}
+
+func (p *BlockPipeline) maxRawCborBytes() uint64 {
+	if p.config.MaxRawCborBytes == 0 {
+		return DefaultMaxRawCborBytes
+	}
+	return p.config.MaxRawCborBytes
+}
+
+func (p *BlockPipeline) reserveRawCborBytes(
+	ctx context.Context,
+	bytes uint64,
+) error {
+	limit := p.maxRawCborBytes()
+	if bytes > limit {
+		return fmt.Errorf(
+			"%w: block requires %d bytes (limit %d)",
+			ErrRawCborBudgetExceeded,
+			bytes,
+			limit,
+		)
+	}
+	for {
+		p.rawBudgetMu.Lock()
+		if p.rawBytesInUse <= limit && bytes <= limit-p.rawBytesInUse {
+			p.rawBytesInUse += bytes
+			p.rawBudgetMu.Unlock()
+			return nil
+		}
+		freed := p.rawBytesFreed
+		if freed == nil {
+			freed = make(chan struct{})
+			p.rawBytesFreed = freed
+		}
+		p.rawBudgetMu.Unlock()
+		if p.testRawBudgetWait != nil {
+			p.testRawBudgetWait()
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.ctx.Done():
+			return ErrPipelineStopped
+		case <-freed:
+		}
+	}
+}
+
+func (p *BlockPipeline) releaseRawCborBytes(bytes uint64) {
+	if bytes == 0 {
+		return
+	}
+	p.rawBudgetMu.Lock()
+	if bytes >= p.rawBytesInUse {
+		p.rawBytesInUse = 0
+	} else {
+		p.rawBytesInUse -= bytes
+	}
+	if p.rawBytesFreed != nil {
+		close(p.rawBytesFreed)
+	}
+	p.rawBytesFreed = make(chan struct{})
+	p.rawBudgetMu.Unlock()
+}
+
+func (p *BlockPipeline) trackItem(item *BlockItem, retainedBytes uint64) {
+	p.activeItemsMu.Lock()
+	if p.activeItems == nil {
+		p.activeItems = make(map[*BlockItem]struct{})
+	}
+	p.activeItems[item] = struct{}{}
+	p.activeItemsMu.Unlock()
+	item.setReleaseFunc(retainedBytes, func(bytes uint64) {
+		p.activeItemsMu.Lock()
+		delete(p.activeItems, item)
+		p.activeItemsMu.Unlock()
+		p.releaseRawCborBytes(bytes)
+	})
+}
+
+func (p *BlockPipeline) markItemDelivered(item *BlockItem) {
+	item.releaseReservation()
+}
+
+func (p *BlockPipeline) releaseActiveItems() {
+	p.activeItemsMu.Lock()
+	items := make([]*BlockItem, 0, len(p.activeItems))
+	for item := range p.activeItems {
+		items = append(items, item)
+	}
+	p.activeItemsMu.Unlock()
+	for _, item := range items {
+		item.Release()
+	}
 }
 
 func (p *BlockPipeline) lockSubmit(ctx context.Context) error {
@@ -413,7 +528,10 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	bufSize := p.config.PrefetchBufferSize
 	p.submitChan = make(chan *BlockItem, bufSize)
 	p.decodedChan = make(chan *BlockItem, bufSize)
-	p.resultsChan = make(chan *BlockItem, bufSize)
+	p.resultsQueue = make(chan *BlockItem, bufSize)
+	p.resultsChan = make(chan *BlockItem)
+	p.drainResults = make(chan chan []*BlockItem)
+	p.resultsDone = make(chan struct{})
 	p.errorsChan = make(chan error, bufSize)
 
 	// Create decode stage
@@ -470,7 +588,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.applyRunner = NewApplyStageRunner(
 		p.applyStage,
 		applyInput,
-		p.resultsChan,
+		p.resultsQueue,
 		p.errorsChan,
 		bufSize, // Deprecated: pendingQueueSize is no longer used (kept for API compatibility)
 	)
@@ -494,6 +612,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		p.validatePool.Start(p.ctx) //nolint:contextcheck
 	}
 	p.applyRunner.Start(p.ctx) //nolint:contextcheck
+	go p.forwardResults()
 
 	// Start metrics collection goroutine
 	p.wg.Add(1)
@@ -501,6 +620,54 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 
 	p.started.Store(true)
 	return nil
+}
+
+// forwardResults makes result handoff to the public consumer synchronous. The
+// apply runner may prefetch into resultsQueue, but retained-byte reservations
+// remain charged until a consumer (or Stop) receives the item.
+func (p *BlockPipeline) forwardResults() {
+	defer close(p.resultsDone)
+	defer close(p.resultsChan)
+	if p.testResultsForward != nil {
+		p.testResultsForward()
+	}
+	for {
+		select {
+		case request := <-p.drainResults:
+			request <- p.drainQueuedResults()
+		case item, ok := <-p.resultsQueue:
+			if !ok {
+				return
+			}
+			select {
+			case p.resultsChan <- item:
+				if p.testResultHandoff != nil {
+					p.testResultHandoff(item)
+				}
+				p.markItemDelivered(item)
+			case request := <-p.drainResults:
+				p.markItemDelivered(item)
+				results := append([]*BlockItem{item}, p.drainQueuedResults()...)
+				request <- results
+			}
+		}
+	}
+}
+
+func (p *BlockPipeline) drainQueuedResults() []*BlockItem {
+	var results []*BlockItem
+	for {
+		select {
+		case item, ok := <-p.resultsQueue:
+			if !ok {
+				return results
+			}
+			p.markItemDelivered(item)
+			results = append(results, item)
+		default:
+			return results
+		}
+	}
 }
 
 // Submit submits a new block for processing.
@@ -517,6 +684,17 @@ func (p *BlockPipeline) Submit(
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
 	}
+	rawBytes := uint64(len(rawCbor))
+	retainedBytes := saturatingDouble(rawBytes)
+	if err := p.reserveRawCborBytes(ctx, retainedBytes); err != nil {
+		return err
+	}
+	reservationOwned := true
+	defer func() {
+		if reservationOwned {
+			p.releaseRawCborBytes(retainedBytes)
+		}
+	}()
 
 	// The gate prevents Stop from closing submitChan while a submission is in
 	// flight. It also serializes the enqueue and sequence commit, so canceled
@@ -543,7 +721,15 @@ func (p *BlockPipeline) Submit(
 	// contiguous in queue order, while canceled or backpressured submissions do
 	// not create positions that Fence must wait for.
 	sequence := p.sequenceCounter.Load()
+	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
+	p.trackItem(item, retainedBytes)
+	reservationOwned = false
+	defer func() {
+		if reserved {
+			item.Release()
+		}
+	}()
 
 	// Preserve cancellation precedence over an immediately writable input.
 	// These checks are repeated under submitGate so cancellation that occurred
@@ -565,6 +751,7 @@ func (p *BlockPipeline) Submit(
 
 	select {
 	case p.submitChan <- item:
+		reserved = false
 		p.sequenceCounter.Add(1)
 		p.metrics.RecordSubmit()
 		return nil
@@ -573,6 +760,13 @@ func (p *BlockPipeline) Submit(
 	case <-p.ctx.Done():
 		return p.stoppedError()
 	}
+}
+
+func saturatingDouble(value uint64) uint64 {
+	if value > ^uint64(0)/2 {
+		return ^uint64(0)
+	}
+	return value * 2
 }
 
 // Fence waits until every block submitted before the fence is installed has
@@ -650,7 +844,10 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items.
+// Results returns a channel of successfully processed block items. Each item
+// stays charged against MaxRawCborBytes until the consumer receives it from
+// this channel. Consumers own received items and should call Release after
+// use to clear their raw and decoded CBOR.
 // If the pipeline has not been started, it returns a closed channel. Results
 // are observational: Stop may consume undelivered notifications while waiting
 // for the apply runner. Callers that need every notification must receive them
@@ -721,14 +918,35 @@ func (p *BlockPipeline) Stop() error {
 		select {
 		case <-applyDone:
 			goto applyStopped
-		case <-p.resultsChan:
+		case item, ok := <-p.resultsChan:
+			if ok {
+				item.Release()
+			}
 		}
 	}
 
 applyStopped:
+	// The runner has stopped; closing its queue lets the forwarding goroutine
+	// finish. Continue draining public handoffs so shutdown cannot block.
+	if p.resultsQueue != nil {
+		close(p.resultsQueue)
+		for {
+			select {
+			case <-p.resultsDone:
+				goto resultsDrained
+			case item, ok := <-p.resultsChan:
+				if !ok {
+					goto resultsDrained
+				}
+				item.Release()
+			}
+		}
+	}
+
+resultsDrained:
+	p.releaseActiveItems()
 
 	// Close output channels
-	close(p.resultsChan)
 	close(p.errorsChan)
 
 	// Wait for metrics collector
@@ -762,7 +980,7 @@ func (p *BlockPipeline) PendingCount() int {
 	if p.applyStage != nil {
 		applyPending = p.applyStage.PendingCount()
 	}
-	return channelDepth + applyPending
+	return channelDepth + len(p.resultsQueue) + applyPending
 }
 
 // WaitForDrain blocks until every block accepted before the drain boundary has
@@ -818,10 +1036,14 @@ func (p *BlockPipeline) metricsCollector() {
 	}
 }
 
-// DrainResults reads all available results without blocking.
-// Useful for testing or cleanup.
+// DrainResults reads all results that are ready for handoff without blocking.
+// Ownership of every returned item transfers to the caller, which should call
+// Release after use to clear its data. Useful for testing or cleanup.
 func (p *BlockPipeline) DrainResults() []*BlockItem {
 	var results []*BlockItem
+	if p.drainResults == nil {
+		return results
+	}
 	for {
 		select {
 		case item, ok := <-p.resultsChan:
@@ -830,9 +1052,18 @@ func (p *BlockPipeline) DrainResults() []*BlockItem {
 			}
 			results = append(results, item)
 		default:
-			return results
+			goto drainQueue
 		}
 	}
+
+drainQueue:
+	request := make(chan []*BlockItem, 1)
+	select {
+	case p.drainResults <- request:
+		results = append(results, <-request...)
+	case <-p.resultsDone:
+	}
+	return results
 }
 
 // DrainErrors reads all available errors without blocking.
