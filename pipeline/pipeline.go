@@ -808,10 +808,10 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items. The
-// MaxRawCborBytes admission reservation returns when an item is sent to this
-// channel. Consumers own received items and should call Release after use to
-// clear their raw and decoded CBOR.
+// Results returns a channel of successfully processed block items. Each item
+// stays charged against MaxRawCborBytes until the consumer receives it from
+// this channel. Consumers own received items and should call Release after
+// use to clear their raw and decoded CBOR.
 // If the pipeline has not been started, it returns a closed channel. Results
 // are observational: Stop may consume undelivered notifications while waiting
 // for the apply runner. Callers that need every notification must receive them
@@ -1000,9 +1000,12 @@ func (p *BlockPipeline) metricsCollector() {
 	}
 }
 
-// DrainResults reads all available results without blocking. Ownership of
-// every returned item transfers to the caller, which should call Release after
-// use to clear its data. Useful for testing or cleanup.
+// DrainResults reads the results that are ready for handoff without blocking.
+// Handoff to the Results channel is synchronous, so completed results queued
+// behind the one being handed off are not returned until later calls; callers
+// that need every completed result should receive from Results instead.
+// Ownership of every returned item transfers to the caller, which should call
+// Release after use to clear its data. Useful for testing or cleanup.
 func (p *BlockPipeline) DrainResults() []*BlockItem {
 	var results []*BlockItem
 	for {

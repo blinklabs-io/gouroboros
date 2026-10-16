@@ -214,6 +214,44 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 	second.Release()
 }
 
+func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(t *testing.T) {
+	raw := getValidBlockCbor(t)
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(2*uint64(len(raw))),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	require.Empty(t, p.DrainResults(), "nothing is ready before a submit")
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(0, 0),
+	))
+
+	var drained []*BlockItem
+	require.Eventually(t, func() bool {
+		drained = append(drained, p.DrainResults()...)
+		return len(drained) == 1
+	}, time.Second, time.Millisecond)
+	item := drained[0]
+	require.Equal(t, raw, item.RawCbor())
+	require.Eventually(t, func() bool {
+		p.rawBudgetMu.Lock()
+		defer p.rawBudgetMu.Unlock()
+		return p.rawBytesInUse == 0
+	}, time.Second, time.Millisecond, "receipt returns the reservation")
+
+	item.Release()
+	require.Nil(t, item.RawCbor())
+	require.Nil(t, item.Block())
+	require.Empty(t, p.DrainResults())
+}
+
 func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	p := NewBlockPipeline(
 		WithTrustedDecodeOnly(),
