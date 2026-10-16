@@ -363,12 +363,16 @@ func TestSetTypeMarshalCBORUsesIndefiniteArrayAbove23(t *testing.T) {
 		assert.Equal(t, expected, encoded)
 	})
 
-	t.Run("untagged set remains definite", func(t *testing.T) {
+	t.Run("untagged set", func(t *testing.T) {
 		setType := cbor.NewSetType(items, false)
 		encoded, err := cbor.Encode(&setType)
 		require.NoError(t, err)
-		assert.Equal(t, []byte{0x98, 0x18}, encoded[:2])
-		assert.NotEqual(t, byte(0xff), encoded[len(encoded)-1])
+		expected := []byte{0x9f}
+		for _, item := range items {
+			expected = append(expected, byte(item))
+		}
+		expected = append(expected, 0xff)
+		assert.Equal(t, expected, encoded)
 	})
 }
 
