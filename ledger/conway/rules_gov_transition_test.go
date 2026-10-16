@@ -1014,7 +1014,6 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 		var target conway.GovernanceStateUnavailableError
 		require.ErrorAs(t, err, &target)
 	})
-
 }
 
 func TestUtxoValidateVotingOnExpiredGovActionAllowsOwnProposal(t *testing.T) {
