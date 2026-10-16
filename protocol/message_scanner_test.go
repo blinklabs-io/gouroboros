@@ -176,6 +176,12 @@ func TestReadLoopLimitsRepliesToOutstandingPipelinedRequests(t *testing.T) {
 		select {
 		case msg := <-p.recvQueueChan:
 			require.Equal(t, uint8(1), msg.message.Type())
+			// No recvLoop runs here, so resolve the reply as it would:
+			// consume its request and release its reservation.
+			p.pendingBytesMu.Lock()
+			p.pendingPipelinedRequests--
+			p.pendingPipelinedReplies--
+			p.pendingBytesMu.Unlock()
 		case <-time.After(time.Second):
 			t.Fatal("readLoop did not enqueue an accounted pipelined reply")
 		}
@@ -661,4 +667,51 @@ func newReadLoopTestProtocol(
 	t.Cleanup(p.Stop)
 	go p.readLoop()
 	return p, errorChan
+}
+
+func TestInboundSnapshotWaitsForReservedReplyTransition(t *testing.T) {
+	idle := NewState(1, "Idle")
+	streaming := NewState(2, "Streaming")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name:         "test",
+			Role:         ProtocolRoleClient,
+			InitialState: idle,
+			StateMap: StateMap{
+				idle:      {Agency: AgencyClient},
+				streaming: {Agency: AgencyServer},
+			},
+		},
+		currentState:             idle,
+		currentStateGeneration:   1,
+		pendingPipelinedRequests: 1,
+		pendingPipelinedReplies:  1,
+	}
+	waits := 0
+	state, generation, hadUnreserved, ok := p.waitForInboundSnapshot(func() bool {
+		waits++
+		// Apply the reserved reply's deferred transition, then release it.
+		p.currentStateMu.Lock()
+		p.currentState = streaming
+		p.currentStateGeneration++
+		p.currentStateMu.Unlock()
+		p.pendingBytesMu.Lock()
+		p.pendingPipelinedRequests--
+		p.pendingPipelinedReplies--
+		p.pendingBytesMu.Unlock()
+		return true
+	})
+	require.True(t, ok)
+	require.Equal(t, 1, waits)
+	require.Equal(t, streaming, state)
+	require.Equal(t, uint64(2), generation)
+	require.False(t, hadUnreserved)
+
+	_, _, _, ok = p.waitForInboundSnapshot(func() bool { return false })
+	require.True(t, ok, "no unresolved reply means no wait")
+
+	p.pendingPipelinedRequests = 1
+	p.pendingPipelinedReplies = 1
+	_, _, _, ok = p.waitForInboundSnapshot(func() bool { return false })
+	require.False(t, ok, "a stopped wait abandons the snapshot")
 }

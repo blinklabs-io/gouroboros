@@ -1554,14 +1554,40 @@ func (p *Protocol) reservePipelinedReply() bool {
 	return true
 }
 
-func (p *Protocol) currentInboundSnapshot() (State, uint64, bool) {
+// currentInboundSnapshot reports the state, its generation, whether a
+// pipelined request still lacks a reserved reply, and whether an admitted
+// pipelined reply has yet to apply its transition and release its reservation.
+func (p *Protocol) currentInboundSnapshot() (State, uint64, bool, bool) {
 	p.currentStateMu.RLock()
 	defer p.currentStateMu.RUnlock()
 	p.pendingBytesMu.Lock()
 	defer p.pendingBytesMu.Unlock()
 	return p.currentState,
 		p.currentStateGeneration,
-		p.pendingPipelinedReplies < p.pendingPipelinedRequests
+		p.pendingPipelinedReplies < p.pendingPipelinedRequests,
+		p.pendingPipelinedReplies > 0
+}
+
+// waitForInboundSnapshot snapshots the state a new message is admitted
+// against. A message that follows an admitted pipelined reply can be that
+// reply's own continuation, but the reply's deferred transition has not run
+// yet, so a snapshot taken now would bind the message to the pre-transition
+// generation and later deny it. Wait until no reply is unresolved while no
+// unreserved request could claim the message. The read loop is the only
+// reserver of replies, so the wait only ends by resolution, never by a new
+// reservation.
+func (p *Protocol) waitForInboundSnapshot(
+	wait func() bool,
+) (State, uint64, bool, bool) {
+	for {
+		state, generation, hadUnreserved, awaitingReply := p.currentInboundSnapshot()
+		if hadUnreserved || !awaitingReply {
+			return state, generation, hadUnreserved, true
+		}
+		if !wait() {
+			return State{}, 0, false, false
+		}
+	}
 }
 
 func (p *Protocol) releasePipelinedReplyAdmission() {
@@ -1828,9 +1854,27 @@ func (p *Protocol) readLoop() {
 				return
 			}
 			if scanResult.started && !messageStateSet {
+				poll := time.NewTicker(time.Millisecond)
+				var snapshotted bool
 				messageState,
 					messageGeneration,
-					messageHadUnreservedPipelinedRequest = p.currentInboundSnapshot()
+					messageHadUnreservedPipelinedRequest,
+					snapshotted = p.waitForInboundSnapshot(func() bool {
+					select {
+					case <-p.stopChan:
+						return false
+					case <-p.sendDoneChan:
+						return false
+					case <-p.muxerDoneChan:
+						return false
+					case <-poll.C:
+						return true
+					}
+				})
+				poll.Stop()
+				if !snapshotted {
+					return
+				}
 				messageStateSet = true
 			}
 			if scanResult.hasMessageType && !peerAgencyChecked {
