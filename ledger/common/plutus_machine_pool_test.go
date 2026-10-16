@@ -593,6 +593,44 @@ type unknownTerm struct {
 	syn.Term[syn.DeBruijn]
 }
 
+type panicOnErrContext struct {
+	context.Context
+}
+
+func (panicOnErrContext) Err() error {
+	panic("test context panic")
+}
+
+// TestRunPooledMachineDropsMachineWhenRunPanics pins that a Machine whose
+// RunContext call panics is never returned to its pool, so a recovered panic
+// cannot hand an interrupted Machine to the next evaluation.
+func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
+	t.Parallel()
+
+	evalContext := callerBuiltTestEvalContext(t)
+	budget := cek.ExBudget{
+		Mem: cek.DefaultExBudget.Mem,
+		Cpu: cek.DefaultExBudget.Cpu,
+	}
+	require.Panics(t, func() {
+		_, _, _ = runPooledMachineContext(
+			panicOnErrContext{Context: context.Background()},
+			lang.LanguageVersionV3,
+			evalContext,
+			budget,
+			&syn.Error{},
+		)
+	})
+
+	machine, reused := checkoutMachineReused(
+		lang.LanguageVersionV3,
+		evalContext,
+	)
+	require.False(t, reused,
+		"a Machine whose RunContext panicked must not be returned to its pool")
+	releaseMachine(lang.LanguageVersionV3, evalContext, machine)
+}
+
 // TestRunPooledMachineReturnsMalformedProgramError pins that Plutigo rejects
 // an unknown caller-built term with an error before evaluation.
 func TestRunPooledMachineReturnsMalformedProgramError(t *testing.T) {
