@@ -587,16 +587,15 @@ func TestPooledEvalContextCacheIsBounded(t *testing.T) {
 		"an evicted EvalContext held by a caller must still evaluate")
 }
 
-// unknownTerm satisfies syn.Term through its embedded Term but is a type
-// plutigo's evaluator does not recognise, so Run panics on it.
+// unknownTerm satisfies syn.Term through its embedded Term but Plutigo's
+// validator does not recognize it.
 type unknownTerm struct {
 	syn.Term[syn.DeBruijn]
 }
 
-// TestRunPooledMachineDropsMachineWhenRunPanics pins that a Machine whose Run
-// panics is never returned to its pool, so a caller that recovers the panic
-// cannot hand an interrupted Machine to the next evaluation.
-func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
+// TestRunPooledMachineReturnsMalformedProgramError pins that Plutigo rejects
+// an unknown caller-built term with an error before evaluation.
+func TestRunPooledMachineReturnsMalformedProgramError(t *testing.T) {
 	t.Parallel()
 
 	evalContext := callerBuiltTestEvalContext(t)
@@ -604,23 +603,14 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 		Mem: cek.DefaultExBudget.Mem,
 		Cpu: cek.DefaultExBudget.Cpu,
 	}
-	require.Panics(t, func() {
-		_, _, _ = runPooledMachineContext(
-			context.Background(),
-			lang.LanguageVersionV3,
-			evalContext,
-			budget,
-			unknownTerm{Term: &syn.Error{}},
-		)
-	})
-
-	machine, reused := checkoutMachineReused(
+	_, _, err := runPooledMachineContext(
+		context.Background(),
 		lang.LanguageVersionV3,
 		evalContext,
+		budget,
+		unknownTerm{Term: &syn.Error{}},
 	)
-	require.False(t, reused,
-		"a Machine whose Run panicked must not be returned to its pool")
-	releaseMachine(lang.LanguageVersionV3, evalContext, machine)
+	require.Error(t, err)
 }
 
 func TestRunPooledMachineRejectsNonUnitResult(t *testing.T) {

@@ -22,18 +22,26 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/stretchr/testify/require"
 )
 
 var evaluateTestBudget = common.ExUnits{Steps: 10_000_000, Memory: 10_000_000}
 
+func evaluateTestRedeemerData() common.Datum {
+	return common.Datum{Data: data.NewInteger(big.NewInt(0))}
+}
+
 func evaluateTestRedeemers(
 	keys ...common.RedeemerKey,
 ) DijkstraRedeemers {
 	redeemers := make(map[common.RedeemerKey]common.RedeemerValue, len(keys))
 	for _, key := range keys {
-		redeemers[key] = common.RedeemerValue{ExUnits: evaluateTestBudget}
+		redeemers[key] = common.RedeemerValue{
+			Data:    evaluateTestRedeemerData(),
+			ExUnits: evaluateTestBudget,
+		}
 	}
 	return DijkstraRedeemers{Redeemers: redeemers}
 }
@@ -245,7 +253,9 @@ func TestEvaluatePlutusScriptsIgnoresDeclaredUnits(t *testing.T) {
 	require.NoError(t, err)
 	tx.WitnessSet.WsRedeemers.Redeemers[common.RedeemerKey{
 		Tag: common.RedeemerTagMint,
-	}] = common.RedeemerValue{}
+	}] = common.RedeemerValue{
+		Data: evaluateTestRedeemerData(),
+	}
 	tx.TxIsValid = false
 	got, err := EvaluatePlutusScripts(tx, ls, pp, evaluateTestBudget)
 	require.NoError(t, err)
