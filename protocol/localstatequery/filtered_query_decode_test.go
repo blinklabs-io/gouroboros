@@ -104,3 +104,51 @@ func TestFilteredPoolQueriesRejectInvalidMaybe(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolFilterClientParamsMatchDecoder(t *testing.T) {
+	const poolID = "1cb2c9bb54fb097fba58542c5adcf3a7d094db95e8b9c4e3d0bcbf1d"
+	poolIDBytes, err := hex.DecodeString(poolID)
+	require.NoError(t, err)
+	pool := ledger.PoolId(ledger.NewBlake2b224(poolIDBytes))
+	queries := []struct {
+		name   string
+		typeID int
+	}{
+		{name: "pool state", typeID: QueryTypeShelleyPoolState},
+		{name: "pool distribution", typeID: QueryTypeShelleyPoolDistr},
+	}
+	for _, query := range queries {
+		for _, tc := range []struct {
+			name string
+			ids  []any
+		}{
+			{name: "all pools"},
+			{name: "specific pool", ids: []any{pool}},
+		} {
+			t.Run(query.name+"/"+tc.name, func(t *testing.T) {
+				wire, err := cbor.Encode(
+					buildQuery(query.typeID, poolFilterQueryParam(tc.ids)),
+				)
+				require.NoError(t, err)
+				decoded, err := decodeShelleyQuery(wire)
+				require.NoError(t, err)
+
+				var pools []cbor.SetType[ledger.PoolId]
+				switch q := decoded.(type) {
+				case *ShelleyPoolStateQuery:
+					pools = q.Pools
+				case *ShelleyPoolDistrQuery:
+					pools = q.Pools
+				default:
+					t.Fatalf("unexpected query type %T", decoded)
+				}
+				if len(tc.ids) == 0 {
+					require.Empty(t, pools, "empty StrictMaybe must select all pools")
+					return
+				}
+				require.Len(t, pools, 1)
+				assert.Equal(t, []ledger.PoolId{pool}, pools[0].Items())
+			})
+		}
+	}
+}
