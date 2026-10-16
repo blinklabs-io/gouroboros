@@ -275,6 +275,37 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	require.Equal(t, 1, decodeCalls)
 }
 
+func TestInboundPipelinedReplySurvivesPeerToLocalStateAdvance(t *testing.T) {
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name: "test",
+			Role: ProtocolRoleClient,
+			StateMap: StateMap{
+				busy: {Agency: AgencyServer},
+				idle: {Agency: AgencyClient},
+			},
+		},
+		stopChan:                 make(chan struct{}),
+		sendDoneChan:             make(chan struct{}),
+		muxerDoneChan:            make(chan bool),
+		currentState:             idle,
+		currentStateGeneration:   2,
+		pendingPipelinedRequests: 1,
+	}
+
+	state, admission, result, stopped := p.waitForInboundAdmission(
+		1,
+		busy,
+		1,
+	)
+	require.False(t, stopped)
+	require.Equal(t, idle, state)
+	require.Equal(t, inboundAdmissionGranted, result)
+	require.True(t, admission.reservedPipelinedReply)
+}
+
 func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 	const replyType = uint8(1)
 	streaming := NewState(1, "Streaming")

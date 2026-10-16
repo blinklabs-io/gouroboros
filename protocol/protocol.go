@@ -1505,22 +1505,13 @@ func (p *Protocol) reserveInboundAdmission(
 	if !ok {
 		return state, generation, inboundAdmission{}, inboundAdmissionDenied
 	}
-	reservePipelinedReply := func() bool {
-		p.pendingBytesMu.Lock()
-		defer p.pendingBytesMu.Unlock()
-		if p.pendingPipelinedReplies >= p.pendingPipelinedRequests {
-			return false
-		}
-		p.pendingPipelinedReplies++
-		return true
-	}
 	switch p.agencyHolderFor(entry) {
 	case agencyPeer:
 		if !p.peerAgencyReserved {
 			p.peerAgencyReserved = true
 			return state, generation, inboundAdmission{}, inboundAdmissionGranted
 		}
-		if reservePipelinedReply() {
+		if p.reservePipelinedReply() {
 			return state, generation, inboundAdmission{
 				reservedPipelinedReply: true,
 			}, inboundAdmissionGranted
@@ -1532,7 +1523,7 @@ func (p *Protocol) reserveInboundAdmission(
 				return state, generation, inboundAdmission{}, inboundAdmissionGranted
 			}
 		}
-		if reservePipelinedReply() {
+		if p.reservePipelinedReply() {
 			return state, generation, inboundAdmission{
 				reservedPipelinedReply: true,
 			}, inboundAdmissionGranted
@@ -1543,6 +1534,34 @@ func (p *Protocol) reserveInboundAdmission(
 	default:
 		return state, generation, inboundAdmission{}, inboundAdmissionDenied
 	}
+}
+
+func (p *Protocol) reservePipelinedReply() bool {
+	p.pendingBytesMu.Lock()
+	defer p.pendingBytesMu.Unlock()
+	if p.pendingPipelinedReplies >= p.pendingPipelinedRequests {
+		return false
+	}
+	p.pendingPipelinedReplies++
+	return true
+}
+
+func (p *Protocol) reserveAdvancedPipelinedReply(
+	initialState State,
+	expectedGeneration uint64,
+) (State, inboundAdmission, inboundAdmissionResult) {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	state := p.currentState
+	if p.currentStateGeneration == expectedGeneration ||
+		p.agencyHolderFor(p.config.StateMap[initialState]) != agencyPeer ||
+		p.stateHasNoAgency(state) ||
+		!p.reservePipelinedReply() {
+		return state, inboundAdmission{}, inboundAdmissionDenied
+	}
+	return state, inboundAdmission{
+		reservedPipelinedReply: true,
+	}, inboundAdmissionGranted
 }
 
 func (p *Protocol) currentInboundState() (State, uint64) {
@@ -1557,6 +1576,67 @@ func (p *Protocol) releasePipelinedReplyAdmission() {
 		p.pendingPipelinedReplies--
 	}
 	p.pendingBytesMu.Unlock()
+}
+
+func (p *Protocol) waitForInboundAdmission(
+	messageType uint,
+	initialState State,
+	generation uint64,
+) (State, inboundAdmission, inboundAdmissionResult, bool) {
+	state, currentGeneration, admission, result := p.reserveInboundAdmission(
+		messageType,
+		generation,
+		true,
+	)
+	if result == inboundAdmissionDenied &&
+		currentGeneration == generation+1 &&
+		p.agencyHolderFor(p.config.StateMap[initialState]) == agencyPeer &&
+		p.agencyHolderFor(p.config.StateMap[state]) == agencyPeer {
+		state, currentGeneration, admission, result = p.reserveInboundAdmission(
+			messageType,
+			currentGeneration,
+			true,
+		)
+	}
+	if result == inboundAdmissionDenied && currentGeneration != generation {
+		state, admission, result = p.reserveAdvancedPipelinedReply(
+			initialState,
+			generation,
+		)
+	}
+	if result != inboundAdmissionWait {
+		return state, admission, result, false
+	}
+	generation = currentGeneration
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-p.stopChan:
+			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+		case <-p.sendDoneChan:
+			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+		case <-p.muxerDoneChan:
+			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+		case <-poll.C:
+		}
+		state, currentGeneration := p.currentInboundState()
+		if currentGeneration == generation {
+			continue
+		}
+		if currentGeneration != generation+1 {
+			return state, inboundAdmission{}, inboundAdmissionDenied, false
+		}
+		state, _, admission, result = p.reserveInboundAdmission(
+			messageType,
+			currentGeneration,
+			true,
+		)
+		if result == inboundAdmissionWait {
+			result = inboundAdmissionDenied
+		}
+		return state, admission, result, false
+	}
 }
 
 func (p *Protocol) pendingMessageByteLimit(state State) int {
@@ -1667,61 +1747,6 @@ func (p *Protocol) readLoop() {
 			}
 		}
 	}
-	waitForInboundAdmission := func(
-		messageType uint,
-		initialState State,
-		generation uint64,
-	) (State, inboundAdmission, inboundAdmissionResult, bool) {
-		state, currentGeneration, admission, result := p.reserveInboundAdmission(
-			messageType,
-			generation,
-			true,
-		)
-		if result == inboundAdmissionDenied &&
-			currentGeneration == generation+1 &&
-			p.agencyHolderFor(p.config.StateMap[initialState]) == agencyPeer &&
-			p.agencyHolderFor(p.config.StateMap[state]) == agencyPeer {
-			state, currentGeneration, admission, result = p.reserveInboundAdmission(
-				messageType,
-				currentGeneration,
-				true,
-			)
-		}
-		if result != inboundAdmissionWait {
-			return state, admission, result, false
-		}
-		generation = currentGeneration
-		poll := time.NewTicker(time.Millisecond)
-		defer poll.Stop()
-		for {
-			select {
-			case <-p.stopChan:
-				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-			case <-p.sendDoneChan:
-				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-			case <-p.muxerDoneChan:
-				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-			case <-poll.C:
-			}
-			state, currentGeneration := p.currentInboundState()
-			if currentGeneration == generation {
-				continue
-			}
-			if currentGeneration != generation+1 {
-				return state, inboundAdmission{}, inboundAdmissionDenied, false
-			}
-			state, _, admission, result = p.reserveInboundAdmission(
-				messageType,
-				currentGeneration,
-				true,
-			)
-			if result == inboundAdmissionWait {
-				result = inboundAdmissionDenied
-			}
-			return state, admission, result, false
-		}
-	}
-
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
 		if !leftoverData {
@@ -1814,7 +1839,7 @@ func (p *Protocol) readLoop() {
 			if scanResult.hasMessageType && !peerAgencyChecked {
 				var result inboundAdmissionResult
 				var stopped bool
-				messageState, admission, result, stopped = waitForInboundAdmission(
+				messageState, admission, result, stopped = p.waitForInboundAdmission(
 					scanResult.messageType,
 					messageState,
 					messageGeneration,
