@@ -339,7 +339,9 @@ type ShelleyEpochNoQuery struct {
 }
 
 type ShelleyNonMyopicMemberRewardsQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type   int
+	Stakes cbor.SetType[cbor.RawMessage]
 }
 
 type ShelleyCurrentProtocolParamsQuery struct {
@@ -475,7 +477,9 @@ type ShelleyRewardInfoPoolsQuery struct {
 }
 
 type ShelleyPoolStateQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type  int
+	Pools []cbor.SetType[ledger.PoolId]
 }
 
 // ShelleyStakeSnapshotsQuery is GetStakeSnapshots (Shelley sub-query 20).
@@ -527,7 +531,9 @@ func (q *ShelleyStakeSnapshotsQuery) PoolFilter() (pools []ledger.PoolId, all bo
 }
 
 type ShelleyPoolDistrQuery struct {
-	simpleQueryBase
+	cbor.StructAsArray
+	Type  int
+	Pools []cbor.SetType[ledger.PoolId]
 }
 
 // ShelleyPoolDistr2Query is GetPoolDistr2 (Shelley sub-query 36), which
