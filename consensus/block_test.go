@@ -991,12 +991,11 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 	require.NotEmpty(t, missingResult.Errors)
 }
 
-// TestCheckSlotLeadershipModeAffectsThreshold verifies that CPraos and
-// TPraos modes compute leadership thresholds on different scales (2^256
-// vs 2^512), confirming BlockBuilder threads its consensus mode through
-// to CheckSlotLeadership.
-func TestCheckSlotLeadershipModeAffectsThreshold(t *testing.T) {
-	vrfSigner, err := NewSimpleVRFSigner(testVRFSeedBlock)
+// TestCheckSlotLeadershipModeDecisions uses the shared node schedule's
+// zero seed/nonce, stakes 1/3 and f=1/20. Slot 10000054 is assigned only
+// in Praos; slot 10000005 is assigned only in TPraos.
+func TestCheckSlotLeadershipModeDecisions(t *testing.T) {
+	vrfSigner, err := NewSimpleVRFSigner(make([]byte, 32))
 	require.NoError(t, err, "failed to create VRF signer")
 	kesSigner, err := NewSimpleKESSigner(testKESSeed)
 	require.NoError(t, err, "failed to create KES signer")
@@ -1029,33 +1028,33 @@ func TestCheckSlotLeadershipModeAffectsThreshold(t *testing.T) {
 
 	epochNonce := make([]byte, 32)
 
-	cpraosResult, err := cpraosBuilder.CheckSlotLeadership(
-		1000,
-		epochNonce,
-		500000000,
-		1000000000,
-	)
-	require.NoError(t, err, "CheckSlotLeadership (CPraos) failed")
-	tpraosResult, err := tpraosBuilder.CheckSlotLeadership(
-		1000,
-		epochNonce,
-		500000000,
-		1000000000,
-	)
-	require.NoError(t, err, "CheckSlotLeadership (TPraos) failed")
-
-	require.LessOrEqual(
-		t,
-		cpraosResult.Threshold.BitLen(),
-		256,
-		"expected CPraos threshold to fit within 256 bits",
-	)
-	require.Greater(
-		t,
-		tpraosResult.Threshold.BitLen(),
-		256,
-		"expected TPraos threshold to exceed 256 bits",
-	)
+	for _, tc := range []struct {
+		slot           uint64
+		cpraos, tpraos bool
+	}{
+		{10000054, true, false},
+		{10000005, false, true},
+		{10000000, false, false},
+	} {
+		cpraosResult, err := cpraosBuilder.CheckSlotLeadership(
+			tc.slot,
+			epochNonce,
+			1,
+			3,
+		)
+		require.NoError(t, err)
+		tpraosResult, err := tpraosBuilder.CheckSlotLeadership(
+			tc.slot,
+			epochNonce,
+			1,
+			3,
+		)
+		require.NoError(t, err)
+		require.Equal(t, tc.cpraos, cpraosResult.Eligible)
+		require.Equal(t, tc.tpraos, tpraosResult.Eligible)
+		require.Len(t, cpraosResult.Proof, 80)
+		require.Len(t, tpraosResult.Output, 64)
+	}
 }
 
 func TestCheckSlotLeadership(t *testing.T) {
@@ -1102,9 +1101,8 @@ func TestCheckSlotLeadership(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
-	if result.Threshold == nil {
-		t.Error("expected non-nil threshold")
-	}
+	require.Len(t, result.Proof, 80)
+	require.Len(t, result.Output, 64)
 }
 
 func TestComputeBlockBodyHash(t *testing.T) {

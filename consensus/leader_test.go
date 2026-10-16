@@ -16,6 +16,8 @@ package consensus
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -28,15 +30,21 @@ import (
 // Test seed (exactly 32 bytes)
 var testVRFSeed = []byte("test_vrf_seed_for_consensus!!!!!")
 
-type fixedOutputVRFSigner struct {
+// policyVRFSigner deliberately returns configurable non-cryptographic data.
+// It is used only to exercise invalid-input adapter validation.
+type policyVRFSigner struct {
+	proof  []byte
 	output []byte
+	err    error
+	calls  int
 }
 
-func (s fixedOutputVRFSigner) Prove([]byte) ([]byte, []byte, error) {
-	return make([]byte, 80), append([]byte(nil), s.output...), nil
+func (s *policyVRFSigner) Prove([]byte) ([]byte, []byte, error) {
+	s.calls++
+	return s.proof, s.output, s.err
 }
 
-func (fixedOutputVRFSigner) PublicKey() []byte {
+func (*policyVRFSigner) PublicKey() []byte {
 	return make([]byte, 32)
 }
 
@@ -73,7 +81,7 @@ func TestIsSlotLeader(t *testing.T) {
 	// Test with mainnet-like parameters (f = 0.05)
 	activeSlotCoeff := big.NewRat(1, 20)
 
-	// A pool with 100% stake should always be eligible
+	// A positive-stake decision retains its generated proof and output.
 	result, err := IsSlotLeader(
 		1000, // slot
 		epochNonce,
@@ -88,106 +96,8 @@ func TestIsSlotLeader(t *testing.T) {
 
 	// With 100% stake, probability ≈ 0.05, so not guaranteed but likely
 	// We just check that the function runs correctly
-	if result.Threshold == nil {
-		t.Error("expected non-nil threshold")
-	}
-	if result.Eligible && (result.Proof == nil || result.Output == nil) {
-		t.Error("if eligible, proof and output should not be nil")
-	}
-}
-
-func TestIsSlotLeaderWithModeRealThresholdBoundaries(t *testing.T) {
-	vrfOutput := make([]byte, 64)
-	vrfOutput[0] = 0x40
-	vrfOutput[63] = 0x01
-	signer := fixedOutputVRFSigner{output: vrfOutput}
-
-	modes := []struct {
-		name       string
-		mode       ConsensusMode
-		upperBound *big.Int
-		leader     *big.Int
-	}{
-		{
-			name:       "CPraos",
-			mode:       ConsensusModeCPraos,
-			upperBound: twoTo256,
-			leader:     new(big.Int).SetBytes(VrfLeaderValue(vrfOutput)),
-		},
-		{
-			name:       "TPraos",
-			mode:       ConsensusModeTPraos,
-			upperBound: twoTo512,
-			leader:     new(big.Int).SetBytes(vrfOutput),
-		},
-	}
-
-	for _, mode := range modes {
-		t.Run(mode.name, func(t *testing.T) {
-			require.Positive(t, mode.leader.Sign())
-			require.Negative(t, mode.leader.Cmp(mode.upperBound))
-
-			cases := []struct {
-				name              string
-				cutoffNumerator   *big.Int
-				cutoffDenominator *big.Int
-				wantThreshold     *big.Int
-				wantEligible      bool
-			}{
-				{
-					name: "below-fractional-cutoff",
-					cutoffNumerator: new(big.Int).Add(
-						new(big.Int).Mul(mode.leader, big.NewInt(2)),
-						big.NewInt(1),
-					),
-					cutoffDenominator: big.NewInt(2),
-					wantThreshold:     new(big.Int).Add(mode.leader, big.NewInt(1)),
-					wantEligible:      true,
-				},
-				{
-					name:              "equal-integral-cutoff",
-					cutoffNumerator:   new(big.Int).Set(mode.leader),
-					cutoffDenominator: big.NewInt(1),
-					wantThreshold:     new(big.Int).Set(mode.leader),
-					wantEligible:      false,
-				},
-				{
-					name: "above-fractional-cutoff",
-					cutoffNumerator: new(big.Int).Sub(
-						new(big.Int).Mul(mode.leader, big.NewInt(2)),
-						big.NewInt(1),
-					),
-					cutoffDenominator: big.NewInt(2),
-					wantThreshold:     new(big.Int).Set(mode.leader),
-					wantEligible:      false,
-				},
-			}
-
-			for _, tc := range cases {
-				t.Run(tc.name, func(t *testing.T) {
-					// With full stake, the real-valued leadership cutoff is
-					// upperBound*f. Construct f so the fixed leader value is
-					// immediately below, exactly at, or immediately above it.
-					f := new(big.Rat).SetFrac(
-						tc.cutoffNumerator,
-						new(big.Int).Mul(mode.upperBound, tc.cutoffDenominator),
-					)
-					result, err := IsSlotLeaderWithMode(
-						42,
-						make([]byte, 32),
-						1,
-						1,
-						f,
-						signer,
-						mode.mode,
-					)
-					require.NoError(t, err)
-					require.Equal(t, tc.wantThreshold, result.Threshold)
-					require.Equal(t, tc.wantEligible, result.Eligible)
-				})
-			}
-		})
-	}
+	require.Len(t, result.Proof, 80)
+	require.Len(t, result.Output, 64)
 }
 
 func TestIsSlotLeaderZeroStake(t *testing.T) {
@@ -303,73 +213,6 @@ func TestIsSlotLeaderNilActiveSlotCoeff(t *testing.T) {
 	}
 }
 
-func TestIsSlotLeaderFromComponents(t *testing.T) {
-	activeSlotCoeff := big.NewRat(1, 20)
-
-	// With CPRAOS, the VRF output is first hashed with VrfLeaderValue (BLAKE2b-256
-	// with "L" prefix) before comparison against the threshold. This means the
-	// leader value is deterministic but not directly related to the raw VRF output.
-
-	// Test with zero VRF output - the leader value is a specific hash
-	zeroOutput := make([]byte, 64)
-	leaderValue := VrfLeaderValue(zeroOutput)
-	leaderValueInt := new(big.Int).SetBytes(leaderValue)
-
-	// With 100% stake, threshold is about 5% of 2^256
-	threshold := CertifiedNatThreshold(1000000000000, 1000000000000, activeSlotCoeff)
-	expectedEligible := leaderValueInt.Cmp(threshold) < 0
-
-	eligible := IsSlotLeaderFromComponents(
-		zeroOutput,
-		1000000000000,
-		1000000000000,
-		activeSlotCoeff,
-	)
-
-	if eligible != expectedEligible {
-		t.Errorf("IsSlotLeaderFromComponents result (%v) does not match expected (%v) for zero output",
-			eligible, expectedEligible)
-	}
-
-	// Test with maximum VRF output (all 0xFF bytes)
-	// The leader value is still a hash, so it won't necessarily be max value
-	maxOutput := make([]byte, 64)
-	for i := range maxOutput {
-		maxOutput[i] = 0xFF
-	}
-
-	maxLeaderValue := VrfLeaderValue(maxOutput)
-	maxLeaderValueInt := new(big.Int).SetBytes(maxLeaderValue)
-
-	// With tiny stake (1/1e12) and f=0.05, threshold is very small
-	tinyThreshold := CertifiedNatThreshold(1, 1000000000000, activeSlotCoeff)
-	expectedEligibleMax := maxLeaderValueInt.Cmp(tinyThreshold) < 0
-
-	eligible = IsSlotLeaderFromComponents(
-		maxOutput,
-		1, // very small stake
-		1000000000000,
-		activeSlotCoeff,
-	)
-
-	// The eligibility depends on the hash of maxOutput, not maxOutput itself
-	if eligible != expectedEligibleMax {
-		t.Errorf("IsSlotLeaderFromComponents result (%v) does not match expected (%v) for max output with tiny stake",
-			eligible, expectedEligibleMax)
-	}
-
-	// Verify determinism - same inputs should give same results
-	eligible2 := IsSlotLeaderFromComponents(
-		zeroOutput,
-		1000000000000,
-		1000000000000,
-		activeSlotCoeff,
-	)
-	if eligible2 != expectedEligible {
-		t.Error("IsSlotLeaderFromComponents should be deterministic")
-	}
-}
-
 func TestIsSlotLeaderDeterminism(t *testing.T) {
 	signer1, err := NewSimpleVRFSigner(testVRFSeed)
 	if err != nil {
@@ -413,9 +256,6 @@ func TestIsSlotLeaderDeterminism(t *testing.T) {
 	// Results should be identical for same inputs
 	if result1.Eligible != result2.Eligible {
 		t.Error("leader election should be deterministic")
-	}
-	if result1.Threshold.Cmp(result2.Threshold) != 0 {
-		t.Error("thresholds should be identical for same stake parameters")
 	}
 }
 
@@ -603,4 +443,362 @@ func TestIsSlotLeaderWithModeUnknownMode(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown consensus mode")
+}
+
+func TestLeaderEligibilityComponentPolicies(t *testing.T) {
+	tiny := new(
+		big.Rat,
+	).SetFrac(big.NewInt(1), new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil))
+	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
+		for _, tc := range []struct {
+			name        string
+			pool, total uint64
+			f           *big.Rat
+			length      int
+			wantError   bool
+		}{
+			{"nil coefficient", 1, 1, nil, 64, false},
+			{"zero coefficient", 1, 1, big.NewRat(0, 1), 64, false},
+			{"negative coefficient", 1, 1, big.NewRat(-1, 20), 64, false},
+			{"zero pool even unconditional", 0, 1, big.NewRat(1, 1), 64, false},
+			{"zero total", 1, 0, big.NewRat(1, 20), 64, false},
+			{"short output even unconditional", 1, 1, big.NewRat(1, 1), 63, false},
+			{"long output", 1, 1, big.NewRat(1, 20), 65, false},
+			{"above one zero pool", 0, 1, big.NewRat(3, 2), 64, true},
+			{"below domain zero total", 1, 0, tiny, 64, true},
+			{"unsupported malformed output", 1, 1, tiny, 0, true},
+		} {
+			t.Run(tc.name+fmt.Sprint(mode), func(t *testing.T) {
+				got, err := IsSlotLeaderFromComponentsWithMode(
+					make([]byte, tc.length),
+					tc.pool,
+					tc.total,
+					tc.f,
+					mode,
+				)
+				require.False(t, got)
+				if tc.wantError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				require.False(
+					t,
+					IsSlotLeaderFromComponents(
+						make([]byte, tc.length),
+						tc.pool,
+						tc.total,
+						tc.f,
+					),
+				)
+			})
+		}
+	}
+	got, err := IsSlotLeaderFromComponentsWithMode(
+		nil,
+		0,
+		0,
+		nil,
+		ConsensusMode(99),
+	)
+	require.Error(t, err)
+	require.False(t, got)
+}
+
+func TestLeaderEligibilityElectionPolicies(t *testing.T) {
+	nonce := make([]byte, 32)
+	signer, err := NewSimpleVRFSigner(testVRFSeed)
+	require.NoError(t, err)
+	tiny := new(
+		big.Rat,
+	).SetFrac(big.NewInt(1), new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil))
+	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
+		for _, stake := range [][2]uint64{{0, 1}, {1, 0}, {0, 0}} {
+			result, err := IsSlotLeaderWithMode(
+				math.MaxUint64,
+				nonce,
+				stake[0],
+				stake[1],
+				big.NewRat(1, 1),
+				signer,
+				mode,
+			)
+			require.NoError(t, err)
+			require.False(t, result.Eligible)
+			require.Nil(t, result.Proof)
+			require.Nil(t, result.Output)
+			for _, f := range []*big.Rat{tiny, big.NewRat(3, 2), nil} {
+				_, err := IsSlotLeaderWithMode(
+					0,
+					nonce,
+					stake[0],
+					stake[1],
+					f,
+					signer,
+					mode,
+				)
+				require.Error(t, err)
+			}
+			_, err = IsSlotLeaderWithMode(
+				0,
+				nonce,
+				stake[0],
+				stake[1],
+				big.NewRat(1, 20),
+				nil,
+				mode,
+			)
+			require.Error(t, err)
+			_, err = IsSlotLeaderWithMode(
+				0,
+				nil,
+				stake[0],
+				stake[1],
+				big.NewRat(1, 20),
+				signer,
+				mode,
+			)
+			require.Error(t, err)
+		}
+		for _, f := range []*big.Rat{big.NewRat(0, 1), big.NewRat(-1, 20)} {
+			result, err := IsSlotLeaderWithMode(
+				42,
+				nonce,
+				1,
+				1,
+				f,
+				signer,
+				mode,
+			)
+			require.NoError(t, err)
+			require.False(t, result.Eligible)
+			require.Len(t, result.Proof, 80)
+			require.Len(t, result.Output, 64)
+			signerFailure := errors.New("signing failed")
+			for _, bad := range []*policyVRFSigner{
+				{proof: make([]byte, 79), output: make([]byte, 64)},
+				{proof: make([]byte, 80), output: make([]byte, 63)},
+				{err: signerFailure},
+			} {
+				_, err := IsSlotLeaderWithMode(42, nonce, 1, 1, f, bad, mode)
+				require.Error(t, err)
+				require.Equal(t, 1, bad.calls)
+				if bad.err != nil {
+					require.ErrorIs(t, err, signerFailure)
+				}
+			}
+		}
+	}
+	_, err = IsSlotLeaderWithMode(0, nil, 0, 0, nil, nil, ConsensusMode(99))
+	require.ErrorContains(t, err, "unknown consensus mode")
+}
+
+type cancelAfterProofSigner struct {
+	VRFSigner
+	cancel context.CancelFunc
+	calls  int
+}
+
+func (s *cancelAfterProofSigner) Prove(input []byte) ([]byte, []byte, error) {
+	s.calls++
+	proof, output, err := s.VRFSigner.Prove(input)
+	s.cancel()
+	return proof, output, err
+}
+
+func TestLeaderEligibilitySearchPolicies(t *testing.T) {
+	signer, err := NewSimpleVRFSigner(make([]byte, 32))
+	require.NoError(t, err)
+	nonce := make([]byte, 32)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		nil,
+		0,
+		1,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		signer,
+	)
+	require.Error(t, err)
+	_, _, _, err = FindNextSlotLeadershipContext(
+		context.Background(),
+		2,
+		1,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		signer,
+	)
+	require.Error(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// Cancellation wins over invalid preparation inputs.
+	_, _, _, err = FindNextSlotLeadershipContext(ctx, 0, 1, nil, 1, 1, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	counted := &cancelAfterProofSigner{VRFSigner: signer, cancel: cancel}
+	// Shared Praos schedule: first slot is unassigned. Cancellation after
+	// its legitimate proof must stop before signing the next slot.
+	_, _, _, err = FindNextSlotLeadershipContext(
+		ctx,
+		10000000,
+		10000119,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		counted,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, counted.calls)
+	// The shared Praos schedule's first assigned slot is the inclusive max.
+	slot, proof, output, err := FindNextSlotLeadershipContext(
+		context.Background(),
+		10000000,
+		10000054,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		signer,
+	)
+	require.NoError(t, err)
+	require.Equal(t, uint64(10000054), slot)
+	require.Len(t, proof, 80)
+	require.Len(t, output, 64)
+	slot, proof, output, err = FindNextSlotLeadershipContext(
+		context.Background(),
+		10000000,
+		10000053,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		signer,
+	)
+	require.NoError(t, err)
+	require.Zero(t, slot)
+	require.Nil(t, proof)
+	require.Nil(t, output)
+	// Positive stake reaches input validation, rather than wrapping at max.
+	_, _, _, err = FindNextSlotLeadershipContext(
+		context.Background(),
+		math.MaxUint64,
+		math.MaxUint64,
+		nonce,
+		1,
+		3,
+		big.NewRat(1, 20),
+		signer,
+	)
+	require.Error(t, err)
+}
+
+func TestLeaderEligibilityElectionReferenceDecisions(t *testing.T) {
+	// Independently recorded shared 120-slot node schedules, seed/nonce zero,
+	// poolStake=1, activeStake=3, f=1/20, d=0.
+	signer, err := NewSimpleVRFSigner(make([]byte, 32))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		mode ConsensusMode
+		slot uint64
+		want bool
+	}{
+		{ConsensusModeCPraos, 10000054, true},
+		{ConsensusModeCPraos, 10000005, false},
+		{ConsensusModeTPraos, 10000005, true},
+		{ConsensusModeTPraos, 10000054, false},
+	} {
+		result, err := IsSlotLeaderWithMode(
+			tc.slot,
+			make([]byte, 32),
+			1,
+			3,
+			big.NewRat(1, 20),
+			signer,
+			tc.mode,
+		)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, result.Eligible)
+		require.Len(t, result.Proof, 80)
+		require.Len(t, result.Output, 64)
+		got, err := IsSlotLeaderFromComponentsWithMode(
+			result.Output,
+			1,
+			3,
+			big.NewRat(1, 20),
+			tc.mode,
+		)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, got)
+		if tc.mode == ConsensusModeCPraos {
+			require.Equal(
+				t,
+				tc.want,
+				IsSlotLeaderFromComponents(
+					result.Output,
+					1,
+					3,
+					big.NewRat(1, 20),
+				),
+			)
+		}
+	}
+}
+
+func TestFindNextSlotLeadershipNonpositiveCoefficientValidatesInputs(
+	t *testing.T,
+) {
+	for _, f := range []*big.Rat{new(big.Rat), big.NewRat(-1, 2)} {
+		t.Run(f.String(), func(t *testing.T) {
+			signerErr := errors.New("signer failed")
+			for _, tc := range []struct {
+				name   string
+				slot   uint64
+				signer *policyVRFSigner
+				want   string
+			}{
+				{"slot", math.MaxUint64, &policyVRFSigner{}, "exceeds maximum int64"},
+				{"signer", 1, &policyVRFSigner{err: signerErr}, "signer failed"},
+				{"proof", 1, &policyVRFSigner{output: make([]byte, 64)}, "VRF proof"},
+				{"output", 1, &policyVRFSigner{proof: make([]byte, 80)}, "VRF output"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					_, _, _, err := FindNextSlotLeadershipContext(
+						context.Background(),
+						tc.slot,
+						tc.slot,
+						make([]byte, 32),
+						1,
+						3,
+						f,
+						tc.signer,
+					)
+					require.ErrorContains(t, err, tc.want)
+				})
+			}
+			signer := &policyVRFSigner{
+				proof:  make([]byte, 80),
+				output: make([]byte, 64),
+			}
+			slot, proof, output, err := FindNextSlotLeadershipContext(
+				context.Background(),
+				1,
+				2,
+				make([]byte, 32),
+				1,
+				3,
+				f,
+				signer,
+			)
+			require.NoError(t, err)
+			require.Zero(t, slot)
+			require.Nil(t, proof)
+			require.Nil(t, output)
+			require.Equal(t, 2, signer.calls)
+		})
+	}
 }

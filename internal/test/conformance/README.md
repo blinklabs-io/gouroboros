@@ -17,6 +17,30 @@ These counts and suites are not combined into an overall pass rate. Read the
 ledger report emitted by `TestRulesConformanceVectors` for the current pinned
 corpus results.
 
+### Finite leader eligibility corpus
+
+`TestLeaderEligibilityNodeNaturals` checks all 648 Pallas and 352 Jormanager
+natural vectors through the public prepared E34 predicate, including the
+artificial endpoint and low-level zero-pool cases. It does not infer expected
+decisions from an ideal cutoff, probability, or another implementation call.
+`TestLeaderEligibilityNodeSchedules` replays all 21 shared schedule cases,
+matching complete absolute slot lists and the deterministic signer's public key.
+TPraos overlay filtering uses exact rational ceiling comparisons in the test
+harness only; it is not an election API policy.
+
+These fixtures come from `ouroboros-mock/fixtures/upstream/e34`, with their
+SHA-256 manifest and pinned Haskell-source provenance. Missing, malformed,
+truncated, or checksum-mismatched data fails instead of skipping or fetching a
+replacement. Ordinary Go tests never run Haskell or read adjacent workspaces.
+The corpus is source-pinned oracle evidence, not an installed-node replay.
+The consensus package's `TestLeaderEligibilityElectionValidatorAgreement`
+also checks legitimate assigned and unassigned proofs and complete signed
+header validation in both modes against the shared 120-slot schedules.
+
+The module configuration pins `github.com/blinklabs-io/ouroboros-mock` v0.21.1.
+Go downloads the checksum-verified upstream module normally; no replacement,
+local checkout, or workspace is required.
+
 ---
 
 ## Ledger Rules Conformance
