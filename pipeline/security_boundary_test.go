@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -526,6 +527,16 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	const rejectedSequence = uint64(4)
 	p := NewBlockPipeline()
+	handoffPaused := make(chan struct{})
+	releaseHandoff := make(chan struct{})
+	var releaseHandoffOnce sync.Once
+	p.testResultHandoff = func(item *BlockItem) {
+		if item.SequenceNumber() == 0 {
+			close(handoffPaused)
+			<-releaseHandoff
+		}
+	}
+	t.Cleanup(func() { releaseHandoffOnce.Do(func() { close(releaseHandoff) }) })
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.submitChan = make(chan *BlockItem, 1)
 	p.decodedChan = make(chan *BlockItem, rejectedSequence+1)
@@ -582,9 +593,15 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("fatal committed prefix did not reach the Results consumer")
 	}
+	select {
+	case <-handoffPaused:
+	case <-time.After(time.Second):
+		t.Fatal("result forwarder did not reach the post-send handoff boundary")
+	}
 
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.Stop() }()
+	releaseHandoffOnce.Do(func() { close(releaseHandoff) })
 	select {
 	case err := <-stopped:
 		require.NoError(t, err)

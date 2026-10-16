@@ -274,6 +274,7 @@ type BlockPipeline struct {
 	testFenceBoundary  func(uint64)
 	testProcessedFunc  func(uint64)
 	testResultsForward func()
+	testResultHandoff  func(*BlockItem)
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -640,6 +641,9 @@ func (p *BlockPipeline) forwardResults() {
 			}
 			select {
 			case p.resultsChan <- item:
+				if p.testResultHandoff != nil {
+					p.testResultHandoff(item)
+				}
 				p.markItemDelivered(item)
 			case request := <-p.drainResults:
 				p.markItemDelivered(item)
