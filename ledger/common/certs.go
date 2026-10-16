@@ -753,7 +753,7 @@ func (p PoolRelay) validateCBORBounds() error {
 
 // validateDecodedAddressWidths enforces the fixed widths the CDDL gives the
 // relay address fields: ipv4 = bytes .size 4 and ipv6 = bytes .size 16
-// (ledger/dijkstra/testdata/dijkstra.cddl lines 500 and 502, identical in
+// (ledger/dijkstra/testdata/dijkstra.cddl lines 503 and 505, identical in
 // every era from shelley.cddl onwards). cardano-ledger decodes both through
 // binaryGetDecoder, which fails a short byte string in the binary Get and
 // raises DecoderErrorLeftover on a long one, so the reference rejects any

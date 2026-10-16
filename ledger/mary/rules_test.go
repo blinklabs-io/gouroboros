@@ -1004,3 +1004,90 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 		},
 	)
 }
+
+// outputValueWithAssets builds a one-policy output value whose asset names
+// are unique and whose definite-length CBOR encoding is exactly wantSize
+// bytes. Names are 13 or 14 bytes long, so every encoded asset costs 15 or 16
+// bytes with a one-byte quantity.
+func outputValueWithAssets(
+	t *testing.T,
+	assetCount int,
+	wantSize int,
+) mary.MaryTransactionOutputValue {
+	t.Helper()
+	// array header, coin, outer map header, policy id, definite inner header
+	fixed := 1 + 1 + 1 + 30 + 3
+	perAssetTotal := wantSize - fixed
+	longNames := perAssetTotal - assetCount*15
+	if longNames < 0 || longNames > assetCount {
+		t.Fatalf("cannot reach %d bytes with %d assets", wantSize, assetCount)
+	}
+	var policy common.Blake2b224
+	assets := make(map[cbor.ByteString]*big.Int, assetCount)
+	for i := range assetCount {
+		name := []byte{byte(i >> 8), byte(i)}
+		name = append(name, make([]byte, 11)...)
+		if i < longNames {
+			name = append(name, 0)
+		}
+		assets[cbor.NewByteString(name)] = big.NewInt(1)
+	}
+	multiAsset := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{policy: assets},
+	)
+	value := mary.MaryTransactionOutputValue{Amount: 1, Assets: &multiAsset}
+	encoded, err := cbor.Encode(&value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) != wantSize {
+		t.Fatalf("fixture encodes to %d bytes, want %d", len(encoded), wantSize)
+	}
+	return value
+}
+
+// cardano-ledger measures a map with more than 23 entries using an
+// indefinite-length header, which costs 2 bytes where a definite header for 256
+// or more entries costs 3.
+func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
+	t.Parallel()
+	const maxSize = 4000
+	testCases := []struct {
+		name       string
+		definiteSz int
+		wantErr    bool
+	}{
+		{"ledger size equals limit", maxSize + 1, false},
+		{"ledger size above limit", maxSize + 2, true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tx := &mary.MaryTransaction{
+				Body: mary.MaryTransactionBody{
+					TxOutputs: []mary.MaryTransactionOutput{
+						{
+							OutputAmount: outputValueWithAssets(
+								t,
+								256,
+								tc.definiteSz,
+							),
+						},
+					},
+				},
+			}
+			err := mary.UtxoValidateOutputTooBigUtxo(
+				tx,
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&mary.MaryProtocolParameters{},
+			)
+			if tc.wantErr {
+				var tooBig mary.OutputTooBigUtxoError
+				assert.ErrorAs(t, err, &tooBig)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}

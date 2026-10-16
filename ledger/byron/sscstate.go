@@ -313,21 +313,10 @@ func decodePrimaryEntries(
 // than the body's actual payload is rejected here rather than silently
 // checked against the wrong shape of payload.
 //
-// Before hashing rest[0] (the primary field: commitments, openings, or
-// shares) this also decodes it with decodePrimaryEntries -- the same
-// shape-validating decoder AccumulateBlock uses -- and rejects the block if
-// it fails. This is not redundant with checkHash immediately below: a
-// hash-only check authenticates *some* bytes, but says nothing about
-// whether those bytes are the CBOR shape the Byron wire format actually
-// requires (a tag-258 set for commitments per dropCommitmentsMap, a genuine
-// CBOR map for openings/shares per dropOpeningsMap/dropSharesMap in
-// cardano-ledger's Cardano.Chain.Ssc). Without this gate, an untagged array
-// (or any other wrong-shaped value) could be paired with a freshly
-// recomputed header hash and pass checkHash, accepting a payload the real
-// Byron node's own decoder would reject outright at decode time. The
-// certificates field (rest[1] / rest[0] for SscTypeCertificates) is already
-// shape-validated this way via localCertificatesHash -> decodeIdentitySet;
-// this closes the same gap for the primary field.
+// Before hashing, this validates every payload field with the complete
+// constructor-specific decoder used by cardano-ledger. A hash authenticates
+// bytes but does not prove that commitments, openings, shares, or certificates
+// have the required nested CBOR shapes.
 func checkSscProofLocal(
 	rawProof any,
 	expectedType uint64,
@@ -695,6 +684,11 @@ func checkSscProofCore(
 			ErrBodyProofMismatch, sscType, expectedType,
 		)
 	}
+	if err := validateSscPayloadShape(sscType, rest); err != nil {
+		return fmt.Errorf(
+			"%w: ssc payload shape: %w", ErrBodyProofMismatch, err,
+		)
+	}
 	switch sscType {
 	case SscTypeCommitments, SscTypeOpenings, SscTypeShares:
 		if len(proofSlice) != 3 {
@@ -862,21 +856,10 @@ func decodeSscPayloadParts(
 // each entry's original CBOR bytes. This is the wire shape of
 // OpeningsPayload's and SharesPayload's primary field (sscopens/sscshares).
 //
-// NOTE: this only validates the map's container shape (a genuine CBOR map
+// This only validates the map's container shape (a genuine CBOR map
 // keyed by a 28-byte ID) and each value's preserved bytes as an opaque
-// blob -- it does not decode or validate a value's own inner structure.
-// In particular, for SharesPayload, sscshares' values are themselves a
-// nested map (sharesmap = {* addressid => vssdec}, per cardano-ledger's
-// dropSharesMap/dropInnerSharesMap decoder -- see the CDDL comment on
-// ByronEpochSscState above), and this function never looks inside a value
-// to confirm it actually is one; an opening/share value of the wrong inner
-// shape (e.g. a text string where dropOpeningsMap/dropInnerSharesMap
-// requires bytes or a nested map) is accepted here as long as the outer
-// map's keys are well-formed. This is a deliberate, not yet closed, gap
-// shared by both the proof-check path (checkSscProofLocal) and the
-// accumulator path (AccumulateBlock); exploitability is near-zero since
-// forging a real Byron block still requires a valid slot-leader signature
-// over an immutable historical chain.
+// blob. Full proof verification calls validateSscPayloadShape before using
+// this decoder to construct the stakeholder map.
 func decodeStakeholderMap(
 	raw cbor.RawMessage,
 ) (map[common.Blake2b224][]byte, error) {
@@ -917,19 +900,11 @@ func decodeStakeholderMap(
 // identically to a well-formed one, letting checkSscProofLocal validate a
 // block whose body does not actually conform to the Byron wire format.
 //
-// NOTE: this validates each entry's outer shape only as far as "decodes
+// This validates each entry's outer shape only as far as "decodes
 // into a CBOR array with a byte-string public key at pubkeyFieldIndex" --
 // it does not enforce the entry's full field count or the type of any
-// other field (e.g. dropSignedCommitment's exact-3-field ssccomm shape, or
-// ssccert's epochid/signature fields). A 1-field or 5-field entry, or one
-// carrying junk strings in its non-pubkey fields, decodes and hashes here
-// exactly as a well-formed entry would, even though cardano-ledger's own
-// decoder (dropSignedCommitment/dropCertificate) would reject it outright.
-// This is a deliberate, not yet closed, gap shared by both the proof-check
-// path (checkSscProofLocal) and the accumulator path (AccumulateBlock);
-// exploitability is near-zero since forging a real Byron block still
-// requires a valid slot-leader signature over an immutable historical
-// chain.
+// other field. Full proof verification calls validateSscPayloadShape before
+// using this decoder to derive stakeholder IDs and certificate hashes.
 func decodeIdentitySet(
 	raw cbor.RawMessage,
 	pubkeyFieldIndex int,

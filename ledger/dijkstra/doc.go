@@ -21,12 +21,13 @@
 // maintained in IntersectMBO/cardano-ledger. The pinned version we aim to be
 // compatible with is:
 //
-//	https://github.com/IntersectMBO/cardano-ledger/blob/1587f21a7d1306dc590c2749a5c66232ef66aad0/eras/dijkstra/impl/cddl/data/dijkstra.cddl
+//	https://github.com/IntersectMBO/cardano-ledger/blob/505fa72260632fca6df33e18e18719730bf9a460/eras/dijkstra/impl/cddl/data/dijkstra.cddl
 //
-// This is the commit the respun ouroboros-leios prototype-2026w36 "musashi"
-// testnet is built against. At this revision block = [header, block_body] with
-// a three-field block_body ([transactions, leios_certificate, peras_certificate])
-// and a four-field block_transaction carrying its validity flag.
+// This is the commit the ouroboros-leios rc-2026w41 release is built against.
+// At this revision block = [header, block_body] with a three-field block_body
+// ([transactions, leios_certificate, peras_certificate]), a four-field
+// block_transaction carrying its validity flag, and a twelve-field
+// header_body whose tenth field is header_version_info.
 //
 // A verbatim copy of that revision's CDDL is vendored at
 // testdata/dijkstra.cddl for reference and diffing against upstream.

@@ -45,6 +45,8 @@ const (
 // be outstanding for a peer when no explicit limit is configured.
 const DefaultMaxUnacknowledgedMessageIDs = 100
 
+const defaultMaxQueueSize = 100
+
 // State machine states for Message Submission protocol
 const (
 	stateInitId               = 1
@@ -313,7 +315,7 @@ type MessageSubmissionOptionFunc func(*Config)
 // NewConfig returns a new MessageSubmission config object with the provided options
 func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 	c := Config{
-		MaxQueueSize:                 100,
+		MaxQueueSize:                 defaultMaxQueueSize,
 		MaxUnacknowledgedMessageIDs:  DefaultMaxUnacknowledgedMessageIDs,
 		InitTimeout:                  InitTimeout,
 		IdleTimeout:                  IdleTimeout,
@@ -337,6 +339,38 @@ func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 		c.TTLValidator = pcommon.NewTTLValidator(0, nil)
 	}
 	return c
+}
+
+func normalizeConfig(cfg *Config) Config {
+	if cfg == nil {
+		return NewConfig()
+	}
+	ret := *cfg
+	if ret.MaxQueueSize <= 0 {
+		ret.MaxQueueSize = defaultMaxQueueSize
+	}
+	if ret.MaxUnacknowledgedMessageIDs <= 0 {
+		ret.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
+	}
+	if ret.InitTimeout == 0 {
+		ret.InitTimeout = InitTimeout
+	}
+	if ret.IdleTimeout == 0 {
+		ret.IdleTimeout = IdleTimeout
+	}
+	if ret.MessageIdsBlockingTimeout == 0 {
+		ret.MessageIdsBlockingTimeout = MessageIdsBlockingTimeout
+	}
+	if ret.MessagesTimeout == 0 {
+		ret.MessagesTimeout = MessagesTimeout
+	}
+	if ret.DoneTimeout == 0 {
+		ret.DoneTimeout = DoneTimeout
+	}
+	if ret.TTLValidator == nil {
+		ret.TTLValidator = pcommon.NewTTLValidator(0, nil)
+	}
+	return ret
 }
 
 // WithRequestMessageIdsFunc specifies the callback function when message IDs are requested when acting as a client

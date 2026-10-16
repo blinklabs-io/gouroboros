@@ -98,15 +98,20 @@ func getThresholdMultiplier() float64 {
 	if v := os.Getenv("GOUROBOROS_ALLOC_THRESHOLD_MULTIPLIER"); v != "" {
 		m, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr,
+			fmt.Fprintf(
+				os.Stderr,
 				"WARNING: invalid GOUROBOROS_ALLOC_THRESHOLD_MULTIPLIER=%q: %v, using default 1.0\n",
-				v, err)
+				v,
+				err,
+			)
 			return 1.0
 		}
 		if m <= 0 {
-			fmt.Fprintf(os.Stderr,
+			fmt.Fprintf(
+				os.Stderr,
 				"WARNING: GOUROBOROS_ALLOC_THRESHOLD_MULTIPLIER=%q must be positive, using default 1.0\n",
-				v)
+				v,
+			)
 			return 1.0
 		}
 		return m
@@ -135,9 +140,10 @@ func TestAllocationRegression(t *testing.T) {
 		{"VRFVerify", vrfVerifyOnce, 12},
 		// KESVerify: 12 allocs (measured 2026-02-10)
 		{"KESVerify", kesVerifyOnce, 14},
-		// LeaderCheck: 1225 allocs - includes Taylor series for threshold calc
-		// (measured 2026-02-10)
-		{"LeaderCheck", leaderCheckOnce, 1350},
+		// Finite E34: 17 allocations normally, 19-20 with race instrumentation.
+		{"LeaderCheck", leaderCheckOnce, 22},
+		// Warm preparation returns one fresh wrapper.
+		{"EligibilityPrepareCached", eligibilityPrepareOnce, 2},
 		// CBORBlockDecode (Conway): 2652 allocs (measured 2026-02-10)
 		{"CBORBlockDecode", cborBlockDecodeOnce, 3000},
 	}
@@ -186,7 +192,7 @@ func TestAllocationBaselines(t *testing.T) {
 		{"VRFMkInputVrf", vrfMkInputVrfOnce},
 		{"KESVerify", kesVerifyOnce},
 		{"LeaderCheck", leaderCheckOnce},
-		{"ThresholdCalc", thresholdCalcOnce},
+		{"EligibilityPrepareCached", eligibilityPrepareOnce},
 		{"CBORBlockDecode", cborBlockDecodeOnce},
 	}
 
@@ -239,8 +245,8 @@ func kesVerifyOnce() any {
 	return valid
 }
 
-// leaderCheckOnce performs a single leader election check using pre-computed
-// components (no VRF signing, just threshold calculation and comparison).
+// leaderCheckOnce performs a finite eligibility check using pre-computed
+// components (including warm preparation lookup, without VRF signing).
 func leaderCheckOnce() any {
 	return consensus.IsSlotLeaderFromComponents(
 		vrfOutput,
@@ -250,13 +256,15 @@ func leaderCheckOnce() any {
 	)
 }
 
-// thresholdCalcOnce performs a single threshold calculation.
-func thresholdCalcOnce() any {
-	return consensus.CertifiedNatThreshold(
-		poolStake,
-		totalStake,
-		activeSlotCoeff,
+// eligibilityPrepareOnce performs a warm eligibility preparation lookup.
+func eligibilityPrepareOnce() any {
+	e, err := consensus.NewLeaderEligibility(
+		poolStake, totalStake, activeSlotCoeff, consensus.ConsensusModeCPraos,
 	)
+	if err != nil {
+		panic(err)
+	}
+	return e
 }
 
 // loadConwayBlock lazily loads the Conway block CBOR from testdata.
@@ -414,57 +422,6 @@ func TestRegressionKES(t *testing.T) {
 // TestRegressionConsensus verifies consensus allocation regression.
 func TestRegressionConsensus(t *testing.T) {
 	multiplier := getThresholdMultiplier()
-
-	t.Run("CertifiedNatThreshold", func(t *testing.T) {
-		allocs := testing.AllocsPerRun(100, func() {
-			_ = consensus.CertifiedNatThreshold(
-				poolStake,
-				totalStake,
-				activeSlotCoeff,
-			)
-		})
-		// Baseline: 6 allocs - the threshold is memoized on its exact
-		// input tuple, so a repeated call is a cache hit (a key copy plus
-		// the returned big.Int). A miss recomputes the big.Float ln/exp
-		// series at ~1164 allocs, so this limit has to stay far below
-		// that to still catch a cache that has stopped hitting.
-		limit := 20.0 * multiplier
-		require.LessOrEqualf(
-			t,
-			allocs,
-			limit,
-			"CertifiedNatThreshold: %.0f allocs exceeds limit %.0f",
-			allocs,
-			limit,
-		)
-		t.Logf(
-			"CertifiedNatThreshold: %.0f allocs (limit: %.0f)",
-			allocs,
-			limit,
-		)
-	})
-
-	t.Run("IsSlotLeaderFromComponents", func(t *testing.T) {
-		allocs := testing.AllocsPerRun(100, func() {
-			_ = consensus.IsSlotLeaderFromComponents(
-				vrfOutput, poolStake, totalStake, activeSlotCoeff)
-		})
-		// Baseline: 10 allocs - includes the memoized threshold lookup.
-		limit := 30.0 * multiplier
-		require.LessOrEqualf(
-			t,
-			allocs,
-			limit,
-			"IsSlotLeaderFromComponents: %.0f allocs exceeds limit %.0f",
-			allocs,
-			limit,
-		)
-		t.Logf(
-			"IsSlotLeaderFromComponents: %.0f allocs (limit: %.0f)",
-			allocs,
-			limit,
-		)
-	})
 
 	t.Run("VrfLeaderValue", func(t *testing.T) {
 		allocs := testing.AllocsPerRun(100, func() {

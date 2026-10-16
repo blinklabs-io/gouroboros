@@ -98,7 +98,11 @@ Block Fetch below for how a request is sized.
 The muxer reports each queue's depth on every enqueue and dequeue, how long
 each delivery waited for its protocol to take it, and how long the read loop
 paused under backpressure, through the optional `muxer.Metrics` hooks set
-with `Muxer.SetMetrics`.
+with `Muxer.SetMetrics`. The hooks run outside the muxer's queue locks, and a
+panic in one is recovered and its observation discarded. A hook may call other
+muxer methods, including registering and unregistering protocols; unregistering
+a role whose hook is running finishes once that hook returns, and registering
+once the muxer is stopping returns nil channels.
 
 ## Muxer socket deadlines
 
@@ -107,11 +111,16 @@ write, after acquiring its connection-wide send lock. A deadline-setting error
 is returned without attempting the write. The deadline bounds the socket write,
 not time spent waiting for the send lock or the protocol's outbound queue.
 
-Read deadlines remain independently managed per segment. Connection wrappers
-must preserve those read deadlines and support `SetWriteDeadline`. The muxer
-replaces an existing write deadline; wrappers that enforce a shorter external
-deadline must cap the requested value. Stopping the muxer closes the underlying
-connection to interrupt pending socket operations.
+Read deadlines remain independently managed per segment: before each segment
+read the muxer installs the read deadline, or clears it when the timeout is
+disabled. An error from either stops the muxer before the read. One that is
+`io.EOF` or `io.ErrClosedPipe` is reported as `muxer.ConnectionClosedError`, as
+for a failed read; any other error, including `net.ErrClosed` from a connection
+closed on this side, is reported unchanged. Connection wrappers must preserve
+those read deadlines and support `SetWriteDeadline`. The muxer replaces an
+existing write deadline; wrappers that enforce a shorter external deadline must
+cap the requested value. Stopping the muxer closes the underlying connection to
+interrupt pending socket operations.
 
 ## Chain Sync
 
@@ -325,7 +334,7 @@ carrying more addresses than it requested.
 | Leios Fetch client | Votes | 5 seconds | none |
 | Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
 | Leios Notify client | Quit | 60 seconds | none |
-| Leios Votes client | Busy | 60 seconds | none |
+| Leios Votes client | Busy | 60 seconds | 1,111 |
 | Leios Votes server with a configured request callback | Busy | 60 seconds | none |
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
@@ -339,7 +348,17 @@ the protocol receive queue. Exceeding either retained-response limit is a
 protocol error and closes the connection. Leios Notify allows up to 100
 pipelined requests and defaults to 10. Leios Votes allows up to 100 pipelined
 requests, defaults to 1, and limits one request to 1,000 votes (the default is
-also 1,000). Leios Notify limits each VotesOffer to 1,000 entries and 65,535 bytes
+also 1,000). The Leios Votes client admits each Vote message up to 256 bytes
+(`MaxVoteMessageBytes`); its Busy pending-message limit of 1,111 bytes also
+covers the requests it queues while the server holds agency. Received votes
+not yet handled are held to a 16 KiB pending receive budget
+(`PendingReceiveBytes`), which holds the peer back rather than failing. That
+budget covers only the protocol receive queue: segments not yet taken from the
+muxer are bounded by the protocol's derived ingress limit of 655,350 bytes,
+and the delivery channel and reassembly buffer are outside both (see Muxer
+ingress limits). Leios Votes requests are not pipelined on the wire, so at most
+one 1,000-vote batch, 256,000 bytes at the vote limit, is outstanding. Leios
+Notify limits each VotesOffer to 1,000 entries and 65,535 bytes
 before parsing the vote list. Leios Fetch admits up to 131,073 vote IDs in a
 request, matching the established strict CBOR collection control, while a
 generic vote response is limited to 1,000 entries and 256 KiB. A live client
@@ -393,13 +412,14 @@ subsequent items available to the caller.
 | Chain Sync find-intersect | 462,000 bytes N2N; 8 MiB N2C; 131,073 points maximum | Point fields are preflighted before the point slice is decoded. The point hash must be exactly 32 bytes. |
 | Block Fetch block replies | 2,500,000 bytes per block; client range allowance follows outstanding requests | Blocks remain raw CBOR until the caller decodes them. |
 | Local State Query query/result | Effective read-buffer allowance | Query input sets have their own 10,000-item request bound. Result maps retain the normal decoder's larger allowance, including whole-UTxO queries. Raw result storage grows with the actual encoded payload. |
+| Local Tx Monitor has-transaction query | Effective read-buffer allowance | The transaction ID must be 32 bytes; its length is checked while decoding, before it is formatted or looked up. |
 | Local Tx Monitor next-transaction reply | Effective read-buffer allowance | Transaction bytes and the optional reply envelope are validated before typed decoding. |
 | Local Tx Submission submit/rejection | Effective read-buffer allowance | Transaction bytes and raw rejection data are retained from validated input. |
 | Local Message Notification replies | Effective read-buffer allowance; 1,000 messages by default | A client caps a reply collection at the smaller of `MaxReplyMessages` (the batch size of the reference server, independent of a server queue size of 100 by default) and `MaxReplayEntries` (10,000 by default), and each DMQ message by the fixed wire depth, before typed decoding. |
 | Message Submission collections | Effective read-buffer allowance; counts follow the active request | A server decodes a message-ID reply against the count of its outstanding ID request and a message reply against the IDs of its outstanding message request; with no request outstanding only an empty collection decodes. A client decodes a message request against the IDs it holds unacknowledged. Other collections are capped at `MaxUnacknowledgedMessageIDs`, at most 65,535. |
 | Leios Fetch block, transaction and vote replies | Vote replies: 256 KiB; range replies: cumulative configured byte and decoded-count budgets, 64 MiB and 1,048,576 transactions by default; range retention: 1,000 messages by default | Vote replies admit at most 1,000 entries and no more than the request count on a live client, which refuses a request for more than 1,000 IDs before sending it. All transaction lists in one range stream share one entry per 64 bytes of its byte budget, capped at 4,194,304. Raw items and their envelope are checked before slice allocation; BlockTxs counts are checked against the request bitmap, and a client refuses bitmaps the reference node rejects before sending them. |
 | Leios Notify vote offers | 65,535 bytes and 1,000 votes | Definite counts and indefinite entries are checked before the vote list is allocated. Other notifications use the configured pending-byte allowance. |
-| Leios Votes vote reply | Effective read-buffer allowance | Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
+| Leios Votes vote reply | 256 bytes per Vote message; 16 KiB pending receive queue | The message size is checked before typed decoding. Typed fields use the normal CBOR mode; request counts are independently limited to 1,000. |
 | Peras vote IDs/objects | `maxObjectsUnacknowledged × 1,100 + 256` bytes | Lists are checked against the supported outstanding-window maximum. Fixed vote envelopes are checked before opaque bytes are retained. |
 | Leios endorser-block references | At least 35 encoded bytes per valid reference | A hash32 uses a two-byte header and 32 payload bytes; size uses at least one byte. Counts exceeding available encoded entries are rejected before allocation. Collections grow as entries validate. |
 

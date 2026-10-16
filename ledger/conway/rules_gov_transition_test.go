@@ -1014,7 +1014,6 @@ func TestUtxoValidateVotingOnExpiredGovAction(t *testing.T) {
 		var target conway.GovernanceStateUnavailableError
 		require.ErrorAs(t, err, &target)
 	})
-
 }
 
 func TestUtxoValidateVotingOnExpiredGovActionAllowsOwnProposal(t *testing.T) {
@@ -1406,7 +1405,10 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 			ActionType: common.GovActionTypeHardForkInitiation,
 		},
 	}
-	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		WithGovPurposeRootsValue(&common.GovPurposeRoots{}).
+		Build()
 
 	t.Run(
 		"minor bump on the ancestor's version is allowed",
@@ -1488,6 +1490,30 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 		var target conway.GovernanceStateUnavailableError
 		require.ErrorAs(t, err, &target)
 	})
+}
+
+func TestUtxoValidateHardForkCanFollowUsesCurrentVersionForPurposeRoot(
+	t *testing.T,
+) {
+	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x31}}
+	base := mockledger.NewLedgerStateBuilder().
+		WithGovActions(map[string]*common.GovActionState{
+			govActionKey(rootId): {
+				ActionId:   rootId,
+				ActionType: common.GovActionTypeHardForkInitiation,
+			},
+		}).
+		Build()
+	ls := rootedLedgerState{
+		LedgerState: base,
+		roots:       &common.GovPurposeRoots{HardFork: &rootId},
+	}
+	tx := mkProposalsTx(t, mkHfAction(&rootId, 10, 0))
+
+	require.NoError(
+		t,
+		conway.UtxoValidateHardForkCanFollow(tx, 0, ls, mkConwayPp(9, 0)),
+	)
 }
 
 func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {

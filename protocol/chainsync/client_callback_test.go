@@ -106,11 +106,14 @@ func TestExactTipCallbacksExposeIntersectionBeforeAwaitReply(t *testing.T) {
 			},
 		},
 	)
+	resultChan, cancel := client.wantIntersectFound([]pcommon.Point{intersect})
+	defer cancel()
 
 	require.NoError(
 		t,
 		client.handleIntersectFound(NewMsgIntersectFound(intersect, tip)),
 	)
+	require.Equal(t, intersect, (<-resultChan).point)
 	require.NoError(t, client.handleAwaitReply())
 	require.Equal(t, []string{"intersect", "await"}, callbacks)
 }
@@ -153,12 +156,123 @@ func TestAtTipCallbackErrorsPropagate(t *testing.T) {
 				},
 			},
 		)
+		_, cancel := client.wantIntersectFound([]pcommon.Point{intersect})
+		defer cancel()
 		require.ErrorIs(
 			t,
 			client.messageHandler(NewMsgIntersectFound(intersect, tip)),
 			intersectFoundErr,
 		)
 	})
+}
+
+func TestIntersectFoundValidatesOfferedPoint(t *testing.T) {
+	concrete := pcommon.NewPoint(100, testPointHash(0x01))
+	tip := Tip{
+		Point:       pcommon.NewPoint(200, testPointHash(0x02)),
+		BlockNumber: 20,
+	}
+	tests := []struct {
+		name    string
+		offered []pcommon.Point
+		reply   pcommon.Point
+		wantErr bool
+	}{
+		{
+			name:    "offered concrete point",
+			offered: []pcommon.Point{concrete},
+			reply:   concrete,
+		},
+		{
+			name:    "offered origin",
+			offered: []pcommon.Point{pcommon.NewPointOrigin()},
+			reply:   pcommon.NewPointOrigin(),
+		},
+		{
+			name:    "same slot with different hash",
+			offered: []pcommon.Point{concrete},
+			reply:   pcommon.NewPoint(concrete.Slot, testPointHash(0x03)),
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			callbackCalled := false
+			client := NewClient(
+				protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+				&Config{
+					IntersectFoundFunc: func(
+						CallbackContext,
+						pcommon.Point,
+						Tip,
+					) error {
+						callbackCalled = true
+						return nil
+					},
+				},
+			)
+			tipChan, cancelTip := client.wantCurrentTip()
+			defer cancelTip()
+			resultChan, cancelIntersect := client.wantIntersectFound(
+				test.offered,
+			)
+			defer cancelIntersect()
+
+			err := client.handleIntersectFound(
+				NewMsgIntersectFound(test.reply, tip),
+			)
+			result := <-resultChan
+			if test.wantErr {
+				require.ErrorContains(t, err, "was not offered")
+				require.ErrorContains(t, result.error, "was not offered")
+				require.False(t, callbackCalled)
+				select {
+				case <-tipChan:
+					t.Fatal("invalid intersection published its tip")
+				default:
+				}
+				return
+			}
+
+			require.NoError(t, err)
+			require.NoError(t, result.error)
+			require.Equal(t, test.reply, result.point)
+			require.Equal(t, tip, <-tipChan)
+			require.True(t, callbackCalled)
+		})
+	}
+}
+
+func TestIntersectFoundRejectsUnsolicitedReply(t *testing.T) {
+	callbackCalled := false
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
+		&Config{
+			IntersectFoundFunc: func(
+				CallbackContext,
+				pcommon.Point,
+				Tip,
+			) error {
+				callbackCalled = true
+				return nil
+			},
+		},
+	)
+	tipChan, cancelTip := client.wantCurrentTip()
+	defer cancelTip()
+
+	err := client.handleIntersectFound(NewMsgIntersectFound(
+		pcommon.NewPointOrigin(),
+		Tip{Point: pcommon.NewPointOrigin()},
+	))
+	require.ErrorContains(t, err, "without a pending FindIntersect request")
+	require.False(t, callbackCalled)
+	select {
+	case <-tipChan:
+		t.Fatal("unsolicited intersection published its tip")
+	default:
+	}
 }
 
 func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {

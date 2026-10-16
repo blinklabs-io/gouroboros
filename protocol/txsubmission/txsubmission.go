@@ -98,6 +98,13 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: LargeMaxPendingMessageBytes,
 		Timeout:                 TxIdsNonblockingTimeout, // Timeout for client to reply with tx IDs (non-blocking)
+		// A server pipelines further requests behind one the client has not
+		// answered yet. A blocking request is never pipelined behind others,
+		// so TxIdsBlocking declares none.
+		PipelinedMessageTypes: []uint8{
+			MessageTypeRequestTxIds,
+			MessageTypeRequestTxs,
+		},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxIds,
@@ -109,6 +116,12 @@ var StateMap = protocol.StateMap{
 		Agency:                  protocol.AgencyClient,
 		PendingMessageByteLimit: LargeMaxPendingMessageBytes,
 		Timeout:                 TxsTimeout, // Timeout for client to reply with full transactions
+		// A server pipelines further requests behind one the client has not
+		// answered yet.
+		PipelinedMessageTypes: []uint8{
+			MessageTypeRequestTxIds,
+			MessageTypeRequestTxs,
+		},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeReplyTxs,

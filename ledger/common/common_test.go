@@ -1608,3 +1608,43 @@ func TestMultiAssetDecodePrunesZeroQuantitiesWithDuplicateKeys(t *testing.T) {
 	assert.Empty(t, ma.Policies(),
 		"last-wins zero must be pruned, emptying and dropping the policy")
 }
+
+func TestMultiAssetLedgerSerializedSizeAdjustment(t *testing.T) {
+	t.Parallel()
+	build := func(policies, assetsPerPolicy int) *MultiAsset[*big.Int] {
+		data := map[Blake2b224]map[cbor.ByteString]*big.Int{}
+		for p := range policies {
+			var id Blake2b224
+			id[0], id[1] = byte(p>>8), byte(p)
+			assets := map[cbor.ByteString]*big.Int{}
+			for a := range assetsPerPolicy {
+				assets[cbor.NewByteString([]byte{byte(a >> 8), byte(a)})] = big.NewInt(1)
+			}
+			data[id] = assets
+		}
+		ma := NewMultiAsset(data)
+		return &ma
+	}
+	testCases := []struct {
+		name     string
+		policies int
+		assets   int
+		want     int
+	}{
+		{"at most 23 entries", 1, 23, 0},
+		{"inner 24 definite header is 2 bytes", 1, 24, 0},
+		{"inner 255", 1, 255, 0},
+		{"inner 256 definite header is 3 bytes", 1, 256, -1},
+		{"outer 256 and inner 1", 256, 1, -1},
+		{"outer and inner both 256", 256, 256, -257},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ma := build(tc.policies, tc.assets)
+			assert.Equal(t, tc.want, ma.LedgerSerializedSizeAdjustment())
+		})
+	}
+	var nilAssets *MultiAsset[*big.Int]
+	assert.Equal(t, 0, nilAssets.LedgerSerializedSizeAdjustment())
+}

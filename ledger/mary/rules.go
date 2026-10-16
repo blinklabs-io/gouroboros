@@ -18,7 +18,6 @@ import (
 	"errors"
 	"math/big"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -164,11 +163,11 @@ func UtxoValidateOutputTooBigUtxo(
 		if !ok {
 			return errors.New("transaction output is not expected type")
 		}
-		outputValBytes, err := cbor.Encode(tmpOutput.OutputAmount)
+		outputValSize, err := tmpOutput.OutputAmount.LedgerSerializedSize()
 		if err != nil {
 			return err
 		}
-		if len(outputValBytes) <= maxTransactionOutputValueSize {
+		if outputValSize <= maxTransactionOutputValueSize {
 			continue
 		}
 		badOutputs = append(badOutputs, tmpOutput)

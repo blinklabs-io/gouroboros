@@ -204,7 +204,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
   - [X] Leader election
   - [X] Block construction
   - [X] Chain selection
-  - [X] Threshold calculation
+  - [X] Finite E34 leader eligibility
   - [X] Genesis configuration
   - [X] Byron consensus (OBFT header validation)
 - [X] Testing
@@ -213,7 +213,7 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Ledger rules (pinned Cardano Blueprint corpus; coverage reported by era and rule family)
     - [X] VRF cryptography (29 vectors + 15 unit tests)
     - [X] KES cryptography (14 tests via input-output-hk/kes vectors)
-    - [X] Consensus (222 tests for leader election, threshold, selection)
+    - [X] Consensus (leader election, finite E34 eligibility, selection)
     - [X] Byron blocks (15 tests from mainnet/testnet/conformance)
   - [X] Fuzz testing (19 targets, 14 in nightly CI)
   - [X] CBOR deserialization and serialization

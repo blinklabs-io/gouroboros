@@ -32,19 +32,14 @@ type LeaderElectionResult struct {
 	Proof []byte
 	// Output is the VRF output (nil only on early-return cases like zero stake)
 	Output []byte
-	// Threshold is the integer comparison threshold ceil(T) that was used
-	Threshold *big.Int
 }
 
 // IsSlotLeader checks if a pool is eligible to produce a block in the given slot
 // using CPRAOS consensus. For TPraos compatibility, use IsSlotLeaderWithMode.
 //
-// The CPRAOS algorithm:
-//  1. Compute VRF input using MkInputVrf(slot, epochNonce)
-//  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
-//  3. Compute leader value: BLAKE2b-256("L" || output)
-//  4. Compute threshold: T = 2^256 * (1 - (1-f)^(poolStake/totalStake))
-//  5. Compare: eligible = leaderValue < T
+// CPraos constructs MkInputVrf(slot, epochNonce), generates a VRF proof,
+// then evaluates the domain-separated leader natural with the finite E34
+// predicate. Zero pool or total stake is a pool-policy false result.
 //
 // Parameters:
 //   - slot: the slot number to check
@@ -63,25 +58,21 @@ func IsSlotLeader(
 	activeSlotCoeff *big.Rat,
 	vrfSigner VRFSigner,
 ) (*LeaderElectionResult, error) {
-	return IsSlotLeaderWithMode(slot, epochNonce, poolStake, totalStake, activeSlotCoeff, vrfSigner, ConsensusModeCPraos)
+	return IsSlotLeaderWithMode(
+		slot,
+		epochNonce,
+		poolStake,
+		totalStake,
+		activeSlotCoeff,
+		vrfSigner,
+		ConsensusModeCPraos,
+	)
 }
 
-// IsSlotLeaderWithMode checks if a pool is eligible to produce a block in the given slot
-// using the specified consensus mode.
-//
-// For CPRAOS (Babbage+):
-//  1. Compute VRF input using MkInputVrf(slot, epochNonce)
-//  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
-//  3. Compute leader value: BLAKE2b-256("L" || output)
-//  4. Compute threshold: T = 2^256 * (1 - (1-f)^σ)
-//  5. Compare: eligible = leaderValue < T
-//
-// For TPraos (Shelley-Alonzo):
-//  1. Compute VRF input using MkSeedTPraos(slot, epochNonce, SeedL())
-//  2. Generate VRF proof: proof, output = vrfSigner.Prove(input)
-//  3. Use raw 64-byte VRF output directly
-//  4. Compute threshold: T = 2^512 * (1 - (1-f)^σ)
-//  5. Compare: eligible = output < T
+// IsSlotLeaderWithMode checks pool leadership using the selected mode's
+// VRF input and the prepared finite E34 predicate. TPraos uses MkSeedTPraos
+// with SeedL and the raw output; CPraos uses MkInputVrf and the leader hash.
+// Positive-stake ineligible results retain their proof and output.
 func IsSlotLeaderWithMode(
 	slot uint64,
 	epochNonce []byte,
@@ -91,38 +82,71 @@ func IsSlotLeaderWithMode(
 	vrfSigner VRFSigner,
 	mode ConsensusMode,
 ) (*LeaderElectionResult, error) {
-	if vrfSigner == nil {
-		return nil, errors.New("vrfSigner is nil")
+	if err := validateConsensusMode(mode); err != nil {
+		return nil, err
 	}
-	// Validate epochNonce is exactly 32 bytes to prevent panic in vrf.MkInputVrf
+	evaluator, zeroStake, err := prepareSlotLeadership(
+		epochNonce, poolStake, totalStake, activeSlotCoeff, vrfSigner, mode,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if zeroStake {
+		return &LeaderElectionResult{}, nil
+	}
+	return checkSlotLeadership(
+		slot, epochNonce, vrfSigner, mode, evaluator,
+	)
+}
+
+func prepareSlotLeadership(
+	epochNonce []byte,
+	poolStake, totalStake uint64,
+	activeSlotCoeff *big.Rat,
+	vrfSigner VRFSigner,
+	mode ConsensusMode,
+) (*LeaderEligibility, bool, error) {
+	if vrfSigner == nil {
+		return nil, false, errors.New("vrfSigner is nil")
+	}
 	if len(epochNonce) != 32 {
-		return nil, fmt.Errorf(
-			"epochNonce must be 32 bytes, got %d",
-			len(epochNonce),
+		return nil, false, fmt.Errorf(
+			"epochNonce must be 32 bytes, got %d", len(epochNonce),
 		)
 	}
 	if activeSlotCoeff == nil {
-		return nil, errors.New("activeSlotCoeff is nil")
+		return nil, false, errors.New("activeSlotCoeff is nil")
 	}
-	if totalStake == 0 {
-		return &LeaderElectionResult{
-			Eligible:  false,
-			Threshold: big.NewInt(0),
-		}, nil
+	if totalStake == 0 || poolStake == 0 {
+		if activeSlotCoeff.Sign() > 0 {
+			if err := validateActiveSlotCoefficient(activeSlotCoeff); err != nil {
+				return nil, false, err
+			}
+		}
+		return nil, true, nil
 	}
-	if poolStake == 0 {
-		return &LeaderElectionResult{
-			Eligible:  false,
-			Threshold: big.NewInt(0),
-		}, nil
+	if activeSlotCoeff.Sign() <= 0 {
+		return nil, false, nil
 	}
+	evaluator, err := NewLeaderEligibility(
+		poolStake, totalStake, activeSlotCoeff, mode,
+	)
+	return evaluator, false, err
+}
 
-	// Step 1: Compute VRF input (era-specific)
-	// For leader election, TPraos uses seedL (mkNonceFromNumber 1)
+func checkSlotLeadership(
+	slot uint64,
+	epochNonce []byte,
+	vrfSigner VRFSigner,
+	mode ConsensusMode,
+	evaluator *LeaderEligibility,
+) (*LeaderElectionResult, error) {
+	if vrfSigner == nil {
+		return nil, errors.New("vrfSigner is nil")
+	}
 	if slot > math.MaxInt64 {
 		return nil, fmt.Errorf(
-			"slot %d exceeds maximum int64 value for VRF input",
-			slot,
+			"slot %d exceeds maximum int64 value for VRF input", slot,
 		)
 	}
 	var vrfInput []byte
@@ -139,58 +163,34 @@ func IsSlotLeaderWithMode(
 			int64(slot), //nolint:gosec
 			epochNonce,
 		)
-	default:
-		return nil, fmt.Errorf("unknown consensus mode: %d", mode)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VRF input: %w", err)
 	}
-
-	// Step 2: Generate VRF proof
 	proof, output, err := vrfSigner.Prove(vrfInput)
 	if err != nil {
 		return nil, err
 	}
 	if len(proof) != 80 {
 		return nil, fmt.Errorf(
-			"VRF proof: expected 80 bytes, got %d",
-			len(proof),
+			"VRF proof: expected 80 bytes, got %d", len(proof),
 		)
 	}
 	if len(output) != 64 {
 		return nil, fmt.Errorf(
-			"VRF output: expected 64 bytes, got %d",
-			len(output),
+			"VRF output: expected 64 bytes, got %d", len(output),
 		)
 	}
-
-	// Step 3: Compute threshold (mode-aware)
-	threshold, err := CertifiedNatThresholdWithMode(
-		poolStake,
-		totalStake,
-		activeSlotCoeff,
-		mode,
-	)
-	if err != nil {
-		return nil, err
+	result := &LeaderElectionResult{Proof: proof, Output: output}
+	// Nonpositive coefficients preserve the election adapter's false policy,
+	// but do not bypass proof/output validation for a positive-stake pool.
+	if evaluator != nil {
+		result.Eligible, err = evaluator.CheckVRFOutput(output)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	// Step 4: Check eligibility (mode-aware)
-	eligible, err := IsVRFOutputBelowThresholdWithMode(
-		output,
-		threshold,
-		mode,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &LeaderElectionResult{
-		Eligible:  eligible,
-		Proof:     proof,
-		Output:    output,
-		Threshold: threshold,
-	}, nil
+	return result, nil
 }
 
 // IsSlotLeaderFromComponents performs leader election check from pre-computed components
@@ -238,29 +238,25 @@ func IsSlotLeaderFromComponentsWithMode(
 	activeSlotCoeff *big.Rat,
 	mode ConsensusMode,
 ) (bool, error) {
-	switch mode {
-	case ConsensusModeCPraos, ConsensusModeTPraos:
-	default:
-		return false, fmt.Errorf("unknown consensus mode: %d", mode)
+	if err := validateConsensusMode(mode); err != nil {
+		return false, err
 	}
-
-	if activeSlotCoeff == nil || totalStake == 0 || poolStake == 0 {
+	if activeSlotCoeff == nil || activeSlotCoeff.Sign() <= 0 {
 		return false, nil
 	}
-	if len(vrfOutput) != 64 {
+	if totalStake == 0 || poolStake == 0 || len(vrfOutput) != 64 {
+		if err := validateActiveSlotCoefficient(activeSlotCoeff); err != nil {
+			return false, err
+		}
 		return false, nil
 	}
-
-	threshold, err := CertifiedNatThresholdWithMode(
-		poolStake,
-		totalStake,
-		activeSlotCoeff,
-		mode,
+	evaluator, err := NewLeaderEligibility(
+		poolStake, totalStake, activeSlotCoeff, mode,
 	)
 	if err != nil {
 		return false, err
 	}
-	return IsVRFOutputBelowThresholdWithMode(vrfOutput, threshold, mode)
+	return evaluator.CheckVRFOutput(vrfOutput)
 }
 
 // SimpleVRFSigner is a simple implementation of VRFSigner using the vrf package.
@@ -355,17 +351,25 @@ func FindNextSlotLeadershipContext(
 	if maxSlot < startSlot {
 		return 0, nil, nil, errors.New("maxSlot must not precede startSlot")
 	}
+	if err := ctx.Err(); err != nil {
+		return 0, nil, nil, err
+	}
+	evaluator, zeroStake, err := prepareSlotLeadership(
+		epochNonce, poolStake, totalStake, activeSlotCoeff, vrfSigner,
+		ConsensusModeCPraos,
+	)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	if zeroStake {
+		return 0, nil, nil, nil
+	}
 	for slot := startSlot; ; slot++ {
 		if err := ctx.Err(); err != nil {
 			return 0, nil, nil, err
 		}
-		result, err := IsSlotLeader(
-			slot,
-			epochNonce,
-			poolStake,
-			totalStake,
-			activeSlotCoeff,
-			vrfSigner,
+		result, err := checkSlotLeadership(
+			slot, epochNonce, vrfSigner, ConsensusModeCPraos, evaluator,
 		)
 		if err != nil {
 			return 0, nil, nil, err
