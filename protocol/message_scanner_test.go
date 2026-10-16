@@ -264,8 +264,6 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	select {
 	case msg := <-handled:
 		require.Equal(t, replyType, msg.Type())
-	case err := <-errorChan:
-		t.Fatalf("readLoop rejected the first peer reply: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("recvLoop did not handle the first peer reply")
 	}
@@ -308,6 +306,90 @@ func TestInboundPipelinedReplySurvivesPeerToLocalStateAdvance(t *testing.T) {
 	require.Equal(t, idle, state)
 	require.Equal(t, inboundAdmissionGranted, result)
 	require.True(t, admission.reservedPipelinedReply)
+}
+
+func TestInboundAdmissionWaitCannotUseLaterPipelinedRequest(t *testing.T) {
+	const batchDoneType = uint8(2)
+	idle := NewState(1, "Idle")
+	busy := NewState(2, "Busy")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name:         "test",
+			Role:         ProtocolRoleClient,
+			InitialState: busy,
+			StateMap: StateMap{
+				idle: {Agency: AgencyClient},
+				busy: {
+					Agency: AgencyServer,
+					Transitions: []StateTransition{{
+						MsgType:  batchDoneType,
+						NewState: idle,
+					}},
+				},
+			},
+		},
+		doneChan:               make(chan struct{}),
+		stopChan:               make(chan struct{}),
+		sendDoneChan:           make(chan struct{}),
+		muxerDoneChan:          make(chan bool),
+		recvStateChangedChan:   make(chan struct{}, 1),
+		currentState:           busy,
+		currentStateGeneration: 1,
+		peerAgencyReserved:     true,
+	}
+	transitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = transitions
+	go p.stateLoop(transitions)
+	t.Cleanup(p.Stop)
+	select {
+	case <-p.recvStateChangedChan:
+	case <-time.After(time.Second):
+		t.Fatal("state loop did not publish its initial state")
+	}
+
+	type admissionResult struct {
+		admission inboundAdmission
+		result    inboundAdmissionResult
+	}
+	result := make(chan admissionResult, 1)
+	waiting := make(chan struct{})
+	release := make(chan struct{})
+	go func() {
+		_, admission, got, stopped := p.waitForInboundAdmissionWithWait(
+			1,
+			busy,
+			1,
+			false,
+			func() bool {
+				close(waiting)
+				<-release
+				return true
+			},
+		)
+		if stopped {
+			result <- admissionResult{result: inboundAdmissionDenied}
+			return
+		}
+		result <- admissionResult{admission: admission, result: got}
+	}()
+	select {
+	case <-waiting:
+	case <-time.After(time.Second):
+		t.Fatal("admission did not reach the wait state")
+	}
+	require.NoError(t, p.transitionInboundState(
+		&MessageBase{MessageType: batchDoneType},
+		false,
+	))
+	p.addPendingPipelinedRequest()
+	close(release)
+	select {
+	case got := <-result:
+		require.Equal(t, inboundAdmissionDenied, got.result)
+		require.False(t, got.admission.reservedPipelinedReply)
+	case <-time.After(time.Second):
+		t.Fatal("inbound admission did not retry after the deferred transition")
+	}
 }
 
 func TestInboundStaleReplyCannotReserveLaterPipelinedRequest(t *testing.T) {

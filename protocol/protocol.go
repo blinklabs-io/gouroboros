@@ -1578,6 +1578,35 @@ func (p *Protocol) waitForInboundAdmission(
 	generation uint64,
 	hadUnreservedPipelinedRequest bool,
 ) (State, inboundAdmission, inboundAdmissionResult, bool) {
+	poll := time.NewTicker(time.Millisecond)
+	defer poll.Stop()
+	return p.waitForInboundAdmissionWithWait(
+		messageType,
+		initialState,
+		generation,
+		hadUnreservedPipelinedRequest,
+		func() bool {
+			select {
+			case <-p.stopChan:
+				return false
+			case <-p.sendDoneChan:
+				return false
+			case <-p.muxerDoneChan:
+				return false
+			case <-poll.C:
+				return true
+			}
+		},
+	)
+}
+
+func (p *Protocol) waitForInboundAdmissionWithWait(
+	messageType uint,
+	initialState State,
+	generation uint64,
+	hadUnreservedPipelinedRequest bool,
+	wait func() bool,
+) (State, inboundAdmission, inboundAdmissionResult, bool) {
 	state, admission, result := p.reserveInboundAdmission(
 		messageType,
 		initialState,
@@ -1587,17 +1616,9 @@ func (p *Protocol) waitForInboundAdmission(
 	if result != inboundAdmissionWait {
 		return state, admission, result, false
 	}
-	poll := time.NewTicker(time.Millisecond)
-	defer poll.Stop()
 	for {
-		select {
-		case <-p.stopChan:
+		if !wait() {
 			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-		case <-p.sendDoneChan:
-			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-		case <-p.muxerDoneChan:
-			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
-		case <-poll.C:
 		}
 		state, admission, result = p.reserveInboundAdmission(
 			messageType,

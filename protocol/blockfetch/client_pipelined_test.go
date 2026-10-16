@@ -267,6 +267,61 @@ func TestRequestRangePipelinedOutstandingRequests(t *testing.T) {
 	}
 }
 
+func TestBatchDoneThenCoalescedNextBatch(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	wrapped1, point1 := testBlock(t, 100)
+	wrapped2, point2 := testBlock(t, 200)
+	wrapped3, point3 := testBlock(t, 300)
+	conversation := []ouroboros_mock.ConversationEntry{
+		ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+		ouroboros_mock.ConversationEntryHandshakeNtNResponse,
+		requestRangeInput(),
+		requestRangeInput(),
+		requestRangeInput(),
+		batchOutput(
+			blockfetch.NewMsgStartBatch(),
+			blockfetch.NewMsgBlock(wrapped1),
+			blockfetch.NewMsgBatchDone(),
+			blockfetch.NewMsgStartBatch(),
+			blockfetch.NewMsgBlock(wrapped2),
+			blockfetch.NewMsgBatchDone(),
+			blockfetch.NewMsgStartBatch(),
+			blockfetch.NewMsgBlock(wrapped3),
+			blockfetch.NewMsgBatchDone(),
+		),
+	}
+	h := newPipelineHarness(t, conversation)
+	defer h.close(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+	firstID, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
+		Start: point1, End: point1, ExpectedBytes: 1024,
+	})
+	require.NoError(t, err)
+	secondID, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
+		Start: point2, End: point2, ExpectedBytes: 1024,
+	})
+	require.NoError(t, err)
+	thirdID, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
+		Start: point3, End: point3, ExpectedBytes: 1024,
+	})
+	require.NoError(t, err)
+
+	firstDone := h.nextDone(t)
+	require.Equal(t, deliveredBlock{requestId: firstID, slot: 100}, h.nextBlock(t))
+	require.Equal(t, firstID, firstDone.requestId)
+	require.NoError(t, firstDone.err)
+	require.Equal(t, deliveredBlock{requestId: secondID, slot: 200}, h.nextBlock(t))
+	secondDone := h.nextDone(t)
+	require.Equal(t, secondID, secondDone.requestId)
+	require.NoError(t, secondDone.err)
+	require.Equal(t, deliveredBlock{requestId: thirdID, slot: 300}, h.nextBlock(t))
+	thirdDone := h.nextDone(t)
+	require.Equal(t, thirdID, thirdDone.requestId)
+	require.NoError(t, thirdDone.err)
+}
+
 // TestRequestRangeRequiresOptIn verifies a client that has not opted into
 // request pipelining rejects RequestRange instead of silently changing its
 // wire behavior.
