@@ -5,8 +5,8 @@ This guide covers how to profile Gouroboros for CPU usage, memory allocations, a
 ## Prerequisites
 
 ```bash
-# Install benchstat for benchmark comparison
-go install golang.org/x/perf/cmd/benchstat@latest
+# Verify the repository-pinned benchstat tool
+go tool -modfile=tools/go.mod benchstat -h
 
 # pprof is included with Go
 go tool pprof --help
@@ -393,7 +393,7 @@ git checkout my-optimization-branch
 go test -bench=. -run=^$ -benchmem -count=5 ./internal/bench/... | tee optimized.txt
 
 # Compare
-benchstat baseline.txt optimized.txt
+go tool -modfile=tools/go.mod benchstat baseline.txt optimized.txt
 ```
 
 ## Resources
