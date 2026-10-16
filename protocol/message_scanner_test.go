@@ -149,11 +149,248 @@ func TestReadLoopAllowsMessageForOutstandingPipelinedRequest(t *testing.T) {
 	)
 	select {
 	case msg := <-p.recvQueueChan:
-		require.Equal(t, uint8(1), msg.Type())
+		require.Equal(t, uint8(1), msg.message.Type())
 	case err := <-errors:
 		t.Fatalf("readLoop rejected a pipelined reply: %v", err)
 	case <-time.After(time.Second):
 		t.Fatal("readLoop did not enqueue the pipelined reply")
+	}
+}
+
+func TestReadLoopLimitsRepliesToOutstandingPipelinedRequests(t *testing.T) {
+	state := NewState(1, "Idle")
+	var decodeCalls int
+	p, errors := newReadLoopTestProtocol(
+		t,
+		state,
+		AgencyClient,
+		10,
+		2,
+		[]byte{0x81, 0x01, 0x81, 0x01, 0x81, 0x01},
+		func(messageType uint, _ []byte) (Message, error) {
+			decodeCalls++
+			return &MessageBase{MessageType: uint8(messageType)}, nil
+		},
+	)
+	for range 2 {
+		select {
+		case msg := <-p.recvQueueChan:
+			require.Equal(t, uint8(1), msg.message.Type())
+		case <-time.After(time.Second):
+			t.Fatal("readLoop did not enqueue an accounted pipelined reply")
+		}
+	}
+	select {
+	case err := <-errors:
+		require.ErrorContains(t, err, "without peer agency")
+	case <-time.After(time.Second):
+		t.Fatal("readLoop admitted a reply without an outstanding request")
+	}
+	require.Equal(t, 2, decodeCalls)
+}
+
+func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+	)
+	idle := NewState(1, "Idle")
+	busy := NewState(2, "Busy")
+	errorChan := make(chan error, 1)
+	segments := make(chan *muxer.Segment, 1)
+	segment := muxer.NewSegment(
+		1,
+		[]byte{0x81, replyType, 0x81, replyType},
+		false,
+	)
+	require.NotNil(t, segment)
+	segments <- segment
+	var decodeCalls int
+	handled := make(chan Message, 1)
+	var p *Protocol
+	p = &Protocol{
+		config: ProtocolConfig{
+			Name:      "test",
+			ErrorChan: errorChan,
+			Role:      ProtocolRoleClient,
+			MessageFromCborFunc: func(messageType uint, _ []byte) (Message, error) {
+				decodeCalls++
+				return &MessageBase{MessageType: uint8(messageType)}, nil
+			},
+			MessageHandlerFunc: func(msg Message) error {
+				handled <- msg
+				return p.transitionState(&MessageBase{MessageType: requestType})
+			},
+			StateMap: StateMap{
+				idle: {
+					Agency: AgencyClient,
+					Transitions: []StateTransition{{
+						MsgType:  requestType,
+						NewState: busy,
+					}},
+				},
+				busy: {
+					Agency: AgencyServer,
+					Transitions: []StateTransition{{
+						MsgType:  replyType,
+						NewState: idle,
+					}},
+				},
+			},
+			InitialState:      busy,
+			MaxReadBufferSize: 1 << 20,
+		},
+		doneChan:             make(chan struct{}),
+		stopChan:             make(chan struct{}),
+		muxerDoneChan:        make(chan bool),
+		recvDoneChan:         make(chan struct{}),
+		sendDoneChan:         make(chan struct{}),
+		muxerRecvChan:        segments,
+		recvQueueChan:        make(chan inboundMessage, 2),
+		recvStateChangedChan: make(chan struct{}, 1),
+		sendReadyChan:        make(chan bool, 1),
+		currentState:         busy,
+	}
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	go p.recvLoop()
+	go p.readLoop()
+	t.Cleanup(p.Stop)
+
+	select {
+	case msg := <-handled:
+		require.Equal(t, replyType, msg.Type())
+	case err := <-errorChan:
+		t.Fatalf("readLoop rejected the first peer reply: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("recvLoop did not handle the first peer reply")
+	}
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "without peer agency")
+	case <-time.After(time.Second):
+		t.Fatal("readLoop queued a second reply under the consumed agency grant")
+	}
+	require.Equal(t, 1, decodeCalls)
+}
+
+func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
+	const replyType = uint8(1)
+	streaming := NewState(1, "Streaming")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name: "test",
+			Role: ProtocolRoleClient,
+			StateMap: StateMap{
+				streaming: {
+					Agency: AgencyServer,
+					Transitions: []StateTransition{{
+						MsgType:  replyType,
+						NewState: streaming,
+					}},
+				},
+			},
+			InitialState: streaming,
+		},
+		doneChan:                 make(chan struct{}),
+		stopChan:                 make(chan struct{}),
+		sendReadyChan:            make(chan bool, 1),
+		recvStateChangedChan:     make(chan struct{}, 1),
+		currentState:             streaming,
+		peerAgencyReserved:       true,
+		pendingPipelinedRequests: 1,
+		pendingPipelinedReplies:  1,
+	}
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	t.Cleanup(p.Stop)
+
+	err := p.transitionInboundState(
+		&MessageBase{MessageType: replyType},
+		true,
+	)
+	require.NoError(t, err)
+	_, _, _, result := p.reserveInboundAdmission(uint(replyType), 1, true)
+	require.Equal(t, inboundAdmissionGranted, result)
+}
+
+func TestPipelinedRequestTransitionConsumesAdmissionSlot(t *testing.T) {
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+	)
+	idle := NewState(1, "Idle")
+	busy := NewState(2, "Busy")
+	for _, test := range []struct {
+		name                  string
+		pendingPipelinedReply bool
+		wantFirst             inboundAdmissionResult
+	}{
+		{
+			name:      "new reply uses current grant",
+			wantFirst: inboundAdmissionGranted,
+		},
+		{
+			name:                  "reserved reply owns current grant",
+			pendingPipelinedReply: true,
+			wantFirst:             inboundAdmissionWait,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pendingReplies := 0
+			if test.pendingPipelinedReply {
+				pendingReplies = 1
+			}
+			p := &Protocol{
+				config: ProtocolConfig{
+					Name: "test",
+					Role: ProtocolRoleClient,
+					StateMap: StateMap{
+						idle: {
+							Agency: AgencyClient,
+							Transitions: []StateTransition{{
+								MsgType:  requestType,
+								NewState: busy,
+							}},
+						},
+						busy: {Agency: AgencyServer},
+					},
+					InitialState: idle,
+				},
+				doneChan:                 make(chan struct{}),
+				stopChan:                 make(chan struct{}),
+				sendReadyChan:            make(chan bool, 1),
+				recvStateChangedChan:     make(chan struct{}, 1),
+				currentState:             idle,
+				pendingPipelinedRequests: 1,
+				pendingPipelinedReplies:  pendingReplies,
+			}
+			stateTransitions := make(chan protocolStateTransition)
+			p.stateTransitionChan = stateTransitions
+			go p.stateLoop(stateTransitions)
+			t.Cleanup(p.Stop)
+
+			err := p.transitionPipelinedRequestState(
+				&MessageBase{MessageType: requestType},
+			)
+			require.NoError(t, err)
+			_, _, _, result := p.reserveInboundAdmission(
+				uint(replyType),
+				1,
+				true,
+			)
+			require.Equal(t, test.wantFirst, result)
+			if result == inboundAdmissionGranted {
+				_, _, _, result = p.reserveInboundAdmission(
+					uint(replyType),
+					1,
+					true,
+				)
+				require.Equal(t, inboundAdmissionWait, result)
+			}
+		})
 	}
 }
 
@@ -185,7 +422,7 @@ func TestReadLoopUsesDeclaredPipelinedMessageTypes(t *testing.T) {
 			if test.wantAccept {
 				select {
 				case msg := <-p.recvQueueChan:
-					require.Equal(t, test.message, msg.Type())
+					require.Equal(t, test.message, msg.message.Type())
 					require.Equal(t, 1, decodeCalls)
 				case err := <-errors:
 					t.Fatalf("readLoop rejected a declared pipelined message: %v", err)
@@ -266,7 +503,7 @@ func newReadLoopTestProtocol(
 		muxerDoneChan:            make(chan bool),
 		sendDoneChan:             make(chan struct{}),
 		muxerRecvChan:            segments,
-		recvQueueChan:            make(chan Message, 1),
+		recvQueueChan:            make(chan inboundMessage, 1),
 		currentState:             state,
 		pendingPipelinedRequests: pendingPipelinedRequests,
 	}

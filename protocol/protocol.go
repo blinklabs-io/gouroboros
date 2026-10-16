@@ -83,7 +83,7 @@ type Protocol struct {
 	muxerDoneChan        chan bool
 	sendQueueChan        chan outboundMessage
 	recvDoneChan         chan struct{}
-	recvQueueChan        chan Message
+	recvQueueChan        chan inboundMessage
 	recvStateChangedChan chan struct{}
 	sendDoneChan         chan struct{}
 	sendReadyChan        chan bool
@@ -105,10 +105,12 @@ type Protocol struct {
 	pendingBytesMu           sync.Mutex
 	pendingSendBytes         int
 	pendingRecvBytes         int
-	pendingRecvSizes         []int // Sizes of pending received messages.
 	pendingPipelinedRequests int
+	pendingPipelinedReplies  int
 	currentStateMu           sync.RWMutex
 	currentState             State
+	currentStateGeneration   uint64
+	peerAgencyReserved       bool
 	// pipelinedDequeueHook, when non-nil, is invoked by sendLoop immediately
 	// after dequeuing a message through the pipelined-send path, before the
 	// state re-check that decides eligibility or promotion (see
@@ -139,6 +141,12 @@ type Protocol struct {
 	// transitions deferred in queuedStateTransitions. Production code never
 	// sets this.
 	batchRecheckHook func()
+}
+
+type inboundMessage struct {
+	message                Message
+	size                   int
+	reservedPipelinedReply bool
 }
 
 // ProtocolConfig provides the configuration for Protocol
@@ -254,8 +262,10 @@ type ProtocolOptions struct {
 }
 
 type protocolStateTransition struct {
-	msg       Message
-	errorChan chan<- error
+	msg                      Message
+	consumesPipelinedReply   bool
+	consumesPipelinedRequest bool
+	errorChan                chan<- error
 }
 
 type outboundMessage struct {
@@ -402,7 +412,7 @@ func (p *Protocol) Start() {
 
 		// Create channels
 		p.sendQueueChan = make(chan outboundMessage, 80)
-		p.recvQueueChan = make(chan Message, p.config.RecvQueueSize)
+		p.recvQueueChan = make(chan inboundMessage, p.config.RecvQueueSize)
 		p.recvStateChangedChan = make(chan struct{}, 1)
 		p.sendReadyChan = make(chan bool, 1)
 
@@ -875,7 +885,7 @@ func (p *Protocol) flushQueuedStateTransitions(
 	var err error
 	applied := 0
 	for _, msg := range queuedStateTransitions {
-		if err = p.transitionState(msg); err != nil {
+		if err = p.transitionPipelinedRequestState(msg); err != nil {
 			err = fmt.Errorf(
 				"%s: error applying deferred transition for message type %d: %w",
 				p.config.Name,
@@ -884,7 +894,6 @@ func (p *Protocol) flushQueuedStateTransitions(
 			)
 			break
 		}
-		p.removePendingPipelinedRequest()
 		applied++
 	}
 	return slices.Delete(queuedStateTransitions, 0, applied), err
@@ -1219,7 +1228,9 @@ waitSendReadyChan:
 		// while the peer holds agency, so it can never satisfy a deferred
 		// transition and must not delay the bytes we already have in hand.
 		if haveAgency && len(queuedStateTransitions) > 0 {
-			if err := p.transitionState(queuedStateTransitions[0]); err != nil {
+			if err := p.transitionPipelinedRequestState(
+				queuedStateTransitions[0],
+			); err != nil {
 				if errors.Is(err, ErrProtocolShuttingDown) {
 					// Graceful shutdown in progress
 					return
@@ -1233,7 +1244,6 @@ waitSendReadyChan:
 				)
 				return
 			}
-			p.removePendingPipelinedRequest()
 			queuedStateTransitions = slices.Delete(queuedStateTransitions, 0, 1)
 			// Don't read more messages from the send queue until all state transitions from
 			// previously sent pipelined messages have been completed
@@ -1467,47 +1477,86 @@ func (p *Protocol) addPendingPipelinedRequest() {
 	p.pendingBytesMu.Unlock()
 }
 
-func (p *Protocol) removePendingPipelinedRequest() {
-	p.pendingBytesMu.Lock()
-	if p.pendingPipelinedRequests > 0 {
-		p.pendingPipelinedRequests--
-	}
-	p.pendingBytesMu.Unlock()
+type inboundAdmission struct {
+	reservedPipelinedReply bool
 }
 
-func (p *Protocol) pendingPipelinedRequestCount() int {
-	p.pendingBytesMu.Lock()
-	defer p.pendingBytesMu.Unlock()
-	return p.pendingPipelinedRequests
-}
+type inboundAdmissionResult int
 
-func (p *Protocol) peerHasAgencyOrPipelinedRequest(
-	state State,
+const (
+	inboundAdmissionDenied inboundAdmissionResult = iota
+	inboundAdmissionGranted
+	inboundAdmissionWait
+)
+
+func (p *Protocol) reserveInboundAdmission(
 	messageType uint,
-	pendingPipelinedRequests int,
-) bool {
+	expectedGeneration uint64,
+	requireGeneration bool,
+) (State, uint64, inboundAdmission, inboundAdmissionResult) {
+	p.currentStateMu.Lock()
+	defer p.currentStateMu.Unlock()
+	state := p.currentState
+	generation := p.currentStateGeneration
+	if requireGeneration && generation != expectedGeneration {
+		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+	}
 	entry, ok := p.config.StateMap[state]
 	if !ok {
-		return false
+		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+	}
+	reservePipelinedReply := func() bool {
+		p.pendingBytesMu.Lock()
+		defer p.pendingBytesMu.Unlock()
+		if p.pendingPipelinedReplies >= p.pendingPipelinedRequests {
+			return false
+		}
+		p.pendingPipelinedReplies++
+		return true
 	}
 	switch p.agencyHolderFor(entry) {
 	case agencyPeer:
-		return true
-	case agencyLocal:
-		if pendingPipelinedRequests > 0 {
-			return true
+		if !p.peerAgencyReserved {
+			p.peerAgencyReserved = true
+			return state, generation, inboundAdmission{}, inboundAdmissionGranted
 		}
+		if reservePipelinedReply() {
+			return state, generation, inboundAdmission{
+				reservedPipelinedReply: true,
+			}, inboundAdmissionGranted
+		}
+		return state, generation, inboundAdmission{}, inboundAdmissionWait
+	case agencyLocal:
 		for _, pipelinedMessageType := range entry.PipelinedMessageTypes {
 			if uint(pipelinedMessageType) == messageType {
-				return true
+				return state, generation, inboundAdmission{}, inboundAdmissionGranted
 			}
 		}
-		return false
+		if reservePipelinedReply() {
+			return state, generation, inboundAdmission{
+				reservedPipelinedReply: true,
+			}, inboundAdmissionGranted
+		}
+		return state, generation, inboundAdmission{}, inboundAdmissionDenied
 	case agencyNeither:
-		return false
+		return state, generation, inboundAdmission{}, inboundAdmissionDenied
 	default:
-		return false
+		return state, generation, inboundAdmission{}, inboundAdmissionDenied
 	}
+}
+
+func (p *Protocol) currentInboundState() (State, uint64) {
+	p.currentStateMu.RLock()
+	defer p.currentStateMu.RUnlock()
+	return p.currentState, p.currentStateGeneration
+}
+
+func (p *Protocol) releasePipelinedReplyAdmission() {
+	p.pendingBytesMu.Lock()
+	if p.pendingPipelinedReplies > 0 {
+		p.pendingPipelinedReplies--
+	}
+	p.pendingBytesMu.Unlock()
 }
 
 func (p *Protocol) pendingMessageByteLimit(state State) int {
@@ -1571,8 +1620,9 @@ func (p *Protocol) readLoop() {
 	scanner := messageScanner{}
 	peerAgencyChecked := false
 	var messageState State
+	var messageGeneration uint64
 	messageStateSet := false
-	pendingPipelinedRequests := 0
+	var admission inboundAdmission
 	// Bytes this protocol holds against the connection-wide reassembly
 	// allowance. The per-protocol cap below bounds one mini-protocol; this
 	// is what keeps every mini-protocol on the connection bounded together.
@@ -1592,7 +1642,8 @@ func (p *Protocol) readLoop() {
 		scanner = messageScanner{}
 		peerAgencyChecked = false
 		messageStateSet = false
-		pendingPipelinedRequests = 0
+		messageGeneration = 0
+		admission = inboundAdmission{}
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
 	waitForPendingBudget := func(budget, msgLen int, account bool) bool {
@@ -1602,7 +1653,6 @@ func (p *Protocol) readLoop() {
 				p.pendingRecvBytes == 0 {
 				if account {
 					p.pendingRecvBytes += msgLen
-					p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 				}
 				p.pendingBytesMu.Unlock()
 				return true
@@ -1615,6 +1665,60 @@ func (p *Protocol) readLoop() {
 				return false
 			case <-time.After(time.Millisecond):
 			}
+		}
+	}
+	waitForInboundAdmission := func(
+		messageType uint,
+		initialState State,
+		generation uint64,
+	) (State, inboundAdmission, inboundAdmissionResult, bool) {
+		state, currentGeneration, admission, result := p.reserveInboundAdmission(
+			messageType,
+			generation,
+			true,
+		)
+		if result == inboundAdmissionDenied &&
+			currentGeneration == generation+1 &&
+			p.agencyHolderFor(p.config.StateMap[initialState]) == agencyPeer &&
+			p.agencyHolderFor(p.config.StateMap[state]) == agencyPeer {
+			state, currentGeneration, admission, result = p.reserveInboundAdmission(
+				messageType,
+				currentGeneration,
+				true,
+			)
+		}
+		if result != inboundAdmissionWait {
+			return state, admission, result, false
+		}
+		generation = currentGeneration
+		poll := time.NewTicker(time.Millisecond)
+		defer poll.Stop()
+		for {
+			select {
+			case <-p.stopChan:
+				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+			case <-p.sendDoneChan:
+				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+			case <-p.muxerDoneChan:
+				return State{}, inboundAdmission{}, inboundAdmissionDenied, true
+			case <-poll.C:
+			}
+			state, currentGeneration := p.currentInboundState()
+			if currentGeneration == generation {
+				continue
+			}
+			if currentGeneration != generation+1 {
+				return state, inboundAdmission{}, inboundAdmissionDenied, false
+			}
+			state, _, admission, result = p.reserveInboundAdmission(
+				messageType,
+				currentGeneration,
+				true,
+			)
+			if result == inboundAdmissionWait {
+				result = inboundAdmissionDenied
+			}
+			return state, admission, result, false
 		}
 	}
 
@@ -1704,20 +1808,22 @@ func (p *Protocol) readLoop() {
 				return
 			}
 			if scanResult.started && !messageStateSet {
-				// Writers apply a deferred state transition before decrementing
-				// this count. Snapshot it first to avoid pairing stale state with
-				// the post-transition count.
-				pendingPipelinedRequests = p.pendingPipelinedRequestCount()
-				messageState = p.getCurrentState()
+				messageState, messageGeneration = p.currentInboundState()
 				messageStateSet = true
 			}
-			terminalMessage = p.stateHasNoAgency(messageState)
 			if scanResult.hasMessageType && !peerAgencyChecked {
-				if !p.peerHasAgencyOrPipelinedRequest(
-					messageState,
+				var result inboundAdmissionResult
+				var stopped bool
+				messageState, admission, result, stopped = waitForInboundAdmission(
 					scanResult.messageType,
-					pendingPipelinedRequests,
-				) && !terminalMessage {
+					messageState,
+					messageGeneration,
+				)
+				if stopped {
+					return
+				}
+				terminalMessage = p.stateHasNoAgency(messageState)
+				if result != inboundAdmissionGranted && !terminalMessage {
 					p.SendError(fmt.Errorf(
 						"%s: received message type %d without peer agency, an "+
 							"allowed pipelined message, or an outstanding pipelined request "+
@@ -1730,6 +1836,9 @@ func (p *Protocol) readLoop() {
 				}
 				peerAgencyChecked = true
 				continue
+			}
+			if messageStateSet {
+				terminalMessage = p.stateHasNoAgency(messageState)
 			}
 			if scanResult.oversized {
 				size := scanResult.messageLength
@@ -1818,7 +1927,6 @@ func (p *Protocol) readLoop() {
 			} else {
 				p.pendingBytesMu.Lock()
 				p.pendingRecvBytes += msgLen
-				p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 				p.pendingBytesMu.Unlock()
 			}
 		} else {
@@ -1826,7 +1934,6 @@ func (p *Protocol) readLoop() {
 			// this accounting, so the admitted message still fits.
 			p.pendingBytesMu.Lock()
 			p.pendingRecvBytes += msgLen
-			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 			p.pendingBytesMu.Unlock()
 		}
 		if p.config.MessageReceivedFunc != nil {
@@ -1834,7 +1941,11 @@ func (p *Protocol) readLoop() {
 		}
 		// Add message to receive queue (blocking with shutdown checks)
 		select {
-		case p.recvQueueChan <- msg:
+		case p.recvQueueChan <- inboundMessage{
+			message:                msg,
+			size:                   msgLen,
+			reservedPipelinedReply: admission.reservedPipelinedReply,
+		}:
 		case <-p.stopChan:
 			return
 		case <-p.muxerDoneChan:
@@ -1859,7 +1970,7 @@ func (p *Protocol) recvLoop() {
 			return
 		case <-p.muxerDoneChan:
 			return
-		case msg := <-p.recvQueueChan:
+		case inbound := <-p.recvQueueChan:
 			// A message admitted while this role holds agency, whether a
 			// reply to an outstanding pipelined request or a peer-pipelined
 			// request, is handled only once the peer holds agency again. Its
@@ -1877,8 +1988,25 @@ func (p *Protocol) recvLoop() {
 				case <-p.recvStateChangedChan:
 				}
 			}
-			// Handle message
-			if err := p.handleMessage(msg); err != nil {
+			transitionErr := p.transitionInboundState(
+				inbound.message,
+				inbound.reservedPipelinedReply,
+			)
+			if inbound.reservedPipelinedReply {
+				p.releasePipelinedReplyAdmission()
+			}
+			if transitionErr != nil {
+				if errors.Is(transitionErr, ErrProtocolShuttingDown) {
+					return
+				}
+				p.SendError(fmt.Errorf(
+					"%s: error handling message: %w",
+					p.config.Name,
+					transitionErr,
+				))
+				return
+			}
+			if err := p.config.MessageHandlerFunc(inbound.message); err != nil {
 				if errors.Is(err, ErrProtocolShuttingDown) {
 					// Graceful shutdown in progress
 					return
@@ -1886,15 +2014,11 @@ func (p *Protocol) recvLoop() {
 				p.SendError(err)
 				return
 			}
-			// After handling, decrement pendingRecvBytes by the actual message size
+			// After handling, decrement pendingRecvBytes by the actual message size.
 			p.pendingBytesMu.Lock()
-			if len(p.pendingRecvSizes) > 0 {
-				size := p.pendingRecvSizes[0]
-				p.pendingRecvSizes = p.pendingRecvSizes[1:]
-				p.pendingRecvBytes -= size
-				if p.pendingRecvBytes < 0 {
-					p.pendingRecvBytes = 0
-				}
+			p.pendingRecvBytes -= inbound.size
+			if p.pendingRecvBytes < 0 {
+				p.pendingRecvBytes = 0
 			}
 			p.pendingBytesMu.Unlock()
 		}
@@ -1906,7 +2030,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	var transitionTimer *time.Timer
 	var initialStateSet bool
 
-	setState := func(s State) {
+	setState := func(
+		s State,
+		consumesPipelinedReply bool,
+		consumesPipelinedRequest bool,
+	) {
 		// Disable any previous state transition timer
 		if transitionTimer != nil && !transitionTimer.Stop() {
 			<-transitionTimer.C
@@ -1918,6 +2046,23 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		// rechecks the current state before handling each queued message.
 		p.currentStateMu.Lock()
 		p.currentState = s
+		if initialStateSet {
+			p.currentStateGeneration++
+			p.peerAgencyReserved = false
+			if consumesPipelinedRequest ||
+				p.agencyHolderFor(p.config.StateMap[s]) == agencyPeer {
+				p.pendingBytesMu.Lock()
+				if consumesPipelinedRequest && p.pendingPipelinedRequests > 0 {
+					p.pendingPipelinedRequests--
+				}
+				reservedReplies := p.pendingPipelinedReplies
+				if consumesPipelinedReply && reservedReplies > 0 {
+					reservedReplies--
+				}
+				p.peerAgencyReserved = reservedReplies > 0
+				p.pendingBytesMu.Unlock()
+			}
+		}
 		skipTimeout := false
 		switch p.agencyHolderFor(p.config.StateMap[s]) {
 		case agencyLocal:
@@ -1963,7 +2108,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	}
 
 	// Set initial state
-	setState(p.config.InitialState)
+	setState(p.config.InitialState, false, false)
 	initialStateSet = true
 
 	for {
@@ -1989,7 +2134,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 				continue
 			}
 
-			setState(nextState)
+			setState(
+				nextState,
+				t.consumesPipelinedReply,
+				t.consumesPipelinedRequest,
+			)
 			t.errorChan <- nil
 
 		case <-getTimerChan():
@@ -2039,6 +2188,25 @@ func (p *Protocol) peerHasAgency() bool {
 }
 
 func (p *Protocol) transitionState(msg Message) error {
+	return p.requestStateTransition(msg, false, false)
+}
+
+func (p *Protocol) transitionInboundState(
+	msg Message,
+	consumesPipelinedReply bool,
+) error {
+	return p.requestStateTransition(msg, consumesPipelinedReply, false)
+}
+
+func (p *Protocol) transitionPipelinedRequestState(msg Message) error {
+	return p.requestStateTransition(msg, false, true)
+}
+
+func (p *Protocol) requestStateTransition(
+	msg Message,
+	consumesPipelinedReply bool,
+	consumesPipelinedRequest bool,
+) error {
 	errorChan := make(chan error, 1)
 	select {
 	case <-p.stopChan:
@@ -2046,8 +2214,10 @@ func (p *Protocol) transitionState(msg Message) error {
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
 	case p.stateTransitionChan <- protocolStateTransition{
-		msg:       msg,
-		errorChan: errorChan,
+		msg:                      msg,
+		consumesPipelinedReply:   consumesPipelinedReply,
+		consumesPipelinedRequest: consumesPipelinedRequest,
+		errorChan:                errorChan,
 	}:
 	}
 
@@ -2059,13 +2229,4 @@ func (p *Protocol) transitionState(msg Message) error {
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
 	}
-}
-
-func (p *Protocol) handleMessage(msg Message) error {
-	if err := p.transitionState(msg); err != nil {
-		return fmt.Errorf("%s: error handling message: %w", p.config.Name, err)
-	}
-
-	// Call handler function
-	return p.config.MessageHandlerFunc(msg)
 }
