@@ -306,6 +306,33 @@ func TestInboundPipelinedReplySurvivesPeerToLocalStateAdvance(t *testing.T) {
 	require.True(t, admission.reservedPipelinedReply)
 }
 
+func TestInboundStaleReplyCannotReserveLaterPipelinedRequest(t *testing.T) {
+	busy := NewState(1, "Busy")
+	idle := NewState(2, "Idle")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name: "test",
+			Role: ProtocolRoleClient,
+			StateMap: StateMap{
+				busy: {Agency: AgencyServer},
+				idle: {Agency: AgencyClient},
+			},
+		},
+		stopChan:                 make(chan struct{}),
+		sendDoneChan:             make(chan struct{}),
+		muxerDoneChan:            make(chan bool),
+		currentState:             idle,
+		currentStateGeneration:   3,
+		pendingPipelinedRequests: 1,
+	}
+
+	_, admission, result, stopped := p.waitForInboundAdmission(1, busy, 1)
+	require.False(t, stopped)
+	require.Equal(t, inboundAdmissionDenied, result)
+	require.False(t, admission.reservedPipelinedReply)
+	require.Zero(t, p.pendingPipelinedReplies)
+}
+
 func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 	const replyType = uint8(1)
 	streaming := NewState(1, "Streaming")

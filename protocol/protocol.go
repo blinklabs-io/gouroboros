@@ -1553,9 +1553,9 @@ func (p *Protocol) reserveAdvancedPipelinedReply(
 	p.currentStateMu.Lock()
 	defer p.currentStateMu.Unlock()
 	state := p.currentState
-	if p.currentStateGeneration == expectedGeneration ||
+	if p.currentStateGeneration != expectedGeneration+1 ||
 		p.agencyHolderFor(p.config.StateMap[initialState]) != agencyPeer ||
-		p.stateHasNoAgency(state) ||
+		p.agencyHolderFor(p.config.StateMap[state]) != agencyLocal ||
 		!p.reservePipelinedReply() {
 		return state, inboundAdmission{}, inboundAdmissionDenied
 	}
