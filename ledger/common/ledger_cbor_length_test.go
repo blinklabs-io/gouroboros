@@ -150,6 +150,9 @@ func TestRewardAccountMapsUseIndefiniteEncodingAbove23(t *testing.T) {
 	var actionFields []cbor.RawMessage
 	_, err = cbor.DecodeExact(encodedAction, &actionFields)
 	require.NoError(t, err)
+	if len(actionFields) < 2 {
+		t.Fatalf("decoded treasury withdrawal action has %d fields", len(actionFields))
+	}
 	require.Equal(t, encodedWithdrawals, []byte(actionFields[1]))
 }
 
@@ -175,6 +178,9 @@ func TestUpdateCommitteeMarshalCBORUsesIndefiniteSetAndMapAbove23(t *testing.T) 
 	var fields []cbor.RawMessage
 	_, err = cbor.DecodeExact(encoded, &fields)
 	require.NoError(t, err)
+	if len(fields) <= 2 || len(fields[2]) < 4 {
+		t.Fatalf("decoded update committee action does not contain its removed set")
+	}
 	require.Equal(t, []byte{0xd9, 0x01, 0x02, 0x9f}, []byte(fields[2])[:4])
 	require.Equal(t, byte(0xff), fields[2][len(fields[2])-1])
 	var removedSet cbor.SetType[Credential]
@@ -190,6 +196,9 @@ func TestUpdateCommitteeMarshalCBORUsesIndefiniteSetAndMapAbove23(t *testing.T) 
 	for i := range wantCredentials {
 		require.Equal(t, wantCredentials[i].CredType, removedCredentials[i].CredType)
 		require.Equal(t, wantCredentials[i].Credential, removedCredentials[i].Credential)
+	}
+	if len(fields) <= 3 || len(fields[3]) == 0 {
+		t.Fatalf("decoded update committee action does not contain its epoch map")
 	}
 	require.Equal(t, byte(0xbf), fields[3][0])
 	require.Equal(t, byte(0xff), fields[3][len(fields[3])-1])
@@ -232,6 +241,9 @@ func TestPoolRegistrationOwnersUseIndefiniteSetAbove23(t *testing.T) {
 	var fields []cbor.RawMessage
 	_, err = cbor.DecodeExact(encoded, &fields)
 	require.NoError(t, err)
+	if len(fields) <= 7 || len(fields[7]) < 4 {
+		t.Fatalf("decoded pool registration certificate does not contain its owner set")
+	}
 	require.Equal(t, []byte{0xd9, 0x01, 0x02, 0x9f}, []byte(fields[7])[:4])
 	require.Equal(t, byte(0xff), fields[7][len(fields[7])-1])
 	var ownerSet cbor.SetType[AddrKeyHash]

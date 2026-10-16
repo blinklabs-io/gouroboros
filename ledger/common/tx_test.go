@@ -42,6 +42,22 @@ type withdrawalOrderTransactionBody struct {
 	TxWithdrawals map[*Address]uint64 `cbor:"5,keyasint,omitempty"`
 }
 
+type votingProceduresEncodingTransactionBody struct {
+	TransactionBodyBase
+	TxVotingProcedures VotingProcedures `cbor:"19,keyasint,omitempty"`
+}
+
+func (b *votingProceduresEncodingTransactionBody) ProtocolParameterUpdates() (
+	uint64,
+	map[Blake2b224]ProtocolParameterUpdate,
+) {
+	return 0, nil
+}
+
+func (b *votingProceduresEncodingTransactionBody) VotingProcedures() VotingProcedures {
+	return b.TxVotingProcedures
+}
+
 func (b *withdrawalOrderTransactionBody) Withdrawals() map[*Address]*big.Int {
 	if b.TxWithdrawals == nil {
 		return nil
@@ -122,6 +138,27 @@ func TestEncodeTransactionBodyUsesLedgerWithdrawalOrder(t *testing.T) {
 	expected = append(expected, 5)
 	expected = append(expected, expectedWithdrawals...)
 	require.Equal(t, expected, actual)
+}
+
+func TestEncodeTransactionBodyOmitsEmptyVotingProcedures(t *testing.T) {
+	t.Parallel()
+	for name, votingProcedures := range map[string]VotingProcedures{
+		"nil":   nil,
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			body := votingProceduresEncodingTransactionBody{
+				TxVotingProcedures: votingProcedures,
+			}
+			encoded, err := EncodeTransactionBodyWithValidityIntervalUpperBound(&body)
+			require.NoError(t, err)
+			var fields map[uint]cbor.RawMessage
+			_, err = cbor.DecodeLedgerMap(encoded, &fields)
+			require.NoError(t, err)
+			require.NotContains(t, fields, uint(19))
+		})
+	}
 }
 
 func (m *mockTransactionBody) Id() Blake2b256 {

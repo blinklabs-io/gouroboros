@@ -2510,6 +2510,9 @@ func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 	if _, err := cbor.DecodeExact(cborData, &fields); err != nil {
 		return err
 	}
+	if len(fields) != 3 {
+		return errors.New("invalid DRep deregistration certificate array")
+	}
 	if len(fields[2]) == 0 || fields[2][0]>>5 != 0 {
 		return errors.New("DRep deregistration amount must be an unsigned integer")
 	}
@@ -2570,6 +2573,9 @@ func (c *UpdateDrepCertificate) UnmarshalCBOR(
 	var fields []cbor.RawMessage
 	if _, err := cbor.DecodeExact(cborData, &fields); err != nil {
 		return err
+	}
+	if len(fields) != 3 {
+		return errors.New("invalid DRep update certificate array")
 	}
 	if bytes.Equal(fields[2], []byte{0xf7}) {
 		return errors.New("DRep update anchor cannot be CBOR undefined")

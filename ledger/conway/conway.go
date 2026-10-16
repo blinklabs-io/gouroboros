@@ -885,6 +885,9 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
 		return nil, err
 	}
+	if bodyFields == nil {
+		return nil, errors.New("encoded Conway transaction body has no fields")
+	}
 	if len(b.TxCertificates) > 0 {
 		certificates := cbor.NewSetType(b.TxCertificates, true)
 		encodedCertificates, err := cbor.Encode(&certificates)
@@ -900,9 +903,6 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 			return nil, fmt.Errorf("encode Conway proposal-procedure set: %w", err)
 		}
 		bodyFields[20] = encodedProposals
-	}
-	if len(b.TxVotingProcedures) == 0 {
-		delete(bodyFields, 19)
 	}
 	return cbor.Encode(bodyFields)
 }
