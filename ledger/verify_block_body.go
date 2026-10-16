@@ -207,6 +207,16 @@ func decodeBlockBodyTxs(data []byte) ([][]string, error) {
 		}
 		txs = append(txs, tx)
 	}
+	consumed := dec.Position()
+	if indefinite {
+		consumed++ // Include the break byte that terminates the outer array.
+	}
+	if consumed != len(body) {
+		return nil, fmt.Errorf(
+			"block body has %d trailing bytes",
+			len(body)-consumed,
+		)
+	}
 	return txs, nil
 }
 

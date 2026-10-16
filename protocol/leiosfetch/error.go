@@ -48,3 +48,20 @@ var ErrRequestSlotAbandoned = errors.New(
 var ErrBlockRangeResponseLimitExceeded = errors.New(
 	"leios-fetch block range response limit exceeded",
 )
+
+// ErrVoteRequestTooLarge signals that VotesRequest was asked for more than
+// MaxVotesPerMessage votes. The reply would carry one vote per ID, and a reply
+// above that count fails the whole connection, so the request is refused
+// before anything is sent. Callers should split the IDs across requests.
+var ErrVoteRequestTooLarge = errors.New(
+	"leios-fetch vote request exceeds the per-message vote limit",
+)
+
+// ErrInvalidBlockTxsBitmaps signals that BlockTxsRequest was given a bitmap
+// the reference node refuses while decoding the request: a key at or above
+// the number of bitmaps an endorser block can need, or a bitmap selecting no
+// transaction. Such a request fails the whole connection at the peer, so it is
+// refused before anything is sent.
+var ErrInvalidBlockTxsBitmaps = errors.New(
+	"leios-fetch block transactions request has an invalid bitmap",
+)

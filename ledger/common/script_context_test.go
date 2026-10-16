@@ -639,6 +639,12 @@ func TestPlutusWellFormednessRunsBeforePhase2(t *testing.T) {
 		phase2RuleName     string
 	}{
 		{
+			name:               "Alonzo",
+			rules:              alonzo.UtxoValidationRules,
+			wellFormedRuleName: "ledger/alonzo.UtxoValidateMalformedReferenceScripts",
+			phase2RuleName:     "ledger/alonzo.UtxoValidatePlutusScripts",
+		},
+		{
 			name:               "Babbage",
 			rules:              babbage.UtxoValidationRules,
 			wellFormedRuleName: "ledger/babbage.UtxoValidateMalformedReferenceScripts",

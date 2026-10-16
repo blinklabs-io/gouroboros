@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// epochAware adds the optional EpochState capability to a ledger state, which
+// epochAware adds the EpochState capability to a ledger state, which
 // the mock does not provide on its own.
 type epochAware struct {
 	common.LedgerState
@@ -96,18 +96,12 @@ func TestPoolRegistrationDepositDueAfterRetirement(t *testing.T) {
 		})
 	}
 
-	t.Run("without EpochState the retirement bound is not evaluated", func(t *testing.T) {
-		// Documented degradation: the registration on record is taken at face
-		// value, which is the behaviour that existed before this helper.
-		got, err := common.PoolRegistrationDepositDue(
+	t.Run("without EpochState the deposit decision fails closed", func(t *testing.T) {
+		_, err := common.PoolRegistrationDepositDue(
 			build(reg, epoch(197)), 0, operator,
 		)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got {
-			t.Error("without the epoch capability the bound cannot be evaluated")
-		}
+		var target common.EpochStateUnavailableError
+		require.ErrorAs(t, err, &target)
 	})
 }
 

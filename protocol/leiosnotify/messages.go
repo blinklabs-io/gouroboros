@@ -25,20 +25,24 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// Message IDs follow the leios-prototype CDDL in Cardano Blueprint.
+// Message IDs follow the LeiosNotify messages CDDL in Cardano Blueprint as
+// implemented by the node of Leios release candidate 2026w41.
 const (
-	MessageTypeNotificationRequestNext = 0
-	MessageTypeBlockAnnouncement       = 1
-	MessageTypeBlockOffer              = 2
-	MessageTypeBlockTxsOffer           = 3
-	MessageTypeVotesOffer              = 4
-	MessageTypeDone                    = 5
+	MessageTypeDone                    = 0
+	MessageTypeQuit                    = 1
+	MessageTypeCanceled                = 2
+	MessageTypeNotificationRequestNext = 3
+	MessageTypeBlockAnnouncement       = 4
+	MessageTypeBlockOffer              = 5
+	MessageTypeBlockTxsOffer           = 6
+	MessageTypeVotesOffer              = 7
 	// MaxVotesOfferCount bounds vote work from one leios-notify message,
 	// independently of the transport frame limit.
 	MaxVotesOfferCount = 1000
 	// MaxVotesOfferBytes bounds CBOR parsing work for one offer before the
-	// decoder scans any individual vote value.
-	MaxVotesOfferBytes = 256 * 1024
+	// decoder scans any individual vote value. It is the largest message the
+	// reference node accepts in any LeiosNotify state.
+	MaxVotesOfferBytes = 0xffff
 	// MaxBlockAnnouncementBytes bounds one encoded block announcement before
 	// it is decoded. It is one muxer segment, far above any ranking-block
 	// header the ledger accepts (mainnet maxBlockHeaderSize is 1,100 bytes).
@@ -77,6 +81,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgVotesOffer{}
 	case MessageTypeDone:
 		ret = &MsgDone{}
+	case MessageTypeQuit:
+		ret = &MsgQuit{}
+	case MessageTypeCanceled:
+		ret = &MsgCanceled{}
 	default:
 		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
 	}
@@ -97,9 +105,28 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			ret.Type(),
 		)
 	}
+	if err := validateMessage(ret); err != nil {
+		return nil, fmt.Errorf("%s: %w", ProtocolName, err)
+	}
 	// Store the raw message CBOR
 	ret.SetCbor(data)
 	return ret, nil
+}
+
+// validateMessage applies the size bound the reference node enforces on a
+// block offer; the point's hash length is checked when the point decodes.
+func validateMessage(msg protocol.Message) error {
+	switch m := msg.(type) {
+	case *MsgBlockOffer:
+		if m.Size == 0 || m.Size > pcommon.MaxLeiosEndorserBlockSize {
+			return fmt.Errorf(
+				"block offer size %d outside 1..%d",
+				m.Size,
+				pcommon.MaxLeiosEndorserBlockSize,
+			)
+		}
+	}
+	return nil
 }
 
 type MsgNotificationRequestNext struct {
@@ -115,21 +142,107 @@ func NewMsgNotificationRequestNext() *MsgNotificationRequestNext {
 	return m
 }
 
+// MsgBlockAnnouncement carries the header of a ranking block that announces an
+// endorser block. On the wire the header is the hard-fork combinator's
+// node-to-node header encoding, [era, #6.24(bytes .cbor header)], the shape
+// ChainSync uses for headers of the Shelley-based eras. Byron headers, which
+// carry an extra size prefix there, cannot announce an endorser block and are
+// rejected.
 type MsgBlockAnnouncement struct {
 	protocol.MessageBase
+	// Era is the hard-fork era index of the header (Dijkstra is 7).
+	Era uint
+	// BlockHeaderRaw is the era's own header CBOR, without the era wrapper.
 	BlockHeaderRaw cbor.RawMessage
 }
 
 func NewMsgBlockAnnouncement(
+	era uint,
 	blockHeader cbor.RawMessage,
 ) *MsgBlockAnnouncement {
 	m := &MsgBlockAnnouncement{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockAnnouncement,
 		},
+		Era:            era,
 		BlockHeaderRaw: blockHeader,
 	}
 	return m
+}
+
+// The reference decoder reads the era index as a word8, so any larger index
+// costs the connection.
+const maxAnnouncementEra = 0xff
+
+func validateAnnouncementEra(era uint) error {
+	if era == 0 || era > maxAnnouncementEra {
+		return fmt.Errorf(
+			"block announcement era %d outside 1..%d",
+			era,
+			maxAnnouncementEra,
+		)
+	}
+	return nil
+}
+
+func (m *MsgBlockAnnouncement) MarshalCBOR() ([]byte, error) {
+	if raw := m.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	if err := validateAnnouncementEra(m.Era); err != nil {
+		return nil, fmt.Errorf("%s: %w", ProtocolName, err)
+	}
+	return cbor.Encode([]any{
+		m.MessageType,
+		[]any{
+			m.Era,
+			cbor.Tag{
+				Number:  cbor.CborTagCbor,
+				Content: []byte(m.BlockHeaderRaw),
+			},
+		},
+	})
+}
+
+func (m *MsgBlockAnnouncement) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		MessageType uint8
+		Header      struct {
+			cbor.StructAsArray
+			Era     uint
+			Wrapped cbor.RawMessage
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if err := validateAnnouncementEra(tmp.Header.Era); err != nil {
+		return err
+	}
+	var tag cbor.Tag
+	if _, err := cbor.Decode(tmp.Header.Wrapped, &tag); err != nil {
+		return fmt.Errorf("block announcement header: %w", err)
+	}
+	if tag.Number != cbor.CborTagCbor {
+		return fmt.Errorf(
+			"block announcement header has tag %d, expected %d",
+			tag.Number,
+			cbor.CborTagCbor,
+		)
+	}
+	header, ok := tag.Content.([]byte)
+	if !ok {
+		return fmt.Errorf(
+			"block announcement header tag content must be bytes, got %T",
+			tag.Content,
+		)
+	}
+	m.MessageType = tmp.MessageType
+	m.Era = tmp.Header.Era
+	m.BlockHeaderRaw = cbor.RawMessage(header)
+	m.SetCbor(data)
+	return nil
 }
 
 type MsgBlockOffer struct {
@@ -508,6 +621,37 @@ func NewMsgDone() *MsgDone {
 	m := &MsgDone{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeDone,
+		},
+	}
+	return m
+}
+
+// MsgQuit is sent by the client to end the protocol. The server answers every
+// request still outstanding, with a reply or MsgCanceled, and then sends
+// MsgDone.
+type MsgQuit struct {
+	protocol.MessageBase
+}
+
+func NewMsgQuit() *MsgQuit {
+	m := &MsgQuit{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeQuit,
+		},
+	}
+	return m
+}
+
+// MsgCanceled is sent by the server in place of a reply to a request that was
+// outstanding when the client sent MsgQuit.
+type MsgCanceled struct {
+	protocol.MessageBase
+}
+
+func NewMsgCanceled() *MsgCanceled {
+	m := &MsgCanceled{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeCanceled,
 		},
 	}
 	return m

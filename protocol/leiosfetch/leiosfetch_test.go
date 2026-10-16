@@ -22,6 +22,7 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
@@ -588,6 +589,56 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 	})
 }
 
+func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
+	txs := []cbor.RawMessage{{0x80}, {0x80}, {0x80}}
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeBlockRangeRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgNextBlockAndTxsInRange(nil, txs),
+				leiosfetch.NewMsgLastBlockAndTxsInRange(nil, txs),
+			},
+		},
+	)
+	cfg := leiosfetch.NewConfig(
+		leiosfetch.WithMaxBlockRangeResponseBytes(256),
+	)
+	runTestCollectingConnErrors(
+		t,
+		conversation,
+		func(
+			t *testing.T,
+			conn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel()
+			_, err := conn.LeiosFetch().Client.BlockRangeRequest(
+				ctx,
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				pcommon.NewPoint(12346, testPointHash(0x02)),
+			)
+			require.Error(t, err)
+			select {
+			case connErr := <-connErrs:
+				require.ErrorContains(t, connErr, "maximum is 1")
+			case <-time.After(2 * time.Second):
+				t.Fatal("aggregate transaction headers did not fail the connection")
+			}
+		},
+		ouroboros.WithLeiosFetchConfig(cfg),
+	)
+}
+
 func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
 	conversation := append(
 		conversationHandshake,
@@ -642,6 +693,114 @@ func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
 		},
 		ouroboros.WithLeiosFetchConfig(cfg),
 	)
+}
+
+// A request the reply could not answer in full is refused locally rather than
+// sent, because the full answer would fail the whole connection.
+func TestVotesRequestRejectsMoreIDsThanOneReplyCarries(t *testing.T) {
+	runTestCollectingConnErrors(
+		t,
+		conversationHandshake,
+		func(
+			t *testing.T,
+			conn *ouroboros.Connection,
+			connErrs <-chan error,
+		) {
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				2*time.Second,
+			)
+			defer cancel()
+			_, err := conn.LeiosFetch().Client.VotesRequest(
+				ctx,
+				make(
+					[]leiosfetch.MsgVotesRequestVoteId,
+					leiosfetch.MaxVotesPerMessage+1,
+				),
+			)
+			require.ErrorIs(t, err, leiosfetch.ErrVoteRequestTooLarge)
+			select {
+			case connErr := <-connErrs:
+				t.Fatalf("local refusal failed the connection: %v", connErr)
+			case <-time.After(100 * time.Millisecond):
+			}
+		},
+	)
+}
+
+func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		requests int
+		replies  int
+		limitErr string
+	}{
+		{name: "at requested count", requests: 2, replies: 2},
+		{name: "above requested count", requests: 2, replies: 3, limitErr: "maximum is 2"},
+		{
+			name:     "at protocol maximum",
+			requests: leiosfetch.MaxVotesPerMessage,
+			replies:  leiosfetch.MaxVotesPerMessage,
+		},
+		{
+			name:     "above protocol maximum",
+			requests: leiosfetch.MaxVotesPerMessage,
+			replies:  leiosfetch.MaxVotesPerMessage + 1,
+			limitErr: "maximum is 1000",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			votes := make([]cbor.RawMessage, tc.replies)
+			for idx := range votes {
+				votes[idx] = cbor.RawMessage{0x80}
+			}
+			conversation := append(
+				conversationHandshake,
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:  leiosfetch.ProtocolId,
+					MessageType: leiosfetch.MessageTypeVotesRequest,
+				},
+				ouroboros_mock.ConversationEntryOutput{
+					ProtocolId: leiosfetch.ProtocolId,
+					IsResponse: true,
+					Messages: []protocol.Message{
+						leiosfetch.NewMsgVotes(votes),
+					},
+				},
+			)
+			runTestCollectingConnErrors(
+				t,
+				conversation,
+				func(
+					t *testing.T,
+					conn *ouroboros.Connection,
+					connErrs <-chan error,
+				) {
+					ctx, cancel := context.WithTimeout(
+						context.Background(),
+						2*time.Second,
+					)
+					defer cancel()
+					msg, err := conn.LeiosFetch().Client.VotesRequest(
+						ctx,
+						make([]leiosfetch.MsgVotesRequestVoteId, tc.requests),
+					)
+					if tc.limitErr == "" {
+						require.NoError(t, err)
+						require.Len(t, msg.(*leiosfetch.MsgVotes).VotesRaw, tc.replies)
+						return
+					}
+					require.Error(t, err)
+					select {
+					case connErr := <-connErrs:
+						require.ErrorContains(t, connErr, tc.limitErr)
+					case <-time.After(2 * time.Second):
+						t.Fatal("oversized Votes reply did not fail the connection")
+					}
+				},
+			)
+		})
+	}
 }
 
 func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
@@ -803,4 +962,120 @@ func TestNonBlockRequestsAfterAbandonedBlockRequestFailFast(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
+	point := pcommon.NewPoint(12345, testPointHash(0x01))
+	bitmaps := map[uint16]uint64{0: 0x3}
+	t.Run("accepts requested count", func(t *testing.T) {
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}}),
+				},
+			},
+		)
+		runTest(t, conversation, func(t *testing.T, conn *ouroboros.Connection) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			msg, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+			require.NoError(t, err)
+			require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 2)
+		})
+	})
+
+	t.Run("rejects above requested count", func(t *testing.T) {
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
+				},
+			},
+		)
+		runTestCollectingConnErrors(
+			t,
+			conversation,
+			func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+				require.Error(t, err)
+				select {
+				case connErr := <-connErrs:
+					require.ErrorContains(t, connErr, "maximum is 2")
+				case <-time.After(2 * time.Second):
+					t.Fatal("oversized BlockTxs reply did not fail the connection")
+				}
+			},
+		)
+	})
+}
+
+// The reference node refuses these bitmaps while decoding the request, which
+// fails the whole connection, so the client refuses them before sending.
+func TestBlockTxsRequestRejectsBitmapsThePeerRefuses(t *testing.T) {
+	point := pcommon.NewPoint(12345, testPointHash(0x01))
+	for _, tc := range []struct {
+		name    string
+		bitmaps map[uint16]uint64
+	}{
+		{name: "key beyond an endorser block", bitmaps: map[uint16]uint64{268: 1}},
+		{name: "bitmap selecting nothing", bitmaps: map[uint16]uint64{0: 1, 1: 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runTestCollectingConnErrors(
+				t,
+				conversationHandshake,
+				func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, tc.bitmaps)
+					require.ErrorIs(t, err, leiosfetch.ErrInvalidBlockTxsBitmaps)
+					select {
+					case connErr := <-connErrs:
+						t.Fatalf("local refusal failed the connection: %v", connErr)
+					case <-time.After(100 * time.Millisecond):
+					}
+				},
+			)
+		})
+	}
+	t.Run("last bitmap key", func(t *testing.T) {
+		bitmaps := map[uint16]uint64{267: 1}
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}}),
+				},
+			},
+		)
+		runTest(t, conversation, func(t *testing.T, conn *ouroboros.Connection) {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			msg, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+			require.NoError(t, err)
+			require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 1)
+		})
+	})
 }

@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"math"
 	"math/big"
 	"testing"
@@ -1597,43 +1598,26 @@ func TestUtxoValidateWitnessRules_Alonzo(t *testing.T) {
 	})
 }
 
-func TestUtxoValidatePlutusScriptsUnsupported_Alonzo(t *testing.T) {
-	t.Run("valid tx with redeemer fails closed", func(t *testing.T) {
-		tx := &alonzo.AlonzoTransaction{
-			TxIsValid: true,
-		}
-		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			Redeemers: []alonzo.AlonzoRedeemer{
-				{
+func TestUtxoValidatePlutusScriptsRejectsRedeemerWithoutPurpose(t *testing.T) {
+	for _, valid := range []bool{true, false} {
+		t.Run(fmt.Sprintf("valid=%t", valid), func(t *testing.T) {
+			tx := &alonzo.AlonzoTransaction{TxIsValid: valid}
+			tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{
 					Tag:     common.RedeemerTagSpend,
 					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
-				},
-			},
-		}
-
-		err := alonzo.UtxoValidatePlutusScripts(tx, 0, nil, nil)
-		assert.Error(t, err)
-		assert.IsType(
-			t,
-			alonzo.PlutusScriptValidationUnsupportedError{},
-			err,
-		)
-	})
-
-	t.Run("invalid tx with redeemer is phase-1 valid", func(t *testing.T) {
-		tx := &alonzo.AlonzoTransaction{}
-		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			Redeemers: []alonzo.AlonzoRedeemer{
-				{
-					Tag:     common.RedeemerTagSpend,
-					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
-				},
-			},
-		}
-
-		err := alonzo.UtxoValidatePlutusScripts(tx, 0, nil, nil)
-		assert.NoError(t, err)
-	})
+				}},
+			}
+			err := alonzo.UtxoValidatePlutusScripts(
+				tx,
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&alonzo.AlonzoProtocolParameters{ProtocolMajor: common.ProtocolVersionAlonzo},
+			)
+			var target common.ExtraRedeemerError
+			require.ErrorAs(t, err, &target)
+		})
+	}
 }
 
 func TestUtxoValidateExtraneousRedeemers_Alonzo(t *testing.T) {

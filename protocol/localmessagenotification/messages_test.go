@@ -15,11 +15,16 @@
 package localmessagenotification
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
+	"io"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/assert"
@@ -209,6 +214,21 @@ func TestMsgReplyMessagesNonBlockingEmpty(t *testing.T) {
 	assert.Equal(t, data, reencoded)
 }
 
+func TestNewMsgReplyMessagesNonBlockingNilRoundTrip(t *testing.T) {
+	msg := NewMsgReplyMessagesNonBlocking(nil, false)
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x83, 0x01, 0x80, 0xf4}, data)
+	parsed, err := NewMsgFromCbor(
+		uint(MessageTypeReplyMessagesNonBlocking),
+		data,
+	)
+	require.NoError(t, err)
+	decoded := parsed.(*MsgReplyMessagesNonBlocking)
+	require.NotNil(t, decoded.Messages)
+	require.Empty(t, decoded.Messages)
+}
+
 // TestMsgReplyMessagesBlocking tests MsgReplyMessagesBlocking struct creation
 func TestMsgReplyMessagesBlocking(t *testing.T) {
 	messages := []pcommon.DmqMessage{
@@ -268,6 +288,21 @@ func TestMsgReplyMessagesBlocking(t *testing.T) {
 	assert.Equal(t, data, reencoded)
 }
 
+func TestNewMsgReplyMessagesBlockingNilRoundTrip(t *testing.T) {
+	msg := NewMsgReplyMessagesBlocking(nil)
+	data, err := cbor.Encode(msg)
+	require.NoError(t, err)
+	require.Equal(t, []byte{0x82, 0x02, 0x80}, data)
+	parsed, err := NewMsgFromCbor(
+		uint(MessageTypeReplyMessagesBlocking),
+		data,
+	)
+	require.NoError(t, err)
+	decoded := parsed.(*MsgReplyMessagesBlocking)
+	require.NotNil(t, decoded.Messages)
+	require.Empty(t, decoded.Messages)
+}
+
 func TestServerDrainValidMessagesDropsExpired(t *testing.T) {
 	server := NewServer(protocol.ProtocolOptions{}, nil)
 	now := time.Unix(100, 0)
@@ -319,4 +354,145 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	_, err := NewMsgFromCbor(99, []byte{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown message type")
+}
+
+func TestReplyMessageCollectionBudget(t *testing.T) {
+	over := DefaultMaxReplyMessages + 1
+	for _, msgType := range []uint{
+		MessageTypeReplyMessagesNonBlocking,
+		MessageTypeReplyMessagesBlocking,
+	} {
+		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
+			// array header with a two-byte count
+			wire := []byte{0x82, byte(msgType), 0x99, byte(over >> 8), byte(over)}
+			if msgType == MessageTypeReplyMessagesNonBlocking {
+				wire[0] = 0x83
+			}
+			wire = append(wire, bytes.Repeat([]byte{0x80}, over)...)
+			if msgType == MessageTypeReplyMessagesNonBlocking {
+				wire = append(wire, 0xf4)
+			}
+			msg, err := NewMsgFromCbor(msgType, wire)
+			require.ErrorContains(t, err, "maximum is 1000")
+			require.Nil(t, msg)
+		})
+	}
+}
+
+// The reference server replies with up to 1000 messages, so a client must
+// accept that many whatever queue size a server of this library is given, and
+// refuse one more.
+func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		maxReply int
+		count    int
+		valid    bool
+		limitErr string
+	}{
+		{name: "reference batch", count: 1000, valid: true},
+		{name: "above reference batch", count: 1001, limitErr: "maximum is 1000"},
+		{name: "configured limit", maxReply: 1, count: 1, valid: true},
+		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "maximum is 1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			connA, connB := net.Pipe()
+			t.Cleanup(func() {
+				_ = connA.Close()
+				_ = connB.Close()
+			})
+			m := muxer.New(connA)
+			t.Cleanup(m.Stop)
+			replies := make(chan int, 1)
+			errs := make(chan error, 4)
+			// The client authenticates every admitted message, so the
+			// reply must carry distinct, unexpired messages to reach the
+			// callback.
+			opts := []LocalMessageNotificationOptionFunc{
+				WithMaxQueueSize(1),
+				WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+			}
+			if tc.maxReply > 0 {
+				opts = append(opts, WithMaxReplyMessages(tc.maxReply))
+			}
+			cfg := NewConfig(append(opts,
+				WithReplyMessagesFunc(func(
+					_ CallbackContext,
+					messages []pcommon.DmqMessage,
+					_ bool,
+				) {
+					replies <- len(messages)
+				}),
+			)...)
+			client := NewClient(protocol.ProtocolOptions{
+				Muxer:     m,
+				ErrorChan: errs,
+			}, &cfg)
+			client.Start()
+			t.Cleanup(func() { client.Protocol.Stop() })
+			m.Start()
+
+			require.NoError(t, client.RequestMessagesBlocking())
+			require.NoError(
+				t,
+				connB.SetReadDeadline(time.Now().Add(2*time.Second)),
+			)
+			header := muxer.SegmentHeader{}
+			require.NoError(t, binary.Read(connB, binary.BigEndian, &header))
+			_, err := io.CopyN(io.Discard, connB, int64(header.PayloadLength))
+			require.NoError(t, err)
+
+			expiresAt := uint32(time.Now().Add(time.Minute).Unix())
+			messages := make([]pcommon.DmqMessage, tc.count)
+			for idx := range messages {
+				messages[idx] = clientTestMessage(
+					t,
+					fmt.Sprintf("message %d", idx),
+					expiresAt,
+				)
+			}
+			payload, err := cbor.Encode(NewMsgReplyMessagesBlocking(messages))
+			require.NoError(t, err)
+			segment := muxer.NewSegment(ProtocolID, payload, true)
+			buf := &bytes.Buffer{}
+			require.NoError(
+				t,
+				binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+			)
+			buf.Write(segment.Payload)
+			_, err = connB.Write(buf.Bytes())
+			require.NoError(t, err)
+
+			if tc.valid {
+				select {
+				case count := <-replies:
+					require.Equal(t, tc.count, count)
+				case <-time.After(2 * time.Second):
+					t.Fatal("reply did not reach the client callback")
+				}
+				return
+			}
+			select {
+			case err := <-errs:
+				require.ErrorContains(t, err, tc.limitErr)
+			case <-time.After(2 * time.Second):
+				t.Fatal("oversized reply was not rejected")
+			}
+		})
+	}
+}
+
+func TestReplyMessageCollectionUsesConfiguredLimit(t *testing.T) {
+	wire := []byte{0x82, MessageTypeReplyMessagesBlocking, 0x82, 0x80, 0x80}
+	err := validateReplyCollection(
+		MessageTypeReplyMessagesBlocking,
+		wire,
+		1,
+	)
+	require.ErrorContains(t, err, "maximum is 1")
+	require.NoError(t, validateReplyCollection(
+		MessageTypeReplyMessagesBlocking,
+		wire,
+		2,
+	))
 }

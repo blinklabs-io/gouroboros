@@ -139,6 +139,10 @@ Message-ID replies may not exceed the requested count, and blocking replies
 must include at least one ID. Each returned ID must be 32 bytes and unique
 across both the reply and the IDs that remain outstanding.
 
+Collection counts are checked before typed decoding against the same request
+state: a reply larger than its outstanding request, or a message request naming
+more IDs than the client holds unacknowledged, is refused before allocation.
+
 ## Usage Example
 
 ```go

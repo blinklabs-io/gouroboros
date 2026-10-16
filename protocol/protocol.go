@@ -152,6 +152,13 @@ type ProtocolConfig struct {
 	Role                ProtocolRole
 	MessageHandlerFunc  MessageHandlerFunc
 	MessageFromCborFunc MessageFromCborFunc
+	// MessageReceivedFunc, when set, is called with each decoded message as
+	// the read loop admits it, before the message waits in the receive queue
+	// for its turn. A message the peer pipelined waits behind the handlers of
+	// the messages before it, so this is the only place a protocol can react
+	// to one while an earlier request is still unanswered. It runs on the read
+	// loop and must not block.
+	MessageReceivedFunc func(Message)
 	StateMap            StateMap
 	StateContext        any
 	InitialState        State
@@ -1852,6 +1859,9 @@ func (p *Protocol) readLoop() {
 			p.pendingRecvBytes += msgLen
 			p.pendingRecvSizes = append(p.pendingRecvSizes, msgLen)
 			p.pendingBytesMu.Unlock()
+		}
+		if p.config.MessageReceivedFunc != nil {
+			p.config.MessageReceivedFunc(msg)
 		}
 		// Add message to receive queue (blocking with shutdown checks)
 		select {

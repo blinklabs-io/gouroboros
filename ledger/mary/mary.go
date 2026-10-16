@@ -804,6 +804,21 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 	}
 }
 
+// LedgerSerializedSize returns the byte length cardano-ledger measures for the
+// value when enforcing the maximum output value size. It differs from the
+// length of MarshalCBOR output where a multi-asset map has more than 23
+// entries.
+func (v *MaryTransactionOutputValue) LedgerSerializedSize() (int, error) {
+	encoded, err := v.MarshalCBOR()
+	if err != nil {
+		return 0, err
+	}
+	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
+		return len(encoded), nil
+	}
+	return len(encoded) + v.Assets.LedgerSerializedSizeAdjustment(), nil
+}
+
 func NewMaryBlockFromCbor(
 	data []byte,
 	config ...common.VerifyConfig,

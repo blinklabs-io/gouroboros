@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"bytes"
+	"encoding/hex"
 	"reflect"
 	"testing"
 
@@ -38,14 +39,14 @@ func getTestDefinitions() []testDefinition {
 		{
 			Name:        "MsgNotificationRequestNext",
 			Message:     NewMsgNotificationRequestNext(),
-			MessageType: 0,
+			MessageType: 3,
 		},
 		{
 			Name: "MsgBlockAnnouncement",
-			Message: NewMsgBlockAnnouncement(
+			Message: NewMsgBlockAnnouncement(testAnnouncementEra,
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
-			MessageType: 1,
+			MessageType: 4,
 		},
 		{
 			Name: "MsgBlockOffer",
@@ -56,7 +57,7 @@ func getTestDefinitions() []testDefinition {
 				),
 				12345,
 			),
-			MessageType: 2,
+			MessageType: 5,
 		},
 		{
 			Name: "MsgBlockTxsOffer",
@@ -66,7 +67,7 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x09),
 				),
 			),
-			MessageType: 3,
+			MessageType: 6,
 		},
 		{
 			Name: "MsgVotesOffer",
@@ -76,12 +77,22 @@ func getTestDefinitions() []testDefinition {
 					{SlotNo: 200, VoterId: 2},
 				},
 			),
-			MessageType: 4,
+			MessageType: 7,
 		},
 		{
 			Name:        "MsgDone",
 			Message:     NewMsgDone(),
-			MessageType: 5,
+			MessageType: 0,
+		},
+		{
+			Name:        "MsgQuit",
+			Message:     NewMsgQuit(),
+			MessageType: 1,
+		},
+		{
+			Name:        "MsgCanceled",
+			Message:     NewMsgCanceled(),
+			MessageType: 2,
 		},
 	}
 }
@@ -105,7 +116,7 @@ func TestMessageTagFixtures(t *testing.T) {
 }
 
 func TestUnknownMessageIDsRejected(t *testing.T) {
-	for _, id := range []uint{6, 10, 11} {
+	for _, id := range []uint{8, 10, 11} {
 		_, err := NewMsgFromCbor(id, []byte{0x81, byte(id)})
 		require.Error(t, err)
 	}
@@ -184,10 +195,56 @@ func TestMsgNotificationRequestNext(t *testing.T) {
 func TestMsgBlockAnnouncement(t *testing.T) {
 	blockHeaderRaw := cbor.RawMessage([]byte{0x82, 0x01, 0x02})
 
-	msg := NewMsgBlockAnnouncement(blockHeaderRaw)
+	msg := NewMsgBlockAnnouncement(testAnnouncementEra, blockHeaderRaw)
 
 	assert.Equal(t, uint8(MessageTypeBlockAnnouncement), msg.Type())
 	assert.Equal(t, blockHeaderRaw, msg.BlockHeaderRaw)
+}
+
+// A block announcement carries the header in the hard-fork combinator's
+// node-to-node form, [era, #6.24(bytes .cbor header)]. The reference decoder
+// reads the era as a word8 and fails on a bare header with "expected word8".
+func TestMsgBlockAnnouncementWireFormat(t *testing.T) {
+	header := cbor.RawMessage{0x82, 0x01, 0x02}
+	encoded, err := cbor.Encode(
+		NewMsgBlockAnnouncement(testAnnouncementEra, header),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "82048207d81843820102", hex.EncodeToString(encoded))
+
+	decoded, err := NewMsgFromCbor(MessageTypeBlockAnnouncement, encoded)
+	require.NoError(t, err)
+	msg := decoded.(*MsgBlockAnnouncement)
+	assert.Equal(t, uint(testAnnouncementEra), msg.Era)
+	assert.Equal(t, header, msg.BlockHeaderRaw)
+	assert.Equal(t, encoded, msg.Cbor())
+}
+
+func TestMsgBlockAnnouncementRejectsMalformedHeader(t *testing.T) {
+	for name, data := range map[string]string{
+		"bare header":      "8204820102",
+		"untagged bytes":   "8204820743820102",
+		"wrong tag":        "82048207d81943820102",
+		"tagged non-bytes": "82048207d818820102",
+		"Byron era":        "82048200d81843820102",
+		"era above word8":  "820482190100d81843820102",
+		"extra element":    "82048307d8184382010200",
+		"missing header":   "82048107",
+	} {
+		t.Run(name, func(t *testing.T) {
+			raw, err := hex.DecodeString(data)
+			require.NoError(t, err)
+			_, err = NewMsgFromCbor(MessageTypeBlockAnnouncement, raw)
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestMsgBlockAnnouncementRejectsInvalidEraOnEncode(t *testing.T) {
+	for _, era := range []uint{0, 256} {
+		_, err := cbor.Encode(NewMsgBlockAnnouncement(era, cbor.RawMessage{0x80}))
+		require.Error(t, err, "era %d", era)
+	}
 }
 
 func TestMsgBlockOffer(t *testing.T) {
@@ -355,7 +412,7 @@ func TestMsgVotesOfferAcceptsIndefiniteArrays(t *testing.T) {
 
 func TestMsgBlockAnnouncementEmpty(t *testing.T) {
 	// Create a message with empty block header
-	msg := NewMsgBlockAnnouncement(cbor.RawMessage{})
+	msg := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{})
 
 	encoded, err := cbor.Encode(msg)
 	require.NoError(t, err)
@@ -432,4 +489,100 @@ func TestMsgVotesOfferUnknownVoteShape(t *testing.T) {
 		m.UnmarshalCBOR(msgCbor),
 		"votes offer: vote 0 unexpected element count 1",
 	)
+}
+
+func TestOfferBoundsRejected(t *testing.T) {
+	validHash := testPointHash(0x01)
+	tests := []struct {
+		name    string
+		msg     protocol.Message
+		wantErr string
+	}{
+		{
+			name: "block offer hash too short",
+			msg: NewMsgBlockOffer(
+				pcommon.NewPoint(1, validHash[:31]),
+				100,
+			),
+			wantErr: "must be 32 bytes",
+		},
+		{
+			name: "block offer hash too long",
+			msg: NewMsgBlockOffer(
+				pcommon.NewPoint(1, append(validHash, 0x00)),
+				100,
+			),
+			wantErr: "must be 32 bytes",
+		},
+		{
+			name: "block offer zero size",
+			msg: NewMsgBlockOffer(
+				pcommon.NewPoint(1, validHash),
+				0,
+			),
+			wantErr: "outside 1..600000",
+		},
+		{
+			name: "block offer oversized",
+			msg: NewMsgBlockOffer(
+				pcommon.NewPoint(1, validHash),
+				pcommon.MaxLeiosEndorserBlockSize+1,
+			),
+			wantErr: "outside 1..600000",
+		},
+		{
+			name: "block txs offer hash too short",
+			msg: NewMsgBlockTxsOffer(
+				pcommon.NewPoint(1, validHash[:31]),
+			),
+			wantErr: "must be 32 bytes",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := cbor.Encode(test.msg)
+			require.NoError(t, err)
+			_, err = NewMsgFromCbor(uint(test.msg.Type()), encoded)
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}
+
+func TestOfferSizeBoundsAccepted(t *testing.T) {
+	for _, size := range []uint64{1, pcommon.MaxLeiosEndorserBlockSize} {
+		msg := NewMsgBlockOffer(
+			pcommon.NewPoint(1, testPointHash(0x01)),
+			size,
+		)
+		encoded, err := cbor.Encode(msg)
+		require.NoError(t, err)
+		_, err = NewMsgFromCbor(MessageTypeBlockOffer, encoded)
+		require.NoError(t, err, "size %d", size)
+	}
+}
+
+// The tags are fixed by the reference node, so pin them as literals.
+func TestWireTagsMatchReferenceNode(t *testing.T) {
+	want := map[string][2]uint{
+		"Done":                    {MessageTypeDone, 0},
+		"Quit":                    {MessageTypeQuit, 1},
+		"Canceled":                {MessageTypeCanceled, 2},
+		"NotificationRequestNext": {MessageTypeNotificationRequestNext, 3},
+		"BlockAnnouncement":       {MessageTypeBlockAnnouncement, 4},
+		"BlockOffer":              {MessageTypeBlockOffer, 5},
+		"BlockTxsOffer":           {MessageTypeBlockTxsOffer, 6},
+		"VotesOffer":              {MessageTypeVotesOffer, 7},
+	}
+	for name, tags := range want {
+		assert.Equal(t, tags[1], tags[0], name)
+	}
+	encoded, err := cbor.Encode(NewMsgQuit())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x81, 0x01}, encoded)
+	encoded, err = cbor.Encode(NewMsgCanceled())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x81, 0x02}, encoded)
+	encoded, err = cbor.Encode(NewMsgDone())
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0x81, 0x00}, encoded)
 }

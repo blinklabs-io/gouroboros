@@ -154,6 +154,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateExtraneousRedeemers,
 	},
 	{
+		Id:        common.UtxoValidationRuleMalformedReferenceScripts,
+		Validator: UtxoValidateMalformedReferenceScripts,
+	},
+	{
 		Id:        common.UtxoValidationRulePlutusScripts,
 		Validator: UtxoValidatePlutusScripts,
 	},
@@ -208,7 +212,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateWrongNetworkWithdrawal, UtxoValidateTransactionNetworkId,
 		UtxoValidateMaxTxSizeUtxo,
 		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
-		UtxoValidateExtraneousRedeemers, UtxoValidatePlutusScripts,
+		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
+		UtxoValidatePlutusScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
 		UtxoValidateDelegation, UtxoValidateMIRGenesisQuorum,
@@ -233,11 +238,11 @@ func UtxoValidateOutputTooBigUtxo(
 		if !ok {
 			return errors.New("transaction output is not expected type")
 		}
-		outputValBytes, err := cbor.Encode(tmpOutput.OutputAmount)
+		outputValSize, err := tmpOutput.OutputAmount.LedgerSerializedSize()
 		if err != nil {
 			return err
 		}
-		if uint(len(outputValBytes)) <= tmpPparams.MaxValueSize {
+		if uint(outputValSize) <= tmpPparams.MaxValueSize {
 			continue
 		}
 		badOutputs = append(badOutputs, tmpOutput)
@@ -325,7 +330,35 @@ func UtxoValidatePlutusScripts(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return common.ValidateUnsupportedPlutusExecution(tx, "Alonzo")
+	params, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	_, err := script.EvaluatePlutusScripts(
+		tx,
+		ls,
+		params.ProtocolMajor,
+		params.CostModels,
+		1,
+		EraNameAlonzo,
+		nil,
+	)
+	return common.ValidatePlutusScriptResult(tx, err)
+}
+
+// UtxoValidateMalformedReferenceScripts checks that Plutus witnesses are
+// well-formed for the active protocol version before phase-2 execution.
+func UtxoValidateMalformedReferenceScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	params, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	return common.ValidatePlutusScriptsWellFormed(tx, params.ProtocolMajor)
 }
 
 // UtxoValidateSupplementalDatums enforces required and supplemental datum

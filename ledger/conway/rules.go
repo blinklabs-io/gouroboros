@@ -30,8 +30,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	"github.com/blinklabs-io/plutigo/data"
-	"github.com/blinklabs-io/plutigo/lang"
 )
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
@@ -416,7 +414,7 @@ func UtxoValidateProposalProcedures(
 		if committeeUpdate, ok := govAction.(*common.UpdateCommitteeGovAction); ok &&
 			len(committeeUpdate.CredEpochs) > 0 {
 			if !epochKnown {
-				epochState, ok := common.UnwrapLedgerState(ls).(common.EpochState)
+				epochState, ok := common.EpochStateFor(ls)
 				if !ok {
 					return CommitteeExpiryEpochUnavailableError{}
 				}
@@ -764,35 +762,45 @@ func (r *govActionResolver) exists(actionId common.GovActionId) bool {
 	return ok
 }
 
-// resolve returns the type and, where available, the contents of the
-// governance action named by actionId. ok is false when neither the
-// transaction nor the ledger state can classify the action, which leaves a
-// type-dependent restriction unenforced rather than guessed at.
-func (r *govActionResolver) resolve(
+func (r *govActionResolver) resolveRequired(
 	actionId common.GovActionId,
-) (actionType common.GovActionType, action common.GovAction, ok bool) {
+) (actionType common.GovActionType, action common.GovAction, err error) {
 	if proposal, found := r.txProposal(actionId); found {
 		if isNilGovAction(proposal.action) {
-			return 0, nil, false
+			return 0, nil, GovernanceStateUnavailableError{
+				ActionId: &actionId,
+				Field:    "transaction proposal contents",
+			}
 		}
 		resolvedType, ok := govActionValidationType(proposal.action)
 		if !ok {
-			return 0, nil, false
+			return 0, nil, GovernanceStateUnavailableError{
+				ActionId: &actionId,
+				Field:    "transaction proposal type",
+			}
 		}
-		return resolvedType, proposal.action, true
+		return resolvedType, proposal.action, nil
 	}
 	if r.ls == nil {
-		return 0, nil, false
+		return 0, nil, GovernanceStateUnavailableError{
+			ActionId: &actionId,
+			Field:    "ledger state",
+		}
 	}
-	actionState, err := r.ls.GovActionById(actionId)
-	if err != nil || actionState == nil {
-		return 0, nil, false
+	actionState, lookupErr := r.ls.GovActionById(actionId)
+	if lookupErr != nil {
+		return 0, nil, GovernanceStateUnavailableError{
+			ActionId: &actionId,
+			Field:    "governance action lookup",
+			Err:      lookupErr,
+		}
 	}
-	action = actionState.Action
-	if isNilGovAction(action) {
-		action = nil
+	if actionState == nil {
+		return 0, nil, UnknownGovActionIdError{
+			ActionIds: []common.GovActionId{actionId},
+		}
 	}
-	return actionState.ActionType, action, true
+	return actionState.ActionType, actionState.Action, nil
 }
 
 // govActionValidationType classifies an action for shared governance rules.
@@ -829,16 +837,29 @@ func hardForkProposedVersion(
 }
 
 // govPurposeRoots returns the current root of each governance-action purpose
-// chain when the ledger state implements the optional
-// common.GovPurposeRootsState capability, and nil when it does not.
+// chain.
 func govPurposeRoots(
 	ls common.LedgerState,
 ) (*common.GovPurposeRoots, error) {
-	rootsState, ok := common.UnwrapLedgerState(ls).(common.GovPurposeRootsState)
+	rootsState, ok := common.GovPurposeRootsStateFor(ls)
 	if !ok {
-		return nil, nil
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+		}
 	}
-	return rootsState.GovPurposeRoots()
+	roots, err := rootsState.GovPurposeRoots()
+	if err != nil {
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+			Err:   err,
+		}
+	}
+	if roots == nil {
+		return nil, GovernanceStateUnavailableError{
+			Field: "governance purpose roots",
+		}
+	}
+	return roots, nil
 }
 
 // govPurposeRootId returns the root governance action id recorded for a
@@ -1040,8 +1061,9 @@ func UtxoValidateGuardrailsScriptHash(
 //     pending proposals cannot be used to jump ahead;
 //   - otherwise a proposal with a predecessor is compared against that
 //     predecessor's proposed protocol version, taken from the transaction
-//     itself for a predecessor proposed by the same transaction, or from the
-//     ledger state's record of the referenced action;
+//     itself for a predecessor proposed by the same transaction, from the
+//     current protocol parameters for the hard-fork purpose root, or from
+//     the ledger state's record of another referenced action;
 //   - a proposal with no predecessor is compared against the enacted
 //     version. The enacted protocol version is always the version proposed
 //     by the hard-fork action that is the current root of the hard-fork
@@ -1050,10 +1072,10 @@ func UtxoValidateGuardrailsScriptHash(
 //     of a predecessor that is the root gives the same verdict as the
 //     reference implementation's comparison against the enacted version.
 //
-// A predecessor whose contents the ledger state does not record (see
-// common.GovActionState.Action) leaves the numeric check deferred rather
-// than run against the wrong reference version; the predecessor's existence
-// and purpose are validated by UtxoValidateProposalAncestry.
+// A non-root predecessor whose contents the ledger state does not record (see
+// common.GovActionState.Action) leaves the numeric check deferred rather than
+// run against the wrong reference version; the predecessor's existence and
+// purpose are validated by UtxoValidateProposalAncestry.
 func UtxoValidateHardForkCanFollow(
 	tx common.Transaction,
 	slot uint64,
@@ -1084,6 +1106,7 @@ func UtxoValidateHardForkCanFollow(
 				txProposalsLoaded = true
 			}
 			var ancestorAction common.GovAction
+			rootPredecessor := false
 			if txProposal, ok := txProposals[*hf.ActionId]; ok {
 				if txProposal.idx >= idx {
 					// Only an earlier proposal of the same transaction has
@@ -1093,25 +1116,54 @@ func UtxoValidateHardForkCanFollow(
 					continue
 				}
 				ancestorAction = txProposal.action
-			} else if ls != nil {
-				ancestorState, err := ls.GovActionById(*hf.ActionId)
-				if err != nil || ancestorState == nil {
-					// A missing predecessor is reported by
+			} else {
+				if _, hasRoots := common.GovPurposeRootsStateFor(ls); hasRoots {
+					roots, err := govPurposeRoots(ls)
+					if err != nil {
+						return err
+					}
+					rootPredecessor = roots.HardFork != nil &&
+						*roots.HardFork == *hf.ActionId
+				}
+				if !rootPredecessor {
+					if ls == nil {
+						return GovernanceStateUnavailableError{
+							ActionId: hf.ActionId,
+							Field:    "hard-fork predecessor",
+						}
+					}
+					ancestorState, err := ls.GovActionById(*hf.ActionId)
+					if err != nil {
+						return GovernanceStateUnavailableError{
+							ActionId: hf.ActionId,
+							Field:    "hard-fork predecessor",
+							Err:      err,
+						}
+					}
+					if ancestorState == nil {
+						return InvalidGovActionAncestorError{
+							ActionId: *hf.ActionId,
+							Reason:   "referenced hard-fork predecessor does not exist",
+						}
+					}
+					ancestorAction = ancestorState.Action
+				}
+			}
+			if !rootPredecessor {
+				if isNilGovAction(ancestorAction) {
+					return GovernanceStateUnavailableError{
+						ActionId: hf.ActionId,
+						Field:    "hard-fork predecessor contents",
+					}
+				}
+				major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
+				if !isHardFork {
+					// A predecessor of another purpose is reported by
 					// UtxoValidateProposalAncestry.
 					continue
 				}
-				ancestorAction = ancestorState.Action
+				refMajor, refMinor = major, minor
 			}
-			if isNilGovAction(ancestorAction) {
-				continue
-			}
-			major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
-			if !isHardFork {
-				// A predecessor of another purpose is reported by
-				// UtxoValidateProposalAncestry.
-				continue
-			}
-			refMajor, refMinor = major, minor
 		}
 		if !protocolVersionCanFollow(
 			refMajor,
@@ -1149,11 +1201,8 @@ func UtxoValidateHardForkCanFollow(
 // proposal of that purpose. A RATIFY expiry classification remains live until
 // EPOCH applies it and removes the action from the proposal tree.
 //
-// The current root is only available when the ledger state implements the
-// optional common.GovPurposeRootsState capability. Without it this rule
-// stays limited to ancestor existence and purpose matching, so a ledger
-// state that cannot report roots is not made to reject proposals it has no
-// way to judge.
+// The current root is required whenever the transaction proposes an action
+// that belongs to a purpose chain.
 func UtxoValidateProposalAncestry(
 	tx common.Transaction,
 	slot uint64,
@@ -1162,6 +1211,20 @@ func UtxoValidateProposalAncestry(
 ) error {
 	proposals := tx.ProposalProcedures()
 	if len(proposals) == 0 {
+		return nil
+	}
+	needsRoots := false
+	for _, proposal := range proposals {
+		if proposal == nil {
+			continue
+		}
+		_, _, hasPurpose := govActionAncestor(proposal.GovAction())
+		if hasPurpose {
+			needsRoots = true
+			break
+		}
+	}
+	if !needsRoots {
 		return nil
 	}
 	roots, err := govPurposeRoots(ls)
@@ -1181,9 +1244,8 @@ func UtxoValidateProposalAncestry(
 		rootId := govPurposeRootId(roots, purpose)
 		if ancestorId == nil {
 			// A proposal without a predecessor is only valid while the
-			// purpose chain has no root. Skip the check entirely when the
-			// roots are unknown.
-			if roots == nil || rootId == nil {
+			// purpose chain has no root.
+			if rootId == nil {
 				continue
 			}
 			return InvalidGovActionAncestorError{
@@ -1890,7 +1952,7 @@ func UtxoValidateExtraneousRedeemers(
 	if err := common.ValidateExactExtraneousRedeemers(tx, ls); err != nil {
 		var extraErr common.ExtraneousRedeemerError
 		if errors.As(err, &extraErr) {
-			return ExtraRedeemerError{RedeemerKey: extraErr.RedeemerKey}
+			return ExtraRedeemerError(extraErr)
 		}
 		return err
 	}
@@ -2749,11 +2811,11 @@ func UtxoValidateOutputTooBigUtxo(
 		if !ok {
 			return errors.New("transaction output is not expected type")
 		}
-		outputValBytes, err := cbor.Encode(tmpOutput.OutputAmount)
+		outputValSize, err := tmpOutput.OutputAmount.LedgerSerializedSize()
 		if err != nil {
 			return err
 		}
-		if uint(len(outputValBytes)) <= tmpPparams.MaxValueSize {
+		if uint(outputValSize) <= tmpPparams.MaxValueSize {
 			continue
 		}
 		badOutputs = append(badOutputs, tmpOutput)
@@ -3143,8 +3205,8 @@ func UtxoValidateSupplementalDatums(
 	return common.ValidateSupplementalDatums(tx, ls)
 }
 
-// UtxoValidatePlutusScripts executes all Plutus scripts in the transaction
-// and validates that they pass. This is the phase-2 validation.
+// UtxoValidatePlutusScripts executes all Plutus scripts and checks the result
+// against the transaction's phase-2 validity declaration.
 func UtxoValidatePlutusScripts(
 	tx common.Transaction,
 	slot uint64,
@@ -3155,12 +3217,8 @@ func UtxoValidatePlutusScripts(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	// Skip if transaction is marked as invalid (phase-2 failure already indicated)
-	if !tx.IsValid() {
-		return nil
-	}
 	_, err := EvaluatePlutusScripts(tx, ls, conwayPparams, nil)
-	return err
+	return common.ValidatePlutusScriptResult(tx, err)
 }
 
 // EvaluatePlutusScripts runs the Plutus script of each redeemer of tx and
@@ -3173,290 +3231,15 @@ func EvaluatePlutusScripts(
 	conwayPparams *ConwayProtocolParameters,
 	budget *common.ExUnits,
 ) (map[common.RedeemerKey]common.ExUnits, error) {
-	if tx == nil {
-		return nil, errors.New("nil transaction")
-	}
-	used := make(map[common.RedeemerKey]common.ExUnits)
-	witnesses := tx.Witnesses()
-	if witnesses == nil {
-		return used, nil
-	}
-	redeemers := witnesses.Redeemers()
-	if redeemers == nil {
-		return used, nil
-	}
-
-	// Count redeemers to see if we have any scripts to execute
-	redeemerCount := 0
-	for range redeemers.Iter() {
-		redeemerCount++
-	}
-	if redeemerCount == 0 {
-		return used, nil
-	}
-
-	// Resolve all inputs (regular + reference) for building script context
-	inputsResolved, refInputsResolved, err := script.ResolveTxInputs(tx, ls)
-	if err != nil {
-		return nil, err
-	}
-	resolvedInputs := script.ConcatResolvedInputs(
-		inputsResolved,
-		refInputsResolved,
+	return script.EvaluatePlutusScripts(
+		tx,
+		ls,
+		conwayPparams.ProtocolVersion.Major,
+		conwayPparams.CostModels,
+		3,
+		EraNameConway,
+		budget,
 	)
-	resolvedInputsMap := make(
-		map[string]common.Utxo,
-		len(inputsResolved)+len(refInputsResolved),
-	)
-	for i, input := range tx.Inputs() {
-		resolvedInputsMap[input.String()] = inputsResolved[i]
-	}
-	for i, refInput := range tx.ReferenceInputs() {
-		resolvedInputsMap[refInput.String()] = refInputsResolved[i]
-	}
-
-	// Build TxInfo lazily based on script version
-	var txInfoV1 script.TxInfoV1
-	// Cached so each redeemer reuses one PlutusData conversion of the TxInfo.
-	var txInfoV1Cached *script.CachedTxInfo
-	var txInfoV2 script.TxInfoV2
-	var txInfoV2Cached *script.CachedTxInfo
-	var txInfoV3 script.TxInfoV3
-	var txInfoV3Cached *script.CachedTxInfo
-	var txInfoV1Built, txInfoV2Built, txInfoV3Built bool
-
-	// Collect all available scripts (witness scripts + reference scripts)
-	availableScripts := script.AvailablePlutusScripts(tx, resolvedInputs)
-
-	// Get sorted inputs for redeemer index mapping.
-	// The Cardano ledger spec requires spend redeemer indices to
-	// reference positions in the canonically sorted input list.
-	inputs := script.SortInputs(tx.Inputs())
-	assetMint := tx.AssetMint()
-	if assetMint == nil {
-		assetMint = &common.MultiAsset[common.MultiAssetTypeMint]{}
-	}
-	withdrawals := tx.Withdrawals()
-	votes := tx.VotingProcedures()
-	proposalProcedures := tx.ProposalProcedures()
-	certificates := tx.Certificates()
-
-	// Build witness datums map for datum lookup
-	plutusData := witnesses.PlutusData()
-	witnessDatums := make(map[common.Blake2b256]*common.Datum)
-	for i := range plutusData {
-		datum := plutusData[i]
-		witnessDatums[datum.Hash()] = &datum
-	}
-
-	// Execute each redeemer's script
-	for redeemerKey, redeemerValue := range redeemers.Iter() {
-		// Build script purpose for this redeemer
-		purpose, err := script.BuildScriptPurpose(
-			redeemerKey,
-			resolvedInputsMap,
-			inputs,
-			*assetMint,
-			certificates,
-			withdrawals,
-			votes,
-			proposalProcedures,
-			witnessDatums,
-			conwayPparams.ProtocolVersion.Major,
-		)
-		if err != nil {
-			// Redeemer doesn't match any valid purpose (index out of bounds, etc.)
-			return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-		}
-
-		// Check if the purpose actually requires a script
-		// If not, this redeemer is "extra" (mismatched)
-		switch p := purpose.(type) {
-		case script.ScriptPurposeSpending:
-			// For spending purposes, verify the input is at a script address
-			if p.Input.Output != nil {
-				addr := p.Input.Output.Address()
-				if (addr.Type() & common.AddressTypeScriptBit) == 0 {
-					// Input is at a key address, not a script address
-					return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-				}
-			}
-		case script.ScriptPurposeCertifying:
-			// For certifying purposes, check if the certificate has a script credential
-			// ScriptHash() returns empty hash for key credentials
-			if p.ScriptHash() == (common.ScriptHash{}) {
-				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-			}
-		case script.ScriptPurposeRewarding:
-			// For rewarding purposes, check if the credential is a script
-			if p.StakeCredential.CredType != common.CredentialTypeScriptHash {
-				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-			}
-		case script.ScriptPurposeProposing:
-			// For proposing purposes, check if the proposal has a policy script
-			// If not (empty ScriptHash), this redeemer is "extra"
-			if p.ScriptHash() == (common.ScriptHash{}) {
-				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-			}
-		case script.ScriptPurposeVoting:
-			if !script.VoterUsesScriptCredential(p.Voter) {
-				return nil, ExtraRedeemerError{RedeemerKey: redeemerKey}
-			}
-		}
-
-		// Find the script for this purpose
-		scriptHash := purpose.ScriptHash()
-		plutusScript, ok := availableScripts[scriptHash]
-		if !ok {
-			// Missing script should be caught by MissingScriptWitnesses
-			continue
-		}
-
-		// Get datum for V1/V2 scripts (spending purpose only)
-		var datum data.PlutusData
-		var spendInput common.TransactionInput
-		if spendPurpose, ok := purpose.(script.ScriptPurposeSpending); ok {
-			if spendPurpose.Datum != nil {
-				datum = spendPurpose.Datum
-			}
-			spendInput = spendPurpose.Input.Id
-		}
-
-		units := redeemerValue.ExUnits
-		if budget != nil {
-			units = *budget
-		}
-
-		// Execute based on script version
-		var execErr error
-		var usedUnits common.ExUnits
-		switch s := plutusScript.(type) {
-		case common.PlutusV4Script:
-			return nil, common.PlutusScriptValidationUnsupportedError{Era: EraNameConway}
-		case common.PlutusV3Script:
-			// Build V3 TxInfo lazily
-			if !txInfoV3Built {
-				if err := script.ValidatePlutusV3ReferenceInputs(
-					tx,
-					conwayPparams.ProtocolVersion.Major,
-				); err != nil {
-					return nil, ScriptContextConstructionError{Err: err}
-				}
-				var err error
-				txInfoV3, err = script.NewTxInfoV3FromTransaction(
-					ls,
-					tx,
-					resolvedInputs,
-					conwayPparams.ProtocolVersion.Major,
-				)
-				if err != nil {
-					return nil, ScriptContextConstructionError{Err: err}
-				}
-				txInfoV3Built = true
-				txInfoV3Cached = script.NewCachedTxInfo(txInfoV3)
-			}
-			// Build V3 context
-			redeemer := script.Redeemer{
-				Tag:     redeemerKey.Tag,
-				Index:   redeemerKey.Index,
-				Data:    data.Normalize(redeemerValue.Data.Data),
-				ExUnits: redeemerValue.ExUnits,
-			}
-			ctx := script.NewScriptContextV3(txInfoV3Cached, redeemer, purpose)
-			ctxData := ctx.ToPlutusData()
-			evalContext, err := common.PooledEvalContext(
-				lang.LanguageVersionV3,
-				conwayPparams.ProtocolVersion.Major,
-				conwayPparams.CostModels[2],
-			)
-			if err != nil {
-				return nil, fmt.Errorf("build evaluation context: %w", err)
-			}
-			usedUnits, execErr = s.Evaluate(ctxData, units, evalContext)
-		case common.PlutusV2Script:
-			// V2 scripts require a datum for spending purposes
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return nil, MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
-				}
-			}
-			// Build V2 TxInfo lazily
-			if !txInfoV2Built {
-				var err error
-				txInfoV2, err = script.NewTxInfoV2FromTransaction(
-					ls, tx, resolvedInputs,
-					script.StrictValidityUpperBoundForTransaction(tx),
-					conwayPparams.ProtocolVersion.Major,
-				)
-				if err != nil {
-					return nil, ScriptContextConstructionError{Err: err}
-				}
-				txInfoV2Built = true
-				txInfoV2Cached = script.NewCachedTxInfo(txInfoV2)
-			}
-			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV2Cached, purpose)
-			ctxData := ctx.ToPlutusData()
-			evalContext, err := common.PooledEvalContext(
-				lang.LanguageVersionV2,
-				conwayPparams.ProtocolVersion.Major,
-				conwayPparams.CostModels[1],
-			)
-			if err != nil {
-				return nil, fmt.Errorf("build evaluation context: %w", err)
-			}
-			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
-		case common.PlutusV1Script:
-			// V1 scripts require a datum for spending purposes
-			if _, isSpend := purpose.(script.ScriptPurposeSpending); isSpend && datum == nil {
-				return nil, MissingDatumForSpendingScriptError{
-					ScriptHash: scriptHash,
-					Input:      spendInput,
-				}
-			}
-			// Build V1 TxInfo lazily
-			if !txInfoV1Built {
-				var err error
-				txInfoV1, err = script.NewTxInfoV1FromTransaction(
-					ls, tx, resolvedInputs,
-					script.StrictValidityUpperBoundForTransaction(tx),
-					conwayPparams.ProtocolVersion.Major,
-				)
-				if err != nil {
-					return nil, ScriptContextConstructionError{Err: err}
-				}
-				txInfoV1Built = true
-				txInfoV1Cached = script.NewCachedTxInfo(txInfoV1)
-			}
-			// Build V1V2 context
-			ctx := script.NewScriptContextV1V2(txInfoV1Cached, purpose)
-			ctxData := ctx.ToPlutusData()
-			evalContext, err := common.PooledEvalContext(
-				lang.LanguageVersionV1,
-				conwayPparams.ProtocolVersion.Major,
-				conwayPparams.CostModels[0],
-			)
-			if err != nil {
-				return nil, fmt.Errorf("build evaluation context: %w", err)
-			}
-			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
-		default:
-			continue
-		}
-
-		if execErr != nil {
-			return nil, PlutusScriptFailedError{
-				ScriptHash: scriptHash,
-				Tag:        redeemerKey.Tag,
-				Index:      redeemerKey.Index,
-				Err:        execErr,
-			}
-		}
-		used[redeemerKey] = usedUnits
-	}
-
-	return used, nil
 }
 
 // UtxoValidateNativeScripts evaluates the native scripts this transaction has
@@ -4405,10 +4188,58 @@ func UtxoValidateUnknownGovActionIds(
 	return UnknownGovActionIdError{ActionIds: unknown}
 }
 
+func electedCommitteeColdCredentials(
+	tx common.Transaction,
+	votingState common.CommitteeVotingState,
+	hotCredential common.Credential,
+) (map[credOverlayKey]struct{}, error) {
+	coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+		hotCredential,
+	)
+	if err != nil {
+		return nil, err
+	}
+	elected := make(map[credOverlayKey]struct{}, len(coldCredentials))
+	for _, coldCredential := range coldCredentials {
+		isElected, err := votingState.CommitteeCredentialIsElected(
+			coldCredential,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if isElected {
+			elected[credKey(coldCredential)] = struct{}{}
+		}
+	}
+	for _, cert := range tx.Certificates() {
+		switch c := cert.(type) {
+		case *common.AuthCommitteeHotCertificate:
+			if credKey(c.HotCredential) == credKey(hotCredential) {
+				isElected, err := votingState.CommitteeCredentialIsElected(
+					c.ColdCredential,
+				)
+				if err != nil {
+					return nil, err
+				}
+				if isElected {
+					elected[credKey(c.ColdCredential)] = struct{}{}
+				} else {
+					delete(elected, credKey(c.ColdCredential))
+				}
+			} else {
+				delete(elected, credKey(c.ColdCredential))
+			}
+		case *common.ResignCommitteeColdCertificate:
+			delete(elected, credKey(c.ColdCredential))
+		}
+	}
+	return elected, nil
+}
+
 // UtxoValidateUnknownVoters rejects votes cast by a voter that does not
 // exist in the ledger state: an unregistered DRep, an unregistered stake
-// pool, or a credential that is not currently authorized as a committee hot
-// key (ConwayGovPredFailure.VotersDoNotExist).
+// pool, or a committee hot key that is not currently authorized and, from
+// PV11, elected (ConwayGovPredFailure.VotersDoNotExist).
 func UtxoValidateUnknownVoters(
 	tx common.Transaction,
 	slot uint64,
@@ -4493,6 +4324,28 @@ func UtxoValidateUnknownVoters(
 			if !committeeStateAvailable {
 				return lookupError(CommitteeStateUnavailableError{})
 			}
+			if params, ok := pp.(*ConwayProtocolParameters); ok &&
+				common.IsProtocolVersionAtLeast(
+					params.ProtocolVersion.Major, 0,
+					common.ProtocolVersionVanRossem,
+				) {
+				votingState, ok := common.CommitteeVotingStateFor(ls)
+				if !ok {
+					return lookupError(CommitteeStateUnavailableError{})
+				}
+				elected, err := electedCommitteeColdCredentials(
+					tx,
+					votingState,
+					hotCredential,
+				)
+				if err != nil {
+					return lookupError(err)
+				}
+				if len(elected) == 0 {
+					return UnknownVoterError{Voter: *voter}
+				}
+				continue
+			}
 			// A hot credential may be authorized by more than one cold
 			// credential at once (cardano-ledger-core's
 			// authorizedHotCommitteeCredentials: "there is no unique
@@ -4513,38 +4366,6 @@ func UtxoValidateUnknownVoters(
 			}
 			if len(candidates) == 0 {
 				return UnknownVoterError{Voter: *voter}
-			}
-			if params, ok := pp.(*ConwayProtocolParameters); ok &&
-				common.IsProtocolVersionAtLeast(
-					params.ProtocolVersion.Major, 0,
-					common.ProtocolVersionVanRossem,
-				) {
-				currentMembers, err := ls.CommitteeMembers()
-				if err != nil {
-					return lookupError(err)
-				}
-				// CommitteeMembers carries bare cold hashes, so this can
-				// only over-match a key/script twin named in the enacted
-				// committee; UtxoValidateUnelectedCommitteeVoters applies
-				// the typed elected-committee check on the same protocol
-				// versions.
-				seatedColdKeys := make(
-					map[common.Blake2b224]struct{},
-					len(currentMembers),
-				)
-				for _, current := range currentMembers {
-					seatedColdKeys[current.ColdKey] = struct{}{}
-				}
-				seated := false
-				for _, candidate := range candidates {
-					if _, ok := seatedColdKeys[candidate.ColdKey]; ok {
-						seated = true
-						break
-					}
-				}
-				if !seated {
-					return UnknownVoterError{Voter: *voter}
-				}
 			}
 
 		default:
@@ -4572,6 +4393,7 @@ func UtxoValidateVotingOnExpiredGovAction(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range tx.VotingProcedures() {
 		if voter == nil {
 			continue
@@ -4582,17 +4404,33 @@ func UtxoValidateVotingOnExpiredGovAction(
 					ActionIds: []common.GovActionId{{}},
 				}
 			}
-			actionState, err := ls.GovActionById(*actionId)
-			if err != nil || actionState == nil {
+			if _, proposed := resolver.txProposal(*actionId); proposed {
 				continue
 			}
-			// ExpirySlot is optional in the LedgerState contract: a
-			// state provider that does not model gov-action expiry
-			// leaves it zero. Treat that as "expiry not modeled"
-			// rather than "expired at slot 0", which would reject
-			// every vote at any slot > 0.
+			if ls == nil {
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+				}
+			}
+			actionState, err := ls.GovActionById(*actionId)
+			if err != nil {
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+					Err:      err,
+				}
+			}
+			if actionState == nil {
+				return UnknownGovActionIdError{
+					ActionIds: []common.GovActionId{*actionId},
+				}
+			}
 			if actionState.ExpirySlot == 0 {
-				continue
+				return GovernanceStateUnavailableError{
+					ActionId: actionId,
+					Field:    "governance action expiry",
+				}
 			}
 			if slot > actionState.ExpirySlot {
 				return VotingOnExpiredGovActionError{
@@ -4655,9 +4493,9 @@ func UtxoValidateBootstrapVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionType, _, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, _, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 			var allowed bool
 			switch voter.Type {
@@ -4722,9 +4560,9 @@ func UtxoValidateStakePoolVotingRestrictions(
 					Restriction: "nil action ID in voting procedures",
 				}
 			}
-			actionType, action, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, action, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 			var restriction string
 			switch actionType {
@@ -4735,9 +4573,10 @@ func UtxoValidateStakePoolVotingRestrictions(
 			case common.GovActionTypeParameterChange:
 				paramChange, ok := action.(common.ParameterChangeGovAction)
 				if !ok {
-					// The action contents are not available, so the
-					// parameter groups it modifies are unknown.
-					continue
+					return GovernanceStateUnavailableError{
+						ActionId: actionId,
+						Field:    "parameter-change contents",
+					}
 				}
 				if len(paramChange.SecurityGroupFields()) > 0 {
 					continue
@@ -4805,9 +4644,9 @@ func UtxoValidateCCVotingRestrictions(
 			// Resolve the action type from the transaction's own proposals
 			// or, failing that, from governance state. An action neither
 			// names is reported by UtxoValidateUnknownGovActionIds.
-			actionType, _, ok := resolver.resolve(*actionId)
-			if !ok {
-				continue
+			actionType, _, err := resolver.resolveRequired(*actionId)
+			if err != nil {
+				return err
 			}
 
 			// CC members cannot vote on NoConfidence or UpdateCommittee
@@ -4902,48 +4741,13 @@ func UtxoValidateUnelectedCommitteeVoters(
 				Err:              err,
 			}
 		}
-		coldCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+		elected, err := electedCommitteeColdCredentials(
+			tx,
+			votingState,
 			hotCredential,
 		)
 		if err != nil {
 			return lookupError(err)
-		}
-		credentialKey := func(credential common.Credential) string {
-			return fmt.Sprintf("%d:%x", credential.CredType, credential.Credential)
-		}
-		elected := make(map[string]struct{}, len(coldCredentials))
-		for _, coldCredential := range coldCredentials {
-			isElected, err := votingState.CommitteeCredentialIsElected(
-				coldCredential,
-			)
-			if err != nil {
-				return lookupError(err)
-			}
-			if isElected {
-				elected[credentialKey(coldCredential)] = struct{}{}
-			}
-		}
-		for _, cert := range tx.Certificates() {
-			switch c := cert.(type) {
-			case *common.AuthCommitteeHotCertificate:
-				if credentialKey(c.HotCredential) == credentialKey(hotCredential) {
-					isElected, err := votingState.CommitteeCredentialIsElected(
-						c.ColdCredential,
-					)
-					if err != nil {
-						return lookupError(err)
-					}
-					if isElected {
-						elected[credentialKey(c.ColdCredential)] = struct{}{}
-					} else {
-						delete(elected, credentialKey(c.ColdCredential))
-					}
-				} else {
-					delete(elected, credentialKey(c.ColdCredential))
-				}
-			case *common.ResignCommitteeColdCertificate:
-				delete(elected, credentialKey(c.ColdCredential))
-			}
 		}
 		if len(elected) == 0 {
 			return UnelectedCommitteeVoterError{Voter: *voter}

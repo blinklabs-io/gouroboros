@@ -156,6 +156,70 @@ type PlutusScriptValidationUnsupportedError struct {
 	Era string
 }
 
+// PlutusScriptFailedError identifies a failed phase-2 script execution.
+type PlutusScriptFailedError struct {
+	ScriptHash ScriptHash
+	Tag        RedeemerTag
+	Index      uint32
+	Err        error
+}
+
+// PlutusScriptResultNotUnitError indicates that a validator returned a value
+// other than the unit constant required for phase-2 success.
+type PlutusScriptResultNotUnitError struct{}
+
+func (PlutusScriptResultNotUnitError) Error() string {
+	return "Plutus script returned a non-unit result"
+}
+
+func (e PlutusScriptFailedError) Error() string {
+	return fmt.Sprintf(
+		"plutus script failed (hash=%x, tag=%d, index=%d): %v",
+		e.ScriptHash[:],
+		e.Tag,
+		e.Index,
+		e.Err,
+	)
+}
+
+func (e PlutusScriptFailedError) Unwrap() error {
+	return e.Err
+}
+
+// ScriptContextConstructionError wraps an error building a Plutus context.
+type ScriptContextConstructionError struct {
+	Err error
+}
+
+func (e ScriptContextConstructionError) Error() string {
+	return fmt.Sprintf("failed to construct script context: %v", e.Err)
+}
+
+func (e ScriptContextConstructionError) Unwrap() error {
+	return e.Err
+}
+
+// ExtraRedeemerError identifies a redeemer without a matching script purpose.
+type ExtraRedeemerError struct {
+	RedeemerKey RedeemerKey
+}
+
+func (e ExtraRedeemerError) Error() string {
+	return fmt.Sprintf(
+		"extra redeemer: tag=%d, index=%d doesn't match any valid script purpose",
+		e.RedeemerKey.Tag,
+		e.RedeemerKey.Index,
+	)
+}
+
+// UnexpectedPlutusScriptSuccessError indicates that every phase-2 script
+// succeeded for a transaction that declared phase-2 failure.
+type UnexpectedPlutusScriptSuccessError struct{}
+
+func (UnexpectedPlutusScriptSuccessError) Error() string {
+	return "transaction marked invalid but all Plutus scripts succeeded"
+}
+
 func (e PlutusScriptValidationUnsupportedError) Error() string {
 	return e.Era + " Plutus phase-2 validation is not supported"
 }
@@ -517,6 +581,22 @@ type GenesisDelegationStateUnavailableError struct{}
 
 func (GenesisDelegationStateUnavailableError) Error() string {
 	return "ledger state does not provide genesis delegation state"
+}
+
+// EpochStateUnavailableError indicates that a consensus rule cannot determine
+// the epoch containing a slot.
+type EpochStateUnavailableError struct{}
+
+func (EpochStateUnavailableError) Error() string {
+	return "ledger state does not provide epoch state"
+}
+
+// FuturePoolParametersStateUnavailableError indicates that PV11+ pool
+// registration validation cannot inspect deferred pool parameters.
+type FuturePoolParametersStateUnavailableError struct{}
+
+func (FuturePoolParametersStateUnavailableError) Error() string {
+	return "ledger state does not provide future pool parameters"
 }
 
 // ClassicProtocolParameterUpdateWindowStateUnavailableError indicates that a

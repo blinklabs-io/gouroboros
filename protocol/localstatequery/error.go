@@ -42,3 +42,10 @@ var ErrLedgerPeerSnapshotUnsupportedWireVersion = errors.New(
 var ErrLedgerPeerKindUnsupportedVersion = errors.New(
 	"LedgerPeerKindAll requires node-to-client protocol version 23 or later",
 )
+
+// ErrQueryUnsupportedVersion indicates a query that the negotiated
+// node-to-client protocol version does not carry, either because the version
+// predates it or because the query was withdrawn before that version.
+var ErrQueryUnsupportedVersion = errors.New(
+	"query not supported by the negotiated node-to-client protocol version",
+)

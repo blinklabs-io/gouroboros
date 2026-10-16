@@ -15,7 +15,9 @@
 package common
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 )
 
@@ -85,27 +87,26 @@ func (rs *RewardService) CalculateEpochRewards(
 // ValidateRewardDistribution validates that a reward distribution transaction is correct
 func (rs *RewardService) ValidateRewardDistribution(
 	expectedRewards *RewardCalculationResult,
-	actualRewards map[AddrKeyHash]uint64,
+	actualRewards map[RewardCredential]uint64,
 ) error {
-	// This would validate that the actual reward payments match the calculated rewards
-	// Implementation would depend on how rewards are distributed (MIR certificates, etc.)
-
-	totalExpected := uint64(0)
+	expectedAllocations := make(map[RewardCredential]uint64)
+	addAllocation := func(recipient RewardCredential, reward uint64) {
+		if reward > 0 {
+			expectedAllocations[recipient] += reward
+		}
+	}
 	for _, poolRewards := range expectedRewards.PoolRewards {
-		totalExpected += poolRewards.TotalRewards
-	}
-
-	totalActual := uint64(0)
-	for _, reward := range actualRewards {
-		totalActual += reward
-	}
-
-	if totalExpected != totalActual {
-		return fmt.Errorf(
-			"reward distribution mismatch: expected %d, got %d",
-			totalExpected,
-			totalActual,
+		addAllocation(
+			poolRewards.OperatorRewardAccount,
+			poolRewards.OperatorRewards,
 		)
+		for recipient, reward := range poolRewards.DelegatorRewards {
+			addAllocation(recipient, reward)
+		}
+	}
+
+	if !maps.Equal(expectedAllocations, actualRewards) {
+		return errors.New("reward distribution does not match calculated allocations")
 	}
 
 	return nil

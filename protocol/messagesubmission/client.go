@@ -47,16 +47,9 @@ type Client struct {
 
 // NewClient returns a new MessageSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
-	if cfg == nil {
-		tmpCfg := NewConfig()
-		cfg = &tmpCfg
-	} else if cfg.MaxUnacknowledgedMessageIDs <= 0 {
-		// Keep zero-value Config literals bounded as well as configs built with
-		// NewConfig.
-		cfg.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
-	}
+	normalizedCfg := normalizeConfig(cfg)
 	c := &Client{
-		config:            cfg,
+		config:            &normalizedCfg,
 		pendingMessageIDs: [][]byte{},
 		protoVersion:      protoOptions.Version,
 	}
@@ -103,20 +96,37 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMapCopy,
-		InitialState:        initialState,
+		Name:               ProtocolName,
+		ProtocolId:         ProtocolID,
+		Muxer:              protoOptions.Muxer,
+		Logger:             protoOptions.Logger,
+		ErrorChan:          protoOptions.ErrorChan,
+		Mode:               protoOptions.Mode,
+		Role:               protocol.ProtocolRoleClient,
+		MessageHandlerFunc: c.messageHandler,
+		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
+			return decodeMsgFromCborWithLimit(
+				msgType,
+				data,
+				c.collectionLimit(msgType),
+			)
+		},
+		StateMap:     stateMapCopy,
+		InitialState: initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// collectionLimit bounds an inbound collection before it is decoded. A
+// message request may only name IDs this client still holds unacknowledged.
+func (c *Client) collectionLimit(msgType uint) int {
+	if msgType != MessageTypeRequestMessages {
+		return configuredMessageIDLimit(c.config)
+	}
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return len(c.pendingMessageIDs)
 }
 
 // Start begins protocol operation

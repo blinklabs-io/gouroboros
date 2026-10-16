@@ -35,12 +35,9 @@ type Client struct {
 
 // NewClient returns a new LocalMessageSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
-	if cfg == nil {
-		tmpCfg := NewConfig()
-		cfg = &tmpCfg
-	}
+	normalizedCfg := normalizeConfig(cfg)
 	c := &Client{
-		config: cfg,
+		config: &normalizedCfg,
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -105,12 +102,8 @@ func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 	}
 
 	// Validate message before sending
-	if c.config.TTLValidator != nil {
-		if err := c.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
-			return err
-		}
-	} else if !msg.IsValid() {
-		return errors.New("message has expired")
+	if err := c.config.TTLValidator.ValidateMessageTTL(msg); err != nil {
+		return err
 	}
 	if c.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")

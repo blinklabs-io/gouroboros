@@ -53,6 +53,13 @@ func TestKeyGenInvalidSeed(t *testing.T) {
 	}
 }
 
+func TestProveInvalidSecretKey(t *testing.T) {
+	_, _, err := Prove([]byte("short"), []byte("message"))
+	if err == nil {
+		t.Error("expected error for short secret key")
+	}
+}
+
 func TestProveAndVerify(t *testing.T) {
 	pk, sk, err := KeyGen(testSeed)
 	if err != nil {

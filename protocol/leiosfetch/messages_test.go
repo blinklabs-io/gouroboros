@@ -15,6 +15,7 @@
 package leiosfetch
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 
@@ -25,6 +26,239 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBlockTxsRejectsEnvelopeCountBeforeAllocation(t *testing.T) {
+	wire := append(
+		[]byte{0x99, 0x13, 0x88},
+		bytes.Repeat([]byte{0}, 5000)...,
+	)
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+			if err == nil || msg != nil {
+				b.Fatal("invalid envelope accepted")
+			}
+		}
+	})
+	require.Positive(t, result.N)
+	require.LessOrEqual(t, result.AllocedBytesPerOp(), int64(64<<10))
+}
+
+func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
+	// [3, array(5000)] contains no transaction items. The declared inner count
+	// must be rejected before []RawMessage allocation.
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x99, 0x13, 0x88}
+	// Warm lazy decoder initialization before measuring the rejected path.
+	_, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := NewMsgFromCbor(MessageTypeBlockTxs, wire); err == nil {
+				b.Fatal("truncated transaction list accepted")
+			}
+		}
+	})
+	require.Positive(t, result.N)
+	require.Less(t, result.AllocedBytesPerOp(), int64(32<<10))
+}
+
+func blockTxsWire(
+	t *testing.T,
+	bitmaps map[uint16]uint64,
+	txs []cbor.RawMessage,
+) []byte {
+	t.Helper()
+	wire, err := cbor.Encode(
+		NewMsgBlockTxs(
+			pcommon.NewPoint(1, testPointHash(0x01)),
+			bitmaps,
+			txs,
+		),
+	)
+	require.NoError(t, err)
+	return wire
+}
+
+func TestBlockTxsClientUsesRequestBitmapCardinality(t *testing.T) {
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 0x7},
+		[]cbor.RawMessage{{0x80}, {0x80}, {0x80}},
+	)
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 2
+	client.blockRequestSlot.maxBlockBitmaps = 1
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.Error(t, err)
+	require.Nil(t, msg)
+	client.blockRequestSlot.maxBlockTxs = 3
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).TxsRaw, 3)
+}
+
+func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
+	tx := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 0x1},
+		[]cbor.RawMessage{tx},
+	)
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 1
+	client.blockRequestSlot.maxBlockBitmaps = 1
+
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Equal(t, cbor.RawMessage(tx), msg.(*MsgBlockTxs).TxsRaw[0])
+}
+
+func TestBlockTxsClientUsesExactBitmapCount(t *testing.T) {
+	wire := blockTxsWire(
+		t,
+		map[uint16]uint64{0: 1, 1: 1},
+		[]cbor.RawMessage{{0x80}, {0x80}},
+	)
+	client := &Client{}
+	client.blockRequestSlot.maxBlockTxs = 2
+	client.blockRequestSlot.maxBlockBitmaps = 1
+	msg, err := client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.ErrorContains(t, err, "maximum is 1")
+	require.Nil(t, msg)
+
+	client.blockRequestSlot.maxBlockBitmaps = 2
+	msg, err = client.messageFromCbor(MessageTypeBlockTxs, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgBlockTxs).Bitmaps, 2)
+}
+
+func TestBlockTxsRejectsTransactionCountNotMatchingBitmaps(t *testing.T) {
+	for _, txCount := range []int{0, 1, 3} {
+		txs := make([]cbor.RawMessage, txCount)
+		for i := range txs {
+			txs[i] = cbor.RawMessage{0x80}
+		}
+		wire := blockTxsWire(t, map[uint16]uint64{0: 0x3}, txs)
+		msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+		require.ErrorContains(
+			t,
+			err,
+			"do not match the 2 requested",
+			"%d transactions",
+			txCount,
+		)
+		require.Nil(t, msg)
+	}
+}
+
+func TestBlockTxsRejectsTwoElementForm(t *testing.T) {
+	// [4, [tx]] was the form of the earlier prototype
+	wire := []byte{0x82, MessageTypeBlockTxs, 0x81, 0x80}
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxs, wire)
+	require.ErrorContains(t, err, "unexpected element count 2")
+	require.Nil(t, msg)
+}
+
+func TestBlockTxsRequestRejectsDuplicateBitmapBeforeTypedDecode(t *testing.T) {
+	// [3, origin, {_ 0: 1, 0: 2}]
+	wire := []byte{
+		0x83, MessageTypeBlockTxsRequest, 0x80,
+		0xbf, 0x00, 0x01, 0x00, 0x02, 0xff,
+	}
+	msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, wire)
+	require.ErrorContains(t, err, "not strictly ascending")
+	require.Nil(t, msg)
+}
+
+// The reference node reads bitmaps in wire order and rejects a key that does
+// not exceed its predecessor, a zero bitmap, and a key past the last bitmap an
+// endorser block can need. Both map encodings are accepted.
+func TestBlockTxsRequestBitmapRules(t *testing.T) {
+	point := []byte{0x80}
+	request := func(bitmaps ...byte) []byte {
+		return append(
+			append([]byte{0x83, MessageTypeBlockTxsRequest}, point...),
+			bitmaps...,
+		)
+	}
+	tests := []struct {
+		name    string
+		wire    []byte
+		wantErr string
+	}{
+		{
+			name: "definite map",
+			wire: request(0xa2, 0x00, 0x01, 0x01, 0x02),
+		},
+		{
+			name: "indefinite map",
+			wire: request(0xbf, 0x00, 0x01, 0x01, 0x02, 0xff),
+		},
+		{
+			name: "last index",
+			wire: request(0xa1, 0x19, 0x01, 0x0b, 0x01),
+		},
+		{
+			name:    "index past the last bitmap",
+			wire:    request(0xa1, 0x19, 0x01, 0x0c, 0x01),
+			wantErr: "must be an index below 268",
+		},
+		{
+			name:    "descending keys",
+			wire:    request(0xa2, 0x01, 0x01, 0x00, 0x01),
+			wantErr: "not strictly ascending",
+		},
+		{
+			name:    "zero bitmap",
+			wire:    request(0xa1, 0x00, 0x00),
+			wantErr: "selects no transaction",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			msg, err := NewMsgFromCbor(MessageTypeBlockTxsRequest, test.wire)
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				require.NotNil(t, msg)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+			require.Nil(t, msg)
+		})
+	}
+}
+
+func TestWireTagsMatchReferenceNode(t *testing.T) {
+	assert.Equal(t, 0, MessageTypeDone)
+	assert.Equal(t, 1, MessageTypeBlockRequest)
+	assert.Equal(t, 2, MessageTypeBlock)
+	assert.Equal(t, 3, MessageTypeBlockTxsRequest)
+	assert.Equal(t, 4, MessageTypeBlockTxs)
+	// The extension messages must not reuse a reference tag
+	for _, tag := range []int{
+		MessageTypeVotesRequest,
+		MessageTypeVotes,
+		MessageTypeBlockRangeRequest,
+		MessageTypeNextBlockAndTxsInRange,
+		MessageTypeLastBlockAndTxsInRange,
+	} {
+		assert.Greater(t, tag, MessageTypeBlockTxs)
+	}
+}
+
+func TestLeiosFetchRolesRejectWrongDirectionBeforeDecode(t *testing.T) {
+	declared := []byte{0x82, MessageTypeBlockTxs, 0x9a, 0, 0x40, 0}
+	msg, err := serverMessageFromCbor(MessageTypeBlockTxs, declared)
+	require.ErrorContains(t, err, "not a client request")
+	require.Nil(t, msg)
+
+	client := &Client{}
+	msg, err = client.messageFromCbor(MessageTypeBlockTxsRequest, declared)
+	require.ErrorContains(t, err, "not a server response")
+	require.Nil(t, msg)
+}
 
 type testDefinition struct {
 	Name        string
@@ -50,14 +284,14 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x01),
 				),
 			),
-			MessageType: 0,
+			MessageType: 1,
 		},
 		{
 			Name: "MsgBlock",
 			Message: NewMsgBlock(
 				cbor.RawMessage([]byte{0x82, 0x01, 0x02}),
 			),
-			MessageType: 1,
+			MessageType: 2,
 		},
 		{
 			Name: "MsgBlockTxsRequest",
@@ -71,17 +305,26 @@ func getTestDefinitions() []testDefinition {
 					64: 0x00ff000000000000,
 				},
 			),
-			MessageType: 2,
+			MessageType: 3,
 		},
 		{
 			Name: "MsgBlockTxs",
 			Message: NewMsgBlockTxs(
+				pcommon.NewPoint(
+					12345,
+					testPointHash(0x01),
+				),
+				map[uint16]uint64{
+					0:  0x3,
+					64: 0x1,
+				},
 				[]cbor.RawMessage{
 					[]byte{0x82, 0x01, 0x02},
 					[]byte{0x82, 0x03, 0x04},
+					[]byte{0x82, 0x05, 0x06},
 				},
 			),
-			MessageType: 3,
+			MessageType: 4,
 		},
 		{
 			Name: "MsgVotesRequest",
@@ -91,7 +334,7 @@ func getTestDefinitions() []testDefinition {
 					{SlotNo: 200, VoterId: 2},
 				},
 			),
-			MessageType: 4,
+			MessageType: 10,
 		},
 		{
 			Name: "MsgVotes",
@@ -101,7 +344,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x07, 0x08},
 				},
 			),
-			MessageType: 5,
+			MessageType: 11,
 		},
 		{
 			Name: "MsgBlockRangeRequest",
@@ -115,7 +358,7 @@ func getTestDefinitions() []testDefinition {
 					testPointHash(0x09),
 				),
 			),
-			MessageType: 6,
+			MessageType: 12,
 		},
 		{
 			Name: "MsgNextBlockAndTxsInRange",
@@ -125,7 +368,7 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x03, 0x04},
 				},
 			),
-			MessageType: 7,
+			MessageType: 13,
 		},
 		{
 			Name: "MsgLastBlockAndTxsInRange",
@@ -136,12 +379,12 @@ func getTestDefinitions() []testDefinition {
 					[]byte{0x82, 0x0d, 0x0e},
 				},
 			),
-			MessageType: 8,
+			MessageType: 14,
 		},
 		{
 			Name:        "MsgDone",
 			Message:     NewMsgDone(),
-			MessageType: 9,
+			MessageType: 0,
 		},
 	}
 }
@@ -270,17 +513,22 @@ func TestMsgBlockTxs(t *testing.T) {
 		[]byte{0x82, 0x03, 0x04},
 	}
 
-	msg := NewMsgBlockTxs(txs)
+	point := pcommon.NewPoint(123, testPointHash(0x01))
+	bitmaps := map[uint16]uint64{0: 0x3}
+
+	msg := NewMsgBlockTxs(point, bitmaps, txs)
 
 	assert.Equal(t, uint8(MessageTypeBlockTxs), msg.Type())
+	assert.Equal(t, point, msg.Point)
+	assert.Equal(t, bitmaps, msg.Bitmaps)
 	assert.Equal(t, txs, msg.TxsRaw)
 }
 
-func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
+func TestMsgBlockTxsUsesRequestBitmapEncoding(t *testing.T) {
 	point := pcommon.NewPoint(123, testPointHash(0x01))
 	bitmaps := map[uint16]uint64{
 		0:  1,
-		64: 0x00ff000000000000,
+		64: 0x1,
 	}
 
 	requestEncoded, err := cbor.Encode(
@@ -289,10 +537,13 @@ func TestMsgBlockTxsFullUsesRequestBitmapEncoding(t *testing.T) {
 	require.NoError(t, err)
 
 	responseEncoded, err := cbor.Encode(
-		NewMsgBlockTxsFull(
+		NewMsgBlockTxs(
 			point,
 			bitmaps,
-			[]cbor.RawMessage{[]byte{0x82, 0x01, 0x02}},
+			[]cbor.RawMessage{
+				[]byte{0x82, 0x01, 0x02},
+				[]byte{0x82, 0x03, 0x04},
+			},
 		),
 	)
 	require.NoError(t, err)
@@ -401,6 +652,25 @@ func TestMsgNextBlockAndTxsInRange(t *testing.T) {
 	assert.Equal(t, txs, msg.TxsRaw)
 }
 
+func TestBlockRangeConstructorsCloneTransactionHeaders(t *testing.T) {
+	for _, construct := range []func(
+		cbor.RawMessage,
+		[]cbor.RawMessage,
+	) []cbor.RawMessage{
+		func(block cbor.RawMessage, txs []cbor.RawMessage) []cbor.RawMessage {
+			return NewMsgNextBlockAndTxsInRange(block, txs).TxsRaw
+		},
+		func(block cbor.RawMessage, txs []cbor.RawMessage) []cbor.RawMessage {
+			return NewMsgLastBlockAndTxsInRange(block, txs).TxsRaw
+		},
+	} {
+		txs := []cbor.RawMessage{{0x80}}
+		retained := construct(nil, txs)
+		txs[0] = cbor.RawMessage{0x81, 0x00}
+		require.Equal(t, cbor.RawMessage{0x80}, retained[0])
+	}
+}
+
 func TestMsgLastBlockAndTxsInRange(t *testing.T) {
 	blockRaw := cbor.RawMessage([]byte{0x82, 0x01, 0x02})
 	txs := []cbor.RawMessage{
@@ -468,7 +738,11 @@ func TestMsgVotesRequestEmpty(t *testing.T) {
 }
 
 func TestMsgBlockTxsEmpty(t *testing.T) {
-	msg := NewMsgBlockTxs([]cbor.RawMessage{})
+	msg := NewMsgBlockTxs(
+		pcommon.NewPoint(123, testPointHash(0x01)),
+		nil,
+		[]cbor.RawMessage{},
+	)
 
 	encoded, err := cbor.Encode(msg)
 	require.NoError(t, err)
@@ -497,4 +771,142 @@ func TestMsgVotesNilUsesEmptyArray(t *testing.T) {
 	encoded, err := cbor.Encode(NewMsgVotes(nil))
 	require.NoError(t, err)
 	require.Equal(t, []byte{0x82, MessageTypeVotes, 0x80}, encoded)
+}
+
+func TestVotesResponseUsesResponseCountBudget(t *testing.T) {
+	valid := append(
+		[]byte{0x82, MessageTypeVotes, 0x99, 0x03, 0xe8},
+		bytes.Repeat([]byte{0x80}, 1_000)...,
+	)
+	msg, err := NewMsgFromCbor(MessageTypeVotes, valid)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgVotes).VotesRaw, 1_000)
+
+	oversized := append(
+		[]byte{0x82, MessageTypeVotes, 0x99, 0x03, 0xe9},
+		bytes.Repeat([]byte{0x80}, 1_001)...,
+	)
+	msg, err = NewMsgFromCbor(MessageTypeVotes, oversized)
+	require.ErrorContains(t, err, "maximum is 1000")
+	require.Nil(t, msg)
+}
+
+func TestVotesResponseUsesRequestedCount(t *testing.T) {
+	wire := []byte{0x82, MessageTypeVotes, 0x83, 0x80, 0x80, 0x80}
+	client := &Client{}
+	client.blockRequestSlot.maxVotes = 2
+	msg, err := client.messageFromCbor(MessageTypeVotes, wire)
+	require.ErrorContains(t, err, "maximum is 2")
+	require.Nil(t, msg)
+
+	client.blockRequestSlot.maxVotes = 3
+	msg, err = client.messageFromCbor(MessageTypeVotes, wire)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgVotes).VotesRaw, 3)
+}
+
+func TestVotesResponseRejectsDeepVoteBeforeTypedDecode(t *testing.T) {
+	wire := []byte{0x82, MessageTypeVotes, 0x81, 0x81, 0x81, 0x00}
+	msg, err := NewMsgFromCbor(MessageTypeVotes, wire)
+	require.ErrorContains(t, err, "maximum depth 1")
+	require.Nil(t, msg)
+}
+
+func TestBlockRangeResponsesBoundTransactionCollections(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		msgType uint
+		wire    []byte
+	}{
+		{
+			name:    "definite_next",
+			msgType: MessageTypeNextBlockAndTxsInRange,
+			wire: []byte{0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
+				0x83, 0x80, 0x80, 0x80},
+		},
+		{
+			name:    "indefinite_last",
+			msgType: MessageTypeLastBlockAndTxsInRange,
+			wire: []byte{0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
+				0x9f, 0x80, 0x80, 0x80, 0xff},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, err := decodeBlockAndTxsInRange(
+				tc.msgType,
+				tc.wire,
+				maxWireBlockTxs,
+				2*rangeTxDecodedBudgetBytes,
+			)
+			require.ErrorContains(t, err, "maximum is 2")
+			require.Nil(t, msg)
+		})
+	}
+}
+
+func TestBlockRangeResponseCountUsesDecodedMemoryBudget(t *testing.T) {
+	require.Equal(
+		t,
+		DefaultMaxBlockRangeResponseBytes/rangeTxDecodedBudgetBytes,
+		maxRangeTransactionCount(DefaultMaxBlockRangeResponseBytes),
+	)
+}
+
+func TestBlockRangeRejectsDecodedCountBeforeAllocation(t *testing.T) {
+	// The transaction array contains one more item than the default decoded
+	// memory budget allows. Its count must be rejected before item storage is
+	// allocated.
+	wire := append([]byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
+		0x9a, 0x00, 0x10, 0x00, 0x01,
+	}, bytes.Repeat([]byte{0}, 1_048_577)...)
+	_, err := NewMsgFromCbor(MessageTypeNextBlockAndTxsInRange, wire)
+	require.ErrorContains(t, err, "maximum is 1048576")
+}
+
+func TestBlockRangeResponseUsesConfiguredByteBudget(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeNextBlockAndTxsInRange, 0xf6, 0x80,
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		wire,
+		maxWireBlockTxs,
+		len(wire)-1,
+	)
+	require.ErrorContains(t, err, "exceeds maximum")
+	require.Nil(t, msg)
+
+	msg, err = decodeBlockAndTxsInRange(
+		MessageTypeNextBlockAndTxsInRange,
+		wire,
+		maxWireBlockTxs,
+		len(wire),
+	)
+	require.NoError(t, err)
+	require.Empty(t, msg.(*MsgNextBlockAndTxsInRange).TxsRaw)
+}
+
+func TestBlockRangeResponseUsesTransactionCountBudget(t *testing.T) {
+	wire := []byte{
+		0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
+		0x83, 0x80, 0x80, 0x80,
+	}
+	msg, err := decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		wire,
+		2,
+		3*rangeTxDecodedBudgetBytes,
+	)
+	require.ErrorContains(t, err, "maximum is 2")
+	require.Nil(t, msg)
+
+	msg, err = decodeBlockAndTxsInRange(
+		MessageTypeLastBlockAndTxsInRange,
+		wire,
+		3,
+		3*rangeTxDecodedBudgetBytes,
+	)
+	require.NoError(t, err)
+	require.Len(t, msg.(*MsgLastBlockAndTxsInRange).TxsRaw, 3)
 }
