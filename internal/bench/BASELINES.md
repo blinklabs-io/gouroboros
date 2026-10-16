@@ -4,6 +4,8 @@
 **Go Version**: 1.25.8
 **Platform**: linux/arm64
 
+The E34 cutover section has its own Go version and platform metadata.
+
 > The previous snapshot (2026-02-22) was captured on linux/amd64. Time and
 > throughput deltas against that snapshot partly reflect the hardware change;
 > allocation counts and bytes are comparable across platforms.
@@ -119,9 +121,9 @@ finite E34 eligibility. They must not be used as current allocation limits.
 Measured on Linux/amd64, Go 1.26.8, AMD Ryzen Threadripper PRO 5975WX,
 GOMAXPROCS=64. Values below are medians of five non-race runs with
 `-benchmem`. The same compiler and inputs were used before and after the
-cutover. E34 fixture-dependent runs used the real shared-corpus contribution
-in a disposable workspace pending its upstream publication, not local copied
-fixtures or a permanent module replacement.
+cutover. E34 fixture-dependent runs used the shared corpus at source revision
+`bf44019de46e9bc734e70ebdbbbf6fb7fedb8890`. The current dependency is the upstream
+`ouroboros-mock` v0.21.1 release, which preserves those corpus bytes.
 
 The `consensus` preparation and ordinary evaluation tuple is
 `500000001/1000000003`, coefficient `1/17`. Boundary rows use the pinned
@@ -165,7 +167,7 @@ samples, in each mode. Parallel header leadership excludes KES/opcert checks.
 | Warm preparation | TPraos | 395.8 | 57.25 | 152 | 8 | 6 | 1 |
 | Prepared raw-output decision | CPraos | 476.6 | 1897 | 512 | 1350 | 4 | 16 |
 | Prepared raw-output decision | TPraos | — | 1450 | — | 1028 | — | 13 |
-| Full signing/election | CPraos | 170759 | 189495 | 1793 | 2580 | 23 | 31 |
+| Signing/election with prepared old cutoff | CPraos | 170759 | 189495 | 1793 | 2580 | 23 | 31 |
 | Full signing/election | TPraos | — | 189000 | — | 2292 | — | 29 |
 | Full reference schedule, 120 slots | CPraos | — | 22472843 | — | 301034 | — | 3482 |
 | Full reference schedule, 120 slots | TPraos | — | 23512833 | — | 266321 | — | 3242 |
@@ -180,6 +182,11 @@ more work than the old single integer comparison: they form the rounded
 quotient and run the bounded E34 series. Local scratch is reused; accumulator
 and divisor updates do not copy redundant next-state integers.
 
+The old 170759 ns/op signing/election sample reused a prepared threshold and
+excluded its preparation cost. It is not the historical 824-allocation full
+workflow above, which prepared the ideal cutoff on every iteration. The E34
+sample includes a warm preparation lookup.
+
 The prepared decision's increased work and allocations are directly measured
 without signing. Full election also returns its proof/output result rather
 than the old benchmark's boolean-only sink. The signing-only control is
@@ -189,7 +196,9 @@ Concurrent Dingo race gates and ordinary host activity were not isolated.
 These are measured baselines, not guessed latency or allocation limits.
 
 The obsolete 6/10-allocation cutoff assertions and old leader-check budget
-were removed, not raised. Unrelated VRF, KES, CBOR and hash guards remain.
+were replaced by finite-E34 guards: warm lookup plus decision allows 22
+allocations (measured 17 normally and 19–20 with race instrumentation), and cached preparation allows 2 (measured 1).
+Unrelated VRF, KES, CBOR and hash guards remain.
 
 ---
 

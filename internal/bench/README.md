@@ -332,7 +332,7 @@ func BenchmarkMyOperation(b *testing.B) {
 
 ### Naming Conventions
 
-- Top-level: `Benchmark<Component><Operation>` (e.g., `BenchmarkConsensusThreshold`)
+- Top-level: `Benchmark<Component><Operation>` (e.g., `BenchmarkConsensusEligibilityPrepareCached`)
 - Sub-benchmarks: descriptive variant names (e.g., `1pct`, `10pct`, `Large`, `Small`)
 - Use underscores for hierarchical names (e.g., `Era_Conway`, `TxType_Simple`)
 

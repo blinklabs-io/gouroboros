@@ -141,6 +141,9 @@ func checkSlotLeadership(
 	mode ConsensusMode,
 	evaluator *LeaderEligibility,
 ) (*LeaderElectionResult, error) {
+	if vrfSigner == nil {
+		return nil, errors.New("vrfSigner is nil")
+	}
 	if slot > math.MaxInt64 {
 		return nil, fmt.Errorf(
 			"slot %d exceeds maximum int64 value for VRF input", slot,
@@ -351,14 +354,14 @@ func FindNextSlotLeadershipContext(
 	if err := ctx.Err(); err != nil {
 		return 0, nil, nil, err
 	}
-	evaluator, _, err := prepareSlotLeadership(
+	evaluator, zeroStake, err := prepareSlotLeadership(
 		epochNonce, poolStake, totalStake, activeSlotCoeff, vrfSigner,
 		ConsensusModeCPraos,
 	)
 	if err != nil {
 		return 0, nil, nil, err
 	}
-	if evaluator == nil {
+	if zeroStake {
 		return 0, nil, nil, nil
 	}
 	for slot := startSlot; ; slot++ {

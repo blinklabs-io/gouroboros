@@ -1406,7 +1406,10 @@ func TestUtxoValidateHardForkCanFollowWithAncestor(t *testing.T) {
 			ActionType: common.GovActionTypeHardForkInitiation,
 		},
 	}
-	ls := mockledger.NewLedgerStateBuilder().WithGovActions(govActions).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithGovActions(govActions).
+		WithGovPurposeRootsValue(&common.GovPurposeRoots{}).
+		Build()
 
 	t.Run(
 		"minor bump on the ancestor's version is allowed",

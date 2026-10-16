@@ -227,19 +227,8 @@ func loadBenchmarkReference(
 	if err != nil {
 		b.Fatal(err)
 	}
-	digest := fmt.Sprintf("%x", sha256.Sum256(data))
-	matched := false
-	for _, line := range strings.Split(string(manifest), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 2 && fields[1] == "jormanager/node-schedules.json" {
-			if fields[0] != digest {
-				b.Fatal("reference schedule checksum mismatch")
-			}
-			matched = true
-		}
-	}
-	if !matched {
-		b.Fatal("reference schedule checksum missing")
+	if err := validateBenchmarkScheduleChecksum(data, manifest); err != nil {
+		b.Fatal(err)
 	}
 	var corpus struct{ Cases []benchmarkSchedule }
 	if err := json.Unmarshal(data, &corpus); err != nil {
@@ -397,6 +386,51 @@ func BenchmarkConsensusParallelHeaderLeadership(b *testing.B) {
 				}
 				consensusParallelSink.Store(eligible)
 			})
+		})
+	}
+}
+
+func validateBenchmarkScheduleChecksum(data, manifest []byte) error {
+	digest := fmt.Sprintf("%x", sha256.Sum256(data))
+	matched := false
+	for _, line := range strings.Split(string(manifest), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[1] != "jormanager/node-schedules.json" {
+			continue
+		}
+		if matched {
+			return fmt.Errorf("duplicate reference schedule checksum")
+		}
+		if fields[0] != digest {
+			return fmt.Errorf("reference schedule checksum mismatch")
+		}
+		matched = true
+	}
+	if !matched {
+		return fmt.Errorf("reference schedule checksum missing")
+	}
+	return nil
+}
+
+func TestBenchmarkScheduleChecksum(t *testing.T) {
+	data := []byte("reference schedule")
+	row := fmt.Sprintf(
+		"%x  jormanager/node-schedules.json\n",
+		sha256.Sum256(data),
+	)
+	if err := validateBenchmarkScheduleChecksum(data, []byte(row)); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, manifest, want string }{
+		{"duplicate", row + row, "duplicate"},
+		{"missing", "", "missing"},
+		{"mismatch", strings.Repeat("0", 64) + "  jormanager/node-schedules.json\n", "mismatch"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateBenchmarkScheduleChecksum(data, []byte(tc.manifest))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, want %s checksum error", err, tc.want)
+			}
 		})
 	}
 }

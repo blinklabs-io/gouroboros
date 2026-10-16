@@ -1,9 +1,9 @@
 filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
 filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
-github.com/AndrewWestberg/ouroboros-mock v0.20.6-0.20261015233204-bf44019de46e h1:sW4KlBpnfoxUijSjRN/NAz3UilVuJUc+yV+yFfXU4iE=
-github.com/AndrewWestberg/ouroboros-mock v0.20.6-0.20261015233204-bf44019de46e/go.mod h1:Nej+sTwJstHPlJveUdsQohLf1haGtG1Uw9Q8Bksc5oM=
 github.com/bits-and-blooms/bitset v1.25.0 h1:0Ro0qF4abCkM6SqWPVj29sFhAbMPAZpaDD7xhJ10beM=
 github.com/bits-and-blooms/bitset v1.25.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
+github.com/blinklabs-io/ouroboros-mock v0.21.1 h1:eWOCYM6K6R10yZbB6y/sTA99wi8oO4LbxsAp1jcLZvI=
+github.com/blinklabs-io/ouroboros-mock v0.21.1/go.mod h1:Nej+sTwJstHPlJveUdsQohLf1haGtG1Uw9Q8Bksc5oM=
 github.com/blinklabs-io/plutigo v0.9.1 h1:W2mS8wLdq5zvGuMdpepV9VjJ2RscX4EJv9drqpSXSHw=
 github.com/blinklabs-io/plutigo v0.9.1/go.mod h1:vVFey4OnERG6kVXZFadUvikf7i01rhQ8+HFc1RdvyX4=
 github.com/btcsuite/btcd/btcec/v2 v2.5.0 h1:KioMXOWa76b86sTZZOmbzv/ldaQCmB8KFAyn5PbB8E8=

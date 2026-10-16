@@ -207,11 +207,10 @@ func TestLeaderEligibilityNodeSchedules(t *testing.T) {
 			require.Positive(t, dDen.Sign())
 			require.GreaterOrEqual(t, dNum.Sign(), 0)
 			require.LessOrEqual(t, dNum.Cmp(dDen), 0)
-			require.Positive(t, c.SlotCount)
-			require.LessOrEqual(
+			require.True(
 				t,
-				c.SlotCount,
-				uint64(math.MaxInt64)-c.FirstSlot,
+				eligibilityScheduleRangeValid(c.FirstSlot, c.SlotCount),
+				"schedule range exceeds int64 VRF slots",
 			)
 			require.NotNil(t, c.AssignedSlots)
 			for i, slot := range c.AssignedSlots {
@@ -267,5 +266,34 @@ func TestLeaderEligibilityNodeSchedules(t *testing.T) {
 			}
 			require.Equal(t, c.AssignedSlots, assigned)
 		})
+	}
+}
+
+func eligibilityScheduleRangeValid(first, count uint64) bool {
+	return first <= math.MaxInt64 && count > 0 &&
+		count <= uint64(math.MaxInt64)-first
+}
+
+func TestLeaderEligibilityScheduleRange(t *testing.T) {
+	for _, tc := range []struct {
+		first, count uint64
+		valid        bool
+	}{
+		{0, 1, true},
+		{math.MaxInt64 - 1, 1, true},
+		{math.MaxInt64, 0, false},
+		{math.MaxInt64, 1, false},
+		{math.MaxInt64 + 1, 1, false},
+		{math.MaxUint64, 1, false},
+		{0, math.MaxUint64, false},
+	} {
+		require.Equal(
+			t,
+			tc.valid,
+			eligibilityScheduleRangeValid(tc.first, tc.count),
+			"first=%d count=%d",
+			tc.first,
+			tc.count,
+		)
 	}
 }

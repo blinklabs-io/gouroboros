@@ -61,12 +61,14 @@ rational during construction or of the same wrapper is not.
 
 The election/component adapters deliberately differ from the primitive:
 zero pool or total stake returns false. Full election validates mode, signer,
-nonce and coefficient before zero-stake policy; positive-stake calls with
+nonce, a nonnil coefficient, and the domain of positive coefficients before
+zero-stake policy; positive-stake calls with
 `f<=0` still generate and validate proof/output, then return false. Components
 return false for nil/nonpositive coefficients and malformed output, but reject
 unsupported positive coefficients even with zero stake or malformed output.
 Unknown modes always error; the no-error component wrapper suppresses errors.
-Search returns no leadership without signing for policy-ineligible input.
+Search returns no leadership without signing for zero stake. With positive
+stake and a nonpositive coefficient, it still validates each slot and proof.
 Header validation rejects zero total/pool stake and invalid coefficients,
 then checks the same prepared predicate on the cryptographically verified
 output. These are library pool-policy gates, not additional Haskell claims.

@@ -748,3 +748,57 @@ func TestLeaderEligibilityElectionReferenceDecisions(t *testing.T) {
 		}
 	}
 }
+
+func TestFindNextSlotLeadershipNonpositiveCoefficientValidatesInputs(
+	t *testing.T,
+) {
+	for _, f := range []*big.Rat{new(big.Rat), big.NewRat(-1, 2)} {
+		t.Run(f.String(), func(t *testing.T) {
+			signerErr := errors.New("signer failed")
+			for _, tc := range []struct {
+				name   string
+				slot   uint64
+				signer *policyVRFSigner
+				want   string
+			}{
+				{"slot", math.MaxUint64, &policyVRFSigner{}, "exceeds maximum int64"},
+				{"signer", 1, &policyVRFSigner{err: signerErr}, "signer failed"},
+				{"proof", 1, &policyVRFSigner{output: make([]byte, 64)}, "VRF proof"},
+				{"output", 1, &policyVRFSigner{proof: make([]byte, 80)}, "VRF output"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					_, _, _, err := FindNextSlotLeadershipContext(
+						context.Background(),
+						tc.slot,
+						tc.slot,
+						make([]byte, 32),
+						1,
+						3,
+						f,
+						tc.signer,
+					)
+					require.ErrorContains(t, err, tc.want)
+				})
+			}
+			signer := &policyVRFSigner{
+				proof:  make([]byte, 80),
+				output: make([]byte, 64),
+			}
+			slot, proof, output, err := FindNextSlotLeadershipContext(
+				context.Background(),
+				1,
+				2,
+				make([]byte, 32),
+				1,
+				3,
+				f,
+				signer,
+			)
+			require.NoError(t, err)
+			require.Zero(t, slot)
+			require.Nil(t, proof)
+			require.Nil(t, output)
+			require.Equal(t, 2, signer.calls)
+		})
+	}
+}

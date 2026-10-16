@@ -140,6 +140,10 @@ func TestAllocationRegression(t *testing.T) {
 		{"VRFVerify", vrfVerifyOnce, 12},
 		// KESVerify: 12 allocs (measured 2026-02-10)
 		{"KESVerify", kesVerifyOnce, 14},
+		// Finite E34: 17 allocations normally, 19-20 with race instrumentation.
+		{"LeaderCheck", leaderCheckOnce, 22},
+		// Warm preparation returns one fresh wrapper.
+		{"EligibilityPrepareCached", eligibilityPrepareOnce, 2},
 		// CBORBlockDecode (Conway): 2652 allocs (measured 2026-02-10)
 		{"CBORBlockDecode", cborBlockDecodeOnce, 3000},
 	}

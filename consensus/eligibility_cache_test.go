@@ -151,7 +151,10 @@ func TestLeaderEligibilityCacheRejectsInvalidInputs(t *testing.T) {
 			1,
 			new(
 				big.Rat,
-			).SetFrac(big.NewInt(1), new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil)),
+			).SetFrac(
+				big.NewInt(1),
+				new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil),
+			),
 			ConsensusModeCPraos,
 		},
 		{
@@ -289,12 +292,18 @@ func TestLeaderEligibilityCacheConcurrentReaders(t *testing.T) {
 					new(big.Int).Lsh(big.NewInt(1), bits-1),
 				)
 				if err != nil || got != (denominator == 2) {
-					errors <- fmt.Errorf("worker %d half-natural decision: got %v, error %v", worker, got, err)
+					errors <- fmt.Errorf(
+						"worker %d half-natural decision: got %v, error %v",
+						worker, got, err,
+					)
 					return
 				}
 				got, err = shared.CheckVRFOutput(make([]byte, 64))
 				if err != nil || !got {
-					errors <- fmt.Errorf("shared zero-output decision: got %v, error %v", got, err)
+					errors <- fmt.Errorf(
+						"shared zero-output decision: got %v, error %v",
+						got, err,
+					)
 					return
 				}
 			}
