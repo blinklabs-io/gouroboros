@@ -84,3 +84,23 @@ func TestFilteredShelleyQueriesDecode(t *testing.T) {
 		})
 	}
 }
+
+func TestFilteredPoolQueriesRejectInvalidMaybe(t *testing.T) {
+	tests := []struct {
+		name string
+		wire string
+	}{
+		{name: "pool state", wire: "8213828080"},
+		{name: "pool distribution", wire: "8215828080"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire, err := hex.DecodeString(test.wire)
+			require.NoError(t, err)
+
+			_, err = decodeShelleyQuery(wire)
+			require.ErrorContains(t, err, "expected at most one pool set")
+		})
+	}
+}

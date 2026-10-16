@@ -482,6 +482,16 @@ type ShelleyPoolStateQuery struct {
 	Pools []cbor.SetType[ledger.PoolId]
 }
 
+func (q *ShelleyPoolStateQuery) UnmarshalCBOR(data []byte) error {
+	queryType, pools, err := decodePoolFilterQuery(data, "GetPoolState")
+	if err != nil {
+		return err
+	}
+	q.Type = queryType
+	q.Pools = pools
+	return nil
+}
+
 // ShelleyStakeSnapshotsQuery is GetStakeSnapshots (Shelley sub-query 20).
 // On the wire it is [20, poolFilter] where poolFilter is a StrictMaybe of a
 // pool-id set, encoded as a list: [] (SNothing) means "all pools", while
@@ -496,27 +506,36 @@ type ShelleyStakeSnapshotsQuery struct {
 }
 
 func (q *ShelleyStakeSnapshotsQuery) UnmarshalCBOR(data []byte) error {
+	queryType, pools, err := decodePoolFilterQuery(data, "GetStakeSnapshots")
+	if err != nil {
+		return err
+	}
+	q.Type = queryType
+	q.Pools = pools
+	return nil
+}
+
+func decodePoolFilterQuery(
+	data []byte,
+	queryName string,
+) (int, []cbor.SetType[ledger.PoolId], error) {
 	var tmp struct {
 		cbor.StructAsArray
 		Type  int
 		Pools []cbor.SetType[ledger.PoolId]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
-		return err
+		return 0, nil, err
 	}
-	// The pool filter is a StrictMaybe (Set PoolId): SNothing ([]) or SJust
-	// ([set]). The CBOR array decodes into a Go slice of any length, so
-	// reject a malformed encoding that carries more than one set rather than
-	// silently dropping the extras in PoolFilter.
+	// The CBOR slice itself does not enforce StrictMaybe cardinality.
 	if len(tmp.Pools) > 1 {
-		return fmt.Errorf(
-			"invalid GetStakeSnapshots pool filter: expected at most one pool set, got %d",
+		return 0, nil, fmt.Errorf(
+			"invalid %s pool filter: expected at most one pool set, got %d",
+			queryName,
 			len(tmp.Pools),
 		)
 	}
-	q.Type = tmp.Type
-	q.Pools = tmp.Pools
-	return nil
+	return tmp.Type, tmp.Pools, nil
 }
 
 // PoolFilter reports the pool IDs the query is restricted to. When all is
@@ -536,6 +555,16 @@ type ShelleyPoolDistrQuery struct {
 	Pools []cbor.SetType[ledger.PoolId]
 }
 
+func (q *ShelleyPoolDistrQuery) UnmarshalCBOR(data []byte) error {
+	queryType, pools, err := decodePoolFilterQuery(data, "GetPoolDistr")
+	if err != nil {
+		return err
+	}
+	q.Type = queryType
+	q.Pools = pools
+	return nil
+}
+
 // ShelleyPoolDistr2Query is GetPoolDistr2 (Shelley sub-query 36), which
 // replaces GetPoolDistr from node-to-client protocol version 21. The wire form
 // is unchanged from its predecessor -- [36, poolFilter], where poolFilter is a
@@ -549,24 +578,12 @@ type ShelleyPoolDistr2Query struct {
 }
 
 func (q *ShelleyPoolDistr2Query) UnmarshalCBOR(data []byte) error {
-	var tmp struct {
-		cbor.StructAsArray
-		Type  int
-		Pools []cbor.SetType[ledger.PoolId]
-	}
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	queryType, pools, err := decodePoolFilterQuery(data, "GetPoolDistr2")
+	if err != nil {
 		return err
 	}
-	// A StrictMaybe holds at most one value. Reject a malformed encoding that
-	// carries more than one set rather than silently dropping the extras.
-	if len(tmp.Pools) > 1 {
-		return fmt.Errorf(
-			"invalid GetPoolDistr2 pool filter: expected at most one pool set, got %d",
-			len(tmp.Pools),
-		)
-	}
-	q.Type = tmp.Type
-	q.Pools = tmp.Pools
+	q.Type = queryType
+	q.Pools = pools
 	return nil
 }
 
