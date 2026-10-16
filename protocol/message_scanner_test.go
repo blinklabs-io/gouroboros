@@ -207,6 +207,8 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	segments <- segment
 	var decodeCalls int
 	handled := make(chan Message, 1)
+	allowNextRequest := make(chan struct{})
+	defer close(allowNextRequest)
 	var p *Protocol
 	p = &Protocol{
 		config: ProtocolConfig{
@@ -219,6 +221,7 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 			},
 			MessageHandlerFunc: func(msg Message) error {
 				handled <- msg
+				<-allowNextRequest
 				return p.transitionState(&MessageBase{MessageType: requestType})
 			},
 			StateMap: StateMap{
