@@ -238,6 +238,9 @@ func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(t *testing.T
 		drained = append(drained, p.DrainResults()...)
 		return len(drained) == 1
 	}, time.Second, time.Millisecond)
+	if len(drained) == 0 || drained[0] == nil {
+		t.Fatal("expected one non-nil result")
+	}
 	item := drained[0]
 	require.Equal(t, raw, item.RawCbor())
 	require.Eventually(t, func() bool {
@@ -249,6 +252,39 @@ func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(t *testing.T
 	item.Release()
 	require.Nil(t, item.RawCbor())
 	require.Nil(t, item.Block())
+	require.Empty(t, p.DrainResults())
+}
+
+func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
+	const resultCount = 5
+	raw := getValidBlockCbor(t)
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(resultCount*2*uint64(len(raw))),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	for sequence := 0; sequence < resultCount; sequence++ {
+		require.NoError(t, p.Submit(
+			ctx,
+			uint(ledger.BlockTypeConway),
+			raw,
+			createTestTip(uint64(sequence), uint64(sequence)),
+		))
+	}
+	require.Eventually(t, func() bool {
+		return len(p.resultsQueue) == resultCount-1
+	}, 5*time.Second, time.Millisecond)
+
+	results := p.DrainResults()
+	require.Len(t, results, resultCount)
+	for sequence, item := range results {
+		require.Equal(t, uint64(sequence), item.SequenceNumber())
+		item.Release()
+	}
 	require.Empty(t, p.DrainResults())
 }
 
@@ -266,9 +302,11 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 	))
 	result := <-p.Results()
 	require.NotNil(t, result.RawCbor())
-	p.rawBudgetMu.Lock()
-	require.Zero(t, p.rawBytesInUse)
-	p.rawBudgetMu.Unlock()
+	require.Eventually(t, func() bool {
+		p.rawBudgetMu.Lock()
+		defer p.rawBudgetMu.Unlock()
+		return p.rawBytesInUse == 0
+	}, time.Second, time.Millisecond, "receipt returns the reservation")
 	require.NoError(t, p.Stop())
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()

@@ -232,6 +232,7 @@ type BlockPipeline struct {
 	validatedChan chan *BlockItem
 	resultsQueue  chan *BlockItem
 	resultsChan   chan *BlockItem
+	drainResults  chan chan []*BlockItem
 	errorsChan    chan error
 	resultsDone   chan struct{}
 
@@ -528,6 +529,7 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	p.decodedChan = make(chan *BlockItem, bufSize)
 	p.resultsQueue = make(chan *BlockItem, bufSize)
 	p.resultsChan = make(chan *BlockItem)
+	p.drainResults = make(chan chan []*BlockItem)
 	p.resultsDone = make(chan struct{})
 	p.errorsChan = make(chan error, bufSize)
 
@@ -628,9 +630,39 @@ func (p *BlockPipeline) forwardResults() {
 	if p.testResultsForward != nil {
 		p.testResultsForward()
 	}
-	for item := range p.resultsQueue {
-		p.resultsChan <- item
-		p.markItemDelivered(item)
+	for {
+		select {
+		case request := <-p.drainResults:
+			request <- p.drainQueuedResults()
+		case item, ok := <-p.resultsQueue:
+			if !ok {
+				return
+			}
+			select {
+			case p.resultsChan <- item:
+				p.markItemDelivered(item)
+			case request := <-p.drainResults:
+				p.markItemDelivered(item)
+				results := append([]*BlockItem{item}, p.drainQueuedResults()...)
+				request <- results
+			}
+		}
+	}
+}
+
+func (p *BlockPipeline) drainQueuedResults() []*BlockItem {
+	var results []*BlockItem
+	for {
+		select {
+		case item, ok := <-p.resultsQueue:
+			if !ok {
+				return results
+			}
+			p.markItemDelivered(item)
+			results = append(results, item)
+		default:
+			return results
+		}
 	}
 }
 
@@ -1000,14 +1032,14 @@ func (p *BlockPipeline) metricsCollector() {
 	}
 }
 
-// DrainResults reads the results that are ready for handoff without blocking.
-// Handoff to the Results channel is synchronous, so completed results queued
-// behind the one being handed off are not returned until later calls; callers
-// that need every completed result should receive from Results instead.
+// DrainResults reads all results that are ready for handoff without blocking.
 // Ownership of every returned item transfers to the caller, which should call
 // Release after use to clear its data. Useful for testing or cleanup.
 func (p *BlockPipeline) DrainResults() []*BlockItem {
 	var results []*BlockItem
+	if p.drainResults == nil {
+		return results
+	}
 	for {
 		select {
 		case item, ok := <-p.resultsChan:
@@ -1016,9 +1048,18 @@ func (p *BlockPipeline) DrainResults() []*BlockItem {
 			}
 			results = append(results, item)
 		default:
-			return results
+			goto drainQueue
 		}
 	}
+
+drainQueue:
+	request := make(chan []*BlockItem, 1)
+	select {
+	case p.drainResults <- request:
+		results = append(results, <-request...)
+	case <-p.resultsDone:
+	}
+	return results
 }
 
 // DrainErrors reads all available errors without blocking.
