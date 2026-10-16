@@ -716,7 +716,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if hasRemovedField {
 		return ConwayTransactionBodyFieldError{FieldKey: 6}
 	}
-	if err := validateConwayVotingProcedures(cborData); err != nil {
+	if err := validateConwayTransactionBodyFields(cborData); err != nil {
 		return err
 	}
 	type tConwayTransactionBody ConwayTransactionBody
@@ -852,10 +852,14 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 	return false, nil
 }
 
-func validateConwayVotingProcedures(cborData []byte) error {
+func validateConwayTransactionBodyFields(cborData []byte) error {
 	var fields map[uint64]cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return err
+	}
+	// CBOR major type 1 encodes negative integers; coins must be nonnegative.
+	if value, ok := fields[21]; ok && len(value) > 0 && value[0]>>5 == 1 {
+		return errors.New("current treasury value must not be negative")
 	}
 	votingProceduresCBOR, ok := fields[19]
 	if !ok {

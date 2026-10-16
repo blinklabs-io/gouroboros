@@ -596,7 +596,11 @@ func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(t *testing.T) 
 	require.NoError(t, err)
 
 	var body ConwayTransactionBody
-	require.Error(t, body.UnmarshalCBOR(encoded))
+	require.ErrorContains(
+		t,
+		body.UnmarshalCBOR(encoded),
+		"current treasury value must not be negative",
+	)
 }
 
 func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(t *testing.T) {
