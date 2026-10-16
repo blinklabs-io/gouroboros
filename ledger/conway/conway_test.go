@@ -611,6 +611,7 @@ func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(t *testing.T)
 	assert.Equal(t, want, body.TxCurrentTreasuryValue)
 	assert.Equal(t, new(big.Int).SetUint64(want), body.CurrentTreasuryValue())
 
+	body.SetCborReference(nil)
 	reencoded, err := body.MarshalCBOR()
 	require.NoError(t, err)
 	var roundTripped ConwayTransactionBody

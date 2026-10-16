@@ -1006,7 +1006,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 }
 
 // outputValueWithAssets builds a one-policy output value whose asset names
-// are unique and whose definite-length CBOR encoding is exactly wantSize
+// are unique and whose CBOR encoding is exactly wantSize
 // bytes. Names are 13 or 14 bytes long, so every encoded asset costs 15 or 16
 // bytes with a one-byte quantity.
 func outputValueWithAssets(
