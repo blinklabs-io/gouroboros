@@ -681,6 +681,9 @@ func (m *MessageAuthenticator) RemoveKESOpCertCacheEntry(poolID PoolKeyHash) {
 	delete(m.kesOpCertCache, poolID)
 }
 
+// ErrMessageExpired indicates that a DMQ message's expiration time has passed.
+var ErrMessageExpired = errors.New("message has expired")
+
 // TTLValidator enforces message time-to-live (TTL) constraints per CIP-0137.
 // It validates that messages have not expired and rejects messages with
 // expiration timestamps too far in the future.
@@ -759,7 +762,8 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 	// a time.
 	if nowUnix > math.MaxUint32 {
 		return fmt.Errorf(
-			"message has expired: now=%d, expiresAt=%d",
+			"%w: now=%d, expiresAt=%d",
+			ErrMessageExpired,
 			nowUnix,
 			expiresAt,
 		)
@@ -773,7 +777,8 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 	// Check if message has already expired
 	if nowSec > expiresAt {
 		return fmt.Errorf(
-			"message has expired: now=%d, expiresAt=%d",
+			"%w: now=%d, expiresAt=%d",
+			ErrMessageExpired,
 			nowSec,
 			expiresAt,
 		)

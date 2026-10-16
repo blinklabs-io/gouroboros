@@ -30,8 +30,101 @@ type dijkstraEpochState struct {
 	epoch uint64
 }
 
+type dijkstraCommitteeVotingState struct {
+	common.LedgerState
+}
+
+func (s dijkstraCommitteeVotingState) CommitteeStateAvailable() (bool, error) {
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return false, nil
+	}
+	return state.CommitteeStateAvailable()
+}
+
+func (s dijkstraCommitteeVotingState) CommitteeCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeCredentialMember(credential)
+}
+
+func (s dijkstraCommitteeVotingState) CommitteeHotCredentialMember(
+	credential common.Credential,
+) (*common.CommitteeMember, error) {
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return nil, nil
+	}
+	return state.CommitteeHotCredentialMember(credential)
+}
+
+func (s dijkstraCommitteeVotingState) CommitteeHotCredentialColdCredentials(
+	hot common.Credential,
+) ([]common.Credential, error) {
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return nil, nil
+	}
+	member, err := state.CommitteeHotCredentialMember(hot)
+	if err != nil || member == nil || member.HotKey == nil ||
+		*member.HotKey != hot.Credential {
+		return nil, err
+	}
+	return []common.Credential{{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: member.ColdKey,
+	}}, nil
+}
+
+func (s dijkstraCommitteeVotingState) CommitteeCredentialIsElected(
+	cold common.Credential,
+) (bool, error) {
+	state, ok := common.CommitteeCredentialStateFor(s.LedgerState)
+	if !ok {
+		return false, nil
+	}
+	member, err := state.CommitteeCredentialMember(cold)
+	return member != nil, err
+}
+
 func (s dijkstraEpochState) EpochForSlot(uint64) (uint64, error) {
 	return s.epoch, nil
+}
+
+func TestDijkstraPV11VotingStateSurvivesGovernanceView(t *testing.T) {
+	voter := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: common.Blake2b224Hash([]byte("unknown-committee-hot")),
+	}
+	tx := &DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {new(common.GovActionId): {}},
+			},
+		},
+	}
+	state := dijkstraCommitteeVotingState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+	}
+	params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionVanRossem,
+			},
+		},
+	}
+
+	var unknownVoter conway.UnknownVoterError
+	require.ErrorAs(
+		t,
+		UtxoValidateUnknownVoters(tx, 0, state, params),
+		&unknownVoter,
+	)
 }
 
 func TestDijkstraCommitteeAuthorizationCarriesAcrossSubtransactions(
@@ -45,9 +138,11 @@ func TestDijkstraCommitteeAuthorizationCarriesAcrossSubtransactions(
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.Blake2b224Hash([]byte("committee-hot")),
 	}
-	state := mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
-		[]common.CommitteeMember{{ColdKey: cold.Credential, ExpiryEpoch: 20}},
-	).Build()
+	state := dijkstraCommitteeVotingState{
+		LedgerState: mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+			[]common.CommitteeMember{{ColdKey: cold.Credential, ExpiryEpoch: 20}},
+		).Build(),
+	}
 	authorize := &common.AuthCommitteeHotCertificate{
 		CertType:       uint(common.CertificateTypeAuthCommitteeHot),
 		ColdCredential: cold,
@@ -88,6 +183,61 @@ func TestDijkstraCommitteeAuthorizationCarriesAcrossSubtransactions(
 	}
 
 	require.NoError(t, UtxoValidateUnknownVoters(tx, 0, state, params))
+}
+
+func TestDijkstraCommitteeAuthorizationCarriesToTopLevelUnelectedVoter(
+	t *testing.T,
+) {
+	cold := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("top-level-committee-cold")),
+	}
+	hot := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash([]byte("top-level-committee-hot")),
+	}
+	state := dijkstraCommitteeVotingState{
+		LedgerState: mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+			[]common.CommitteeMember{{ColdKey: cold.Credential, ExpiryEpoch: 20}},
+		).Build(),
+	}
+	authorize := &common.AuthCommitteeHotCertificate{
+		CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+		ColdCredential: cold,
+		HotCredential:  hot,
+	}
+	voter := &common.Voter{
+		Type: common.VoterTypeConstitutionalCommitteeHotKeyHash,
+		Hash: hot.Credential,
+	}
+	tx := &DijkstraTransaction{
+		TxIsValid: true,
+		Body: DijkstraTransactionBody{
+			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{{
+				Body: DijkstraSubTransactionBody{
+					TxCertificates: []common.CertificateWrapper{{
+						Type:        uint(common.CertificateTypeAuthCommitteeHot),
+						Certificate: authorize,
+					}},
+				},
+			}}, true),
+			TxVotingProcedures: common.VotingProcedures{
+				voter: {new(common.GovActionId): {}},
+			},
+		},
+	}
+	params := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+		},
+	}
+
+	require.NoError(
+		t,
+		UtxoValidateUnelectedCommitteeVoters(tx, 0, state, params),
+	)
 }
 
 func TestDijkstraCommitteeResignationCarriesAcrossSubtransactions(
@@ -170,7 +320,7 @@ func TestDijkstraCommitteeSharedHotKeySurvivesOtherColdResignation(
 	// ledger/conway/certs_overlay_gov_test.go): the reference does not
 	// define which cold credential a shared hot key resolves to, so the
 	// test must not depend on the mock's slice iteration order.
-	state := mockledger.NewLedgerStateBuilder().
+	state := dijkstraCommitteeVotingState{LedgerState: mockledger.NewLedgerStateBuilder().
 		WithCommitteeMembers([]common.CommitteeMember{
 			{ColdKey: coldA.Credential, HotKey: &hotHash, ExpiryEpoch: 20},
 			{ColdKey: coldB.Credential, HotKey: &hotHash, ExpiryEpoch: 20},
@@ -188,7 +338,7 @@ func TestDijkstraCommitteeSharedHotKeySurvivesOtherColdResignation(
 				}, nil
 			},
 		).
-		Build()
+		Build()}
 	resign := &common.ResignCommitteeColdCertificate{
 		CertType:       uint(common.CertificateTypeResignCommitteeCold),
 		ColdCredential: coldA,
@@ -259,6 +409,34 @@ func (s dijkstraHotMembersLedgerState) CommitteeHotCredentialMembers(
 	credential common.Credential,
 ) ([]*common.CommitteeMember, error) {
 	return s.hotMembersLookup(credential)
+}
+
+func (s dijkstraHotMembersLedgerState) CommitteeHotCredentialColdCredentials(
+	hot common.Credential,
+) ([]common.Credential, error) {
+	members, err := s.hotMembersLookup(hot)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]common.Credential, 0, len(members))
+	for _, member := range members {
+		if member == nil || member.HotKey == nil ||
+			*member.HotKey != hot.Credential {
+			continue
+		}
+		ret = append(ret, common.Credential{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: member.ColdKey,
+		})
+	}
+	return ret, nil
+}
+
+func (s dijkstraHotMembersLedgerState) CommitteeCredentialIsElected(
+	cold common.Credential,
+) (bool, error) {
+	member, err := s.coldLookup(cold)
+	return member != nil, err
 }
 
 // TestDijkstraCommitteeSharedHotKeySurvivesWhenWitnessNamesResignedCold
@@ -420,13 +598,15 @@ func TestDijkstraCommitteeHotAuthorizationKeepsCredentialType(
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			state := mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
-				[]common.CommitteeMember{{
-					ColdKey:     cold.Credential,
-					HotKey:      tc.priorHot,
-					ExpiryEpoch: 20,
-				}},
-			).Build()
+			state := dijkstraCommitteeVotingState{
+				LedgerState: mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+					[]common.CommitteeMember{{
+						ColdKey:     cold.Credential,
+						HotKey:      tc.priorHot,
+						ExpiryEpoch: 20,
+					}},
+				).Build(),
+			}
 			voter := &common.Voter{Type: tc.voterType, Hash: hotHash}
 			subTransactions := []DijkstraSubTransaction{
 				{Body: DijkstraSubTransactionBody{

@@ -548,10 +548,59 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 		conway.UtxoValidateUnknownVoters(tx, 0, pendingState, govOverlayPparams()),
 	)
 
-	electedState := mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
-		[]common.CommitteeMember{{ColdKey: coldHash, HotKey: &hotKey}},
-	).Build()
+	electedState := committeeCredentialLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithCommitteeMembers([]common.CommitteeMember{{
+				ColdKey: coldHash,
+				HotKey:  &hotKey,
+			}}).
+			Build(),
+		available: true,
+		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
+			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+		},
+		hotColdLookup: func(common.Credential) ([]common.Credential, error) {
+			return []common.Credential{{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: coldHash,
+			}}, nil
+		},
+		electedLookup: func(common.Credential) (bool, error) {
+			return true, nil
+		},
+	}
 	require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, electedState, pv11))
+
+	// An authorization can still be present when its cold credential has no
+	// elected committee term. PV11 resolves that hot credential as an unknown
+	// voter, matching Conway's VotersDoNotExist predicate.
+	noTermState := committeeCredentialLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithCommitteeMembers([]common.CommitteeMember{{
+				ColdKey:     coldHash,
+				HotKey:      &hotKey,
+				ExpiryEpoch: 500,
+			}}).
+			Build(),
+		available: true,
+		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
+			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+		},
+		hotColdLookup: func(common.Credential) ([]common.Credential, error) {
+			return []common.Credential{{
+				CredType:   common.CredentialTypeAddrKeyHash,
+				Credential: coldHash,
+			}}, nil
+		},
+		electedLookup: func(common.Credential) (bool, error) {
+			return false, nil
+		},
+	}
+	require.ErrorAs(
+		t,
+		conway.UtxoValidateUnknownVoters(tx, 0, noTermState, pv11),
+		&unknown,
+	)
 }
 
 // TestUtxoValidateUnknownVotersAcceptsSharedHotKeyWithOneSeatedColdAtPV11
