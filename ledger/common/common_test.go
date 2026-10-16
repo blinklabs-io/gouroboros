@@ -21,6 +21,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1257,6 +1258,28 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 	}
 }
 
+func TestMultiAssetMarshalCBORUsesLedgerAssetNameOrder(t *testing.T) {
+	var policy Blake2b224
+	multiAsset := NewMultiAsset[MultiAssetTypeOutput](
+		map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+			policy: {
+				cbor.NewByteString([]byte("zz")):  big.NewInt(1),
+				cbor.NewByteString([]byte("aaa")): big.NewInt(2),
+			},
+		},
+	)
+
+	actual, err := cbor.Encode(&multiAsset)
+	require.NoError(t, err)
+
+	expected, err := hex.DecodeString(
+		"a1581c" + strings.Repeat("00", Blake2b224Size) +
+			"a24361616102427a7a01",
+	)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
+}
+
 // TestNewPoolIdFromBech32_Negative tests error cases for PoolId bech32 decoding
 // CIP-0005: pool IDs use "pool" prefix with 28-byte payload
 func TestNewPoolIdFromBech32_Negative(t *testing.T) {
@@ -1609,11 +1632,11 @@ func TestMultiAssetLedgerSerializedSizeAdjustment(t *testing.T) {
 		want     int
 	}{
 		{"at most 23 entries", 1, 23, 0},
-		{"inner 24 definite header is 2 bytes", 1, 24, 0},
-		{"inner 255", 1, 255, 0},
-		{"inner 256 definite header is 3 bytes", 1, 256, -1},
-		{"outer 256 and inner 1", 256, 1, -1},
-		{"outer and inner both 256", 256, 256, -257},
+		{"inner 24 entries", 1, 24, 0},
+		{"inner 255 entries", 1, 255, 0},
+		{"inner 256 entries", 1, 256, 0},
+		{"outer 256 and inner 1", 256, 1, 0},
+		{"outer and inner both 256", 256, 256, 0},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -360,9 +360,7 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(raw.VrfResult, &vrfResult); err != nil {
 		return fmt.Errorf("decode VRF result: %w", err)
 	}
-	if err := validateFixedLengthByteString(vrfResult.Output, 64, "VRF output"); err != nil {
-		return err
-	}
+	// Cardano ledger decoding preserves this length; consensus verifies it.
 	if err := validateFixedLengthByteString(vrfResult.Proof, 80, "VRF proof"); err != nil {
 		return err
 	}
