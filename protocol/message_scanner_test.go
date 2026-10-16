@@ -302,6 +302,7 @@ func TestInboundPipelinedReplySurvivesPeerToLocalStateAdvance(t *testing.T) {
 		1,
 		busy,
 		1,
+		true,
 	)
 	require.False(t, stopped)
 	require.Equal(t, idle, state)
@@ -329,7 +330,7 @@ func TestInboundStaleReplyCannotReserveLaterPipelinedRequest(t *testing.T) {
 		pendingPipelinedRequests: 1,
 	}
 
-	_, admission, result, stopped := p.waitForInboundAdmission(1, busy, 1)
+	_, admission, result, stopped := p.waitForInboundAdmission(1, busy, 1, false)
 	require.False(t, stopped)
 	require.Equal(t, inboundAdmissionDenied, result)
 	require.False(t, admission.reservedPipelinedReply)
@@ -373,7 +374,12 @@ func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 		true,
 	)
 	require.NoError(t, err)
-	_, _, _, result := p.reserveInboundAdmission(uint(replyType), 1, true)
+	_, _, result := p.reserveInboundAdmission(
+		uint(replyType),
+		streaming,
+		1,
+		true,
+	)
 	require.Equal(t, inboundAdmissionGranted, result)
 }
 
@@ -437,17 +443,19 @@ func TestPipelinedRequestTransitionConsumesAdmissionSlot(t *testing.T) {
 				&MessageBase{MessageType: requestType},
 			)
 			require.NoError(t, err)
-			_, _, _, result := p.reserveInboundAdmission(
+			_, _, result := p.reserveInboundAdmission(
 				uint(replyType),
+				busy,
 				1,
-				true,
+				false,
 			)
 			require.Equal(t, test.wantFirst, result)
 			if result == inboundAdmissionGranted {
-				_, _, _, result = p.reserveInboundAdmission(
+				_, _, result = p.reserveInboundAdmission(
 					uint(replyType),
+					busy,
 					1,
-					true,
+					false,
 				)
 				require.Equal(t, inboundAdmissionWait, result)
 			}

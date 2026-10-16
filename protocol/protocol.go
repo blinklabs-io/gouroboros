@@ -1491,48 +1491,56 @@ const (
 
 func (p *Protocol) reserveInboundAdmission(
 	messageType uint,
-	expectedGeneration uint64,
-	requireGeneration bool,
-) (State, uint64, inboundAdmission, inboundAdmissionResult) {
+	initialState State,
+	initialGeneration uint64,
+	hadUnreservedPipelinedRequest bool,
+) (State, inboundAdmission, inboundAdmissionResult) {
 	p.currentStateMu.Lock()
 	defer p.currentStateMu.Unlock()
 	state := p.currentState
 	generation := p.currentStateGeneration
-	if requireGeneration && generation != expectedGeneration {
-		return state, generation, inboundAdmission{}, inboundAdmissionDenied
-	}
 	entry, ok := p.config.StateMap[state]
 	if !ok {
-		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+		return state, inboundAdmission{}, inboundAdmissionDenied
 	}
 	switch p.agencyHolderFor(entry) {
 	case agencyPeer:
+		initialEntry, initialStateKnown := p.config.StateMap[initialState]
+		continuesPeerAgency := initialStateKnown &&
+			generation == initialGeneration+1 &&
+			p.agencyHolderFor(initialEntry) == agencyPeer
+		if generation != initialGeneration &&
+			!continuesPeerAgency &&
+			!hadUnreservedPipelinedRequest {
+			return state, inboundAdmission{}, inboundAdmissionDenied
+		}
 		if !p.peerAgencyReserved {
 			p.peerAgencyReserved = true
-			return state, generation, inboundAdmission{}, inboundAdmissionGranted
+			return state, inboundAdmission{}, inboundAdmissionGranted
 		}
-		if p.reservePipelinedReply() {
-			return state, generation, inboundAdmission{
-				reservedPipelinedReply: true,
-			}, inboundAdmissionGranted
-		}
-		return state, generation, inboundAdmission{}, inboundAdmissionWait
+		// The admitted message can leave agency with the peer, as each Block
+		// does while BlockFetch is streaming. Wait for that transition instead
+		// of charging the continuation to a later pipelined request.
+		return state, inboundAdmission{}, inboundAdmissionWait
 	case agencyLocal:
 		for _, pipelinedMessageType := range entry.PipelinedMessageTypes {
 			if uint(pipelinedMessageType) == messageType {
-				return state, generation, inboundAdmission{}, inboundAdmissionGranted
+				return state, inboundAdmission{}, inboundAdmissionGranted
 			}
 		}
+		if !hadUnreservedPipelinedRequest {
+			return state, inboundAdmission{}, inboundAdmissionDenied
+		}
 		if p.reservePipelinedReply() {
-			return state, generation, inboundAdmission{
+			return state, inboundAdmission{
 				reservedPipelinedReply: true,
 			}, inboundAdmissionGranted
 		}
-		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+		return state, inboundAdmission{}, inboundAdmissionDenied
 	case agencyNeither:
-		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+		return state, inboundAdmission{}, inboundAdmissionDenied
 	default:
-		return state, generation, inboundAdmission{}, inboundAdmissionDenied
+		return state, inboundAdmission{}, inboundAdmissionDenied
 	}
 }
 
@@ -1546,28 +1554,14 @@ func (p *Protocol) reservePipelinedReply() bool {
 	return true
 }
 
-func (p *Protocol) reserveAdvancedPipelinedReply(
-	initialState State,
-	expectedGeneration uint64,
-) (State, inboundAdmission, inboundAdmissionResult) {
-	p.currentStateMu.Lock()
-	defer p.currentStateMu.Unlock()
-	state := p.currentState
-	if p.currentStateGeneration != expectedGeneration+1 ||
-		p.agencyHolderFor(p.config.StateMap[initialState]) != agencyPeer ||
-		p.agencyHolderFor(p.config.StateMap[state]) != agencyLocal ||
-		!p.reservePipelinedReply() {
-		return state, inboundAdmission{}, inboundAdmissionDenied
-	}
-	return state, inboundAdmission{
-		reservedPipelinedReply: true,
-	}, inboundAdmissionGranted
-}
-
-func (p *Protocol) currentInboundState() (State, uint64) {
+func (p *Protocol) currentInboundSnapshot() (State, uint64, bool) {
 	p.currentStateMu.RLock()
 	defer p.currentStateMu.RUnlock()
-	return p.currentState, p.currentStateGeneration
+	p.pendingBytesMu.Lock()
+	defer p.pendingBytesMu.Unlock()
+	return p.currentState,
+		p.currentStateGeneration,
+		p.pendingPipelinedReplies < p.pendingPipelinedRequests
 }
 
 func (p *Protocol) releasePipelinedReplyAdmission() {
@@ -1582,32 +1576,17 @@ func (p *Protocol) waitForInboundAdmission(
 	messageType uint,
 	initialState State,
 	generation uint64,
+	hadUnreservedPipelinedRequest bool,
 ) (State, inboundAdmission, inboundAdmissionResult, bool) {
-	state, currentGeneration, admission, result := p.reserveInboundAdmission(
+	state, admission, result := p.reserveInboundAdmission(
 		messageType,
+		initialState,
 		generation,
-		true,
+		hadUnreservedPipelinedRequest,
 	)
-	if result == inboundAdmissionDenied &&
-		currentGeneration == generation+1 &&
-		p.agencyHolderFor(p.config.StateMap[initialState]) == agencyPeer &&
-		p.agencyHolderFor(p.config.StateMap[state]) == agencyPeer {
-		state, currentGeneration, admission, result = p.reserveInboundAdmission(
-			messageType,
-			currentGeneration,
-			true,
-		)
-	}
-	if result == inboundAdmissionDenied && currentGeneration != generation {
-		state, admission, result = p.reserveAdvancedPipelinedReply(
-			initialState,
-			generation,
-		)
-	}
 	if result != inboundAdmissionWait {
 		return state, admission, result, false
 	}
-	generation = currentGeneration
 	poll := time.NewTicker(time.Millisecond)
 	defer poll.Stop()
 	for {
@@ -1620,22 +1599,15 @@ func (p *Protocol) waitForInboundAdmission(
 			return State{}, inboundAdmission{}, inboundAdmissionDenied, true
 		case <-poll.C:
 		}
-		state, currentGeneration := p.currentInboundState()
-		if currentGeneration == generation {
-			continue
-		}
-		if currentGeneration != generation+1 {
-			return state, inboundAdmission{}, inboundAdmissionDenied, false
-		}
-		state, _, admission, result = p.reserveInboundAdmission(
+		state, admission, result = p.reserveInboundAdmission(
 			messageType,
-			currentGeneration,
-			true,
+			initialState,
+			generation,
+			hadUnreservedPipelinedRequest,
 		)
-		if result == inboundAdmissionWait {
-			result = inboundAdmissionDenied
+		if result != inboundAdmissionWait {
+			return state, admission, result, false
 		}
-		return state, admission, result, false
 	}
 }
 
@@ -1701,6 +1673,7 @@ func (p *Protocol) readLoop() {
 	peerAgencyChecked := false
 	var messageState State
 	var messageGeneration uint64
+	var messageHadUnreservedPipelinedRequest bool
 	messageStateSet := false
 	var admission inboundAdmission
 	// Bytes this protocol holds against the connection-wide reassembly
@@ -1723,6 +1696,7 @@ func (p *Protocol) readLoop() {
 		peerAgencyChecked = false
 		messageStateSet = false
 		messageGeneration = 0
+		messageHadUnreservedPipelinedRequest = false
 		admission = inboundAdmission{}
 		_ = p.reserveReadBuffer(readBuffer.Len(), &reserved)
 	}
@@ -1833,7 +1807,9 @@ func (p *Protocol) readLoop() {
 				return
 			}
 			if scanResult.started && !messageStateSet {
-				messageState, messageGeneration = p.currentInboundState()
+				messageState,
+					messageGeneration,
+					messageHadUnreservedPipelinedRequest = p.currentInboundSnapshot()
 				messageStateSet = true
 			}
 			if scanResult.hasMessageType && !peerAgencyChecked {
@@ -1843,6 +1819,7 @@ func (p *Protocol) readLoop() {
 					scanResult.messageType,
 					messageState,
 					messageGeneration,
+					messageHadUnreservedPipelinedRequest,
 				)
 				if stopped {
 					return
