@@ -10,6 +10,9 @@ on:
       - v*
       - v*.*.*
 
+permissions:
+  contents: read
+
 jobs:
   go-test:
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
