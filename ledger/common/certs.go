@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"sort"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1546,6 +1547,11 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	poolOwners := append([]AddrKeyHash(nil), c.PoolOwners...)
+	sort.Slice(poolOwners, func(i, j int) bool {
+		return bytes.Compare(poolOwners[i][:], poolOwners[j][:]) < 0
+	})
+	poolOwnerSet := cbor.NewSetType(poolOwners, true)
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
 			c.CertType,
@@ -1555,7 +1561,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 			c.Cost,
 			c.Margin,
 			rewardAccount,
-			c.PoolOwners,
+			&poolOwnerSet,
 			c.Relays,
 			c.PoolMetadata,
 		})
@@ -1569,7 +1575,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 		c.Cost,
 		c.Margin,
 		rewardAccount,
-		c.PoolOwners,
+		&poolOwnerSet,
 		c.Relays,
 		c.PoolMetadata,
 	})

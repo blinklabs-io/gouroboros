@@ -459,10 +459,53 @@ func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](
 	return nil
 }
 
+// MarshalCBOR encodes MultiAsset maps in cardano-ledger key order.
 func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
-	// The CBOR library is configured with SortCoreDeterministic, so direct encoding
-	// of the map produces deterministic output without manual sorting
-	return cbor.Encode(m.data)
+	// cardano-ledger orders asset names by their raw bytes, which can differ
+	// from deterministic CBOR's encoded-key length order.
+	if m.data == nil {
+		return cbor.Encode(m.data)
+	}
+	policies := make([]Blake2b224, 0, len(m.data))
+	for policy := range m.data {
+		policies = append(policies, policy)
+	}
+	slices.SortFunc(policies, func(left, right Blake2b224) int {
+		return bytes.Compare(left[:], right[:])
+	})
+	ret := appendLedgerMapHeader(nil, uint64(len(policies)))
+	for _, policy := range policies {
+		encodedPolicy, err := cbor.Encode(policy)
+		if err != nil {
+			return nil, fmt.Errorf("encode multiasset policy id: %w", err)
+		}
+		assets := m.data[policy]
+		assetNames := make([]cbor.ByteString, 0, len(assets))
+		for name := range assets {
+			assetNames = append(assetNames, name)
+		}
+		slices.SortFunc(assetNames, func(left, right cbor.ByteString) int {
+			return bytes.Compare(left.Bytes(), right.Bytes())
+		})
+		encodedAssets := appendLedgerMapHeader(nil, uint64(len(assetNames)))
+		for _, name := range assetNames {
+			encodedName, err := cbor.Encode(name)
+			if err != nil {
+				return nil, fmt.Errorf("encode multiasset name: %w", err)
+			}
+			encodedQuantity, err := cbor.Encode(assets[name])
+			if err != nil {
+				return nil, fmt.Errorf("encode multiasset quantity: %w", err)
+			}
+			encodedAssets = append(encodedAssets, encodedName...)
+			encodedAssets = append(encodedAssets, encodedQuantity...)
+		}
+		encodedAssets = appendLedgerMapBreak(encodedAssets, uint64(len(assetNames)))
+		ret = append(ret, encodedPolicy...)
+		ret = append(ret, encodedAssets...)
+	}
+	ret = appendLedgerMapBreak(ret, uint64(len(policies)))
+	return ret, nil
 }
 
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {

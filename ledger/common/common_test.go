@@ -21,6 +21,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1255,6 +1256,28 @@ func TestMultiAssetDeterministicEncoding(t *testing.T) {
 			t.Logf("Attempt %d: %x", i, encodings[i])
 		}
 	}
+}
+
+func TestMultiAssetMarshalCBORUsesLedgerAssetNameOrder(t *testing.T) {
+	var policy Blake2b224
+	multiAsset := NewMultiAsset[MultiAssetTypeOutput](
+		map[Blake2b224]map[cbor.ByteString]MultiAssetTypeOutput{
+			policy: {
+				cbor.NewByteString([]byte("zz")):  big.NewInt(1),
+				cbor.NewByteString([]byte("aaa")): big.NewInt(2),
+			},
+		},
+	)
+
+	actual, err := cbor.Encode(&multiAsset)
+	require.NoError(t, err)
+
+	expected, err := hex.DecodeString(
+		"a1581c" + strings.Repeat("00", Blake2b224Size) +
+			"a24361616102427a7a01",
+	)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
 }
 
 // TestNewPoolIdFromBech32_Negative tests error cases for PoolId bech32 decoding

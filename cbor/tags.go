@@ -245,6 +245,16 @@ func (t *SetType[T]) MarshalCBOR() ([]byte, error) {
 	for i, item := range t.items {
 		tmpItems[i] = item
 	}
+	if t.useTag && len(tmpItems) > 23 {
+		encodedItems, err := Encode(IndefLengthList(tmpItems))
+		if err != nil {
+			return nil, err
+		}
+		return Encode(RawTag{
+			Number:  CborTagSet,
+			Content: encodedItems,
+		})
+	}
 	var tmpData any = tmpItems
 	if t.useTag {
 		tmpData = Set(tmpItems)

@@ -303,6 +303,18 @@ func TestPoolRegistrationCertificateLeiosKey(t *testing.T) {
 		},
 		AddressNetworkTestnet,
 	))
+	t.Run("pool owners encode as a tagged set", func(t *testing.T) {
+		encoded, err := cbor.Encode(base)
+		require.NoError(t, err)
+		var fields []cbor.RawMessage
+		_, err = cbor.DecodeExact(encoded, &fields)
+		require.NoError(t, err)
+		require.Len(t, fields, 10)
+
+		want, err := cbor.Encode(cbor.NewSetType(base.PoolOwners, true))
+		require.NoError(t, err)
+		assert.Equal(t, want, []byte(fields[7]))
+	})
 
 	t.Run("legacy certificate remains 10 fields", func(t *testing.T) {
 		encoded, err := cbor.Encode(base)

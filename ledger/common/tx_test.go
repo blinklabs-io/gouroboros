@@ -15,12 +15,15 @@
 package common
 
 import (
+	"bytes"
 	"errors"
 	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
@@ -32,6 +35,93 @@ type mockTransactionBody struct {
 	referenceInputs []TransactionInput
 	certificates    []Certificate
 	fee             *big.Int
+}
+
+type withdrawalOrderTransactionBody struct {
+	TransactionBodyBase
+	TxWithdrawals map[*Address]uint64 `cbor:"5,keyasint,omitempty"`
+}
+
+func (b *withdrawalOrderTransactionBody) Withdrawals() map[*Address]*big.Int {
+	if b.TxWithdrawals == nil {
+		return nil
+	}
+	ret := make(map[*Address]*big.Int, len(b.TxWithdrawals))
+	for address, amount := range b.TxWithdrawals {
+		ret[address] = new(big.Int).SetUint64(amount)
+	}
+	return ret
+}
+
+func (b *withdrawalOrderTransactionBody) ProtocolParameterUpdates() (
+	uint64,
+	map[Blake2b224]ProtocolParameterUpdate,
+) {
+	return 0, nil
+}
+
+func TestEncodeTransactionBodyUsesLedgerWithdrawalOrder(t *testing.T) {
+	hash := bytes.Repeat([]byte{0x33}, AddressHashSize)
+	testnetScript, err := NewAddressFromParts(
+		AddressTypeNoneScript,
+		AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	testnetKey, err := NewAddressFromParts(
+		AddressTypeNoneKey,
+		AddressNetworkTestnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+	mainnetKey, err := NewAddressFromParts(
+		AddressTypeNoneKey,
+		AddressNetworkMainnet,
+		nil,
+		hash,
+	)
+	require.NoError(t, err)
+
+	body := withdrawalOrderTransactionBody{
+		TxWithdrawals: map[*Address]uint64{
+			&mainnetKey:    3,
+			&testnetKey:    2,
+			&testnetScript: 1,
+		},
+	}
+	actual, err := EncodeTransactionBodyWithValidityIntervalUpperBound(&body)
+	require.NoError(t, err)
+
+	expectedWithdrawals := appendCBORMapHeader(nil, 3)
+	for _, item := range []struct {
+		address *Address
+		amount  uint64
+	}{
+		{address: &testnetScript, amount: 1},
+		{address: &testnetKey, amount: 2},
+		{address: &mainnetKey, amount: 3},
+	} {
+		encodedAddress, encodeErr := cbor.Encode(item.address)
+		require.NoError(t, encodeErr)
+		encodedAmount, encodeErr := cbor.Encode(item.amount)
+		require.NoError(t, encodeErr)
+		expectedWithdrawals = append(expectedWithdrawals, encodedAddress...)
+		expectedWithdrawals = append(expectedWithdrawals, encodedAmount...)
+	}
+	standaloneWithdrawals, err := EncodeRewardAccountMap(body.TxWithdrawals)
+	require.NoError(t, err)
+	require.Equal(t, expectedWithdrawals, standaloneWithdrawals)
+	var encodedBodyFields map[uint]cbor.RawMessage
+	_, err = cbor.DecodeLedgerMap(actual, &encodedBodyFields)
+	require.NoError(t, err)
+	require.Equal(t, standaloneWithdrawals, []byte(encodedBodyFields[5]))
+
+	expected := appendCBORMapHeader(nil, 1)
+	expected = append(expected, 5)
+	expected = append(expected, expectedWithdrawals...)
+	require.Equal(t, expected, actual)
 }
 
 func (m *mockTransactionBody) Id() Blake2b256 {

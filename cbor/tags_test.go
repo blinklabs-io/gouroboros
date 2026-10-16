@@ -345,6 +345,33 @@ func TestSetTypeMarshalCBORWithoutTag(t *testing.T) {
 	}
 }
 
+func TestSetTypeMarshalCBORUsesIndefiniteArrayAbove23(t *testing.T) {
+	items := make([]uint64, 24)
+	for i := range items {
+		items[i] = uint64(i)
+	}
+
+	t.Run("tagged set", func(t *testing.T) {
+		setType := cbor.NewSetType(items, true)
+		encoded, err := cbor.Encode(&setType)
+		require.NoError(t, err)
+		expected := []byte{0xd9, 0x01, 0x02, 0x9f}
+		for _, item := range items {
+			expected = append(expected, byte(item))
+		}
+		expected = append(expected, 0xff)
+		assert.Equal(t, expected, encoded)
+	})
+
+	t.Run("untagged set remains definite", func(t *testing.T) {
+		setType := cbor.NewSetType(items, false)
+		encoded, err := cbor.Encode(&setType)
+		require.NoError(t, err)
+		assert.Equal(t, []byte{0x98, 0x18}, encoded[:2])
+		assert.NotEqual(t, byte(0xff), encoded[len(encoded)-1])
+	})
+}
+
 // TestSetTypeMarshalCBORPreservesOriginalBytes verifies that a SetType
 // decoded from CBOR that isn't in canonical form (here, a non-minimally
 // encoded uint) round-trips through MarshalCBOR() with its exact original

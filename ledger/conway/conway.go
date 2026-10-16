@@ -872,12 +872,39 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+	encoded, err := common.EncodeTransactionBodyWithValidityIntervalUpperBound(
 		&b,
 		0,
 		1,
 		2,
 	)
+	if err != nil {
+		return nil, err
+	}
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
+		return nil, err
+	}
+	if len(b.TxCertificates) > 0 {
+		certificates := cbor.NewSetType(b.TxCertificates, true)
+		encodedCertificates, err := cbor.Encode(&certificates)
+		if err != nil {
+			return nil, fmt.Errorf("encode Conway certificate set: %w", err)
+		}
+		bodyFields[4] = encodedCertificates
+	}
+	if len(b.TxProposalProcedures) > 0 {
+		proposals := cbor.NewSetType(b.TxProposalProcedures, true)
+		encodedProposals, err := cbor.Encode(&proposals)
+		if err != nil {
+			return nil, fmt.Errorf("encode Conway proposal-procedure set: %w", err)
+		}
+		bodyFields[20] = encodedProposals
+	}
+	if len(b.TxVotingProcedures) == 0 {
+		delete(bodyFields, 19)
+	}
+	return cbor.Encode(bodyFields)
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
