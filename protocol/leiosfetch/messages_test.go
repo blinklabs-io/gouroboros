@@ -67,6 +67,9 @@ func TestBlockTxsRejectsTransactionCountBeforeAllocation(t *testing.T) {
 // blockTxsWire builds [4, txs] by hand so the tests do not depend on the
 // encoder under test. Each entry of txs is already a complete wire item.
 func blockTxsWire(txs ...[]byte) []byte {
+	if len(txs) > 23 {
+		panic("blockTxsWire supports at most 23 transactions")
+	}
 	wire := []byte{0x82, MessageTypeBlockTxs, 0x80 + byte(len(txs))}
 	for _, tx := range txs {
 		wire = append(wire, tx...)
@@ -873,4 +876,16 @@ func TestBlockRangeResponseUsesTransactionCountBudget(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, msg.(*MsgLastBlockAndTxsInRange).TxsRaw, 3)
+}
+
+func TestMsgBlockTxsMarshalRejectsEmptyTransaction(t *testing.T) {
+	for name, txs := range map[string][]cbor.RawMessage{
+		"empty": {{0x01}, {}},
+		"nil":   {nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewMsgBlockTxs(txs).MarshalCBOR()
+			require.Error(t, err)
+		})
+	}
 }

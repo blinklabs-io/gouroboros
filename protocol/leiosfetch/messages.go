@@ -238,6 +238,13 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 	}
 	wrapped := make([]cbor.RawMessage, len(m.TxsRaw))
 	for idx, tx := range m.TxsRaw {
+		if len(tx) == 0 {
+			return nil, fmt.Errorf(
+				"%s: block txs: transaction %d is empty",
+				ProtocolName,
+				idx,
+			)
+		}
 		inner, err := cbor.Encode([]byte(tx))
 		if err != nil {
 			return nil, err

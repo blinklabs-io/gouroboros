@@ -140,7 +140,9 @@ func unwrapBlockTx(data []byte) ([]byte, error) {
 	offset += bytesHead.EncodedSize
 	//nolint:gosec // ReadHead bounds offset by len(data), so the difference is non-negative
 	if bytesHead.Argument != uint64(len(data)-offset) {
-		return nil, errors.New("tag 24 byte string length does not match its entry")
+		return nil, errors.New(
+			"tag 24 byte string length does not match its entry",
+		)
 	}
 	inner := data[offset:]
 	if length, err := cborwalk.ItemLength(inner); err != nil ||
