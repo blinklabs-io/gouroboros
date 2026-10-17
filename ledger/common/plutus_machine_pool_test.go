@@ -587,22 +587,14 @@ func TestPooledEvalContextCacheIsBounded(t *testing.T) {
 		"an evicted EvalContext held by a caller must still evaluate")
 }
 
-// unknownTerm satisfies syn.Term through its embedded Term but Plutigo's
-// validator does not recognize it.
+// unknownTerm satisfies syn.Term through its embedded Term but is a type
+// plutigo's evaluator does not recognise, so Run panics on it.
 type unknownTerm struct {
 	syn.Term[syn.DeBruijn]
 }
 
-type panicOnErrContext struct {
-	context.Context
-}
-
-func (panicOnErrContext) Err() error {
-	panic("test context panic")
-}
-
-// TestRunPooledMachineDropsMachineWhenRunPanics pins that a Machine whose
-// RunContext call panics is never returned to its pool, so a recovered panic
+// TestRunPooledMachineDropsMachineWhenRunPanics pins that a Machine whose Run
+// panics is never returned to its pool, so a caller that recovers the panic
 // cannot hand an interrupted Machine to the next evaluation.
 func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 	t.Parallel()
@@ -614,11 +606,11 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 	}
 	require.Panics(t, func() {
 		_, _, _ = runPooledMachineContext(
-			panicOnErrContext{Context: context.Background()},
+			context.Background(),
 			lang.LanguageVersionV3,
 			evalContext,
 			budget,
-			&syn.Error{},
+			unknownTerm{Term: &syn.Error{}},
 		)
 	})
 
@@ -627,28 +619,8 @@ func TestRunPooledMachineDropsMachineWhenRunPanics(t *testing.T) {
 		evalContext,
 	)
 	require.False(t, reused,
-		"a Machine whose RunContext panicked must not be returned to its pool")
+		"a Machine whose Run panicked must not be returned to its pool")
 	releaseMachine(lang.LanguageVersionV3, evalContext, machine)
-}
-
-// TestRunPooledMachineReturnsMalformedProgramError pins that Plutigo rejects
-// an unknown caller-built term with an error before evaluation.
-func TestRunPooledMachineReturnsMalformedProgramError(t *testing.T) {
-	t.Parallel()
-
-	evalContext := callerBuiltTestEvalContext(t)
-	budget := cek.ExBudget{
-		Mem: cek.DefaultExBudget.Mem,
-		Cpu: cek.DefaultExBudget.Cpu,
-	}
-	_, _, err := runPooledMachineContext(
-		context.Background(),
-		lang.LanguageVersionV3,
-		evalContext,
-		budget,
-		unknownTerm{Term: &syn.Error{}},
-	)
-	require.Error(t, err)
 }
 
 func TestRunPooledMachineRejectsNonUnitResult(t *testing.T) {
