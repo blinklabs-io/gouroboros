@@ -29,7 +29,7 @@ import (
 func TestIndividualPoolStakeEncodesAsTupleInMap(t *testing.T) {
 	for name, blsKey := range map[string]cbor.RawMessage{
 		"without key": nil,
-		"with key":    cbor.RawMessage{0x41, 0x01},
+		"with key":    {0x41, 0x01},
 	} {
 		t.Run(name, func(t *testing.T) {
 			result := StakeDistribution2Result{

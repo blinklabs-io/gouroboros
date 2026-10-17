@@ -183,6 +183,9 @@ arrive during the Idle transition.
 | --- | ---: | ---: |
 | Receive queue size | 512 messages | 384 |
 | Total expected in-flight request bytes | — | 9,011,200 (100 × 88 KiB) |
+| Blocks per range | configurable | 2,161 |
+| Encoded bytes per range | configurable | 214,205,235 |
+| Total range lifetime | configurable | 36 hours 3 minutes |
 
 `WithRecvQueueSize` rejects values outside the receive-queue range. The
 in-flight byte bound applies to client request pipelining and blocks the
@@ -207,6 +210,13 @@ timeout can still lose the connection. A peer that sends more than was
 asked for is refused once the client's range checks reach the excess,
 or with `muxer.ErrIngressOverflow` if the muxer still holds excess when that
 request fails and its backpressure ends.
+
+Every request path also counts complete encoded `MsgBlock` bytes and block
+messages against cumulative per-range limits. The total deadline starts when
+request admission begins, covers local admission and enqueue waits, and is not
+renewed by `MsgBlock` progress. Zero-valued
+range settings select the secure defaults; callers can raise them explicitly
+for a known larger range.
 
 ## Transaction Submission
 
@@ -454,10 +464,23 @@ their embedded trees spend the same operation budget.
 
 `DiagnosticOptions.ParseLimits` and `ParseDiagnosticWithLimits` configure these
 inspection budgets. Zero fields choose the documented defaults; negative fields
-are rejected. `MaxDepth`, `MaxArrayItems` and `MaxByteLength` control rendering.
-Every raw span is a capacity-bounded, read-only view into one owned input buffer;
-copy it before modification. String values and indefinite-string concatenation
-are charged separately before copying.
+are rejected. `MaxDepth`, `MaxArrayItems`, `MaxByteLength` and `MaxOutputBytes`
+control rendering. Every raw span is a capacity-bounded, read-only view into one
+owned input buffer; copy it before modification. String values and
+indefinite-string concatenation are charged separately before copying.
+
+Rendering has its own output cap, because indentation and the fixed-width hex
+columns make a nested item cost output proportional to its depth. A
+16,000-level chain of one-element arrays is 16 KB of input but 512 MB of pretty
+output and 257 MB of hex output. `MaxOutputBytes` bounds the rendered content
+of one `FormatDiagnostic`, `FormatDiagnosticPretty`, `FormatHexDump` or Cardano
+formatter call; a render that reaches it stops and ends with a truncation
+marker of about 23 bytes, so the returned string can exceed the cap by that
+marker. A byte or text string that would not fit is not built at all. Zero or
+negative selects 4 MiB plus 256 bytes per encoded
+byte of the rendered node, which leaves ordinary inputs untouched. Rendering
+streams into one buffer, and `GetPathToOffset` extends a single path slice, so
+neither recopies nested output or path prefixes at each level.
 
 The shared block corpus spans Byron through Conway. Its largest diagnostic
 case has 17,943 encoded bytes, 1,543 nodes and depth 18. Construction budgets

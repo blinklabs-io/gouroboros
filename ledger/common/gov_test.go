@@ -179,6 +179,75 @@ func TestVoterUnmarshalCBORRejectsInvalidTypes(t *testing.T) {
 	}
 }
 
+func TestVotingProceduresMarshalCBORUsesLedgerMapOrder(t *testing.T) {
+	var firstHash, secondHash [Blake2b224Size]byte
+	for i := range firstHash {
+		firstHash[i] = 0x11
+		secondHash[i] = 0x22
+	}
+	var firstTxID, secondTxID [Blake2b256Size]byte
+	for i := range firstTxID {
+		firstTxID[i] = 0x11
+		secondTxID[i] = 0x22
+	}
+	longFirstAction := GovActionId{
+		TransactionId: firstTxID,
+		GovActionIdx:  256,
+	}
+	shortSecondAction := GovActionId{
+		TransactionId: secondTxID,
+		GovActionIdx:  0,
+	}
+	actions := map[*GovActionId]VotingProcedure{
+		&shortSecondAction: {Vote: GovVoteNo},
+		&longFirstAction:   {Vote: GovVoteYes},
+	}
+	voters := []Voter{
+		{Type: VoterTypeConstitutionalCommitteeHotKeyHash, Hash: secondHash},
+		{Type: VoterTypeConstitutionalCommitteeHotScriptHash, Hash: secondHash},
+		{Type: VoterTypeDRepKeyHash, Hash: secondHash},
+		{Type: VoterTypeDRepScriptHash, Hash: secondHash},
+		{Type: VoterTypeStakingPoolKeyHash, Hash: secondHash},
+		{Type: VoterTypeConstitutionalCommitteeHotScriptHash, Hash: firstHash},
+	}
+	votingProcedures := VotingProcedures{}
+	for i := range voters {
+		votingProcedures[&voters[i]] = actions
+	}
+
+	actual, err := cbor.Encode(votingProcedures)
+	require.NoError(t, err)
+
+	orderedVoters := []Voter{
+		voters[5],
+		voters[1],
+		voters[0],
+		voters[3],
+		voters[2],
+		voters[4],
+	}
+	expected := appendCBORMapHeader(nil, uint64(len(orderedVoters)))
+	for i := range orderedVoters {
+		encodedVoter, encodeErr := cbor.Encode(&orderedVoters[i])
+		require.NoError(t, encodeErr)
+		expected = append(expected, encodedVoter...)
+
+		expected = appendCBORMapHeader(expected, 2)
+		for _, action := range []*GovActionId{
+			&longFirstAction,
+			&shortSecondAction,
+		} {
+			encodedAction, encodeErr := cbor.Encode(action)
+			require.NoError(t, encodeErr)
+			encodedProcedure, encodeErr := cbor.Encode(actions[action])
+			require.NoError(t, encodeErr)
+			expected = append(expected, encodedAction...)
+			expected = append(expected, encodedProcedure...)
+		}
+	}
+	require.Equal(t, expected, actual)
+}
+
 func TestGovernanceValueUnmarshalCBORRejectsNullAndUndefined(t *testing.T) {
 	testCases := []struct {
 		name   string
@@ -1243,6 +1312,61 @@ func TestUpdateCommitteeGovActionToPlutusDataCanonicalizesCollections(
 	secondCbor, err := data.Encode(secondData)
 	require.NoError(t, err)
 	require.Equal(t, firstCbor, secondCbor)
+}
+
+func TestUpdateCommitteeGovActionEncodesCredentialSet(t *testing.T) {
+	key := Credential{
+		CredType: CredentialTypeAddrKeyHash,
+		Credential: Blake2b224{
+			0x02,
+		},
+	}
+	scriptLow := Credential{
+		CredType: CredentialTypeScriptHash,
+		Credential: Blake2b224{
+			0x01,
+		},
+	}
+	scriptHigh := Credential{
+		CredType: CredentialTypeScriptHash,
+		Credential: Blake2b224{
+			0x02,
+		},
+	}
+	keyPtr, scriptLowPtr, scriptHighPtr := key, scriptLow, scriptHigh
+	action := UpdateCommitteeGovAction{
+		Type:        uint(GovActionTypeUpdateCommittee),
+		Credentials: []Credential{key, scriptHigh, scriptLow},
+		CredEpochs: map[*Credential]uint64{
+			&keyPtr:        3,
+			&scriptHighPtr: 2,
+			&scriptLowPtr:  1,
+		},
+		Quorum: cbor.Rat{Rat: big.NewRat(1, 2)},
+	}
+	got, err := cbor.Encode(action)
+	require.NoError(t, err)
+	credentials := []Credential{scriptLow, scriptHigh, key}
+	epochs := []uint64{1, 2, 3}
+	wantEpochMap := appendCBORMapHeader(nil, uint64(len(credentials)))
+	for index, credential := range credentials {
+		encodedCredential, err := cbor.Encode(&credential)
+		require.NoError(t, err)
+		encodedEpoch, err := cbor.Encode(epochs[index])
+		require.NoError(t, err)
+		wantEpochMap = append(wantEpochMap, encodedCredential...)
+		wantEpochMap = append(wantEpochMap, encodedEpoch...)
+	}
+	credentialSet := cbor.NewSetType(credentials, true)
+	want, err := cbor.Encode([]any{
+		action.Type,
+		action.ActionId,
+		&credentialSet,
+		cbor.RawMessage(wantEpochMap),
+		action.Quorum,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
 }
 
 func TestNewConstitutionGovActionToPlutusData(t *testing.T) {

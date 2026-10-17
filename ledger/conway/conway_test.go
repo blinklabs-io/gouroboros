@@ -589,31 +589,38 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestConwayTransactionRejectsNegativeCurrentTreasuryValue(t *testing.T) {
-	encoded, err := cbor.Encode([]any{
-		map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1)},
-		map[uint]any{},
-		false,
-		nil,
+func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(t *testing.T) {
+	encoded, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1),
 	})
 	require.NoError(t, err)
 
-	var tx ConwayTransaction
-	err = tx.UnmarshalCBOR(encoded)
-	require.ErrorContains(t, err, "current treasury value")
+	var body ConwayTransactionBody
+	require.ErrorContains(
+		t,
+		body.UnmarshalCBOR(encoded),
+		"current treasury value must not be negative",
+	)
 }
 
-func TestConwayTransactionMarshalRejectsNegativeCurrentTreasuryValue(
-	t *testing.T,
-) {
-	tx := ConwayTransaction{
-		Body: ConwayTransactionBody{
-			TxCurrentTreasuryValue: -1,
-		},
-		TxIsValid: false,
-	}
-	_, err := tx.MarshalCBOR()
-	require.ErrorContains(t, err, "current treasury value")
+func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(t *testing.T) {
+	want := uint64(math.MaxUint64)
+	encoded, err := cbor.Encode(map[uint]any{
+		0: []any{}, 1: []any{}, 2: uint64(0), 21: want,
+	})
+	require.NoError(t, err)
+
+	var body ConwayTransactionBody
+	require.NoError(t, body.UnmarshalCBOR(encoded))
+	assert.Equal(t, want, body.TxCurrentTreasuryValue)
+	assert.Equal(t, new(big.Int).SetUint64(want), body.CurrentTreasuryValue())
+
+	body.SetCborReference(nil)
+	reencoded, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var roundTripped ConwayTransactionBody
+	require.NoError(t, roundTripped.UnmarshalCBOR(reencoded))
+	assert.Equal(t, want, roundTripped.TxCurrentTreasuryValue)
 }
 
 func TestConwayRejectsDuplicateUntaggedInputSets(t *testing.T) {
@@ -806,6 +813,132 @@ func TestConwayTransactionBodyRejectsDuplicatePoolOwners(t *testing.T) {
 	var decoded ConwayTransactionBody
 	err = decoded.UnmarshalCBOR(encoded)
 	assert.ErrorContains(t, err, "duplicate owner")
+}
+
+func TestConwayTransactionBodyEncodesOrderedSetsWithTag258(t *testing.T) {
+	firstCredential := common.Credential{Credential: common.CredentialHash{0x01}}
+	secondCredential := common.Credential{Credential: common.CredentialHash{0x02}}
+	addressBytes := make([]byte, 29)
+	addressBytes[0] = 0xe0
+	rewardAccount, err := common.NewAddressFromBytes(addressBytes)
+	require.NoError(t, err)
+	body := ConwayTransactionBody{
+		TxInputs:  NewConwayTransactionInputSet(nil),
+		TxOutputs: []babbage.BabbageTransactionOutput{},
+		TxCertificates: []common.CertificateWrapper{
+			{
+				Type: uint(common.CertificateTypeStakeRegistration),
+				Certificate: &common.StakeRegistrationCertificate{
+					CertType:        uint(common.CertificateTypeStakeRegistration),
+					StakeCredential: firstCredential,
+				},
+			},
+			{
+				Type: uint(common.CertificateTypeStakeDeregistration),
+				Certificate: &common.StakeDeregistrationCertificate{
+					CertType:        uint(common.CertificateTypeStakeDeregistration),
+					StakeCredential: secondCredential,
+				},
+			},
+		},
+		TxProposalProcedures: []ConwayProposalProcedure{
+			{
+				PPDeposit:       1,
+				PPRewardAccount: rewardAccount,
+				PPGovAction: ConwayGovAction{
+					Type:   uint(common.GovActionTypeInfo),
+					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+				},
+				PPAnchor: common.GovAnchor{Url: "first"},
+			},
+			{
+				PPDeposit:       2,
+				PPRewardAccount: rewardAccount,
+				PPGovAction: ConwayGovAction{
+					Type:   uint(common.GovActionTypeInfo),
+					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+				},
+				PPAnchor: common.GovAnchor{Url: "second"},
+			},
+		},
+	}
+
+	encoded, err := cbor.Encode(body)
+	require.NoError(t, err)
+	var bodyFields map[uint]cbor.RawMessage
+	_, err = cbor.DecodeLedgerMap(encoded, &bodyFields)
+	require.NoError(t, err)
+
+	wantCertificates := cbor.NewSetType(body.TxCertificates, true)
+	wantCertificatesCBOR, err := cbor.Encode(&wantCertificates)
+	require.NoError(t, err)
+	assert.Equal(t, wantCertificatesCBOR, []byte(bodyFields[4]))
+	wantProposals := cbor.NewSetType(body.TxProposalProcedures, true)
+	wantProposalsCBOR, err := cbor.Encode(&wantProposals)
+	require.NoError(t, err)
+	assert.Equal(t, wantProposalsCBOR, []byte(bodyFields[20]))
+	assert.NotContains(t, bodyFields, uint(19))
+}
+
+func TestConwayTransactionBodySetsUseIndefiniteArraysAbove23(t *testing.T) {
+	rewardAccount, err := common.NewAddress(
+		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
+	)
+	require.NoError(t, err)
+	action := common.InfoGovAction{Type: uint(common.GovActionTypeInfo)}
+
+	certificates := make([]common.CertificateWrapper, 24)
+	proposals := make([]ConwayProposalProcedure, 24)
+	for i := range 24 {
+		credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+		credential.Credential[0] = byte(i + 1)
+		certificates[i] = common.CertificateWrapper{
+			Type: uint(common.CertificateTypeStakeRegistration),
+			Certificate: &common.StakeRegistrationCertificate{
+				CertType:        uint(common.CertificateTypeStakeRegistration),
+				StakeCredential: credential,
+			},
+		}
+		proposals[i] = ConwayProposalProcedure{
+			PPDeposit:       uint64(i + 1),
+			PPRewardAccount: rewardAccount,
+			PPGovAction:     ConwayGovAction{Action: &action},
+			PPAnchor:        common.GovAnchor{Url: fmt.Sprintf("proposal-%d", i)},
+		}
+	}
+	body := ConwayTransactionBody{
+		TxInputs:             NewConwayTransactionInputSet(nil),
+		TxOutputs:            []babbage.BabbageTransactionOutput{},
+		TxFee:                0,
+		TxCertificates:       certificates,
+		TxProposalProcedures: proposals,
+	}
+
+	encoded, err := cbor.Encode(body)
+	require.NoError(t, err)
+	var bodyFields map[uint]cbor.RawMessage
+	_, err = cbor.DecodeLedgerMap(encoded, &bodyFields)
+	require.NoError(t, err)
+	encodeOSet := func(members []any) []byte {
+		t.Helper()
+		set := []byte{0xd9, 0x01, 0x02, 0x9f}
+		for _, member := range members {
+			encodedMember, encodeErr := cbor.Encode(member)
+			require.NoError(t, encodeErr)
+			set = append(set, encodedMember...)
+		}
+		return append(set, 0xff)
+	}
+	certificateMembers := make([]any, len(certificates))
+	for i := range certificates {
+		certificateMembers[i] = certificates[i]
+	}
+	proposalMembers := make([]any, len(proposals))
+	for i := range proposals {
+		proposalMembers[i] = proposals[i]
+	}
+	require.Equal(t, encodeOSet(certificateMembers), []byte(bodyFields[4]))
+	require.Equal(t, encodeOSet(proposalMembers), []byte(bodyFields[20]))
 }
 
 // Conway (protocol versions 9-11) tolerates duplicate vkey witnesses:

@@ -13,6 +13,8 @@ on:
 jobs:
   go-test:
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
+    permissions:
+      contents: read
     with:
       go-arches: '["amd64","386"]'
       nilaway-include-pkgs: github.com/blinklabs-io/gouroboros
@@ -22,7 +24,7 @@ jobs:
   publish:
     needs: [go-test]
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    uses: blinklabs-io/actions/.github/workflows/reuseable-go-library-release.yml@main
+    uses: blinklabs-io/actions/.github/workflows/reuseable-go-library-release.yml@d3aa875070b18acdcb31256100558d44c16b512f
     permissions:
       attestations: write
       contents: write

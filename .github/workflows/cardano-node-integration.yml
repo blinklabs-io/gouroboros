@@ -41,7 +41,7 @@ jobs:
             -e RESTORE_NETWORK=false \
             -e RESTORE_SNAPSHOT=false \
             -v "$NODE_IPC_DIR:/ipc" \
-            ghcr.io/blinklabs-io/cardano-node:11.1.3-1
+            ghcr.io/blinklabs-io/cardano-node:11.1.3-1@sha256:85883cfc7622c4037cbaa2ff553a06966c739b3a97fc3de4ac2aaeb160e24e12
       - name: Wait for the node to extend its chain
         run: |
           for _ in $(seq 1 120); do

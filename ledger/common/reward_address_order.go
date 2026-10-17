@@ -17,8 +17,11 @@ package common
 import (
 	"bytes"
 	"cmp"
+	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
 // SortRewardAccountAddresses returns reward-account addresses in the order
@@ -55,4 +58,24 @@ func SortRewardAccountAddresses[V any](values map[*Address]V) []*Address {
 		)
 	})
 	return sorted
+}
+
+// EncodeRewardAccountMap encodes reward-account entries in cardano-ledger
+// order: network, script/key credential type, then credential hash.
+func EncodeRewardAccountMap[V any](values map[*Address]V) ([]byte, error) {
+	ret := appendLedgerMapHeader(nil, uint64(len(values)))
+	for _, address := range SortRewardAccountAddresses(values) {
+		encodedAddress, err := cbor.Encode(address)
+		if err != nil {
+			return nil, fmt.Errorf("encode reward account map key: %w", err)
+		}
+		encodedValue, err := cbor.Encode(values[address])
+		if err != nil {
+			return nil, fmt.Errorf("encode reward account map value: %w", err)
+		}
+		ret = append(ret, encodedAddress...)
+		ret = append(ret, encodedValue...)
+	}
+	ret = appendLedgerMapBreak(ret, uint64(len(values)))
+	return ret, nil
 }

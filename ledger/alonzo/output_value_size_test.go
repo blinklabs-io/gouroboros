@@ -27,9 +27,8 @@ import (
 )
 
 // indefiniteMapHeaderOutputValue returns a one-policy output value with 256
-// assets and the length of its definite-length encoding. cardano-ledger
-// measures the 256-entry asset map with a 2-byte indefinite header where the
-// definite header costs 3, so the ledger size is one byte less.
+// assets and its encoded size. The encoded map uses the same indefinite-length
+// header cardano-ledger uses to measure this value.
 func indefiniteMapHeaderOutputValue(
 	t *testing.T,
 ) (mary.MaryTransactionOutputValue, uint) {
@@ -49,14 +48,14 @@ func indefiniteMapHeaderOutputValue(
 
 func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
 	t.Parallel()
-	value, definiteSize := indefiniteMapHeaderOutputValue(t)
+	value, encodedSize := indefiniteMapHeaderOutputValue(t)
 	testCases := []struct {
 		name         string
 		maxValueSize uint
 		wantErr      bool
 	}{
-		{"ledger size equals limit", definiteSize - 1, false},
-		{"ledger size above limit", definiteSize - 2, true},
+		{"ledger size equals limit", encodedSize, false},
+		{"ledger size above limit", encodedSize - 1, true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

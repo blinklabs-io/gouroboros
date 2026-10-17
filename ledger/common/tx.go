@@ -546,6 +546,20 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err != nil {
 		return nil, err
 	}
+	if len(body.VotingProcedures()) == 0 {
+		delete(bodyFields, 19)
+	}
+	if encodedWithdrawals, ok := bodyFields[5]; ok {
+		var withdrawals map[*Address]cbor.RawMessage
+		if _, err := cbor.DecodeLedgerMap(encodedWithdrawals, &withdrawals); err != nil {
+			return nil, fmt.Errorf("decode transaction withdrawals: %w", err)
+		}
+		encodedWithdrawals, err = EncodeRewardAccountMap(withdrawals)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[5] = encodedWithdrawals
+	}
 	for _, key := range requiredFields {
 		if _, found := bodyFields[key]; found {
 			continue

@@ -45,7 +45,7 @@ func currentTreasuryPresenceTestCases() []currentTreasuryPresenceTestCase {
 			name: "Conway",
 			newBody: func(value uint64) currentTreasuryPresenceBody {
 				return &conway.ConwayTransactionBody{
-					TxCurrentTreasuryValue: int64(value), // #nosec G115 -- test values are bounded
+					TxCurrentTreasuryValue: value,
 				}
 			},
 		},

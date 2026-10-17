@@ -369,6 +369,7 @@ type ApplyStageRunner struct {
 	errors         chan<- error
 	metrics        *PipelineMetrics
 	processedFunc  func(uint64)
+	deliveredFunc  func(*BlockItem)
 	fatalFunc      func()
 	fatalErrorFunc func(error)
 	done           chan struct{}
@@ -551,6 +552,9 @@ func (r *ApplyStageRunner) forwardProcessed(
 func (r *ApplyStageRunner) forwardCommitted(processed []*BlockItem) {
 	for _, item := range processed {
 		r.output <- item
+		if r.deliveredFunc != nil {
+			r.deliveredFunc(item)
+		}
 	}
 }
 
@@ -614,11 +618,17 @@ func (r *ApplyStageRunner) forwardItem(
 ) bool {
 	select {
 	case r.output <- item:
+		if r.deliveredFunc != nil {
+			r.deliveredFunc(item)
+		}
 		return r.reportItemError(ctx, item)
 	default:
 	}
 	select {
 	case r.output <- item:
+		if r.deliveredFunc != nil {
+			r.deliveredFunc(item)
+		}
 		return r.reportItemError(ctx, item)
 	case <-ctx.Done():
 		return false

@@ -189,6 +189,27 @@ type ExUnitPrice struct {
 	StepPrice *cbor.Rat
 }
 
+// UnmarshalCBOR decodes exactly two execution prices from a definite array.
+func (p *ExUnitPrice) UnmarshalCBOR(cborData []byte) error {
+	if p == nil {
+		return errors.New("nil ExUnitPrice receiver")
+	}
+	if err := ValidateDefiniteCBORArrayLength(
+		cborData,
+		2,
+		"execution prices",
+	); err != nil {
+		return err
+	}
+	type tExUnitPrice ExUnitPrice
+	var decoded tExUnitPrice
+	if _, err := cbor.Decode(cborData, &decoded); err != nil {
+		return fmt.Errorf("decode execution prices: %w", err)
+	}
+	*p = ExUnitPrice(decoded)
+	return nil
+}
+
 // CloneCostModels returns a deep copy of a cost-models map, including each
 // model's value slice. Protocol-parameter upgrades and updates use it so that
 // mutating one era's cost models cannot change another's. A nil map stays nil.

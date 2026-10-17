@@ -700,7 +700,7 @@ type ConwayTransactionBody struct {
 	TxReferenceInputs       cbor.SetType[shelley.ShelleyTransactionInput] `cbor:"18,keyasint,omitempty,omitzero"`
 	TxVotingProcedures      common.VotingProcedures                       `cbor:"19,keyasint,omitempty"`
 	TxProposalProcedures    []ConwayProposalProcedure                     `cbor:"20,keyasint,omitempty"`
-	TxCurrentTreasuryValue  int64                                         `cbor:"21,keyasint,omitempty"`
+	TxCurrentTreasuryValue  uint64                                        `cbor:"21,keyasint,omitempty"`
 	TxDonation              uint64                                        `cbor:"22,keyasint,omitempty"`
 }
 
@@ -716,7 +716,7 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if hasRemovedField {
 		return ConwayTransactionBodyFieldError{FieldKey: 6}
 	}
-	if err := validateConwayVotingProcedures(cborData); err != nil {
+	if err := validateConwayTransactionBodyFields(cborData); err != nil {
 		return err
 	}
 	type tConwayTransactionBody ConwayTransactionBody
@@ -742,9 +742,6 @@ func (b *ConwayTransactionBody) UnmarshalCBOR(cborData []byte) error {
 		if err := common.ValidateNativeScriptOutputConstructor(tmp.TxCollateralReturn, 5); err != nil {
 			return fmt.Errorf("collateral return: %w", err)
 		}
-	}
-	if tmp.TxCurrentTreasuryValue < 0 {
-		return errors.New("current treasury value must not be negative")
 	}
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
@@ -855,10 +852,14 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 	return false, nil
 }
 
-func validateConwayVotingProcedures(cborData []byte) error {
+func validateConwayTransactionBodyFields(cborData []byte) error {
 	var fields map[uint64]cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return err
+	}
+	// CBOR major type 1 encodes negative integers; coins must be nonnegative.
+	if value, ok := fields[21]; ok && len(value) > 0 && value[0]>>5 == 1 {
+		return errors.New("current treasury value must not be negative")
 	}
 	votingProceduresCBOR, ok := fields[19]
 	if !ok {
@@ -872,18 +873,42 @@ func validateConwayVotingProcedures(cborData []byte) error {
 }
 
 func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
-	if b.TxCurrentTreasuryValue < 0 {
-		return nil, errors.New("current treasury value must not be negative")
-	}
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+	encoded, err := common.EncodeTransactionBodyWithValidityIntervalUpperBound(
 		&b,
 		0,
 		1,
 		2,
 	)
+	if err != nil {
+		return nil, err
+	}
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
+		return nil, err
+	}
+	if bodyFields == nil {
+		return nil, errors.New("encoded Conway transaction body has no fields")
+	}
+	if len(b.TxCertificates) > 0 {
+		certificates := cbor.NewSetType(b.TxCertificates, true)
+		encodedCertificates, err := cbor.Encode(&certificates)
+		if err != nil {
+			return nil, fmt.Errorf("encode Conway certificate set: %w", err)
+		}
+		bodyFields[4] = encodedCertificates
+	}
+	if len(b.TxProposalProcedures) > 0 {
+		proposals := cbor.NewSetType(b.TxProposalProcedures, true)
+		encodedProposals, err := cbor.Encode(&proposals)
+		if err != nil {
+			return nil, fmt.Errorf("encode Conway proposal-procedure set: %w", err)
+		}
+		bodyFields[20] = encodedProposals
+	}
+	return cbor.Encode(bodyFields)
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
@@ -1049,7 +1074,7 @@ func (b *ConwayTransactionBody) CurrentTreasuryValue() *big.Int {
 		!b.CurrentTreasuryValuePresent() {
 		return nil
 	}
-	return big.NewInt(b.TxCurrentTreasuryValue)
+	return new(big.Int).SetUint64(b.TxCurrentTreasuryValue)
 }
 
 func (b *ConwayTransactionBody) CurrentTreasuryValuePresent() bool {

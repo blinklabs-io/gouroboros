@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"sort"
 	"strings"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1546,6 +1547,11 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	poolOwners := append([]AddrKeyHash(nil), c.PoolOwners...)
+	sort.Slice(poolOwners, func(i, j int) bool {
+		return bytes.Compare(poolOwners[i][:], poolOwners[j][:]) < 0
+	})
+	poolOwnerSet := cbor.NewSetType(poolOwners, true)
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
 			c.CertType,
@@ -1555,7 +1561,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 			c.Cost,
 			c.Margin,
 			rewardAccount,
-			c.PoolOwners,
+			&poolOwnerSet,
 			c.Relays,
 			c.PoolMetadata,
 		})
@@ -1569,7 +1575,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 		c.Cost,
 		c.Margin,
 		rewardAccount,
-		c.PoolOwners,
+		&poolOwnerSet,
 		c.Relays,
 		c.PoolMetadata,
 	})
@@ -2493,6 +2499,23 @@ func (c DeregistrationDrepCertificate) isCertificate() {}
 func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		3,
+		"DRep deregistration certificate",
+	); err != nil {
+		return err
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.DecodeExact(cborData, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 3 {
+		return errors.New("invalid DRep deregistration certificate array")
+	}
+	if len(fields[2]) == 0 || fields[2][0]>>5 != 0 {
+		return errors.New("DRep deregistration amount must be an unsigned integer")
+	}
 	type tDeregistrationDrepCertificate DeregistrationDrepCertificate
 	var tmp tDeregistrationDrepCertificate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
@@ -2540,6 +2563,23 @@ func (c UpdateDrepCertificate) isCertificate() {}
 func (c *UpdateDrepCertificate) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	if err := ValidateCBORArrayLength(
+		cborData,
+		3,
+		"DRep update certificate",
+	); err != nil {
+		return err
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.DecodeExact(cborData, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 3 {
+		return errors.New("invalid DRep update certificate array")
+	}
+	if bytes.Equal(fields[2], []byte{0xf7}) {
+		return errors.New("DRep update anchor cannot be CBOR undefined")
+	}
 	type tUpdateDrepCertificate UpdateDrepCertificate
 	var tmp tUpdateDrepCertificate
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {

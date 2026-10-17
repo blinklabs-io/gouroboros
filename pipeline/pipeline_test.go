@@ -149,6 +149,203 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
+func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
+	raw := getValidBlockCbor(t)
+	p := NewBlockPipeline(WithTrustedDecodeOnly(), WithMaxRawCborBytes(2*uint64(len(raw))))
+	forwardGate := make(chan struct{})
+	var releaseForward sync.Once
+	p.testResultsForward = func() { <-forwardGate }
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	t.Cleanup(func() {
+		releaseForward.Do(func() { close(forwardGate) })
+		require.NoError(t, p.Stop())
+	})
+	err := p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		make([]byte, len(raw)+1),
+		createTestTip(0, 0),
+	)
+	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(0, 0),
+	))
+	require.Eventually(t, func() bool {
+		return len(p.resultsQueue) == 1
+	}, time.Second, time.Millisecond)
+	p.rawBudgetMu.Lock()
+	require.Equal(t, uint64(2*len(raw)), p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	blockedCtx, blockedCancel := context.WithTimeout(ctx, 10*time.Millisecond)
+	defer blockedCancel()
+	require.ErrorIs(t, p.Submit(
+		blockedCtx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(1, 1),
+	), context.DeadlineExceeded)
+	releaseForward.Do(func() { close(forwardGate) })
+
+	first := <-p.Results()
+	require.Equal(t, raw, first.RawCbor())
+	require.NotNil(t, first.Block())
+
+	require.Eventually(t, func() bool {
+		p.rawBudgetMu.Lock()
+		defer p.rawBudgetMu.Unlock()
+		return p.rawBytesInUse == 0
+	}, time.Second, time.Millisecond)
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(2, 2),
+	))
+	second := <-p.Results()
+	require.Equal(t, raw, second.RawCbor())
+	first.Release()
+	first.Release()
+	require.Nil(t, first.RawCbor())
+	second.Release()
+}
+
+func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(t *testing.T) {
+	raw := getValidBlockCbor(t)
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(2*uint64(len(raw))),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	require.Empty(t, p.DrainResults(), "nothing is ready before a submit")
+	require.NoError(t, p.Submit(
+		ctx,
+		uint(ledger.BlockTypeConway),
+		raw,
+		createTestTip(0, 0),
+	))
+
+	var drained []*BlockItem
+	require.Eventually(t, func() bool {
+		drained = append(drained, p.DrainResults()...)
+		return len(drained) == 1
+	}, time.Second, time.Millisecond)
+	if len(drained) == 0 || drained[0] == nil {
+		t.Fatal("expected one non-nil result")
+	}
+	item := drained[0]
+	require.Equal(t, raw, item.RawCbor())
+	require.Eventually(t, func() bool {
+		p.rawBudgetMu.Lock()
+		defer p.rawBudgetMu.Unlock()
+		return p.rawBytesInUse == 0
+	}, time.Second, time.Millisecond, "receipt returns the reservation")
+
+	item.Release()
+	require.Nil(t, item.RawCbor())
+	require.Nil(t, item.Block())
+	require.Empty(t, p.DrainResults())
+}
+
+func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
+	const resultCount = 5
+	raw := getValidBlockCbor(t)
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(resultCount*2*uint64(len(raw))),
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, p.Start(ctx))
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+	for sequence := 0; sequence < resultCount; sequence++ {
+		require.NoError(t, p.Submit(
+			ctx,
+			uint(ledger.BlockTypeConway),
+			raw,
+			createTestTip(uint64(sequence), uint64(sequence)),
+		))
+	}
+	require.Eventually(t, func() bool {
+		return len(p.resultsQueue) == resultCount-1
+	}, 5*time.Second, time.Millisecond)
+
+	results := p.DrainResults()
+	require.Len(t, results, resultCount)
+	for sequence, item := range results {
+		require.Equal(t, uint64(sequence), item.SequenceNumber())
+		item.Release()
+	}
+	require.Empty(t, p.DrainResults())
+}
+
+func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(8),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	require.NoError(t, p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		[]byte{0x85, 0x00, 0x01, 0x02},
+		createTestTip(1, 1),
+	))
+	result := <-p.Results()
+	require.NotNil(t, result.RawCbor())
+	require.Eventually(t, func() bool {
+		p.rawBudgetMu.Lock()
+		defer p.rawBudgetMu.Unlock()
+		return p.rawBytesInUse == 0
+	}, time.Second, time.Millisecond, "receipt returns the reservation")
+	require.NoError(t, p.Stop())
+	require.NotNil(t, result.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	result.Release()
+	require.Nil(t, result.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+}
+
+func TestBlockPipelineStopReleasesBufferedResult(t *testing.T) {
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(8),
+	)
+	require.NoError(t, p.Start(context.Background()))
+	require.NoError(t, p.Submit(
+		context.Background(),
+		uint(ledger.BlockTypeConway),
+		[]byte{0x85, 0x00, 0x01, 0x02},
+		createTestTip(1, 1),
+	))
+	require.Eventually(t, func() bool {
+		return p.applyStage.PendingCount() == 0
+	}, time.Second, time.Millisecond)
+
+	require.NoError(t, p.Stop())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+}
+
+func TestPipelineZeroRawCborLimitUsesSecureDefault(t *testing.T) {
+	p := NewBlockPipeline(WithMaxRawCborBytes(0))
+	require.Equal(t, DefaultMaxRawCborBytes, p.maxRawCborBytes())
+}
+
 func TestBlockItem_SetBlock_Block(t *testing.T) {
 	rawCbor := getValidBlockCbor(t)
 	tip := createTestTip(1000, 500)
@@ -1363,10 +1560,11 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 			select {
 			case <-resultCtx.Done():
 				return
-			case _, ok := <-p.Results():
+			case item, ok := <-p.Results():
 				if !ok {
 					return
 				}
+				item.Release()
 				processedResults <- struct{}{}
 			}
 		}
@@ -1628,6 +1826,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 		select {
 		case item := <-p.Results():
 			assert.Equal(t, expected, item.SequenceNumber())
+			item.Release()
 		case <-time.After(time.Second):
 			t.Fatalf("pipeline did not return processed block %d", expected)
 		}

@@ -46,7 +46,9 @@ func dijkstraRule(
 func dijkstraGuardRedeemers() DijkstraRedeemers {
 	return DijkstraRedeemers{
 		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-			{Tag: common.RedeemerTagGuarding}: {},
+			{Tag: common.RedeemerTagGuarding}: {
+				Data: evaluateTestRedeemerData(),
+			},
 		},
 	}
 }
@@ -623,6 +625,7 @@ func TestDijkstraRejectsNativePurposeRedeemersWithGlobalScripts(t *testing.T) {
 					func(t *testing.T) {
 						redeemers := map[common.RedeemerKey]common.RedeemerValue{
 							plutusKey: {
+								Data: evaluateTestRedeemerData(),
 								ExUnits: common.ExUnits{
 									Steps:  10_000_000,
 									Memory: 10_000_000,

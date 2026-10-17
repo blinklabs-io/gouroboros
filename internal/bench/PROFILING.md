@@ -5,8 +5,8 @@ This guide covers how to profile Gouroboros for CPU usage, memory allocations, a
 ## Prerequisites
 
 ```bash
-# Install benchstat for benchmark comparison
-go install golang.org/x/perf/cmd/benchstat@latest
+# Verify the repository-pinned benchstat tool
+go tool -modfile=tools/go.mod benchstat -h
 
 # pprof is included with Go
 go tool pprof --help
@@ -33,10 +33,10 @@ CPU profiles identify hot code paths and functions consuming the most CPU time.
 
 ```bash
 # Profile specific benchmark
-go test -bench=BenchmarkConsensusIsSlotLeader -run=^$ -cpuprofile=cpu.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusFullLeaderElectionWorkflow -run=^$ -cpuprofile=cpu.prof ./internal/bench/...
 
 # Profile with longer runtime for more samples
-go test -bench=BenchmarkConsensusIsSlotLeader -run=^$ -benchtime=10s -cpuprofile=cpu.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusFullLeaderElectionWorkflow -run=^$ -benchtime=10s -cpuprofile=cpu.prof ./internal/bench/...
 
 # Profile all benchmarks
 go test -bench=. -run=^$ -cpuprofile=cpu.prof ./internal/bench/...
@@ -48,11 +48,26 @@ Memory profiles show allocation counts and bytes per function.
 
 ```bash
 # Allocation profile (recommended)
-go test -bench=BenchmarkConsensusThreshold -run=^$ -memprofile=mem.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusEligibilityPrepareCached -run=^$ -memprofile=mem.prof ./internal/bench/...
 
 # Also capture allocation rate
-go test -bench=BenchmarkConsensusThreshold -run=^$ -memprofile=mem.prof -memprofilerate=1 ./internal/bench/...
+go test -bench=BenchmarkConsensusEligibilityCheckVRFOutput -run=^$ -memprofile=mem.prof -memprofilerate=1 ./internal/bench/...
 ```
+
+Keep preparation and evaluation profiles separate. For uncached E34 preparation,
+use `go test ./consensus -run='^$' -bench=BenchmarkLeaderEligibilityPrepare/ -benchmem`.
+The consensus suite also includes boundary/MAX_REACHED comparison workloads.
+For real signing over an entire shared reference interval profile
+`BenchmarkConsensusReferenceSchedule`; for concurrent input construction, real
+VRF proof/output verification and finite eligibility profile
+`BenchmarkConsensusParallelHeaderLeadership` (not a full KES/opcert header check).
+Both cover CPraos and TPraos. Their fixture/key/preparation setup is outside timing.
+Shared immutable rationals and evaluator state are safe for concurrent reads;
+concurrent mutation of a caller-owned rational is unsupported.
+
+Historical pre-cutover ideal-cutoff profiles/baselines are not E34 measurements.
+Collect matching post-cutover workloads and report time, bytes and allocations
+before drawing performance conclusions; see `BASELINES.md`.
 
 ### Block Profile
 
@@ -109,7 +124,7 @@ go tool pprof -top cpu.prof
 go tool pprof -top -cum cpu.prof
 
 # Show specific function
-go tool pprof -focus=CertifiedNatThreshold cpu.prof
+go tool pprof -focus=CheckVRFOutput cpu.prof
 
 # Memory allocations (count)
 go tool pprof -alloc_objects mem.prof
@@ -155,7 +170,7 @@ Look for:
 
 ```bash
 # Generate profile
-go test -bench=BenchmarkConsensusThreshold -run=^$ -memprofile=mem.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusEligibilityCheckVRFOutput -run=^$ -memprofile=mem.prof ./internal/bench/...
 
 # View allocations
 go tool pprof -alloc_objects -http=localhost:8080 mem.prof
@@ -186,10 +201,10 @@ Common escape causes:
 
 ```bash
 # Baseline
-go test -bench=BenchmarkConsensusThreshold -run=^$ -memprofile=baseline.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusEligibilityCheckVRFOutput -run=^$ -memprofile=baseline.prof ./internal/bench/...
 
 # After optimization
-go test -bench=BenchmarkConsensusThreshold -run=^$ -memprofile=optimized.prof ./internal/bench/...
+go test -bench=BenchmarkConsensusEligibilityCheckVRFOutput -run=^$ -memprofile=optimized.prof ./internal/bench/...
 
 # Compare (requires go 1.21+)
 go tool pprof -base baseline.prof optimized.prof
@@ -258,13 +273,13 @@ Mathematical operations create many intermediates:
 
 ```go
 // Before (new allocation each call)
-func threshold(a, b *big.Int) *big.Int {
+func multiply(a, b *big.Int) *big.Int {
     result := new(big.Int)
     return result.Mul(a, b)
 }
 
 // After (reuse provided buffer)
-func threshold(a, b, result *big.Int) *big.Int {
+func multiply(a, b, result *big.Int) *big.Int {
     return result.Mul(a, b)
 }
 ```
@@ -348,7 +363,7 @@ Priority paths for profiling (highest impact):
 | Transaction validation | `ledger/*/rules.go` | `VerifyTransaction()` |
 | VRF verification | `vrf/` | `Verify()`, `VerifyAndHash()` |
 | KES verification | `kes/` | `VerifySignedKES()` |
-| Leader election | `consensus/` | `IsSlotLeader()`, `CertifiedNatThreshold()` |
+| Leader election | `consensus/` | `IsSlotLeaderWithMode()`, `NewLeaderEligibility()`, `CheckVRFOutput()` |
 | CBOR decode | `cbor/` | `Decode()`, `NewBlockFromCbor()` |
 
 ### Historical Optimizations
@@ -378,7 +393,7 @@ git checkout my-optimization-branch
 go test -bench=. -run=^$ -benchmem -count=5 ./internal/bench/... | tee optimized.txt
 
 # Compare
-benchstat baseline.txt optimized.txt
+go tool -modfile=tools/go.mod benchstat baseline.txt optimized.txt
 ```
 
 ## Resources

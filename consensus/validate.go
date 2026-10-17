@@ -129,7 +129,7 @@ type ValidateResult struct {
 //  2. Block number is previous + 1
 //  3. PrevHash matches hash of previous header
 //  4. VRF proof is valid
-//  5. VRF output satisfies leadership threshold
+//  5. Verified VRF output satisfies finite E34 eligibility and pool policy
 //  6. TPraos-only: nonce VRF proof is valid (no-op for CPraos)
 //  7. KES period is within valid range
 //  8. KES signature is valid
@@ -459,7 +459,7 @@ func (v *HeaderValidator) validateNonceVRFProof(
 	return err
 }
 
-// validateLeadership checks if the VRF output satisfies the leadership threshold.
+// validateLeadership applies the pool policy and finite E34 leader predicate.
 func (v *HeaderValidator) validateLeadership(
 	input *ValidateHeaderInput,
 	vrfOutput []byte,
@@ -468,26 +468,28 @@ func (v *HeaderValidator) validateLeadership(
 		return errors.New("total stake cannot be zero")
 	}
 
-	threshold, err := CertifiedNatThresholdWithMode(
-		input.PoolStake,
-		input.TotalStake,
-		v.activeSlotCoeff,
-		v.mode,
+	if input.PoolStake == 0 {
+		if err := validateConsensusMode(v.mode); err != nil {
+			return err
+		}
+		if err := validateActiveSlotCoefficient(v.activeSlotCoeff); err != nil {
+			return err
+		}
+		return errors.New("pool stake cannot be zero")
+	}
+	evaluator, err := NewLeaderEligibility(
+		input.PoolStake, input.TotalStake, v.activeSlotCoeff, v.mode,
 	)
 	if err != nil {
 		return err
 	}
-	belowThreshold, err := IsVRFOutputBelowThresholdWithMode(
-		vrfOutput,
-		threshold,
-		v.mode,
-	)
+	eligible, err := evaluator.CheckVRFOutput(vrfOutput)
 	if err != nil {
 		return err
 	}
-	if !belowThreshold {
+	if !eligible {
 		return fmt.Errorf(
-			"VRF output does not satisfy leadership threshold at slot %d",
+			"VRF output does not satisfy leader eligibility at slot %d",
 			input.Slot,
 		)
 	}
@@ -637,7 +639,9 @@ func (v *HeaderValidator) validateVRFKeyRegistration(
 	input *ValidateHeaderInput,
 ) error {
 	if len(input.RegisteredVrfKeyHash) == 0 {
-		return errors.New("registered VRF key hash is required for header validation")
+		return errors.New(
+			"registered VRF key hash is required for header validation",
+		)
 	}
 
 	if len(input.VrfKey) != vrf.PublicKeySize {
