@@ -46,16 +46,25 @@ func dijkstraOverlappingInputTx(
 ) (*DijkstraTransaction, common.LedgerState) {
 	t.Helper()
 	redeemer := common.RedeemerValue{
+		Data:    evaluateTestRedeemerData(),
 		ExUnits: common.ExUnits{Steps: 10_000_000, Memory: 10_000_000},
 	}
 	input := shelley.MustNewShelleyTransactionInput(
 		"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 		0,
 	)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		make([]byte, common.AddressHashSize),
+		nil,
+	)
+	require.NoError(t, err)
 	utxo := common.Utxo{
 		Id: input,
 		Output: babbage.BabbageTransactionOutput{
-			OutputAmount: mary.MaryTransactionOutputValue{Amount: 2_000_000},
+			OutputAddress: address,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 2_000_000},
 		},
 	}
 	tx := &DijkstraTransaction{TxIsValid: true}
@@ -209,6 +218,16 @@ func dijkstraOverlappingSubTransaction(
 ) (DijkstraSubTransaction, common.Utxo) {
 	t.Helper()
 	input, utxo := dijkstraReferenceScriptInput(nil, 950)
+	address, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		make([]byte, common.AddressHashSize),
+		nil,
+	)
+	require.NoError(t, err)
+	referenceOutput := utxo.Output.(babbage.BabbageTransactionOutput)
+	referenceOutput.OutputAddress = address
+	utxo.Output = referenceOutput
 	return DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
 			TxInputs: conway.NewConwayTransactionInputSet(
@@ -235,6 +254,7 @@ func TestUtxoValidatePlutusScriptsV3ReferenceInputOverlapAcrossLevels(
 		tx, _ := dijkstraOverlappingInputTx(t, overlapPurposeRewarding, v3)
 		tx.Body.TxReferenceInputs = cbor.SetType[shelley.ShelleyTransactionInput]{}
 		subTx, subUtxo := dijkstraOverlappingSubTransaction(t)
+		subOutput := subUtxo.Output.(babbage.BabbageTransactionOutput)
 		tx.Body.TxSubTransactions = cbor.NewSetType(
 			[]DijkstraSubTransaction{subTx},
 			true,
@@ -244,6 +264,7 @@ func TestUtxoValidatePlutusScriptsV3ReferenceInputOverlapAcrossLevels(
 				{
 					Id: tx.Body.TxInputs.Items()[0],
 					Output: babbage.BabbageTransactionOutput{
+						OutputAddress: subOutput.OutputAddress,
 						OutputAmount: mary.MaryTransactionOutputValue{
 							Amount: 2_000_000,
 						},
