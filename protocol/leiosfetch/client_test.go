@@ -173,12 +173,8 @@ func TestClientMessageHandler(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "BlockTxs message",
-			msg: NewMsgBlockTxs(
-				pcommon.NewPoint(1, testPointHash(0x01)),
-				nil,
-				nil,
-			),
+			name:        "BlockTxs message",
+			msg:         NewMsgBlockTxs(nil),
 			expectError: false,
 		},
 		{
