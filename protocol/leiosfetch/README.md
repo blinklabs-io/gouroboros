@@ -89,14 +89,20 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | `LastBlockAndTxsInRange` | 14 | Server → Client | Last block in range |
 
 Tags 0–4 are the LeiosFetch messages of the node of Leios release candidate
-2026w41, which numbers the messages of both Leios mini-protocols from zero. The
+2026w42, which numbers the messages of both Leios mini-protocols from zero. The
 reference node speaks no other message. Tags 10–14 are extensions of this
 library: they are numbered clear of the reference tags and a peer that does not
 implement them rejects them as unknown, so do not send them to a reference
 node.
 
-`BlockTxs` is `[4, point, bitmaps, txs]`: it echoes the request's point and
-bitmaps and holds one transaction for each bit set in them. Bitmaps are a map
+`BlockTxs` is `[4, [* tx]]`, with `tx = #6.24(bytes .cbor block_transaction)`:
+it carries only the transactions and does not echo the request. The server
+sends one transaction for each bit set in the request's bitmaps, in bitmap
+order, and the client rejects a reply whose count differs from its request.
+`MsgBlockTxs.TxsRaw` holds the `block_transaction` CBOR of each transaction;
+the tag 24 wrapping is added on encode and removed on decode, which accepts a
+definite or indefinite list and rejects a plain byte string, another tag, or
+bytes that are not exactly one CBOR item. Bitmaps are a map
 of ascending indices below 268 to non-zero 64-bit bitmaps, in definite or
 indefinite form; requests are encoded in indefinite form. An endorser block
 references at most 17,142 transactions. The client refuses a bitmap key at or

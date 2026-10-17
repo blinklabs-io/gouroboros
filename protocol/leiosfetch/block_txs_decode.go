@@ -15,9 +15,11 @@
 package leiosfetch
 
 import (
+	"errors"
 	"fmt"
 	"math/bits"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
@@ -118,4 +120,32 @@ func validateBlockTxsRequest(data []byte) error {
 		return err
 	}
 	return validateBlockTxBitmaps(fields[2], maxWireBlockBitmaps)
+}
+
+// unwrapBlockTx returns the block_transaction CBOR inside one
+// #6.24(bytes .cbor block_transaction) entry. A plain byte string, any other
+// tag, an indefinite-length byte string, and bytes that are not exactly one
+// CBOR item are rejected.
+func unwrapBlockTx(data []byte) ([]byte, error) {
+	tagHead, ok, err := cborwalk.ReadHead(data, 0)
+	if err != nil || !ok || tagHead.Major != 6 ||
+		tagHead.Argument != cbor.CborTagCbor {
+		return nil, errors.New("not a tag 24 wrapped transaction")
+	}
+	offset := tagHead.EncodedSize
+	bytesHead, ok, err := cborwalk.ReadHead(data, offset)
+	if err != nil || !ok || bytesHead.Major != 2 || bytesHead.Indefinite {
+		return nil, errors.New("tag 24 does not wrap a definite byte string")
+	}
+	offset += bytesHead.EncodedSize
+	//nolint:gosec // ReadHead bounds offset by len(data), so the difference is non-negative
+	if bytesHead.Argument != uint64(len(data)-offset) {
+		return nil, errors.New("tag 24 byte string length does not match its entry")
+	}
+	inner := data[offset:]
+	if length, err := cborwalk.ItemLength(inner); err != nil ||
+		length != len(inner) {
+		return nil, errors.New("tag 24 bytes are not exactly one CBOR item")
+	}
+	return inner, nil
 }

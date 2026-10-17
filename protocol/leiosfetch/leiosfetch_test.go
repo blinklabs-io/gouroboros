@@ -978,7 +978,7 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}}),
 				},
 			},
 		)
@@ -1002,7 +1002,7 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
 				},
 			},
 		)
@@ -1019,6 +1019,39 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 					require.ErrorContains(t, connErr, "maximum is 2")
 				case <-time.After(2 * time.Second):
 					t.Fatal("oversized BlockTxs reply did not fail the connection")
+				}
+			},
+		)
+	})
+
+	t.Run("rejects below requested count", func(t *testing.T) {
+		conversation := append(
+			conversationHandshake,
+			ouroboros_mock.ConversationEntryInput{
+				ProtocolId:  leiosfetch.ProtocolId,
+				MessageType: leiosfetch.MessageTypeBlockTxsRequest,
+			},
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: leiosfetch.ProtocolId,
+				IsResponse: true,
+				Messages: []protocol.Message{
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}}),
+				},
+			},
+		)
+		runTestCollectingConnErrors(
+			t,
+			conversation,
+			func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+				require.Error(t, err)
+				select {
+				case connErr := <-connErrs:
+					require.ErrorContains(t, connErr, "do not match the 2 requested")
+				case <-time.After(2 * time.Second):
+					t.Fatal("short BlockTxs reply did not fail the connection")
 				}
 			},
 		)
@@ -1066,7 +1099,7 @@ func TestBlockTxsRequestRejectsBitmapsThePeerRefuses(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs(point, bitmaps, []cbor.RawMessage{{0x80}}),
+					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}}),
 				},
 			},
 		)
