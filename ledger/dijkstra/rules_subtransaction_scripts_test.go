@@ -309,6 +309,7 @@ func dijkstraSubtransactionPlutusGuardTx(
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					{Tag: common.RedeemerTagGuarding, Index: 0}: {
+						Data: evaluateTestRedeemerData(),
 						ExUnits: common.ExUnits{
 							Steps:  10_000_000,
 							Memory: 10_000_000,
@@ -623,6 +624,7 @@ func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 				witnesses.WsRedeemers = DijkstraRedeemers{
 					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 						{Tag: common.RedeemerTagGuarding}: {
+							Data: evaluateTestRedeemerData(),
 							ExUnits: common.ExUnits{
 								Steps:  10_000_000,
 								Memory: 10_000_000,
@@ -1068,6 +1070,7 @@ func TestVerifyTransactionAcceptsNonGuardPlutusV4(t *testing.T) {
 			WsRedeemers: DijkstraRedeemers{
 				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 					{Tag: common.RedeemerTagMint}: {
+						Data: evaluateTestRedeemerData(),
 						ExUnits: common.ExUnits{
 							Steps:  10_000_000,
 							Memory: 10_000_000,

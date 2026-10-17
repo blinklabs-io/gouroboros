@@ -32,6 +32,7 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 	credential := bytes.Repeat([]byte{0x07}, Blake2b224Size)
 	encode := func(t *testing.T, rewardAccount []byte) []byte {
 		t.Helper()
+		poolOwners := cbor.NewSetType([]AddrKeyHash{}, true)
 		wire, err := cbor.Encode([]any{
 			uint(CertificateTypePoolRegistration),
 			NewBlake2b224(bytes.Repeat([]byte{0x01}, Blake2b224Size)),
@@ -40,7 +41,7 @@ func TestPoolRegistrationRewardAccountNetworkId(t *testing.T) {
 			uint64(340_000_000),
 			NewGenesisRat(0, 1),
 			rewardAccount,
-			[]AddrKeyHash{},
+			&poolOwners,
 			[]PoolRelay{},
 			nil,
 		})

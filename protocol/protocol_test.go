@@ -840,6 +840,39 @@ func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
 	require.LessOrEqual(t, m.ReadBufferInUse(), maxBufferSize)
 }
 
+func TestConsumeReadBufferRightSizesRetainedStorage(t *testing.T) {
+	large := bytes.Repeat([]byte{0xaa}, 2*1024*1024)
+	large = append(large, 0x01, 0x02, 0x03)
+	buf := bytes.NewBuffer(large)
+
+	buf, leftover, compacted := consumeReadBuffer(buf, len(large)-3)
+	require.True(t, leftover)
+	require.True(t, compacted)
+	require.Equal(t, []byte{0x01, 0x02, 0x03}, buf.Bytes())
+	require.Equal(t, buf.Len(), cap(buf.Bytes()))
+
+	buf, leftover, compacted = consumeReadBuffer(buf, buf.Len())
+	require.False(t, leftover)
+	require.False(t, compacted)
+	require.Zero(t, buf.Len())
+	require.Zero(t, cap(buf.Bytes()))
+}
+
+func TestConsumeReadBufferCompactionIsGeometric(t *testing.T) {
+	const messageCount = 4096
+	buf := bytes.NewBuffer(make([]byte, messageCount))
+	totalCopied := 0
+	for buf.Len() > 1 {
+		var compacted bool
+		buf, _, compacted = consumeReadBuffer(buf, 1)
+		if compacted {
+			totalCopied += buf.Len()
+		}
+		require.LessOrEqual(t, buf.Cap(), 2*buf.Len())
+	}
+	require.Less(t, totalCopied, messageCount)
+}
+
 // TestReadLoopReturnsConnectionBudgetOnExit is the paired release case: a
 // mini-protocol that stops must hand its share back, or a connection that
 // restarts a protocol slowly starves itself.
@@ -975,4 +1008,85 @@ func TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap(t *testing.T) {
 		m.ReadBufferInUse(),
 		"the refused mini-protocol kept part of the connection allowance",
 	)
+}
+
+func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	m.RaiseReadBufferBudget(8192)
+	// A complete 1000-byte message precedes a 3000-byte prefix of a
+	// second message, leaving the original 4000-byte allocation retained.
+	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
+	tail := append([]byte{0x82, 0, 0x59, 0x0f, 0xa0}, bytes.Repeat([]byte{2}, 2995)...)
+	payload := append(first, tail...)
+	p := newBudgetTestProtocol(t, m, "retained", 8192, []*muxer.Segment{muxer.NewSegment(0, payload, false)})
+	p.proto.recvQueueChan = make(chan Message, 1)
+	p.proto.config.MessageFromCborFunc = func(uint, []byte) (Message, error) { return &MessageBase{}, nil }
+	done := make(chan struct{})
+	go func() { defer close(done); p.proto.readLoop() }()
+	t.Cleanup(func() { close(p.proto.stopChan); <-done })
+	select {
+	case <-p.proto.recvQueueChan:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("first message was not delivered")
+	}
+	require.Eventually(t, func() bool { return m.ReadBufferInUse() == 4000 }, time.Second, time.Millisecond)
+	require.Equal(t, 4000, m.ReadBufferInUse())
+}
+
+func TestReadLoopAccountsGrownCapacityAfterDelivery(t *testing.T) {
+	t.Parallel()
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	m.RaiseReadBufferBudget(8192)
+	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
+	secondPrefix := append([]byte{0x82, 0, 0x59, 0x13, 0x83}, bytes.Repeat([]byte{2}, 2995)...)
+	initial := append(first, secondPrefix...)
+	segment := muxer.NewSegment(0, initial, false)
+	require.NotNil(t, segment)
+	p := newBudgetTestProtocol(t, m, "grown-retained", 8192, []*muxer.Segment{segment})
+	p.proto.recvQueueChan = make(chan Message, 1)
+	decodeStarted := make(chan struct{})
+	finishDecode := make(chan struct{})
+	decodeCount := 0
+	p.proto.config.MessageFromCborFunc = func(uint, []byte) (Message, error) {
+		decodeCount++
+		if decodeCount == 2 {
+			close(decodeStarted)
+			<-finishDecode
+		}
+		return &MessageBase{}, nil
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); p.proto.readLoop() }()
+	t.Cleanup(func() {
+		close(p.proto.stopChan)
+		close(finishDecode)
+		<-done
+	})
+	select {
+	case <-p.proto.recvQueueChan:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("first message was not delivered")
+	}
+	// The second message now retains 3000 bytes in a 4000-byte allocation.
+	// Appending its remaining 2000 bytes grows the backing allocation to 8000.
+	tail := muxer.NewSegment(0, bytes.Repeat([]byte{3}, 2000), false)
+	require.NotNil(t, tail)
+	p.proto.muxerRecvChan <- tail
+	select {
+	case <-decodeStarted:
+	case err := <-p.errorChan:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("completed second message was not decoded")
+	}
+	require.Equal(t, 8000, m.ReadBufferInUse(), "reservation must include grown backing capacity")
 }

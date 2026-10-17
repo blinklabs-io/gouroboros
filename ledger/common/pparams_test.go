@@ -48,6 +48,24 @@ func TestValidateNonNegativeBoundedRatArrayCBORRequiresArray(t *testing.T) {
 	}
 }
 
+func TestExUnitPriceRejectsIndefiniteArray(t *testing.T) {
+	definite := []byte{
+		0x82,
+		0xd8, 0x1e, 0x82, 0x00, 0x01,
+		0xd8, 0x1e, 0x82, 0x00, 0x01,
+	}
+	var price ExUnitPrice
+	if _, err := cbor.DecodeExact(definite, &price); err != nil {
+		t.Fatalf("rejected definite execution prices: %v", err)
+	}
+
+	indefinite := append([]byte{0x9f}, definite[1:]...)
+	indefinite = append(indefinite, 0xff)
+	if _, err := cbor.DecodeExact(indefinite, &price); err == nil {
+		t.Fatal("accepted indefinite execution prices")
+	}
+}
+
 // TestConvertToUtxorpcCardanoCostModels_Mapping pins the real cardano-ledger
 // wire convention for the cost-models map: 0-indexed language keys
 // (0=PlutusV1, 1=PlutusV2, 2=PlutusV3, 3=PlutusV4). Key 0 is exercised

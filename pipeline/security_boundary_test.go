@@ -17,6 +17,7 @@ package pipeline
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -460,6 +461,7 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	output := make(chan *BlockItem, 2)
 	errorChan := make(chan error, 1)
 	fatalCause := make(chan error, 1)
+	delivered := make(chan uint64, rejectedSequence)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	stage := NewApplyStage(func(item *BlockItem) error {
@@ -472,6 +474,9 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 	stage.SetChainContextValidator(acceptSecurityTestChainContext)
 	runner := NewApplyStageRunner(stage, input, output, errorChan, 0)
 	runner.setFatalErrorFunc(func(err error) { fatalCause <- err })
+	runner.deliveredFunc = func(item *BlockItem) {
+		delivered <- item.SequenceNumber()
+	}
 	runner.setFatalFunc(cancel)
 	runner.Start(ctx)
 	defer func() {
@@ -504,6 +509,12 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("successful prefix item %d was not forwarded", want)
 		}
+		select {
+		case sequence := <-delivered:
+			require.Equal(t, want, sequence)
+		case <-time.After(50 * time.Millisecond):
+			t.Errorf("successful prefix item %d did not transfer ownership", want)
+		}
 	}
 	runner.Stop()
 	select {
@@ -516,10 +527,22 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	const rejectedSequence = uint64(4)
 	p := NewBlockPipeline()
+	handoffPaused := make(chan struct{})
+	releaseHandoff := make(chan struct{})
+	var releaseHandoffOnce sync.Once
+	p.testResultHandoff = func(item *BlockItem) {
+		if item.SequenceNumber() == 0 {
+			close(handoffPaused)
+			<-releaseHandoff
+		}
+	}
+	t.Cleanup(func() { releaseHandoffOnce.Do(func() { close(releaseHandoff) }) })
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.submitChan = make(chan *BlockItem, 1)
 	p.decodedChan = make(chan *BlockItem, rejectedSequence+1)
-	p.resultsChan = make(chan *BlockItem, 2)
+	p.resultsQueue = make(chan *BlockItem, 2)
+	p.resultsChan = make(chan *BlockItem)
+	p.resultsDone = make(chan struct{})
 	p.errorsChan = make(chan error, 1)
 	p.decodePool = &StageWorkerPool{}
 	p.applyStage = NewApplyStage(func(item *BlockItem) error {
@@ -533,33 +556,83 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	p.applyRunner = NewApplyStageRunner(
 		p.applyStage,
 		p.decodedChan,
-		p.resultsChan,
+		p.resultsQueue,
 		p.errorsChan,
 		0,
 	)
 	p.applyRunner.setFatalErrorFunc(p.setFatalError)
 	p.applyRunner.setFatalFunc(p.cancel)
 	p.applyRunner.Start(p.ctx)
+	go p.forwardResults()
 	p.started.Store(true)
+	items := make(map[uint64]*BlockItem, rejectedSequence+1)
+	for sequence := uint64(0); sequence <= rejectedSequence; sequence++ {
+		item := NewBlockItem(0, []byte{0x80}, createTestTip(sequence, sequence), sequence)
+		item.SetValidation(true, "", nil, 0)
+		p.trackItem(item, 1)
+		items[sequence] = item
+	}
+	p.rawBytesInUse = uint64(len(items))
 
 	for sequence := uint64(1); sequence <= rejectedSequence; sequence++ {
-		p.decodedChan <- newValidatedSecurityTestItem(sequence)
+		p.decodedChan <- items[sequence]
 	}
-	p.decodedChan <- newValidatedSecurityTestItem(0)
+	p.decodedChan <- items[0]
 	select {
 	case <-p.ctx.Done():
 	case <-time.After(time.Second):
 		t.Fatal("fatal rejection did not cancel the pipeline")
 	}
+	var callerOwned *BlockItem
+	select {
+	case callerOwned = <-p.resultsChan:
+		if callerOwned == nil {
+			t.Fatal("fatal committed prefix delivered a nil result")
+		}
+		require.Equal(t, uint64(0), callerOwned.SequenceNumber())
+	case <-time.After(time.Second):
+		t.Fatal("fatal committed prefix did not reach the Results consumer")
+	}
+	select {
+	case <-handoffPaused:
+	case <-time.After(time.Second):
+		t.Fatal("result forwarder did not reach the post-send handoff boundary")
+	}
 
 	stopped := make(chan error, 1)
 	go func() { stopped <- p.Stop() }()
+	releaseHandoffOnce.Do(func() { close(releaseHandoff) })
 	select {
 	case err := <-stopped:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
 		t.Fatal("Stop remained blocked on undelivered committed results")
 	}
+	for sequence := uint64(0); sequence < rejectedSequence; sequence++ {
+		item := items[sequence]
+		if item == nil {
+			t.Fatalf("fatal committed result %d was not created", sequence)
+		}
+		if sequence == callerOwned.SequenceNumber() {
+			require.Equal(t, []byte{0x80}, callerOwned.RawCbor(),
+				"Stop must preserve data already received by the caller")
+		} else {
+			require.Nil(t, item.RawCbor(), "Stop clears undelivered result data")
+		}
+	}
+	rejectedItem := items[rejectedSequence]
+	if rejectedItem == nil {
+		t.Fatal("rejected item was not created")
+	}
+	require.Nil(t, rejectedItem.RawCbor(), "rejected item remains pipeline-owned")
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
+	callerOwned.Release()
+	require.Nil(t, callerOwned.RawCbor())
+	p.rawBudgetMu.Lock()
+	require.Zero(t, p.rawBytesInUse)
+	p.rawBudgetMu.Unlock()
 }
 
 func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/stretchr/testify/require"
 )
@@ -50,6 +51,7 @@ func TestBabbagePlutusExecutionMatchesValidityFlag(t *testing.T) {
 				},
 				WsRedeemers: alonzo.AlonzoRedeemers{Redeemers: []alonzo.AlonzoRedeemer{{
 					Tag:     common.RedeemerTagMint,
+					Data:    common.Datum{Data: data.NewInteger(big.NewInt(1))},
 					ExUnits: units,
 				}}},
 			},

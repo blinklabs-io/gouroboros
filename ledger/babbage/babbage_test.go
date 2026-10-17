@@ -73,7 +73,7 @@ func TestBabbageBlockHeaderBodyRejectsInvalidVrfKeyWidth(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBabbageBlockHeaderBodyRejectsInvalidVrfOutputWidth(t *testing.T) {
+func TestBabbageBlockHeaderBodyDecodesVariableLengthVrfOutput(t *testing.T) {
 	_, bodyCbor := encodeBabbageHeaderWithPrevHash(t, cbor.RawMessage{0xf6})
 	fields := make([]cbor.RawMessage, 10)
 	_, err := cbor.Decode(bodyCbor, &fields)
@@ -87,7 +87,8 @@ func TestBabbageBlockHeaderBodyRejectsInvalidVrfOutputWidth(t *testing.T) {
 	require.NoError(t, err)
 	var body BabbageBlockHeaderBody
 	_, err = cbor.Decode(invalidBody, &body)
-	require.Error(t, err)
+	require.NoError(t, err)
+	assert.Len(t, body.VrfResult.Output, 63)
 }
 
 func TestBabbageDatumOptionRejectsIndefiniteWrappedData(t *testing.T) {

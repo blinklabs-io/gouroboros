@@ -459,41 +459,61 @@ func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](
 	return nil
 }
 
+// MarshalCBOR encodes MultiAsset maps in cardano-ledger key order.
 func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
-	// The CBOR library is configured with SortCoreDeterministic, so direct encoding
-	// of the map produces deterministic output without manual sorting
-	return cbor.Encode(m.data)
+	// cardano-ledger orders asset names by their raw bytes, which can differ
+	// from deterministic CBOR's encoded-key length order.
+	if m.data == nil {
+		return cbor.Encode(m.data)
+	}
+	policies := make([]Blake2b224, 0, len(m.data))
+	for policy := range m.data {
+		policies = append(policies, policy)
+	}
+	slices.SortFunc(policies, func(left, right Blake2b224) int {
+		return bytes.Compare(left[:], right[:])
+	})
+	ret := appendLedgerMapHeader(nil, uint64(len(policies)))
+	for _, policy := range policies {
+		encodedPolicy, err := cbor.Encode(policy)
+		if err != nil {
+			return nil, fmt.Errorf("encode multiasset policy id: %w", err)
+		}
+		assets := m.data[policy]
+		assetNames := make([]cbor.ByteString, 0, len(assets))
+		for name := range assets {
+			assetNames = append(assetNames, name)
+		}
+		slices.SortFunc(assetNames, func(left, right cbor.ByteString) int {
+			return bytes.Compare(left.Bytes(), right.Bytes())
+		})
+		encodedAssets := appendLedgerMapHeader(nil, uint64(len(assetNames)))
+		for _, name := range assetNames {
+			encodedName, err := cbor.Encode(name)
+			if err != nil {
+				return nil, fmt.Errorf("encode multiasset name: %w", err)
+			}
+			encodedQuantity, err := cbor.Encode(assets[name])
+			if err != nil {
+				return nil, fmt.Errorf("encode multiasset quantity: %w", err)
+			}
+			encodedAssets = append(encodedAssets, encodedName...)
+			encodedAssets = append(encodedAssets, encodedQuantity...)
+		}
+		encodedAssets = appendLedgerMapBreak(encodedAssets, uint64(len(assetNames)))
+		ret = append(ret, encodedPolicy...)
+		ret = append(ret, encodedAssets...)
+	}
+	ret = appendLedgerMapBreak(ret, uint64(len(policies)))
+	return ret, nil
 }
 
-// LedgerSerializedSizeAdjustment returns the byte count to add to the length of
-// the definite-length encoding written by MarshalCBOR to obtain the size
-// cardano-ledger measures for this value. It is zero or negative. At encoding
-// version 2 and above the ledger writes any map with more than 23 entries as an
-// indefinite-length map, which costs 2 bytes regardless of entry count, while
-// a definite header costs 3 bytes from 256 entries and 5 from 65536.
+// LedgerSerializedSizeAdjustment returns the byte count to add to the CBOR
+// encoding length written by MarshalCBOR to obtain the size cardano-ledger
+// measures for this value. MultiAsset.MarshalCBOR already uses the ledger's
+// variable-length map headers, so the adjustment is zero.
 func (m *MultiAsset[T]) LedgerSerializedSizeAdjustment() int {
-	if m == nil {
-		return 0
-	}
-	adjustment := mapHeaderSizeAdjustment(len(m.data))
-	for _, assets := range m.data {
-		adjustment += mapHeaderSizeAdjustment(len(assets))
-	}
-	return adjustment
-}
-
-func mapHeaderSizeAdjustment(entries int) int {
-	const indefiniteMapOverhead = 2
-	switch {
-	case entries <= 23:
-		return 0
-	case entries <= math.MaxUint8:
-		return indefiniteMapOverhead - 2
-	case entries <= math.MaxUint16:
-		return indefiniteMapOverhead - 3
-	default:
-		return indefiniteMapOverhead - 5
-	}
+	return 0
 }
 
 func (m *MultiAsset[T]) CheckForDuplicateKeys() error {

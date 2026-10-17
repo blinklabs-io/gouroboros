@@ -320,65 +320,41 @@ func TestValidateVRFProof(t *testing.T) {
 }
 
 func TestValidateLeadership(t *testing.T) {
-	validator := NewHeaderValidator(testNetworkConfig())
-
-	// With CPRAOS, VRF output is first hashed with VrfLeaderValue (BLAKE2b-256
-	// with "L" prefix) before comparison. The leader value is deterministic
-	// but not directly related to the raw VRF output bytes.
-
-	// Test with zero VRF output
-	zeroOutput := make([]byte, 64)
-	leaderValue := VrfLeaderValue(zeroOutput)
-	leaderValueInt := new(big.Int).SetBytes(leaderValue)
-
-	// Compute threshold for 100% stake with mainnet active slot coefficient
-	activeSlotCoeff := big.NewRat(1, 20) // 0.05
-	threshold := CertifiedNatThreshold(1000000000, 1000000000, activeSlotCoeff)
-	expectedEligible := leaderValueInt.Cmp(threshold) < 0
-
-	input := &ValidateHeaderInput{
-		PoolStake:  1000000000,
-		TotalStake: 1000000000, // 100% stake
-	}
-	err := validator.validateLeadership(input, zeroOutput)
-
-	if expectedEligible {
+	// These are leadership-only checks; the full-header tests below cover
+	// cryptographic verification before this stage.
+	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
+		validator := NewHeaderValidatorWithMode(testNetworkConfig(), mode)
+		input := &ValidateHeaderInput{PoolStake: 1, TotalStake: 1}
+		validator.activeSlotCoeff = big.NewRat(1, 1)
 		require.NoError(
 			t,
-			err,
-			"expected no error for eligible VRF output with 100%% stake",
+			validator.validateLeadership(input, make([]byte, 64)),
 		)
-	} else {
-		require.Error(t, err, "expected error for non-eligible VRF output")
-	}
-
-	// Invalid: zero total stake
-	input = &ValidateHeaderInput{
-		PoolStake:  1000,
-		TotalStake: 0,
-	}
-	err = validator.validateLeadership(input, zeroOutput)
-	require.Error(t, err, "expected error for zero total stake")
-
-	// Test with max VRF output - the leader value is a hash, not max value
-	maxOutput := make([]byte, 64)
-	for i := range maxOutput {
-		maxOutput[i] = 0xFF
-	}
-	maxLeaderValue := VrfLeaderValue(maxOutput)
-	maxLeaderValueInt := new(big.Int).SetBytes(maxLeaderValue)
-	maxExpectedEligible := maxLeaderValueInt.Cmp(threshold) < 0
-
-	input = &ValidateHeaderInput{
-		PoolStake:  1000000000,
-		TotalStake: 1000000000,
-	}
-	err = validator.validateLeadership(input, maxOutput)
-
-	if maxExpectedEligible {
-		require.NoError(t, err, "expected no error for eligible max VRF output")
-	} else {
-		require.Error(t, err, "expected error for non-eligible max VRF output")
+		input.PoolStake = 0
+		require.Error(t, validator.validateLeadership(input, make([]byte, 64)))
+		input.PoolStake, input.TotalStake = 1, 0
+		require.Error(t, validator.validateLeadership(input, make([]byte, 64)))
+		input.TotalStake = 1
+		tiny := new(
+			big.Rat,
+		).SetFrac(big.NewInt(1), new(big.Int).Exp(big.NewInt(10), big.NewInt(20), nil))
+		for _, f := range []*big.Rat{nil, big.NewRat(0, 1), big.NewRat(-1, 20), big.NewRat(3, 2), tiny} {
+			validator.activeSlotCoeff = f
+			require.Error(
+				t,
+				validator.validateLeadership(input, make([]byte, 64)),
+			)
+			input.PoolStake = 0
+			require.Error(
+				t,
+				validator.validateLeadership(input, make([]byte, 64)),
+			)
+			input.PoolStake = 1
+		}
+		validator.activeSlotCoeff = big.NewRat(1, 1)
+		require.Error(t, validator.validateLeadership(input, make([]byte, 63)))
+		validator.mode = ConsensusMode(99)
+		require.Error(t, validator.validateLeadership(input, make([]byte, 64)))
 	}
 }
 
@@ -640,11 +616,14 @@ func TestValidateOpCertSignature(t *testing.T) {
 	input.OpCertHotVkey = replacementKesPk
 	err = validator.validateOpCertSignature(input)
 	require.Error(t, err, "the old signature must not authorize a new hot key")
-	input.OpCertSignature = ed25519.Sign(coldPrivateKey, common.OpCertSignableBytes(
-		replacementKesPk,
-		opCertSeqNum,
-		opCertKesPeriod,
-	))
+	input.OpCertSignature = ed25519.Sign(
+		coldPrivateKey,
+		common.OpCertSignableBytes(
+			replacementKesPk,
+			opCertSeqNum,
+			opCertKesPeriod,
+		),
+	)
 	require.NoError(t, validator.validateOpCertSignature(input))
 
 	input.OpCertHotVkey = kesPk
@@ -816,17 +795,56 @@ func TestValidateOpCertSequence(t *testing.T) {
 		current  uint64
 		wantErr  string
 	}{
-		{name: "initial counter zero", mode: ConsensusModeCPraos, previous: opCertSequence(0)},
-		{name: "same counter", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 4},
-		{name: "CPraos increments", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 5},
-		{name: "TPraos skips ahead", mode: ConsensusModeTPraos, previous: opCertSequence(4), current: 6},
-		{name: "missing state", mode: ConsensusModeCPraos, current: 1, wantErr: "counter is required"},
-		{name: "counter rollback", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 3, wantErr: "counter rolled back"},
-		{name: "CPraos counter over incremented", mode: ConsensusModeCPraos, previous: opCertSequence(4), current: 6, wantErr: "counter skipped ahead"},
+		{
+			name:     "initial counter zero",
+			mode:     ConsensusModeCPraos,
+			previous: opCertSequence(0),
+		},
+		{
+			name:     "same counter",
+			mode:     ConsensusModeCPraos,
+			previous: opCertSequence(4),
+			current:  4,
+		},
+		{
+			name:     "CPraos increments",
+			mode:     ConsensusModeCPraos,
+			previous: opCertSequence(4),
+			current:  5,
+		},
+		{
+			name:     "TPraos skips ahead",
+			mode:     ConsensusModeTPraos,
+			previous: opCertSequence(4),
+			current:  6,
+		},
+		{
+			name:    "missing state",
+			mode:    ConsensusModeCPraos,
+			current: 1,
+			wantErr: "counter is required",
+		},
+		{
+			name:     "counter rollback",
+			mode:     ConsensusModeCPraos,
+			previous: opCertSequence(4),
+			current:  3,
+			wantErr:  "counter rolled back",
+		},
+		{
+			name:     "CPraos counter over incremented",
+			mode:     ConsensusModeCPraos,
+			previous: opCertSequence(4),
+			current:  6,
+			wantErr:  "counter skipped ahead",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator := NewHeaderValidatorWithMode(testNetworkConfig(), tt.mode)
+			validator := NewHeaderValidatorWithMode(
+				testNetworkConfig(),
+				tt.mode,
+			)
 			got, err := validator.validateOpCertSequence(&ValidateHeaderInput{
 				OpCertSequenceNumber: tt.current,
 				OpCertCounterState:   tt.previous,
@@ -904,47 +922,24 @@ func TestValidateVRFProofTPraos(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestValidateLeadershipTPraos exercises the TPraos leadership threshold
-// semantics: the raw 64-byte VRF output is compared directly (no
-// BLAKE2b-256 "L"-prefix hashing) against a threshold derived from 2^512.
+// TestValidateLeadershipTPraos exercises raw-output E34 decisions, without
+// claiming that these arbitrary outputs are cryptographically verified proofs.
 func TestValidateLeadershipTPraos(t *testing.T) {
 	validator := NewHeaderValidatorWithMode(
 		testNetworkConfig(),
 		ConsensusModeTPraos,
 	)
 
-	activeSlotCoeff := big.NewRat(1, 20) // 0.05
-	threshold, err := CertifiedNatThresholdWithMode(
-		1000000000,
-		1000000000,
-		activeSlotCoeff,
-		ConsensusModeTPraos,
-	)
-	require.NoError(t, err)
-
-	// Valid: zero VRF output is always numerically below any positive
-	// threshold, so it must be accepted as eligible under TPraos, where
-	// the raw output is compared directly (no leader-value hashing).
+	input := &ValidateHeaderInput{PoolStake: 1, TotalStake: 1}
 	zeroOutput := make([]byte, 64)
-	input := &ValidateHeaderInput{
-		PoolStake:  1000000000,
-		TotalStake: 1000000000, // 100% stake
-	}
-	err = validator.validateLeadership(input, zeroOutput)
-	require.NoError(t, err)
-	require.Positive(
-		t,
-		threshold.Sign(),
-		"threshold should be positive for nonzero stake",
-	)
+	require.NoError(t, validator.validateLeadership(input, zeroOutput))
 
-	// Invalid: the maximum possible VRF output (2^512 - 1) can never be
-	// below a threshold that is strictly less than 2^512.
+	// The maximum representable natural is ineligible for f=1/20.
 	maxOutput := make([]byte, 64)
 	for i := range maxOutput {
 		maxOutput[i] = 0xFF
 	}
-	err = validator.validateLeadership(input, maxOutput)
+	err := validator.validateLeadership(input, maxOutput)
 	require.Error(t, err)
 
 	// Invalid: zero total stake.
@@ -1066,7 +1061,8 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 		EpochNonce:           epochNonce,
 		PoolStake:            poolStake,
 		TotalStake:           totalStake,
-		RegisteredVrfKeyHash: common.Blake2b256Hash(vrfSigner.PublicKey()).Bytes(),
+		RegisteredVrfKeyHash: common.Blake2b256Hash(vrfSigner.PublicKey()).
+			Bytes(),
 	}
 
 	result := validator.ValidateHeader(input)

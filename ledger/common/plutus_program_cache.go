@@ -208,8 +208,9 @@ func (s *programSizer) walkConstants(root syn.IConstant) {
 			stack = append(stack, c.First, c.Second)
 		case *syn.Value:
 			s.values++
-			s.constantSlots += len(c.Entries)
-			stack = append(stack, c.Entries...)
+			entries := c.Entries()
+			s.constantSlots += len(entries)
+			stack = append(stack, entries...)
 		case *syn.Data:
 			s.datas++
 			s.walkData(c.Inner)

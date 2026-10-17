@@ -1006,7 +1006,7 @@ func TestUtxoValidateMaxTxSizeUtxo(t *testing.T) {
 }
 
 // outputValueWithAssets builds a one-policy output value whose asset names
-// are unique and whose definite-length CBOR encoding is exactly wantSize
+// are unique and whose CBOR encoding is exactly wantSize
 // bytes. Names are 13 or 14 bytes long, so every encoded asset costs 15 or 16
 // bytes with a one-byte quantity.
 func outputValueWithAssets(
@@ -1015,8 +1015,8 @@ func outputValueWithAssets(
 	wantSize int,
 ) mary.MaryTransactionOutputValue {
 	t.Helper()
-	// array header, coin, outer map header, policy id, definite inner header
-	fixed := 1 + 1 + 1 + 30 + 3
+	// array header, coin, outer map header, policy id, indefinite inner header
+	fixed := 1 + 1 + 1 + 30 + 2
 	perAssetTotal := wantSize - fixed
 	longNames := perAssetTotal - assetCount*15
 	if longNames < 0 || longNames > assetCount {
@@ -1047,18 +1047,17 @@ func outputValueWithAssets(
 }
 
 // cardano-ledger measures a map with more than 23 entries using an
-// indefinite-length header, which costs 2 bytes where a definite header for 256
-// or more entries costs 3.
+// indefinite-length header, which is also the wire form emitted by MultiAsset.
 func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
 	t.Parallel()
 	const maxSize = 4000
 	testCases := []struct {
-		name       string
-		definiteSz int
-		wantErr    bool
+		name      string
+		encodedSz int
+		wantErr   bool
 	}{
-		{"ledger size equals limit", maxSize + 1, false},
-		{"ledger size above limit", maxSize + 2, true},
+		{"ledger size equals limit", maxSize, false},
+		{"ledger size above limit", maxSize + 1, true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1070,7 +1069,7 @@ func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
 							OutputAmount: outputValueWithAssets(
 								t,
 								256,
-								tc.definiteSz,
+								tc.encodedSz,
 							),
 						},
 					},

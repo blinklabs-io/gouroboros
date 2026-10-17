@@ -1,6 +1,6 @@
-# Gouroboros Architecture
+# gOuroboros Architecture
 
-Gouroboros is a Go implementation of the Cardano blockchain protocol, providing ledger validation, network protocol support, consensus primitives, and cryptographic operations.
+gOuroboros is a Go implementation of the Cardano blockchain protocol, providing ledger validation, network protocol support, consensus primitives, and cryptographic operations.
 
 ## High-Level Architecture
 
@@ -311,10 +311,52 @@ Implements Ouroboros Praos consensus primitives.
 | block.go | Block construction (BlockBuilder, OperationalCert, Header) |
 | leader.go | Leader eligibility checking |
 | selection.go | Chain selection (Praos ordering + Genesis density comparison) |
-| threshold.go | Leadership threshold calculation |
+| eligibility.go | Immutable prepared E34 predicate and natural/raw-output APIs |
+| eligibility_cache.go | Bounded successful private-state LRU |
+| e34.go | Pinned finite fixed-point arithmetic and bounded comparator |
 | validate.go | Block validation |
 | byron/ | Byron-era consensus validation |
 | genesis/ | Genesis consensus handling |
+
+### Finite Leader Eligibility
+
+`NewLeaderEligibility` prepares the pinned Haskell node's finite E34 rule
+once for a mode, stake tuple and exact rational active-slot coefficient.
+Signed integer values have scale `10^34`; multiplication/division floor at
+each production operation. The active-slot logarithm is prepared from the
+rounded coefficient, not recomputed as an ideal logarithm. Only the bounded
+exponential comparator's `BELOW` classification elects; `ABOVE` and
+`MAX_REACHED` at 1000 iterations return false. No ideal cutoff or numerical
+margin is exposed.
+
+CPraos derives a 256-bit natural from BLAKE2b-256(`"L" || output`); TPraos
+interprets the 64-byte output as an unsigned 512-bit big-endian natural.
+`CheckVRFOutput` requires exactly 64 bytes and does not verify cryptography.
+`CheckCertifiedNatural` accepts `[0, M]`, with `M=2^256` or `2^512`.
+The artificial oracle endpoint `M` is not a wire value and uses quotient
+`M*10^34`, while representable values use `floor(M*10^34/(M-v))`.
+
+Coefficients are exact rationals in `[1/10^19, 1]` with reduced Word64
+numerator/denominator, including nondecimal values such as `1/3`.
+Construction rejects zero total stake, clamps pool stake above a positive
+total as gOuroboros policy, and validates before unconditional `f=1`.
+The primitive accepts zero pool stake at `f=1`; election, component and
+header adapters preserve separate zero-pool policy gates. Election/components
+also preserve their nonpositive-coefficient false policy, while header
+validation rejects invalid coefficients. Unsupported positive rationals
+error even when an adapter would otherwise reject zero stake.
+
+Prepared private state is immutable. A 4096-entry mutex/map/list LRU retains
+successful preparations, keyed by mode, normalized stake values and the
+validated exact coefficient. Expensive computation occurs outside the lock.
+Fresh public wrappers prevent caller reassignment from corrupting cache hits;
+all per-decision scratch is local. Slot search prepares once and checks
+cancellation before preparation and every slot. Election, scheduling and
+inbound verified-output checks share this one decision engine.
+
+The independent embedded E34 corpus preserves its pinned source/package
+provenance and checksums. It is not an installed-node replay; ordinary Go
+tests require neither adjacent workspaces nor Haskell execution.
 
 ### Interfaces
 
@@ -541,8 +583,19 @@ pipeline := pipeline.NewBlockPipeline(
 )
 if err := pipeline.Start(ctx); err != nil { ... }
 if err := pipeline.Submit(ctx, blockType, rawBlock, tip); err != nil { ... }
-for result := range pipeline.Results() { ... }
+for result := range pipeline.Results() {
+    consume(result)
+    result.Release()
+}
 ```
+
+Pipeline admission reserves the raw and decoded full block CBOR copies against
+`MaxRawCborBytes` before allocating a `BlockItem`. A result stays charged until
+the consumer receives it from the results channel. The consumer then owns the
+item and should call `BlockItem.Release()` when finished to clear the raw and
+decoded CBOR; received results are no longer included in the pipeline budget. A
+zero byte limit selects `DefaultMaxRawCborBytes`, and stopping the pipeline
+retires internally owned items and results that shutdown drains.
 
 ## Testing
 
