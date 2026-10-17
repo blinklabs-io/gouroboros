@@ -994,18 +994,11 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// GetPoolState requires a pool set parameter similar to GetPoolDistr
-	// If no pool IDs specified, use an empty set to query all pools
-	if poolIds == nil {
-		poolIds = []any{}
-	}
-	params := []any{
-		poolIds,
-	}
+	poolFilter := poolFilterQueryParam(poolIds)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolState,
-		params...,
+		poolFilter,
 	)
 	result := []PoolStateResult{}
 	if err := c.runQuery(query, &result); err != nil {
@@ -1080,25 +1073,27 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// GetPoolDistr always requires a pool set parameter according to the Haskell implementation
-	// The query expects (len=2, tag=21) format: [21, Set(poolIds)]
-	// If no pool IDs specified, use an empty set to query all pools
-	if poolIds == nil {
-		poolIds = []any{}
-	}
-	params := []any{
-		poolIds,
-	}
+	poolFilter := poolFilterQueryParam(poolIds)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolDistr,
-		params...,
+		poolFilter,
 	)
 	var result PoolDistrResult
 	if err := c.runQuery(query, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
+}
+
+// poolFilterQueryParam encodes the StrictMaybe (Set PoolId) argument used by
+// the filtered Shelley pool queries. An empty StrictMaybe requests all pools.
+func poolFilterQueryParam(poolIds []any) []any {
+	poolFilter := []any{}
+	if len(poolIds) > 0 {
+		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	}
+	return poolFilter
 }
 
 // GetPoolDistr2 returns the ledger's pool stake distribution, which replaces
