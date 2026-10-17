@@ -24,6 +24,7 @@ import (
 	"weak"
 
 	"github.com/blinklabs-io/plutigo/cek"
+	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
 )
@@ -284,7 +285,9 @@ func releaseMachine(
 
 // runPooledMachineContext runs program on a Machine checked out for (version,
 // evalContext) with the given budget and returns the unit-result flag and
-// budget consumption, which are computed even when Run fails.
+// budget consumption, which are computed even when Run fails. Trusted data
+// arguments must be finite, valid values decoded from or built from ledger
+// state; without arguments, RunContext validates the whole program tree.
 //
 // The Machine is released only after Run has returned and its ExBudget has
 // been read, never from a defer: a Run that panics leaves the Machine out of
@@ -297,9 +300,20 @@ func runPooledMachineContext(
 	evalContext *cek.EvalContext,
 	budget cek.ExBudget,
 	program syn.Term[syn.DeBruijn],
+	trustedDataArguments ...data.PlutusData,
 ) (cek.ExBudget, bool, error) {
 	machine := checkoutMachineWithBudget(version, evalContext, budget)
-	result, runErr := machine.RunContext(ctx, program)
+	var result syn.Term[syn.DeBruijn]
+	var runErr error
+	if len(trustedDataArguments) == 0 {
+		result, runErr = machine.RunContext(ctx, program)
+	} else {
+		result, runErr = machine.RunContextWithTrustedDataArguments(
+			ctx,
+			program,
+			trustedDataArguments...,
+		)
+	}
 	isUnit := runErr == nil && isPlutusUnitResult(result)
 	consumed := budget.Sub(&machine.ExBudget)
 	releaseMachine(version, evalContext, machine)
