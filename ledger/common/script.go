@@ -258,8 +258,9 @@ func (s PlutusV1Script) RawScriptBytes() []byte {
 	return []byte(s)
 }
 
-// Evaluate executes a PlutusV1 script with datum, redeemer, and script context
-// V1 scripts take 3 arguments applied in order: datum, redeemer, context
+// Evaluate executes a PlutusV1 script with datum, redeemer, and script context.
+// V1 scripts take 3 arguments applied in order: datum, redeemer, context.
+// Data arguments must be finite, valid Plutus data sourced from the ledger.
 // The provided execution budget is enforced exactly, including zero.
 func (s PlutusV1Script) Evaluate(
 	datum data.PlutusData,
@@ -279,6 +280,7 @@ func (s PlutusV1Script) Evaluate(
 }
 
 // EvaluateContext executes a PlutusV1 script and stops when ctx is canceled.
+// Its data arguments must be finite, valid Plutus data sourced from the ledger.
 func (s PlutusV1Script) EvaluateContext(
 	ctx context.Context,
 	datum data.PlutusData,
@@ -320,30 +322,20 @@ func (s PlutusV1Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	// Apply arguments to program: datum (optional), redeemer, context
-	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
-	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
-	wrappedProgram := program.Term
+	// Apply ledger data as trusted arguments so it does not count against the
+	// structural limit on the UPLC program itself.
+	trustedArguments := make([]data.PlutusData, 0, 3)
 	if datum != nil {
-		wrappedProgram = &syn.Apply[syn.DeBruijn]{
-			Function: wrappedProgram,
-			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
-		}
+		trustedArguments = append(trustedArguments, datum)
 	}
-	wrappedProgram = &syn.Apply[syn.DeBruijn]{
-		Function: &syn.Apply[syn.DeBruijn]{
-			Function: wrappedProgram,
-			Argument: redeemerTerm,
-		},
-		Argument: contextTerm,
-	}
-	// Execute wrapped program
+	trustedArguments = append(trustedArguments, redeemer, scriptContext)
 	consumedBudget, _, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV1,
 		evalContext,
 		machineBudget,
-		wrappedProgram,
+		program.Term,
+		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
@@ -370,8 +362,9 @@ func (s PlutusV2Script) RawScriptBytes() []byte {
 	return []byte(s)
 }
 
-// Evaluate executes a PlutusV2 script with datum, redeemer, and script context
-// V2 scripts take 3 arguments applied in order: datum, redeemer, context
+// Evaluate executes a PlutusV2 script with datum, redeemer, and script context.
+// V2 scripts take 3 arguments applied in order: datum, redeemer, context.
+// Data arguments must be finite, valid Plutus data sourced from the ledger.
 // The provided execution budget is enforced exactly, including zero.
 func (s PlutusV2Script) Evaluate(
 	datum data.PlutusData,
@@ -391,6 +384,7 @@ func (s PlutusV2Script) Evaluate(
 }
 
 // EvaluateContext executes a PlutusV2 script and stops when ctx is canceled.
+// Its data arguments must be finite, valid Plutus data sourced from the ledger.
 func (s PlutusV2Script) EvaluateContext(
 	ctx context.Context,
 	datum data.PlutusData,
@@ -432,30 +426,20 @@ func (s PlutusV2Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	// Apply arguments to program: datum (optional), redeemer, context
-	redeemerTerm := &syn.Constant{Con: &syn.Data{Inner: redeemer}}
-	contextTerm := &syn.Constant{Con: &syn.Data{Inner: scriptContext}}
-	wrappedProgram := program.Term
+	// Apply ledger data as trusted arguments so it does not count against the
+	// structural limit on the UPLC program itself.
+	trustedArguments := make([]data.PlutusData, 0, 3)
 	if datum != nil {
-		wrappedProgram = &syn.Apply[syn.DeBruijn]{
-			Function: wrappedProgram,
-			Argument: &syn.Constant{Con: &syn.Data{Inner: datum}},
-		}
+		trustedArguments = append(trustedArguments, datum)
 	}
-	wrappedProgram = &syn.Apply[syn.DeBruijn]{
-		Function: &syn.Apply[syn.DeBruijn]{
-			Function: wrappedProgram,
-			Argument: redeemerTerm,
-		},
-		Argument: contextTerm,
-	}
-	// Execute wrapped program
+	trustedArguments = append(trustedArguments, redeemer, scriptContext)
 	consumedBudget, _, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV2,
 		evalContext,
 		machineBudget,
-		wrappedProgram,
+		program.Term,
+		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
 	usedExUnits.Steps = consumedBudget.Cpu
@@ -482,7 +466,8 @@ func (s PlutusV3Script) RawScriptBytes() []byte {
 	return []byte(s)
 }
 
-// Evaluate executes a PlutusV3 script with its script context.
+// Evaluate executes a PlutusV3 script with its script context. The context
+// must be finite, valid Plutus data sourced from the ledger.
 // The provided execution budget is enforced exactly, including zero.
 func (s PlutusV3Script) Evaluate(
 	scriptContext data.PlutusData,
@@ -498,6 +483,7 @@ func (s PlutusV3Script) Evaluate(
 }
 
 // EvaluateContext executes a PlutusV3 script and stops when ctx is canceled.
+// The context must be finite, valid Plutus data sourced from the ledger.
 func (s PlutusV3Script) EvaluateContext(
 	ctx context.Context,
 	scriptContext data.PlutusData,
@@ -525,23 +511,15 @@ func (s PlutusV3Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	// Apply script context to program
-	contextTerm := &syn.Constant{
-		Con: &syn.Data{
-			Inner: scriptContext,
-		},
-	}
-	wrappedProgram := &syn.Apply[syn.DeBruijn]{
-		Function: program.Term,
-		Argument: contextTerm,
-	}
-	// Execute wrapped program
+	// Execute the program with its ledger context as a trusted argument so it
+	// does not count against the structural limit on the UPLC program itself.
 	consumedBudget, isUnit, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
-		wrappedProgram,
+		program.Term,
+		scriptContext,
 	)
 	if runErr == nil && !isUnit {
 		runErr = PlutusScriptResultNotUnitError{}
@@ -571,7 +549,8 @@ func (s PlutusV4Script) RawScriptBytes() []byte {
 	return []byte(s)
 }
 
-// Evaluate executes a PlutusV4 script with its script context.
+// Evaluate executes a PlutusV4 script with its script context. The context
+// must be finite, valid Plutus data sourced from the ledger.
 // The provided execution budget is enforced exactly, including zero.
 func (s PlutusV4Script) Evaluate(
 	scriptContext data.PlutusData,
@@ -587,6 +566,7 @@ func (s PlutusV4Script) Evaluate(
 }
 
 // EvaluateContext executes a PlutusV4 script and stops when ctx is canceled.
+// The context must be finite, valid Plutus data sourced from the ledger.
 func (s PlutusV4Script) EvaluateContext(
 	ctx context.Context,
 	scriptContext data.PlutusData,
@@ -612,21 +592,13 @@ func (s PlutusV4Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	contextTerm := &syn.Constant{
-		Con: &syn.Data{
-			Inner: scriptContext,
-		},
-	}
-	wrappedProgram := &syn.Apply[syn.DeBruijn]{
-		Function: program.Term,
-		Argument: contextTerm,
-	}
 	consumedBudget, isUnit, runErr := runPooledMachineContext(
 		ctx,
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,
-		wrappedProgram,
+		program.Term,
+		scriptContext,
 	)
 	if runErr == nil && !isUnit {
 		runErr = PlutusScriptResultNotUnitError{}
