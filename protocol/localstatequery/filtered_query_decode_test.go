@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 
@@ -102,6 +103,64 @@ func TestFilteredPoolQueriesRejectInvalidMaybe(t *testing.T) {
 			_, err = decodeShelleyQuery(wire)
 			require.ErrorContains(t, err, "expected at most one pool set")
 		})
+	}
+}
+
+func TestFilteredShelleyQueriesRejectOversizedSetsBeforeDecode(t *testing.T) {
+	const oversizedCount = maxLocalStateQuerySetItems + 1
+	definiteSet := append(
+		[]byte{0xd9, 0x01, 0x02, 0x99, 0x27, 0x11},
+		bytes.Repeat([]byte{0xf6}, oversizedCount)...,
+	)
+	indefiniteSet := append(
+		[]byte{0xd9, 0x01, 0x02, 0x9f},
+		bytes.Repeat([]byte{0xf6}, oversizedCount)...,
+	)
+	indefiniteSet = append(indefiniteSet, 0xff)
+
+	tests := []struct {
+		name      string
+		queryType byte
+		poolQuery bool
+	}{
+		{
+			name:      "non-myopic member rewards",
+			queryType: QueryTypeShelleyNonMyopicMemberRewards,
+		},
+		{
+			name:      "pool state",
+			queryType: QueryTypeShelleyPoolState,
+			poolQuery: true,
+		},
+		{
+			name:      "pool distribution",
+			queryType: QueryTypeShelleyPoolDistr,
+			poolQuery: true,
+		},
+	}
+	for _, test := range tests {
+		for _, set := range []struct {
+			name string
+			wire []byte
+		}{
+			{name: "definite", wire: definiteSet},
+			{name: "indefinite", wire: indefiniteSet},
+		} {
+			t.Run(test.name+"/"+set.name, func(t *testing.T) {
+				wire := []byte{0x82, test.queryType}
+				if test.poolQuery {
+					wire = append(wire, 0x81)
+				}
+				wire = append(wire, set.wire...)
+
+				_, err := decodeShelleyQuery(wire)
+				require.ErrorContains(
+					t,
+					err,
+					"maximum is 10000",
+				)
+			})
+		}
 	}
 }
 

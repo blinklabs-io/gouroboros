@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // Query types
@@ -289,7 +290,59 @@ func decodeShelleyQueryAtDepth(data []byte, depth int) (any, error) {
 	if queryType == QueryTypeShelleyCbor {
 		return decodeShelleyCborQuery(data, depth)
 	}
+	if err := validateShelleyQuerySets(data, queryType); err != nil {
+		return nil, err
+	}
 	return decodeQuery(data, "Block", shelleyQueryTypes())
+}
+
+// shelleyQuerySetFields lists, per Shelley query, the argument positions that
+// carry a peer-controlled set or list filter.
+var shelleyQuerySetFields = map[int][]int{
+	QueryTypeShelleyUtxoByAddress:                       {1},
+	QueryTypeShelleyFilteredDelegationAndRewardAccounts: {1},
+	QueryTypeShelleyUtxoByTxin:                          {1},
+	QueryTypeShelleyStakePoolParams:                     {1},
+	QueryTypeShelleyStakeDelegDeposits:                  {1},
+	QueryTypeShelleyDRepState:                           {1},
+	QueryTypeShelleyDRepStakeDistr:                      {1},
+	QueryTypeShelleyCommitteeMembersState:               {1, 2, 3},
+	QueryTypeShelleyFilteredVoteDelegatees:              {1},
+	QueryTypeShelleySPOStakeDistr:                       {1},
+	QueryTypeShelleyGetProposals:                        {1},
+	QueryTypeShelleyDRepDelegations:                     {1},
+}
+
+// validateShelleyQuerySets bounds the element count of every peer-controlled
+// filter set before typed decoding allocates from it.
+func validateShelleyQuerySets(data []byte, queryType int) error {
+	positions, ok := shelleyQuerySetFields[queryType]
+	if !ok {
+		return nil
+	}
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		len(positions)+1,
+		fmt.Sprintf("shelley query %d", queryType),
+	)
+	if err != nil {
+		return err
+	}
+	for _, pos := range positions {
+		if pos >= len(fields) {
+			// Let the typed decoder report the malformed arity.
+			return nil
+		}
+		if err := cborpreflight.ValidateArray(
+			fields[pos],
+			maxLocalStateQuerySetItems,
+			fmt.Sprintf("shelley query %d filter %d", queryType, pos),
+			nil,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type HardForkQuery struct {
@@ -342,6 +395,28 @@ type ShelleyNonMyopicMemberRewardsQuery struct {
 	cbor.StructAsArray
 	Type   int
 	Stakes cbor.SetType[cbor.RawMessage]
+}
+
+func (q *ShelleyNonMyopicMemberRewardsQuery) UnmarshalCBOR(data []byte) error {
+	if err := cborpreflight.ValidateSecondFieldArray(
+		data,
+		maxLocalStateQuerySetItems,
+		"non-myopic member rewards stakes",
+		nil,
+	); err != nil {
+		return err
+	}
+	var tmp struct {
+		cbor.StructAsArray
+		Type   int
+		Stakes cbor.SetType[cbor.RawMessage]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	q.Type = tmp.Type
+	q.Stakes = tmp.Stakes
+	return nil
 }
 
 type ShelleyCurrentProtocolParamsQuery struct {
@@ -519,6 +594,35 @@ func decodePoolFilterQuery(
 	data []byte,
 	queryName string,
 ) (int, []cbor.SetType[ledger.PoolId], error) {
+	fields, err := cborpreflight.ArrayItems(data, 2, queryName+" query")
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(fields) != 2 {
+		return 0, nil, fmt.Errorf(
+			"invalid %s query: expected 2 fields, got %d",
+			queryName,
+			len(fields),
+		)
+	}
+	filters, err := cborpreflight.ArrayItems(
+		fields[1],
+		1,
+		queryName+" pool filter; expected at most one pool set",
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(filters) == 1 {
+		if err := cborpreflight.ValidateArray(
+			filters[0],
+			maxLocalStateQuerySetItems,
+			queryName+" pool set",
+			nil,
+		); err != nil {
+			return 0, nil, err
+		}
+	}
 	var tmp struct {
 		cbor.StructAsArray
 		Type  int
@@ -526,14 +630,6 @@ func decodePoolFilterQuery(
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return 0, nil, err
-	}
-	// The CBOR slice itself does not enforce StrictMaybe cardinality.
-	if len(tmp.Pools) > 1 {
-		return 0, nil, fmt.Errorf(
-			"invalid %s pool filter: expected at most one pool set, got %d",
-			queryName,
-			len(tmp.Pools),
-		)
 	}
 	return tmp.Type, tmp.Pools, nil
 }
