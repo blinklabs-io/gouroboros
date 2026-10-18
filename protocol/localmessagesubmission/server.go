@@ -17,6 +17,8 @@ package localmessagesubmission
 import (
 	"errors"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -27,6 +29,58 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	now             func() time.Time
+}
+
+var (
+	errInvalidReplayCacheCapacity = errors.New(
+		"dmq: MaxReplayEntries must be greater than zero",
+	)
+	errReplayCacheCapacityExceeded = errors.New(
+		"dmq: local submission replay cache capacity exceeded",
+	)
+)
+
+type submissionReplayState struct {
+	mu          sync.Mutex
+	acceptedIDs map[string]uint32
+}
+
+func newSubmissionReplayState() *submissionReplayState {
+	return &submissionReplayState{acceptedIDs: make(map[string]uint32)}
+}
+
+func (r *submissionReplayState) reserve(
+	id []byte,
+	expiresAt uint32,
+	now time.Time,
+	maxEntries int,
+	commitAuthentication func() error,
+) (bool, error) {
+	if maxEntries < 1 {
+		return false, errInvalidReplayCacheCapacity
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for acceptedID, expiration := range r.acceptedIDs {
+		if now.Unix() > int64(expiration) {
+			delete(r.acceptedIDs, acceptedID)
+		}
+	}
+	key := string(id)
+	if _, exists := r.acceptedIDs[key]; exists {
+		return false, nil
+	}
+	if len(r.acceptedIDs) >= maxEntries {
+		return false, errReplayCacheCapacityExceeded
+	}
+	if commitAuthentication != nil {
+		if err := commitAuthentication(); err != nil {
+			return false, fmt.Errorf("commit message authentication: %w", err)
+		}
+	}
+	r.acceptedIDs[key] = expiresAt
+	return true, nil
 }
 
 // NewServer returns a new LocalMessageSubmission server object
@@ -34,6 +88,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	normalizedCfg := normalizeConfig(cfg)
 	s := &Server{
 		config: &normalizedCfg,
+		now:    time.Now,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -112,17 +167,14 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		rejectMsg, err := NewMsgRejectMessage(
-			pcommon.OtherReason{Message: err.Error()},
-		)
-		if err != nil {
-			return err
-		}
-		return s.SendMessage(rejectMsg)
+		return s.sendReject(pcommon.OtherReason{Message: err.Error()})
 	}
 
 	// Validate inbound message before invoking handler
-	if err := s.config.TTLValidator.ValidateMessageTTL(&msgSubmit.Message); err != nil {
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(
+		&msgSubmit.Message,
+		s.now(),
+	); err != nil {
 		s.Protocol.Logger().
 			Warn("message validation failed",
 				"component", "network",
@@ -131,16 +183,15 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		rejectMsg, err := NewMsgRejectMessage(ttlValidationRejectReason(err))
-		if err != nil {
-			return err
-		}
-		return s.SendMessage(rejectMsg)
+		return s.sendReject(ttlValidationRejectReason(err))
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
 	}
-	if err := s.config.Authenticator.VerifyMessage(&msgSubmit.Message); err != nil {
+	commitAuthentication, err := s.config.Authenticator.PrepareMessages(
+		[]pcommon.DmqMessage{msgSubmit.Message},
+	)
+	if err != nil {
 		s.Protocol.Logger().
 			Warn("message authentication failed",
 				"component", "network",
@@ -149,13 +200,31 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		rejectMsg, err := NewMsgRejectMessage(
-			pcommon.InvalidReason{Message: err.Error()},
-		)
-		if err != nil {
-			return err
-		}
-		return s.SendMessage(rejectMsg)
+		return s.sendReject(pcommon.InvalidReason{Message: err.Error()})
+	}
+	now := s.now()
+	if err := s.config.TTLValidator.ValidateMessageTTLAt(
+		&msgSubmit.Message,
+		now,
+	); err != nil {
+		return s.sendReject(ttlValidationRejectReason(err))
+	}
+	reserved, err := s.config.replayState.reserve(
+		msgSubmit.Message.ID(),
+		msgSubmit.Message.Payload.ExpiresAt,
+		now,
+		s.config.MaxReplayEntries,
+		commitAuthentication,
+	)
+	if errors.Is(err, errReplayCacheCapacityExceeded) ||
+		errors.Is(err, errInvalidReplayCacheCapacity) {
+		return s.sendReject(pcommon.OtherReason{Message: err.Error()})
+	}
+	if err != nil {
+		return s.sendReject(pcommon.InvalidReason{Message: err.Error()})
+	}
+	if !reserved {
+		return s.sendReject(pcommon.AlreadyReceivedReason{})
 	}
 
 	// Call the user callback function and send Accept/RejectMessage based on result
@@ -175,15 +244,17 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"reason", reason,
 			)
-		rejectMsg, err := NewMsgRejectMessage(reason)
-		if err != nil {
-			return err
-		}
-		if err := s.SendMessage(rejectMsg); err != nil {
-			return err
-		}
+		return s.sendReject(reason)
 	}
 	return nil
+}
+
+func (s *Server) sendReject(reason pcommon.RejectReason) error {
+	rejectMsg, err := NewMsgRejectMessage(reason)
+	if err != nil {
+		return err
+	}
+	return s.SendMessage(rejectMsg)
 }
 
 func ttlValidationRejectReason(err error) pcommon.RejectReason {

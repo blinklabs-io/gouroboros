@@ -80,6 +80,7 @@ localmessagesubmission.NewConfig(
     localmessagesubmission.WithRejectMessageFunc(rejectCallback),
     localmessagesubmission.WithAuthenticator(authenticator),
     localmessagesubmission.WithTTLValidator(ttlValidator),
+    localmessagesubmission.WithMaxReplayEntries(10000),
     localmessagesubmission.WithTimeout(30 * time.Second),
 )
 ```
@@ -108,5 +109,11 @@ Messages require cryptographic authentication using KES (Key-Evolving Signatures
 - Part of CIP-0137 (Distributed Message Queue)
 - Messages are authenticated using KES signatures
 - TTL validation prevents message replay
+- Authenticated message IDs remain reserved until expiration; duplicate
+  submissions are rejected before the application callback runs
+- The replay cache is bounded and rejects new IDs while full
+- The replay cache belongs to the Config returned by `NewConfig`; create one
+  Config outside the connection accept loop and reuse it, because separate
+  Configs do not de-duplicate against each other
 - Default authenticator uses standard KES verification
 - Used for secure off-chain communication between nodes
