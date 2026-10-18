@@ -27,7 +27,7 @@ import (
 )
 
 // Message IDs 0 to 4 follow the LeiosFetch messages CDDL in Cardano Blueprint
-// as implemented by the node of Leios release candidate 2026w41. That node
+// as implemented by the node of Leios release candidate 2026w42. That node
 // speaks no other message.
 const (
 	MessageTypeDone            = 0
@@ -209,30 +209,25 @@ func encodeBlockTxBitmaps(bitmaps map[uint16]uint64) ([]byte, error) {
 	return ret, nil
 }
 
-// MsgBlockTxs carries the requested transactions of an endorser block. It
-// echoes the request's point and bitmaps, and holds one transaction for each
-// bit set in the bitmaps.
+// MsgBlockTxs carries the requested transactions of an endorser block and
+// nothing else: it does not echo the request. Each entry of TxsRaw is the
+// block_transaction CBOR of one transaction, in the order of the set bits of
+// the request's bitmaps. On the wire each one is wrapped as
+// #6.24(bytes .cbor block_transaction).
 type MsgBlockTxs struct {
 	protocol.MessageBase
-	Point   pcommon.Point
-	Bitmaps map[uint16]uint64
-	TxsRaw  []cbor.RawMessage
+	TxsRaw []cbor.RawMessage
 }
 
-// NewMsgBlockTxs builds the response to a block transactions request,
-// echoing the requested point and bitmaps alongside the transactions.
-func NewMsgBlockTxs(
-	point pcommon.Point,
-	bitmaps map[uint16]uint64,
-	txs []cbor.RawMessage,
-) *MsgBlockTxs {
+// NewMsgBlockTxs builds the response to a block transactions request from the
+// block_transaction CBOR of each transaction. The tag 24 wrapping is added when
+// the message is encoded.
+func NewMsgBlockTxs(txs []cbor.RawMessage) *MsgBlockTxs {
 	m := &MsgBlockTxs{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeBlockTxs,
 		},
-		Point:   point,
-		Bitmaps: maps.Clone(bitmaps),
-		TxsRaw:  slices.Clone(txs),
+		TxsRaw: slices.Clone(txs),
 	}
 	return m
 }
@@ -241,42 +236,44 @@ func (m *MsgBlockTxs) MarshalCBOR() ([]byte, error) {
 	if raw := m.Cbor(); len(raw) > 0 {
 		return raw, nil
 	}
-	bitmaps, err := encodeBlockTxBitmaps(m.Bitmaps)
-	if err != nil {
-		return nil, err
+	wrapped := make([]cbor.RawMessage, len(m.TxsRaw))
+	for idx, tx := range m.TxsRaw {
+		if len(tx) == 0 {
+			return nil, fmt.Errorf(
+				"%s: block txs: transaction %d is empty",
+				ProtocolName,
+				idx,
+			)
+		}
+		inner, err := cbor.Encode([]byte(tx))
+		if err != nil {
+			return nil, err
+		}
+		wrapped[idx] = append(
+			cbor.RawMessage{0xd8, cbor.CborTagCbor},
+			inner...,
+		)
 	}
-	return cbor.Encode(
-		[]any{
-			m.MessageType,
-			m.Point,
-			cbor.RawMessage(bitmaps),
-			m.TxsRaw,
-		},
-	)
+	return cbor.Encode([]any{m.MessageType, wrapped})
 }
 
 func (m *MsgBlockTxs) UnmarshalCBOR(data []byte) error {
-	return m.unmarshalCBORWithLimits(
-		data,
-		maxWireBlockTxs,
-		maxWireBlockBitmaps,
-	)
+	return m.unmarshalCBORWithLimit(data, maxWireBlockTxs)
 }
 
-func (m *MsgBlockTxs) unmarshalCBORWithLimits(
+func (m *MsgBlockTxs) unmarshalCBORWithLimit(
 	data []byte,
 	maxTxCount int,
-	maxBitmapCount int,
 ) error {
 	fields, err := cborpreflight.ArrayItems(
 		data,
-		4,
+		2,
 		"block transactions envelope",
 	)
 	if err != nil {
 		return err
 	}
-	if len(fields) != 4 {
+	if len(fields) != 2 {
 		return fmt.Errorf(
 			"%s: block txs: unexpected element count %d",
 			ProtocolName,
@@ -290,42 +287,25 @@ func (m *MsgBlockTxs) unmarshalCBORWithLimits(
 	if _, err := cbor.Decode(fields[0], &messageType); err != nil {
 		return err
 	}
-	if err := cborpreflight.ValidateItemDepth(fields[1], 1, "block transactions point"); err != nil {
-		return err
-	}
-	var point pcommon.Point
-	if _, err := cbor.Decode(fields[1], &point); err != nil {
-		return err
-	}
-	if err := cborpreflight.ValidateItemDepth(fields[2], 1, "block transactions bitmap map"); err != nil {
-		return err
-	}
-	if err := validateBlockTxBitmaps(fields[2], maxBitmapCount); err != nil {
-		return err
-	}
-	var bitmaps map[uint16]uint64
-	if _, err := cbor.Decode(fields[2], &bitmaps); err != nil {
-		return err
-	}
-	txs, err := cborpreflight.ArrayItems(fields[3], maxTxCount, "block transactions")
+	txs, err := cborpreflight.ArrayItems(fields[1], maxTxCount, "block transactions")
 	if err != nil {
 		return err
 	}
-	if requested := bitmapTxCount(bitmaps); len(txs) != requested {
-		return fmt.Errorf(
-			"%s: block txs: %d transactions do not match the %d requested by the bitmaps",
-			ProtocolName,
-			len(txs),
-			requested,
-		)
+	txsRaw := make([]cbor.RawMessage, len(txs))
+	for idx, tx := range txs {
+		inner, err := unwrapBlockTx(tx)
+		if err != nil {
+			return fmt.Errorf(
+				"%s: block txs: transaction %d: %w",
+				ProtocolName,
+				idx,
+				err,
+			)
+		}
+		txsRaw[idx] = append(cbor.RawMessage(nil), inner...)
 	}
 	m.MessageType = messageType
-	m.Point = point
-	m.Bitmaps = bitmaps
-	m.TxsRaw = make([]cbor.RawMessage, len(txs))
-	for idx, tx := range txs {
-		m.TxsRaw[idx] = append(cbor.RawMessage(nil), tx...)
-	}
+	m.TxsRaw = txsRaw
 	m.SetCbor(data)
 	return nil
 }

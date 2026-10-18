@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/bits"
 	"sync"
 	"time"
 
@@ -65,7 +64,6 @@ type requestSlot struct {
 	rangeBytes      int
 	rangeTxCount    int
 	maxBlockTxs     int
-	maxBlockBitmaps int
 	maxVotes        int
 	drainedCh       chan struct{}
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
@@ -387,7 +385,6 @@ func (s *requestSlot) freeLocked() {
 	s.busy = false
 	s.abandoned = false
 	s.maxBlockTxs = 0
-	s.maxBlockBitmaps = 0
 	if s.drainedCh != nil {
 		close(s.drainedCh)
 		s.drainedCh = nil
@@ -469,15 +466,18 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 	if msgType == MessageTypeBlockTxs {
 		c.blockRequestSlot.mu.Lock()
 		maxCount := c.blockRequestSlot.maxBlockTxs
-		maxBitmapCount := c.blockRequestSlot.maxBlockBitmaps
 		c.blockRequestSlot.mu.Unlock()
 		msg := &MsgBlockTxs{}
-		if err := msg.unmarshalCBORWithLimits(
-			data,
-			maxCount,
-			maxBitmapCount,
-		); err != nil {
+		if err := msg.unmarshalCBORWithLimit(data, maxCount); err != nil {
 			return nil, err
+		}
+		if len(msg.TxsRaw) != maxCount {
+			return nil, fmt.Errorf(
+				"%s: block txs: %d transactions do not match the %d requested",
+				ProtocolName,
+				len(msg.TxsRaw),
+				maxCount,
+			)
 		}
 		if msg.Type() != MessageTypeBlockTxs {
 			return nil, fmt.Errorf(
@@ -677,13 +677,9 @@ func (c *Client) BlockTxsRequest(
 	if err != nil {
 		return nil, err
 	}
-	maxTxs := 0
-	for _, bitmap := range bitmaps {
-		maxTxs += bits.OnesCount64(bitmap)
-	}
+	maxTxs := bitmapTxCount(bitmaps)
 	c.blockRequestSlot.mu.Lock()
 	c.blockRequestSlot.maxBlockTxs = maxTxs
-	c.blockRequestSlot.maxBlockBitmaps = len(bitmaps)
 	c.blockRequestSlot.mu.Unlock()
 	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
