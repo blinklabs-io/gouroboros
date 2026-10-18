@@ -16,6 +16,7 @@
 package localmessagesubmission
 
 import (
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -24,7 +25,8 @@ import (
 )
 
 const (
-	ProtocolName = "LocalMessageSubmission"
+	ProtocolName            = "LocalMessageSubmission"
+	defaultMaxReplayEntries = 10000
 	// ProtocolID is the DMQ N2C mini-protocol number. dmq-node reference
 	// (DMQ.NodeToClient: localMsgSubmission miniProtocolNum =
 	// MiniProtocolNum 14) and Pallas (PROTOCOL_N2C_MSG_SUBMISSION = 14)
@@ -106,6 +108,21 @@ type Config struct {
 	Authenticator *pcommon.MessageAuthenticator
 	TTLValidator  *pcommon.TTLValidator
 	Timeout       time.Duration
+	// MaxReplayEntries bounds authenticated message IDs retained until their
+	// expiration time. Zero selects the default.
+	MaxReplayEntries int
+	replayState      *submissionReplayState
+}
+
+var replayStateInitMu sync.Mutex
+
+func replayStateForConfig(cfg *Config) *submissionReplayState {
+	replayStateInitMu.Lock()
+	defer replayStateInitMu.Unlock()
+	if cfg.replayState == nil {
+		cfg.replayState = newSubmissionReplayState()
+	}
+	return cfg.replayState
 }
 
 // CallbackContext provides context for callback functions
@@ -140,7 +157,9 @@ type LocalMessageSubmissionOptionFunc func(*Config)
 // NewConfig returns a new LocalMessageSubmission config object with the provided options
 func NewConfig(options ...LocalMessageSubmissionOptionFunc) Config {
 	c := Config{
-		Timeout: BusyTimeout,
+		Timeout:          BusyTimeout,
+		MaxReplayEntries: defaultMaxReplayEntries,
+		replayState:      newSubmissionReplayState(),
 	}
 	// Apply provided options functions
 	for _, option := range options {
@@ -164,14 +183,29 @@ func normalizeConfig(cfg *Config) Config {
 	if cfg == nil {
 		return NewConfig()
 	}
+	replayState := replayStateForConfig(cfg)
 	ret := *cfg
+	ret.replayState = replayState
 	if ret.Timeout == 0 {
 		ret.Timeout = BusyTimeout
+	}
+	if ret.MaxReplayEntries == 0 {
+		ret.MaxReplayEntries = defaultMaxReplayEntries
 	}
 	if ret.TTLValidator == nil {
 		ret.TTLValidator = pcommon.NewTTLValidator(0, nil)
 	}
 	return ret
+}
+
+// WithMaxReplayEntries sets the maximum authenticated message IDs retained by
+// the server for replay protection.
+func WithMaxReplayEntries(
+	maxReplayEntries int,
+) LocalMessageSubmissionOptionFunc {
+	return func(c *Config) {
+		c.MaxReplayEntries = maxReplayEntries
+	}
 }
 
 // WithSubmitMessageFunc specifies the callback function when a message is submitted when acting as a server
