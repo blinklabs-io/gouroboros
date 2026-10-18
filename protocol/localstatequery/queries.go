@@ -290,7 +290,59 @@ func decodeShelleyQueryAtDepth(data []byte, depth int) (any, error) {
 	if queryType == QueryTypeShelleyCbor {
 		return decodeShelleyCborQuery(data, depth)
 	}
+	if err := validateShelleyQuerySets(data, queryType); err != nil {
+		return nil, err
+	}
 	return decodeQuery(data, "Block", shelleyQueryTypes())
+}
+
+// shelleyQuerySetFields lists, per Shelley query, the argument positions that
+// carry a peer-controlled set or list filter.
+var shelleyQuerySetFields = map[int][]int{
+	QueryTypeShelleyUtxoByAddress:                       {1},
+	QueryTypeShelleyFilteredDelegationAndRewardAccounts: {1},
+	QueryTypeShelleyUtxoByTxin:                          {1},
+	QueryTypeShelleyStakePoolParams:                     {1},
+	QueryTypeShelleyStakeDelegDeposits:                  {1},
+	QueryTypeShelleyDRepState:                           {1},
+	QueryTypeShelleyDRepStakeDistr:                      {1},
+	QueryTypeShelleyCommitteeMembersState:               {1, 2, 3},
+	QueryTypeShelleyFilteredVoteDelegatees:              {1},
+	QueryTypeShelleySPOStakeDistr:                       {1},
+	QueryTypeShelleyGetProposals:                        {1},
+	QueryTypeShelleyDRepDelegations:                     {1},
+}
+
+// validateShelleyQuerySets bounds the element count of every peer-controlled
+// filter set before typed decoding allocates from it.
+func validateShelleyQuerySets(data []byte, queryType int) error {
+	positions, ok := shelleyQuerySetFields[queryType]
+	if !ok {
+		return nil
+	}
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		len(positions)+1,
+		fmt.Sprintf("shelley query %d", queryType),
+	)
+	if err != nil {
+		return err
+	}
+	for _, pos := range positions {
+		if pos >= len(fields) {
+			// Let the typed decoder report the malformed arity.
+			return nil
+		}
+		if err := cborpreflight.ValidateArray(
+			fields[pos],
+			maxLocalStateQuerySetItems,
+			fmt.Sprintf("shelley query %d filter %d", queryType, pos),
+			nil,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type HardForkQuery struct {
