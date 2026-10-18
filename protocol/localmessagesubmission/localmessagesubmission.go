@@ -110,6 +110,11 @@ type Config struct {
 	Timeout       time.Duration
 	// MaxReplayEntries bounds authenticated message IDs retained until their
 	// expiration time. Zero selects the default.
+	//
+	// The replay cache is scoped to the Config created by NewConfig and is
+	// shared by copies of it. Separate NewConfig calls do not share replay
+	// state, so a host serving many connections must create one Config
+	// outside its accept loop and reuse it for every connection.
 	MaxReplayEntries int
 	replayState      *submissionReplayState
 }

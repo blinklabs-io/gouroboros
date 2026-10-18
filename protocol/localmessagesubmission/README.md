@@ -112,5 +112,8 @@ Messages require cryptographic authentication using KES (Key-Evolving Signatures
 - Authenticated message IDs remain reserved until expiration; duplicate
   submissions are rejected before the application callback runs
 - The replay cache is bounded and rejects new IDs while full
+- The replay cache belongs to the Config returned by `NewConfig`; create one
+  Config outside the connection accept loop and reuse it, because separate
+  Configs do not de-duplicate against each other
 - Default authenticator uses standard KES verification
 - Used for secure off-chain communication between nodes
