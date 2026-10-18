@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"math/big"
+	"math/bits"
 	"strings"
 	"testing"
 
@@ -151,6 +152,39 @@ func eligibilityOverlay(offset uint64, numerator, denominator *big.Int) bool {
 	return ceil(offset).Cmp(ceil(offset+1)) < 0
 }
 
+const (
+	// Schedules longer than this are full-epoch replays (432000 slots).
+	eligibilityEpochReplaySlots = 4096
+	// Stride of the non-assigned slots still replayed on 32-bit targets.
+	eligibilityEpochReplayStride = 64
+)
+
+// Reports whether a schedule slot offset is replayed through the VRF.
+//
+// NOTE: GOARCH=386 exists to exercise the 32-bit code paths: the generic
+// edwards25519 field arithmetic and math/big with 32-bit words. Every slot
+// runs the same code, so replaying a full epoch there only repeats work, and
+// two epochs cost enough CPU to hit the CI package timeout. On 32-bit targets
+// the epoch replays therefore check every assigned slot (all must be elected)
+// plus every eligibilityEpochReplayStride-th slot (these must match the
+// corpus, so they include non-elected ones). The final assigned-slot
+// comparison is unchanged, and all other schedules and all 64-bit targets
+// replay every slot.
+func eligibilityReplaySlot(
+	offset, slotCount uint64,
+	assigned map[uint64]struct{},
+	firstSlot uint64,
+) bool {
+	if bits.UintSize != 32 || slotCount <= eligibilityEpochReplaySlots {
+		return true
+	}
+	if offset%eligibilityEpochReplayStride == 0 {
+		return true
+	}
+	_, ok := assigned[firstSlot+offset]
+	return ok
+}
+
 func TestLeaderEligibilityNodeSchedules(t *testing.T) {
 	var corpus struct {
 		Cases    []eligibilitySchedule `json:"cases"`
@@ -220,6 +254,10 @@ func TestLeaderEligibilityNodeSchedules(t *testing.T) {
 					require.Greater(t, slot, c.AssignedSlots[i-1])
 				}
 			}
+			assignedSet := make(map[uint64]struct{}, len(c.AssignedSlots))
+			for _, slot := range c.AssignedSlots {
+				assignedSet[slot] = struct{}{}
+			}
 			elected := make([]bool, c.SlotCount)
 			// The corpus includes full epochs. Independent slot partitions
 			// keep race-enabled replay within the ordinary suite deadline.
@@ -231,6 +269,11 @@ func TestLeaderEligibilityNodeSchedules(t *testing.T) {
 					t.Run(fmt.Sprint(worker), func(t *testing.T) {
 						t.Parallel()
 						for offset := first; offset < end; offset++ {
+							if !eligibilityReplaySlot(
+								offset, c.SlotCount, assignedSet, c.FirstSlot,
+							) {
+								continue
+							}
 							if mode == consensus.ConsensusModeTPraos &&
 								dNum.Sign() != 0 &&
 								eligibilityOverlay(offset, dNum, dDen) {
