@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // Query types
@@ -344,6 +345,28 @@ type ShelleyNonMyopicMemberRewardsQuery struct {
 	Stakes cbor.SetType[cbor.RawMessage]
 }
 
+func (q *ShelleyNonMyopicMemberRewardsQuery) UnmarshalCBOR(data []byte) error {
+	if err := cborpreflight.ValidateSecondFieldArray(
+		data,
+		maxLocalStateQuerySetItems,
+		"non-myopic member rewards stakes",
+		nil,
+	); err != nil {
+		return err
+	}
+	var tmp struct {
+		cbor.StructAsArray
+		Type   int
+		Stakes cbor.SetType[cbor.RawMessage]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	q.Type = tmp.Type
+	q.Stakes = tmp.Stakes
+	return nil
+}
+
 type ShelleyCurrentProtocolParamsQuery struct {
 	simpleQueryBase
 }
@@ -519,6 +542,35 @@ func decodePoolFilterQuery(
 	data []byte,
 	queryName string,
 ) (int, []cbor.SetType[ledger.PoolId], error) {
+	fields, err := cborpreflight.ArrayItems(data, 2, queryName+" query")
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(fields) != 2 {
+		return 0, nil, fmt.Errorf(
+			"invalid %s query: expected 2 fields, got %d",
+			queryName,
+			len(fields),
+		)
+	}
+	filters, err := cborpreflight.ArrayItems(
+		fields[1],
+		1,
+		queryName+" pool filter; expected at most one pool set",
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(filters) == 1 {
+		if err := cborpreflight.ValidateArray(
+			filters[0],
+			maxLocalStateQuerySetItems,
+			queryName+" pool set",
+			nil,
+		); err != nil {
+			return 0, nil, err
+		}
+	}
 	var tmp struct {
 		cbor.StructAsArray
 		Type  int
@@ -526,14 +578,6 @@ func decodePoolFilterQuery(
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return 0, nil, err
-	}
-	// The CBOR slice itself does not enforce StrictMaybe cardinality.
-	if len(tmp.Pools) > 1 {
-		return 0, nil, fmt.Errorf(
-			"invalid %s pool filter: expected at most one pool set, got %d",
-			queryName,
-			len(tmp.Pools),
-		)
 	}
 	return tmp.Type, tmp.Pools, nil
 }
