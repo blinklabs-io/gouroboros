@@ -130,8 +130,13 @@ func TestServerRejectsSequentialDuplicateSubmission(t *testing.T) {
 	require.EqualValues(t, 1, calls.Load())
 }
 
-func TestServerReservesRejectedSubmission(t *testing.T) {
+func TestServerReleasesRejectedSubmission(t *testing.T) {
 	t.Parallel()
+	reasons := []pcommon.RejectReason{
+		pcommon.OtherReason{Message: "pool full"},
+		pcommon.InvalidReason{Message: "future KES period"},
+		nil,
+	}
 	var calls atomic.Int32
 	serverCfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
@@ -140,13 +145,60 @@ func TestServerReservesRejectedSubmission(t *testing.T) {
 			CallbackContext,
 			*pcommon.DmqMessage,
 		) pcommon.RejectReason {
-			calls.Add(1)
-			return pcommon.OtherReason{Message: "application rejected message"}
+			return reasons[calls.Add(1)-1]
 		}),
 	)
 	session := newSubmissionTestSession(t, &serverCfg)
 	msg := replayTestMessage()
 
+	require.NoError(t, session.client.SubmitMessage(&msg))
+	require.Equal(t, reasons[0], waitSubmissionResult(t, session.result))
+	require.NoError(t, session.client.SubmitMessage(&msg))
+	require.Equal(t, reasons[1], waitSubmissionResult(t, session.result))
+	require.NoError(t, session.client.SubmitMessage(&msg))
+	require.Nil(t, waitSubmissionResult(t, session.result))
+	require.NoError(t, session.client.SubmitMessage(&msg))
+	require.IsType(
+		t,
+		pcommon.AlreadyReceivedReason{},
+		waitSubmissionResult(t, session.result),
+	)
+	require.EqualValues(t, 3, calls.Load())
+}
+
+func TestServerReportsRefusalsMadeBeforeCallback(t *testing.T) {
+	t.Parallel()
+	type refusal struct {
+		id     string
+		reason pcommon.RejectReason
+	}
+	refusals := make(chan refusal, 4)
+	var calls atomic.Int32
+	serverCfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithTTLValidator(pcommon.NewNoOpTTLValidator(nil)),
+		WithSubmitMessageFunc(func(
+			CallbackContext,
+			*pcommon.DmqMessage,
+		) pcommon.RejectReason {
+			if calls.Add(1) == 1 {
+				return pcommon.OtherReason{Message: "application rejected"}
+			}
+			return nil
+		}),
+		WithSubmitRefusedFunc(func(
+			_ CallbackContext,
+			msg *pcommon.DmqMessage,
+			reason pcommon.RejectReason,
+		) {
+			refusals <- refusal{id: string(msg.ID()), reason: reason}
+		}),
+	)
+	session := newSubmissionTestSession(t, &serverCfg)
+	msg := replayTestMessage()
+
+	// The callback's own rejection is not reported: the application already
+	// observed it.
 	require.NoError(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
@@ -154,12 +206,94 @@ func TestServerReservesRejectedSubmission(t *testing.T) {
 		waitSubmissionResult(t, session.result),
 	)
 	require.NoError(t, session.client.SubmitMessage(&msg))
+	require.Nil(t, waitSubmissionResult(t, session.result))
+	require.Empty(t, refusals)
+
+	require.NoError(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.AlreadyReceivedReason{},
 		waitSubmissionResult(t, session.result),
 	)
-	require.EqualValues(t, 1, calls.Load())
+	// The hook runs before the reply is sent, so it is visible here.
+	require.Len(t, refusals, 1)
+	got := <-refusals
+	require.Equal(t, string(msg.ID()), got.id)
+	require.IsType(t, pcommon.AlreadyReceivedReason{}, got.reason)
+	require.EqualValues(t, 2, calls.Load())
+}
+
+func TestServerConcurrentRejectedSubmissionsReleaseReservation(t *testing.T) {
+	t.Parallel()
+	const sessionCount = 8
+	var calls, inFlight, maxInFlight atomic.Int32
+	var accept atomic.Bool
+	serverCfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithTTLValidator(pcommon.NewNoOpTTLValidator(nil)),
+		WithSubmitMessageFunc(func(
+			CallbackContext,
+			*pcommon.DmqMessage,
+		) pcommon.RejectReason {
+			calls.Add(1)
+			n := inFlight.Add(1)
+			defer inFlight.Add(-1)
+			for {
+				prev := maxInFlight.Load()
+				if n <= prev || maxInFlight.CompareAndSwap(prev, n) {
+					break
+				}
+			}
+			time.Sleep(time.Millisecond)
+			if accept.Load() {
+				return nil
+			}
+			return pcommon.OtherReason{Message: "application rejected"}
+		}),
+	)
+	sessions := make([]submissionTestSession, sessionCount)
+	for i := range sessions {
+		sessions[i] = newSubmissionTestSession(t, &serverCfg)
+	}
+	msg := replayTestMessage()
+	start := make(chan struct{})
+	errCh := make(chan error, sessionCount)
+	var wg sync.WaitGroup
+	for i := range sessions {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			errCh <- sessions[i].client.SubmitMessage(&msg)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		require.NoError(t, err)
+	}
+	for i := range sessions {
+		reason := waitSubmissionResult(t, sessions[i].result)
+		switch reason.(type) {
+		case pcommon.OtherReason, pcommon.AlreadyReceivedReason:
+		default:
+			require.Failf(t, "unexpected result", "%T", reason)
+		}
+	}
+	require.EqualValues(t, 1, maxInFlight.Load())
+
+	// Every rejection released its reservation, so the message is still
+	// admissible once the application would accept it.
+	accept.Store(true)
+	require.NoError(t, sessions[0].client.SubmitMessage(&msg))
+	require.Nil(t, waitSubmissionResult(t, sessions[0].result))
+	require.NoError(t, sessions[1].client.SubmitMessage(&msg))
+	require.IsType(
+		t,
+		pcommon.AlreadyReceivedReason{},
+		waitSubmissionResult(t, sessions[1].result),
+	)
 }
 
 func TestServerRejectsInvalidReplayCapacity(t *testing.T) {
@@ -250,15 +384,15 @@ func TestSubmissionReplayStateRemainsBoundedUntilExpiration(t *testing.T) {
 	now := time.Unix(100, 0)
 	state := newSubmissionReplayState()
 
-	reserved, err := state.reserve([]byte("first"), 101, now, 1, nil)
+	_, reserved, err := state.reserve([]byte("first"), 101, now, 1, nil)
 	require.NoError(t, err)
 	require.True(t, reserved)
 
-	reserved, err = state.reserve([]byte("first"), 101, now, 1, nil)
+	_, reserved, err = state.reserve([]byte("first"), 101, now, 1, nil)
 	require.NoError(t, err)
 	require.False(t, reserved)
 
-	reserved, err = state.reserve(
+	_, reserved, err = state.reserve(
 		[]byte("second"),
 		102,
 		time.Unix(101, 0),
@@ -268,7 +402,7 @@ func TestSubmissionReplayStateRemainsBoundedUntilExpiration(t *testing.T) {
 	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
 	require.False(t, reserved)
 
-	reserved, err = state.reserve(
+	_, reserved, err = state.reserve(
 		[]byte("second"),
 		103,
 		time.Unix(102, 0),
@@ -283,21 +417,21 @@ func TestSubmissionReplayStateRejectsAfterCapacityReduction(t *testing.T) {
 	t.Parallel()
 	now := time.Unix(100, 0)
 	state := newSubmissionReplayState()
-	reserved, err := state.reserve([]byte("first"), 200, now, 2, nil)
+	_, reserved, err := state.reserve([]byte("first"), 200, now, 2, nil)
 	require.NoError(t, err)
 	require.True(t, reserved)
-	reserved, err = state.reserve([]byte("second"), 200, now, 2, nil)
+	_, reserved, err = state.reserve([]byte("second"), 200, now, 2, nil)
 	require.NoError(t, err)
 	require.True(t, reserved)
 
-	reserved, err = state.reserve([]byte("third"), 200, now, 1, nil)
+	_, reserved, err = state.reserve([]byte("third"), 200, now, 1, nil)
 	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
 	require.False(t, reserved)
 }
 
 func TestSubmissionReplayStateRejectsInvalidCapacity(t *testing.T) {
 	t.Parallel()
-	reserved, err := newSubmissionReplayState().reserve(
+	_, reserved, err := newSubmissionReplayState().reserve(
 		[]byte("first"),
 		200,
 		time.Unix(100, 0),
@@ -318,16 +452,16 @@ func TestSubmissionReplayStateCommitsOnlyReservedIDs(t *testing.T) {
 		return nil
 	}
 
-	reserved, err := state.reserve([]byte("first"), 200, now, 2, commit)
+	_, reserved, err := state.reserve([]byte("first"), 200, now, 2, commit)
 	require.NoError(t, err)
 	require.True(t, reserved)
-	reserved, err = state.reserve([]byte("first"), 200, now, 2, commit)
+	_, reserved, err = state.reserve([]byte("first"), 200, now, 2, commit)
 	require.NoError(t, err)
 	require.False(t, reserved)
 	require.Equal(t, 1, commits)
 
 	commitErr := errors.New("authentication state changed")
-	reserved, err = state.reserve(
+	_, reserved, err = state.reserve(
 		[]byte("second"),
 		200,
 		now,
@@ -337,9 +471,45 @@ func TestSubmissionReplayStateCommitsOnlyReservedIDs(t *testing.T) {
 	require.ErrorIs(t, err, commitErr)
 	require.False(t, reserved)
 
-	reserved, err = state.reserve([]byte("second"), 200, now, 2, nil)
+	_, reserved, err = state.reserve([]byte("second"), 200, now, 2, nil)
 	require.NoError(t, err)
 	require.True(t, reserved)
+}
+
+func TestSubmissionReplayStateReleaseKeepsNewerReservation(t *testing.T) {
+	t.Parallel()
+	state := newSubmissionReplayState()
+	stale, reserved, err := state.reserve(
+		[]byte("id"),
+		101,
+		time.Unix(100, 0),
+		2,
+		nil,
+	)
+	require.NoError(t, err)
+	require.True(t, reserved)
+	// The stale reservation expires and is pruned while its holder is still
+	// running, and a new holder reserves the same ID.
+	_, reserved, err = state.reserve(
+		[]byte("id"),
+		300,
+		time.Unix(200, 0),
+		2,
+		nil,
+	)
+	require.NoError(t, err)
+	require.True(t, reserved)
+
+	state.release([]byte("id"), stale)
+	_, reserved, err = state.reserve(
+		[]byte("id"),
+		300,
+		time.Unix(200, 0),
+		2,
+		nil,
+	)
+	require.NoError(t, err)
+	require.False(t, reserved)
 }
 
 func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {

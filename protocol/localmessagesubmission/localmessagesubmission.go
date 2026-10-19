@@ -103,13 +103,21 @@ type Config struct {
 
 	// Server callbacks
 	SubmitMessageFunc SubmitMessageFunc
+	// SubmitRefusedFunc, when set, is called with each submission the server
+	// rejects before invoking SubmitMessageFunc, such as a message that fails
+	// authentication or TTL validation or whose ID is already reserved. It is
+	// called before the rejection is sent, may be called concurrently from
+	// connections sharing the Config, and must not block.
+	SubmitRefusedFunc SubmitRefusedFunc
 
 	// Shared configuration
 	Authenticator *pcommon.MessageAuthenticator
 	TTLValidator  *pcommon.TTLValidator
 	Timeout       time.Duration
 	// MaxReplayEntries bounds authenticated message IDs retained until their
-	// expiration time. Zero selects the default.
+	// expiration time. Zero selects the default. An ID is reserved while
+	// SubmitMessageFunc runs and is retained only if the callback accepts the
+	// message, so a rejected message may be submitted again.
 	//
 	// The replay cache is scoped to the Config created by NewConfig and is
 	// shared by copies of it. Separate NewConfig calls do not share replay
@@ -140,6 +148,11 @@ type CallbackContext struct {
 // Callback function types
 type (
 	SubmitMessageFunc func(CallbackContext, *pcommon.DmqMessage) pcommon.RejectReason
+	SubmitRefusedFunc func(
+		CallbackContext,
+		*pcommon.DmqMessage,
+		pcommon.RejectReason,
+	)
 	AcceptMessageFunc func(CallbackContext)
 	RejectMessageFunc func(CallbackContext, pcommon.RejectReason)
 )
@@ -219,6 +232,16 @@ func WithSubmitMessageFunc(
 ) LocalMessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.SubmitMessageFunc = submitMessageFunc
+	}
+}
+
+// WithSubmitRefusedFunc specifies the callback function when the server
+// rejects a submitted message before invoking SubmitMessageFunc
+func WithSubmitRefusedFunc(
+	submitRefusedFunc SubmitRefusedFunc,
+) LocalMessageSubmissionOptionFunc {
+	return func(c *Config) {
+		c.SubmitRefusedFunc = submitRefusedFunc
 	}
 }
 
