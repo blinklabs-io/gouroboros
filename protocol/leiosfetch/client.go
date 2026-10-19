@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -51,9 +52,14 @@ type Client struct {
 //     parks cannot be dropped; and
 //   - a new request blocks until any previously abandoned response has been
 //     drained, so a late response to an abandoned request is never
-//     mis-delivered to a subsequent request.
+//     mis-delivered to a subsequent request; and
+//   - the slot retains the request it was acquired for, and a response that
+//     does not describe that request is rejected instead of delivered. The
+//     state machine only checks the response's message type.
 type requestSlot struct {
 	mu              sync.Mutex
+	request         protocol.Message
+	rangeSeen       map[lcommon.Blake2b256]struct{}
 	waiter          chan protocol.Message
 	delivery        *requestDelivery
 	busy            bool
@@ -157,13 +163,15 @@ const abandonedRequestWait = time.Second
 func (s *requestSlot) acquire(
 	ctx context.Context,
 	done <-chan struct{},
+	request protocol.Message,
 ) (chan protocol.Message, error) {
-	return s.acquireWithRangeLimits(ctx, done, 0, 0)
+	return s.acquireWithRangeLimits(ctx, done, request, 0, 0)
 }
 
 func (s *requestSlot) acquireWithRangeLimits(
 	ctx context.Context,
 	done <-chan struct{},
+	request protocol.Message,
 	maxReplies int,
 	maxBytes int,
 ) (chan protocol.Message, error) {
@@ -217,6 +225,8 @@ func (s *requestSlot) acquireWithRangeLimits(
 	s.delivery = newRequestDelivery(w)
 	s.busy = true
 	s.abandoned = false
+	s.request = request
+	s.rangeSeen = nil
 	s.maxReplies = maxReplies
 	s.maxBytes = maxBytes
 	s.rangeReplies = 0
@@ -230,14 +240,17 @@ func (s *requestSlot) acquireWithRangeLimits(
 func (s *requestSlot) deliverRange(
 	msg protocol.Message,
 	terminal bool,
-) bool {
+) (bool, error) {
+	if err := s.validate(msg); err != nil {
+		return false, err
+	}
 	s.mu.Lock()
 	w := s.waiter
 	d := s.delivery
 	if w == nil && d == nil && terminal && s.abandoned {
 		s.freeLocked()
 		s.mu.Unlock()
-		return true
+		return true, nil
 	}
 	if terminal && w != nil {
 		s.waiter = nil
@@ -246,9 +259,9 @@ func (s *requestSlot) deliverRange(
 	}
 	s.mu.Unlock()
 	if w == nil || d == nil {
-		return false
+		return false, nil
 	}
-	return d.enqueue(msg, terminal)
+	return d.enqueue(msg, terminal), nil
 }
 
 func (s *requestSlot) decodeRangeResponse(
@@ -353,16 +366,38 @@ func (s *requestSlot) release(w chan protocol.Message) {
 	s.mu.Unlock()
 }
 
+// validate checks a response against the request still waiting for it. A
+// response with no waiting request is an abandoned request's late reply: the
+// caller is gone, so it is left for the drain path rather than rejected.
+func (s *requestSlot) validate(msg protocol.Message) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.waiter == nil {
+		return nil
+	}
+	if s.rangeSeen == nil {
+		s.rangeSeen = make(map[lcommon.Blake2b256]struct{})
+	}
+	return validateResponse(s.request, msg, s.rangeSeen)
+}
+
 // deliver queues a received response for the waiting caller. Streaming range
-// responses retain the slot until terminal is true.
-func (s *requestSlot) deliver(msg protocol.Message, terminal bool) bool {
+// responses retain the slot until terminal is true. A response that does not
+// satisfy the active request is returned as an error and never delivered.
+func (s *requestSlot) deliver(
+	msg protocol.Message,
+	terminal bool,
+) (bool, error) {
+	if err := s.validate(msg); err != nil {
+		return false, err
+	}
 	s.mu.Lock()
 	w := s.waiter
 	d := s.delivery
 	if w == nil && d == nil && terminal && s.abandoned {
 		s.freeLocked()
 		s.mu.Unlock()
-		return true
+		return true, nil
 	}
 	if terminal && w != nil {
 		s.waiter = nil
@@ -371,9 +406,9 @@ func (s *requestSlot) deliver(msg protocol.Message, terminal bool) bool {
 	}
 	s.mu.Unlock()
 	if w == nil || d == nil {
-		return false
+		return false, nil
 	}
-	return d.enqueue(msg, terminal)
+	return d.enqueue(msg, terminal), nil
 }
 
 // freeLocked marks the slot as no longer busy and wakes any goroutine waiting
@@ -384,6 +419,8 @@ func (s *requestSlot) freeLocked() {
 	}
 	s.busy = false
 	s.abandoned = false
+	s.request = nil
+	s.rangeSeen = nil
 	s.maxBlockTxs = 0
 	if s.drainedCh != nil {
 		close(s.drainedCh)
@@ -473,8 +510,8 @@ func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, e
 		}
 		if len(msg.TxsRaw) != maxCount {
 			return nil, fmt.Errorf(
-				"%s: block txs: %d transactions do not match the %d requested",
-				ProtocolName,
+				"%w: block txs: %d transactions do not match the %d requested",
+				ErrUnexpectedResponse,
 				len(msg.TxsRaw),
 				maxCount,
 			)
@@ -560,17 +597,20 @@ func (c *Client) acquireSlot(
 	ctx context.Context,
 	slot *requestSlot,
 	state protocol.State,
+	request protocol.Message,
 ) (chan protocol.Message, error) {
-	return c.acquireSlotWithRangeLimits(ctx, slot, state, 0, 0)
+	return c.acquireSlotWithRangeLimits(ctx, slot, state, request, 0, 0)
 }
 
 func (c *Client) acquireBlockRangeSlot(
 	ctx context.Context,
+	request protocol.Message,
 ) (chan protocol.Message, error) {
 	return c.acquireSlotWithRangeLimits(
 		ctx,
 		&c.blockRequestSlot,
 		StateBlockRange,
+		request,
 		c.maxRangeReplies,
 		c.maxRangeBytes,
 	)
@@ -580,6 +620,7 @@ func (c *Client) acquireSlotWithRangeLimits(
 	ctx context.Context,
 	slot *requestSlot,
 	state protocol.State,
+	request protocol.Message,
 	maxReplies int,
 	maxBytes int,
 ) (chan protocol.Message, error) {
@@ -588,11 +629,12 @@ func (c *Client) acquireSlotWithRangeLimits(
 		err error
 	)
 	if maxReplies == 0 && maxBytes == 0 {
-		w, err = slot.acquire(ctx, c.DoneChan())
+		w, err = slot.acquire(ctx, c.DoneChan(), request)
 	} else {
 		w, err = slot.acquireWithRangeLimits(
 			ctx,
 			c.DoneChan(),
+			request,
 			maxReplies,
 			maxBytes,
 		)
@@ -628,11 +670,11 @@ func (c *Client) BlockRequest(
 	ctx context.Context,
 	point pcommon.Point,
 ) (protocol.Message, error) {
-	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlock)
+	msg := NewMsgBlockRequest(point)
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlock, msg)
 	if err != nil {
 		return nil, err
 	}
-	msg := NewMsgBlockRequest(point)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
 		return nil, err
@@ -673,7 +715,8 @@ func (c *Client) BlockTxsRequest(
 			)
 		}
 	}
-	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs)
+	msg := NewMsgBlockTxsRequest(point, bitmaps)
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateBlockTxs, msg)
 	if err != nil {
 		return nil, err
 	}
@@ -681,7 +724,6 @@ func (c *Client) BlockTxsRequest(
 	c.blockRequestSlot.mu.Lock()
 	c.blockRequestSlot.maxBlockTxs = maxTxs
 	c.blockRequestSlot.mu.Unlock()
-	msg := NewMsgBlockTxsRequest(point, bitmaps)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
 		return nil, err
@@ -727,14 +769,14 @@ func (c *Client) VotesRequest(
 			MaxVotesPerMessage,
 		)
 	}
-	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes)
+	msg := NewMsgVotesRequest(voteIds)
+	w, err := c.acquireSlot(ctx, &c.blockRequestSlot, StateVotes, msg)
 	if err != nil {
 		return nil, err
 	}
 	c.blockRequestSlot.mu.Lock()
 	c.blockRequestSlot.maxVotes = len(voteIds)
 	c.blockRequestSlot.mu.Unlock()
-	msg := NewMsgVotesRequest(voteIds)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
 		return nil, err
@@ -765,11 +807,11 @@ func (c *Client) BlockRangeRequest(
 	start pcommon.Point,
 	end pcommon.Point,
 ) ([]protocol.Message, error) {
-	w, err := c.acquireBlockRangeSlot(ctx)
+	msg := NewMsgBlockRangeRequest(start, end)
+	w, err := c.acquireBlockRangeSlot(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-	msg := NewMsgBlockRangeRequest(start, end)
 	if err := c.SendMessageContext(ctx, msg); err != nil {
 		c.blockRequestSlot.release(w)
 		return nil, err
@@ -803,16 +845,12 @@ func (c *Client) BlockRangeRequest(
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
-	case MessageTypeBlock:
-		c.handleBlock(msg)
-	case MessageTypeBlockTxs:
-		c.handleBlockTxs(msg)
-	case MessageTypeVotes:
-		c.handleVotes(msg)
+	case MessageTypeBlock, MessageTypeBlockTxs, MessageTypeVotes:
+		err = c.deliverResponse(msg)
 	case MessageTypeNextBlockAndTxsInRange:
-		c.handleNextBlockAndTxsInRange(msg)
+		err = c.deliverRangeResponse(msg, false)
 	case MessageTypeLastBlockAndTxsInRange:
-		c.handleLastBlockAndTxsInRange(msg)
+		err = c.deliverRangeResponse(msg, true)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -839,35 +877,31 @@ func (c *Client) logDroppedResponse(msg protocol.Message) {
 		)
 }
 
-func (c *Client) handleBlock(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, true) {
-		c.logDroppedResponse(msg)
-	}
-}
-
-func (c *Client) handleBlockTxs(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, true) {
-		c.logDroppedResponse(msg)
-	}
-}
-
-// handleVotes hands a votes response to its caller, dropping it if none is
+// deliverResponse hands a response to its caller, dropping it if none is
 // waiting. The send must not block: the protocol receive loop runs it, and a
-// caller whose context expired is gone for good.
-func (c *Client) handleVotes(msg protocol.Message) {
-	if !c.blockRequestSlot.deliver(msg, true) {
+// caller whose context expired is gone for good. A response that does not
+// describe the active request is an error, which fails the connection.
+func (c *Client) deliverResponse(msg protocol.Message) error {
+	delivered, err := c.blockRequestSlot.deliver(msg, true)
+	if err != nil {
+		return err
+	}
+	if !delivered {
 		c.logDroppedResponse(msg)
 	}
+	return nil
 }
 
-func (c *Client) handleNextBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliverRange(msg, false) {
+func (c *Client) deliverRangeResponse(
+	msg protocol.Message,
+	terminal bool,
+) error {
+	delivered, err := c.blockRequestSlot.deliverRange(msg, terminal)
+	if err != nil {
+		return err
+	}
+	if !delivered {
 		c.logDroppedResponse(msg)
 	}
-}
-
-func (c *Client) handleLastBlockAndTxsInRange(msg protocol.Message) {
-	if !c.blockRequestSlot.deliverRange(msg, true) {
-		c.logDroppedResponse(msg)
-	}
+	return nil
 }

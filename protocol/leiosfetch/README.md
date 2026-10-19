@@ -153,6 +153,28 @@ CIP-0164 says a server should disconnect when requested data is unavailable.
 `Votes` keeps the wire payload as raw CBOR and provides typed helpers for
 validated `common.LeiosVote` values.
 
+## Reply correlation
+
+The client retains the active request and rejects a reply that does not
+describe it, failing the connection with `ErrUnexpectedResponse`. Replies echo
+no selector, so each is bound through its content:
+
+- `Block`: the endorser block must decode and hash to the requested point's
+  hash.
+- `BlockTxs`: the reply must carry one transaction per bit in the requested
+  bitmaps.
+- `Votes`: every vote must be a distinct requested `(SlotNo, VoterId)` pair, and
+  there can be no more votes than requested. A server may return fewer.
+- `BlockRange`: every block must be a well-formed endorser block carrying
+  exactly the transactions it references, and no block may repeat within the
+  stream. The request endpoints are ranking-block points and a reply carries
+  only the endorser block they certify, so the endpoints are not compared to
+  the replies.
+
+Transactions are not bound to their endorser block's references, because the
+`BlockTxs` reply does not name the block. A late reply to an abandoned request
+is drained without validation.
+
 ## Timeouts
 
 | Timeout | Default | Description |
