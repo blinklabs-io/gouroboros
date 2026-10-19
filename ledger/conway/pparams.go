@@ -635,7 +635,7 @@ type ConwayProtocolParameterUpdate struct {
 
 // Utxorpc converts the parameters this update sets. A parameter the update
 // leaves unchanged is left unset in the result.
-func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
+func (u ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 	convertRational := ratPtrToUtxorpcRationalNumber
 	ret := &utxorpc.PParams{}
 	var err error
@@ -789,7 +789,7 @@ func (u *ConwayProtocolParameterUpdate) Utxorpc() (*utxorpc.PParams, error) {
 // cppGovActionDeposit, and cppMinFeeRefScriptCostPerByte. Every other
 // parameter is 'NoStakePoolGroup, and the protocol version is not
 // changeable by a ParameterChange action at all.
-func (u *ConwayProtocolParameterUpdate) SecurityGroupFields() []string {
+func (u ConwayProtocolParameterUpdate) SecurityGroupFields() []string {
 	var fields []string
 	if u.MinFeeA != nil {
 		fields = append(fields, "MinFeeA")

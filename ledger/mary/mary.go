@@ -125,7 +125,7 @@ func (b *MaryBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (MaryBlock) Type() int {
+func (*MaryBlock) Type() int {
 	return BlockTypeMary
 }
 
@@ -432,11 +432,11 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *MaryTransaction) Metadata() common.TransactionMetadatum {
+func (t MaryTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *MaryTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t MaryTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -596,7 +596,7 @@ func (t *MaryTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *MaryTransaction) Cbor() []byte {
+func (t MaryTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {
@@ -614,7 +614,7 @@ func (t *MaryTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *MaryTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t MaryTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Mary transaction: %w", err)

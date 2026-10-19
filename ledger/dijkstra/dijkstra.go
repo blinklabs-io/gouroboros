@@ -107,7 +107,7 @@ func (b *DijkstraBlock) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode([]any{b.BlockHeader, b.BlockBody})
 }
 
-func (DijkstraBlock) Type() int {
+func (*DijkstraBlock) Type() int {
 	return BlockTypeDijkstra
 }
 
@@ -2052,11 +2052,11 @@ func (t *DijkstraTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *DijkstraTransaction) Metadata() common.TransactionMetadatum {
+func (t DijkstraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *DijkstraTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t DijkstraTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -2076,7 +2076,7 @@ func (t DijkstraTransaction) Id() common.Blake2b256 {
 // is recomputed on every call: it is not memoized on the transaction, because
 // era transaction types are copied by value and an in-struct cache cannot be
 // populated safely from a shared receiver.
-func (t *DijkstraTransaction) LeiosHash() common.Blake2b256 {
+func (t DijkstraTransaction) LeiosHash() common.Blake2b256 {
 	return common.Blake2b256Hash(t.Cbor())
 }
 
@@ -2350,7 +2350,7 @@ func (t *DijkstraTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode([]any{t.Body, t.WitnessSet, aux})
 }
 
-func (t *DijkstraTransaction) Cbor() []byte {
+func (t DijkstraTransaction) Cbor() []byte {
 	if cborData := t.DecodeStoreCbor.Cbor(); cborData != nil {
 		return cborData[:]
 	}
@@ -2364,7 +2364,7 @@ func (t *DijkstraTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t DijkstraTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf(

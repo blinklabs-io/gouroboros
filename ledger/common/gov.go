@@ -684,7 +684,7 @@ func (id GovActionId) Equal(other GovActionId) bool {
 		id.GovActionIdx == other.GovActionIdx
 }
 
-func (id *GovActionId) ToPlutusData() data.PlutusData {
+func (id GovActionId) ToPlutusData() data.PlutusData {
 	return data.NewConstr(0,
 		data.NewByteString(id.TransactionId[:]),
 		data.NewInteger(big.NewInt(int64(id.GovActionIdx))),
@@ -710,7 +710,7 @@ const MaxCip0129GovActionIdx = 255
 // That form is not valid bech32 and will not round-trip through
 // UnmarshalText. Callers that need the difference reported must use
 // MarshalText, which returns an error for the same values.
-func (id *GovActionId) String() string {
+func (id GovActionId) String() string {
 	if id.GovActionIdx > MaxCip0129GovActionIdx {
 		return fmt.Sprintf("%x#%d", id.TransactionId, id.GovActionIdx)
 	}
@@ -859,7 +859,7 @@ type HardForkInitiationGovAction struct {
 	}
 }
 
-func (a *HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
+func (a HardForkInitiationGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
@@ -979,7 +979,7 @@ func (a TreasuryWithdrawalGovAction) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
+func (a TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 	pairs := make([][2]data.PlutusData, 0, len(a.Withdrawals))
 	for _, addr := range SortRewardAccountAddresses(a.Withdrawals) {
 		amount := a.Withdrawals[addr]
@@ -1004,7 +1004,7 @@ func (a *TreasuryWithdrawalGovAction) ToPlutusData() data.PlutusData {
 func (a TreasuryWithdrawalGovAction) isGovAction() {}
 
 // GetPolicyHash returns the policy script hash for this governance action
-func (a *TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
+func (a TreasuryWithdrawalGovAction) GetPolicyHash() []byte {
 	return a.PolicyHash
 }
 
@@ -1048,7 +1048,7 @@ type NoConfidenceGovAction struct {
 	ActionId *GovActionId
 }
 
-func (a *NoConfidenceGovAction) ToPlutusData() data.PlutusData {
+func (a NoConfidenceGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
@@ -1193,7 +1193,7 @@ func (a *UpdateCommitteeGovAction) Validate() error {
 	return nil
 }
 
-func (a *UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
+func (a UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
@@ -1352,7 +1352,7 @@ func (a *NewConstitutionGovAction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (a *NewConstitutionGovAction) ToPlutusData() data.PlutusData {
+func (a NewConstitutionGovAction) ToPlutusData() data.PlutusData {
 	actionId := data.NewConstr(1)
 	if a.ActionId != nil {
 		actionId = data.NewConstr(0, a.ActionId.ToPlutusData())
@@ -1403,7 +1403,7 @@ type InfoGovAction struct {
 	Type uint
 }
 
-func (a *InfoGovAction) ToPlutusData() data.PlutusData {
+func (a InfoGovAction) ToPlutusData() data.PlutusData {
 	return data.NewConstr(6)
 }
 

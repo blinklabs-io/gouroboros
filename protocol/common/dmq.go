@@ -174,7 +174,7 @@ func (m *DmqMessage) UnmarshalCBOR(data []byte) error {
 }
 
 // ID returns the message id, accepting Payload.MessageID as a legacy alias.
-func (m DmqMessage) ID() []byte {
+func (m *DmqMessage) ID() []byte {
 	if len(m.MessageID) > 0 {
 		return m.MessageID
 	}

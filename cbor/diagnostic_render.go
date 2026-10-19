@@ -35,7 +35,7 @@ const (
 )
 
 // outputLimit returns the output cap for rendering n.
-func (o DiagnosticOptions) outputLimit(n *DiagnosticNode) int {
+func (o *DiagnosticOptions) outputLimit(n *DiagnosticNode) int {
 	if o.MaxOutputBytes > 0 {
 		return o.MaxOutputBytes
 	}

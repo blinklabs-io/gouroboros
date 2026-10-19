@@ -216,11 +216,11 @@ func setMapKeyDigest(out *[sha256.Size]byte, value any) {
 	}
 }
 
-func (v Value) Cbor() []byte {
+func (v *Value) Cbor() []byte {
 	return []byte(v.cborData)
 }
 
-func (v Value) Value() any {
+func (v *Value) Value() any {
 	return v.value
 }
 
