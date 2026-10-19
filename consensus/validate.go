@@ -33,6 +33,22 @@ type HeaderValidator struct {
 	maxKESEvolutions  uint64
 	activeSlotCoeff   *big.Rat
 	mode              ConsensusMode
+	tachys            *TachysLeaderSelector
+}
+
+// NewTachysHeaderValidator creates a CPraos-format header validator using a
+// public CIP-0177 leader schedule. VRF proof, KES, operational certificate,
+// and registered VRF key validation remain enabled.
+func NewTachysHeaderValidator(
+	config NetworkConfig,
+	selector *TachysLeaderSelector,
+) (*HeaderValidator, error) {
+	if selector == nil || len(selector.intervals) == 0 || selector.totalStake == 0 {
+		return nil, errors.New("tachys leader selector is uninitialized")
+	}
+	validator := NewHeaderValidatorWithMode(config, ConsensusModeCPraos)
+	validator.tachys = selector
+	return validator, nil
 }
 
 // NewHeaderValidator creates a new header validator using CPRAOS consensus
@@ -464,6 +480,23 @@ func (v *HeaderValidator) validateLeadership(
 	input *ValidateHeaderInput,
 	vrfOutput []byte,
 ) error {
+	if v.tachys != nil {
+		authorized, err := v.tachys.AuthorizeIssuer(
+			input.EpochNonce,
+			input.Slot,
+			input.IssuerVkey,
+		)
+		if err != nil {
+			return err
+		}
+		if !authorized {
+			return fmt.Errorf(
+				"issuer is not the scheduled Tachys leader at slot %d",
+				input.Slot,
+			)
+		}
+		return nil
+	}
 	if input.TotalStake == 0 {
 		return errors.New("total stake cannot be zero")
 	}

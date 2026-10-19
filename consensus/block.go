@@ -35,6 +35,29 @@ type BlockBuilder struct {
 	issuerVkey      []byte
 	activeSlotCoeff *big.Rat
 	mode            ConsensusMode
+	tachys          *TachysLeaderSelector
+}
+
+// NewTachysBlockBuilder creates a CPraos-format block builder authorized by a
+// public CIP-0177 leader schedule.
+func NewTachysBlockBuilder(
+	vrfSigner VRFSigner,
+	kesSigner KESSigner,
+	opCert *OperationalCert,
+	issuerVkey []byte,
+	selector *TachysLeaderSelector,
+) (*BlockBuilder, error) {
+	if selector == nil || len(selector.intervals) == 0 || selector.totalStake == 0 {
+		return nil, errors.New("tachys leader selector is uninitialized")
+	}
+	return &BlockBuilder{
+		vrfSigner:  vrfSigner,
+		kesSigner:  kesSigner,
+		opCert:     opCert,
+		issuerVkey: append([]byte(nil), issuerVkey...),
+		mode:       ConsensusModeCPraos,
+		tachys:     selector,
+	}, nil
 }
 
 // OperationalCert represents an operational certificate for block production.
@@ -217,7 +240,7 @@ func (b *BlockBuilder) BuildHeader(
 			len(input.BlockBodyHash),
 		)
 	}
-	if b.activeSlotCoeff == nil {
+	if b.tachys == nil && b.activeSlotCoeff == nil {
 		return nil, nil, errors.New("activeSlotCoeff cannot be nil")
 	}
 	// Validate VRF public key size
@@ -258,15 +281,27 @@ func (b *BlockBuilder) BuildHeader(
 
 	// Step 1: Check leader eligibility (mode-aware: TPraos for
 	// Shelley-Alonzo, CPraos for Babbage+)
-	leaderResult, err := IsSlotLeaderWithMode(
-		input.Slot,
-		input.EpochNonce,
-		input.PoolStake,
-		input.TotalStake,
-		b.activeSlotCoeff,
-		b.vrfSigner,
-		b.mode,
-	)
+	var leaderResult *LeaderElectionResult
+	var err error
+	if b.tachys != nil {
+		leaderResult, err = IsTachysSlotLeader(
+			input.Slot,
+			input.EpochNonce,
+			b.issuerVkey,
+			b.tachys,
+			b.vrfSigner,
+		)
+	} else {
+		leaderResult, err = IsSlotLeaderWithMode(
+			input.Slot,
+			input.EpochNonce,
+			input.PoolStake,
+			input.TotalStake,
+			b.activeSlotCoeff,
+			b.vrfSigner,
+			b.mode,
+		)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -447,6 +482,15 @@ func (b *BlockBuilder) CheckSlotLeadership(
 	poolStake uint64,
 	totalStake uint64,
 ) (*LeaderElectionResult, error) {
+	if b.tachys != nil {
+		return IsTachysSlotLeader(
+			slot,
+			epochNonce,
+			b.issuerVkey,
+			b.tachys,
+			b.vrfSigner,
+		)
+	}
 	if b.activeSlotCoeff == nil {
 		return nil, errors.New("activeSlotCoeff cannot be nil")
 	}
