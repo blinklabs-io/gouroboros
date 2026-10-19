@@ -715,3 +715,249 @@ func TestInboundSnapshotWaitsForReservedReplyTransition(t *testing.T) {
 	_, _, _, ok = p.waitForInboundSnapshot(func() bool { return false })
 	require.False(t, ok, "a stopped wait abandons the snapshot")
 }
+
+// newRoundTripTestProtocol builds a server-role protocol whose Idle state
+// gives the client agency and whose Busy state gives the server agency, with
+// requestType moving Idle to Busy and replyType moving Busy back to Idle.
+// busyPipelinedTypes are the client messages Busy accepts as pipelined.
+func newRoundTripTestProtocol(
+	requestType uint8,
+	replyType uint8,
+	busyPipelinedTypes ...uint8,
+) (*Protocol, State, State) {
+	idle := NewState(1, "Idle")
+	busy := NewState(2, "Busy")
+	p := &Protocol{
+		config: ProtocolConfig{
+			Name:         "test",
+			Role:         ProtocolRoleServer,
+			InitialState: idle,
+			StateMap: StateMap{
+				idle: {
+					Agency: AgencyClient,
+					Transitions: []StateTransition{{
+						MsgType:  requestType,
+						NewState: busy,
+					}},
+				},
+				busy: {
+					Agency:                AgencyServer,
+					PipelinedMessageTypes: busyPipelinedTypes,
+					Transitions: []StateTransition{{
+						MsgType:  replyType,
+						NewState: idle,
+					}},
+				},
+			},
+			MaxReadBufferSize: 1 << 20,
+		},
+		doneChan:             make(chan struct{}),
+		stopChan:             make(chan struct{}),
+		sendDoneChan:         make(chan struct{}),
+		muxerDoneChan:        make(chan bool),
+		recvDoneChan:         make(chan struct{}),
+		recvStateChangedChan: make(chan struct{}, 1),
+		sendReadyChan:        make(chan bool, 1),
+		currentState:         idle,
+	}
+	return p, idle, busy
+}
+
+// A peer-pipelined request that queued behind an earlier request must still
+// be admitted once the earlier request's whole round trip has completed, even
+// when the poll never observed the intermediate state that declares it.
+func TestInboundAdmissionWaitSurvivesPipelinedRoundTrip(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		pipelined  []uint8
+		wantResult inboundAdmissionResult
+	}{
+		{
+			name:       "declared pipelined request",
+			pipelined:  []uint8{0},
+			wantResult: inboundAdmissionGranted,
+		},
+		{
+			name:       "undeclared request",
+			wantResult: inboundAdmissionDenied,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const (
+				requestType = uint8(0)
+				replyType   = uint8(1)
+			)
+			p, idle, _ := newRoundTripTestProtocol(
+				requestType,
+				replyType,
+				test.pipelined...,
+			)
+			transitions := make(chan protocolStateTransition)
+			p.stateTransitionChan = transitions
+			go p.stateLoop(transitions)
+			t.Cleanup(p.Stop)
+			select {
+			case <-p.recvStateChangedChan:
+			case <-time.After(time.Second):
+				t.Fatal("state loop did not publish its initial state")
+			}
+
+			// The first request holds Idle's agency grant.
+			_, _, result := p.reserveInboundAdmission(
+				uint(requestType),
+				idle,
+				0,
+				false,
+			)
+			require.Equal(t, inboundAdmissionGranted, result)
+
+			got := make(chan inboundAdmissionResult, 1)
+			waiting := make(chan struct{})
+			release := make(chan struct{})
+			go func() {
+				_, _, result, stopped := p.waitForInboundAdmissionWithWait(
+					uint(requestType),
+					idle,
+					0,
+					false,
+					func() bool {
+						close(waiting)
+						<-release
+						return true
+					},
+				)
+				if stopped {
+					got <- inboundAdmissionDenied
+					return
+				}
+				got <- result
+			}()
+			select {
+			case <-waiting:
+			case <-time.After(time.Second):
+				t.Fatal("admission did not wait behind the first request")
+			}
+			// The whole round trip completes before the next poll.
+			require.NoError(t, p.transitionInboundState(
+				&MessageBase{MessageType: requestType},
+				false,
+			))
+			require.NoError(t, p.transitionState(
+				&MessageBase{MessageType: replyType},
+			))
+			close(release)
+			select {
+			case result := <-got:
+				require.Equal(t, test.wantResult, result)
+			case <-time.After(time.Second):
+				t.Fatal("admission did not retry after the round trip")
+			}
+			if test.wantResult == inboundAdmissionGranted {
+				// The admitted request now holds Idle's new grant.
+				_, _, result := p.reserveInboundAdmission(
+					uint(requestType),
+					idle,
+					2,
+					false,
+				)
+				require.Equal(t, inboundAdmissionWait, result)
+			}
+		})
+	}
+}
+
+// A server receiving coalesced, peer-pipelined requests answers each one
+// before handling the next, so every queued request crosses a full round
+// trip. Each must be admitted rather than reported as sent without agency.
+func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+		requests    = 8
+	)
+	p, _, _ := newRoundTripTestProtocol(requestType, replyType, requestType)
+	errorChan := make(chan error, 1)
+	p.config.ErrorChan = errorChan
+	p.config.MessageFromCborFunc = func(
+		messageType uint,
+		_ []byte,
+	) (Message, error) {
+		return &MessageBase{MessageType: uint8(messageType)}, nil
+	}
+	handled := make(chan struct{}, requests)
+	p.config.MessageHandlerFunc = func(Message) error {
+		handled <- struct{}{}
+		return p.transitionState(&MessageBase{MessageType: replyType})
+	}
+	payload := bytes.Repeat([]byte{0x81, requestType}, requests)
+	segment := muxer.NewSegment(1, payload, false)
+	require.NotNil(t, segment)
+	segments := make(chan *muxer.Segment, 1)
+	segments <- segment
+	p.muxerRecvChan = segments
+	p.recvQueueChan = make(chan inboundMessage, requests)
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	go p.recvLoop()
+	go p.readLoop()
+	t.Cleanup(p.Stop)
+
+	for i := range requests {
+		select {
+		case <-handled:
+		case err := <-errorChan:
+			t.Fatalf("request %d rejected: %v", i, err)
+		case <-time.After(time.Second):
+			t.Fatalf("request %d was not handled", i)
+		}
+	}
+}
+
+// Without a pipelining declaration, a request the client sent before the
+// server answered the previous one was sent without agency, whichever state
+// the read loop observes when it is checked.
+func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+	)
+	p, _, _ := newRoundTripTestProtocol(requestType, replyType)
+	errorChan := make(chan error, 1)
+	p.config.ErrorChan = errorChan
+	p.config.MessageFromCborFunc = func(
+		messageType uint,
+		_ []byte,
+	) (Message, error) {
+		return &MessageBase{MessageType: uint8(messageType)}, nil
+	}
+	handled := make(chan struct{}, 2)
+	p.config.MessageHandlerFunc = func(Message) error {
+		handled <- struct{}{}
+		return p.transitionState(&MessageBase{MessageType: replyType})
+	}
+	segment := muxer.NewSegment(
+		1,
+		[]byte{0x81, requestType, 0x81, requestType},
+		false,
+	)
+	require.NotNil(t, segment)
+	segments := make(chan *muxer.Segment, 1)
+	segments <- segment
+	p.muxerRecvChan = segments
+	p.recvQueueChan = make(chan inboundMessage, 2)
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	go p.recvLoop()
+	go p.readLoop()
+	t.Cleanup(p.Stop)
+
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "without peer agency")
+	case <-time.After(time.Second):
+		t.Fatal("readLoop admitted a request sent without agency")
+	}
+	require.Len(t, handled, 1)
+}
