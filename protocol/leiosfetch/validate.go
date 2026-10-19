@@ -29,7 +29,8 @@ import (
 // allows, and the protocol has no request identifier. Replies echo nothing, so
 // each is bound through what it contains:
 //   - Block: the endorser block must hash to the requested point's hash.
-//   - BlockTxs: one transaction per requested bitmap bit.
+//   - BlockTxs: only the message type; the transaction count is checked when
+//     the reply is decoded.
 //   - Votes: requested (slot, voter) pairs, each no more often than requested,
 //     and no more votes than requested.
 //   - Range: every block must be a well-formed endorser block, each of its
@@ -52,11 +53,12 @@ func validateResponse(
 		}
 		return nil, validateBlock(req, r)
 	case *MsgBlockTxsRequest:
-		r, ok := resp.(*MsgBlockTxs)
-		if !ok {
+		if _, ok := resp.(*MsgBlockTxs); !ok {
 			return nil, unexpectedResponse(request, resp, "wrong message type")
 		}
-		return nil, validateBlockTxs(req, r)
+		// The transaction count is checked against the request's bitmaps when
+		// the reply is decoded (Client.messageFromCbor), so it is not repeated.
+		return nil, nil
 	case *MsgVotesRequest:
 		r, ok := resp.(*MsgVotes)
 		if !ok {
@@ -125,22 +127,6 @@ func validateBlock(req *MsgBlockRequest, resp *MsgBlock) error {
 				"endorser block hash %x differs from requested %x",
 				hash.Bytes(),
 				req.Point.Hash,
-			),
-		)
-	}
-	return nil
-}
-
-func validateBlockTxs(req *MsgBlockTxsRequest, resp *MsgBlockTxs) error {
-	requested := bitmapTxCount(req.Bitmaps)
-	if len(resp.TxsRaw) != requested {
-		return unexpectedResponse(
-			req,
-			resp,
-			fmt.Sprintf(
-				"%d transactions for %d requested",
-				len(resp.TxsRaw),
-				requested,
 			),
 		)
 	}
@@ -242,7 +228,10 @@ func validateRangeBlock(
 			return nil, unexpectedResponse(
 				req,
 				resp,
-				fmt.Sprintf("transaction %d does not match its reference hash", idx),
+				fmt.Sprintf(
+					"transaction %d does not match its reference hash",
+					idx,
+				),
 			)
 		}
 	}

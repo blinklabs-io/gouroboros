@@ -160,16 +160,21 @@ describe it, failing the connection with `ErrUnexpectedResponse`. Replies echo
 no selector, so each is bound through its content:
 
 - `Block`: the endorser block must decode and hash to the requested point's
-  hash.
+  hash. As in the reference node, the hash is taken over the canonical
+  re-encoding of the references, not the bytes received, so an endorser block
+  with wider CBOR heads still matches.
 - `BlockTxs`: the reply must carry one transaction per bit in the requested
-  bitmaps.
+  bitmaps. This is checked once, when the reply is decoded.
 - `Votes`: every vote must decode as a `LeiosVote` (so a malformed signature
   fails the connection) and match a requested `(SlotNo, VoterId)` pair, no more
   often than that pair was requested. There can be no more votes than
   requested; a server may return fewer.
 - `BlockRange`: every block must be a well-formed endorser block, and each
   transaction must match the reference at the same position: the Blake2b-256
-  hash of its CBOR and its encoded size. No block may repeat within the stream.
+  hash of its CBOR and its encoded size. Messages 13 and 14 carry unwrapped
+  `block_transaction` items, not the `#6.24` wrapping that `BlockTxs` uses, and
+  the hash and size are taken over those items as sent. No block may repeat
+  within the stream.
   The request endpoints are ranking-block points and a reply carries only the
   endorser block they certify, so the endpoints, the number of replies and
   their order are not compared to the request.

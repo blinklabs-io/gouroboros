@@ -130,6 +130,7 @@ func TestValidateResponse(t *testing.T) {
 		{SlotNo: 5, VoterId: 1},
 	}
 	eb1 := testEndorserBlock(t, 1)
+	wideEB1 := widenEndorserBlock(t, eb1)
 	eb2 := testEndorserBlock(t, 2)
 	eb3 := testEndorserBlockN(t, 3, 3)
 	rangeReq := testRangeRequest()
@@ -144,6 +145,14 @@ func TestValidateResponse(t *testing.T) {
 			name:    "block accepted",
 			request: testBlockRequest(t, 1),
 			resp:    NewMsgBlock(eb1.raw),
+		},
+		{
+			// The reference hashes the canonical re-encoding of the
+			// references, not the bytes received, so wider CBOR heads must
+			// still match the hash announced for the block.
+			name:    "block with non-shortest heads accepted",
+			request: NewMsgBlockRequest(pcommon.NewPoint(10, eb1.hash.Bytes())),
+			resp:    NewMsgBlock(wideEB1),
 		},
 		{
 			name:    "block for another point",
@@ -185,20 +194,6 @@ func TestValidateResponse(t *testing.T) {
 			name:    "block txs accepted",
 			request: NewMsgBlockTxsRequest(point, bitmaps),
 			resp:    NewMsgBlockTxs(txs),
-		},
-		{
-			name:    "block txs too few",
-			request: NewMsgBlockTxsRequest(point, bitmaps),
-			resp:    NewMsgBlockTxs(txs[:2]),
-			wantErr: true,
-		},
-		{
-			name:    "block txs too many",
-			request: NewMsgBlockTxsRequest(point, bitmaps),
-			resp: NewMsgBlockTxs(
-				append(slicesClone(txs), cbor.RawMessage{0x04}),
-			),
-			wantErr: true,
 		},
 		{
 			name:    "votes accepted",
@@ -461,4 +456,32 @@ func TestRequestSlotAbandonedReplyIsNotValidated(t *testing.T) {
 	slot.mu.Lock()
 	assert.False(t, slot.busy)
 	slot.mu.Unlock()
+}
+
+// widenEndorserBlock re-encodes a single-reference endorser block as a bare
+// map with every CBOR head wider than necessary, which the decoder accepts.
+func widenEndorserBlock(t *testing.T, eb testEB) []byte {
+	t.Helper()
+	decoded, err := lcommon.NewLeiosEndorserBlockFromCbor(eb.raw)
+	require.NoError(t, err)
+	require.Len(t, decoded.TransactionReferences, 1)
+	ref := decoded.TransactionReferences[0]
+	wide := []byte{0xb9, 0x00, 0x01, 0x59, 0x00, 0x20}
+	wide = append(wide, ref.TransactionHash.Bytes()...)
+	wide = append(
+		wide,
+		0x1a,
+		byte(ref.TransactionSize>>24),
+		byte(ref.TransactionSize>>16),
+		byte(ref.TransactionSize>>8),
+		byte(ref.TransactionSize),
+	)
+	require.NotEqual(t, eb.raw, wide)
+	require.NotEqual(
+		t,
+		eb.hash,
+		lcommon.Blake2b256Hash(wide),
+		"the wide form must not hash to the canonical hash by itself",
+	)
+	return wide
 }

@@ -272,7 +272,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 
 	// Request A acquires the slot and registers its delivery channel.
 	wA, err := client.blockRequestSlot.acquire(
-		context.Background(), client.DoneChan(), testBlockRequest(t, (1)),
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
 	)
 	require.NoError(t, err)
 
@@ -282,7 +282,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 
 	// Request B acquires the now-free slot and registers its own channel.
 	wB, err := client.blockRequestSlot.acquire(
-		context.Background(), client.DoneChan(), testBlockRequest(t, (2)),
+		context.Background(), client.DoneChan(), testBlockRequest(t, 2),
 	)
 	require.NoError(t, err)
 
@@ -323,7 +323,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
 	wA, err := client.blockRequestSlot.acquire(
-		context.Background(), client.DoneChan(), testBlockRequest(t, (1)),
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
 	)
 	require.NoError(t, err)
 
@@ -338,7 +338,9 @@ func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	)
 	defer cancelB()
 	go func() {
-		_, err := client.blockRequestSlot.acquire(ctxB, client.DoneChan(), testBlockRequest(t, (1)))
+		_, err := client.blockRequestSlot.acquire(
+			ctxB, client.DoneChan(), testBlockRequest(t, 1),
+		)
 		bResult <- err
 	}()
 	<-bWaiting
@@ -359,14 +361,18 @@ func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
 
 	wA, err := client.blockRequestSlot.acquire(
-		context.Background(), client.DoneChan(), testBlockRequest(t, (1)),
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
 	)
 	require.NoError(t, err)
 	// Free the slot via a delivery, then reacquire for request B.
-	requireDelivered(t, &client.blockRequestSlot, NewMsgBlock(testEndorserBlock(t, 1).raw))
+	requireDelivered(
+		t,
+		&client.blockRequestSlot,
+		NewMsgBlock(testEndorserBlock(t, 1).raw),
+	)
 	<-wA
 	wB, err := client.blockRequestSlot.acquire(
-		context.Background(), client.DoneChan(), testBlockRequest(t, (2)),
+		context.Background(), client.DoneChan(), testBlockRequest(t, 2),
 	)
 	require.NoError(t, err)
 

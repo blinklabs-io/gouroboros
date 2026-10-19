@@ -1228,18 +1228,6 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 			},
 		},
 		{
-			name:        "transactions",
-			requestType: leiosfetch.MessageTypeBlockTxsRequest,
-			reply:       leiosfetch.NewMsgBlockTxs(testTxs(1)),
-			request: func(c *leiosfetch.Client) (any, error) {
-				return c.BlockTxsRequest(
-					context.Background(),
-					pcommon.NewPoint(12345, eb1.hash),
-					map[uint16]uint64{0: 0b11},
-				)
-			},
-		},
-		{
 			name:        "votes",
 			requestType: leiosfetch.MessageTypeVotesRequest,
 			reply:       leiosfetch.NewMsgVotes([]cbor.RawMessage{vote}),
