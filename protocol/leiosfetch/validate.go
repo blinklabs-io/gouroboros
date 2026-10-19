@@ -30,47 +30,52 @@ import (
 // each is bound through what it contains:
 //   - Block: the endorser block must hash to the requested point's hash.
 //   - BlockTxs: one transaction per requested bitmap bit.
-//   - Votes: distinct, requested (slot, voter) pairs, and no more than asked.
-//   - Range: every block must be a well-formed endorser block carrying exactly
-//     the transactions it references, and no block may repeat. The requested
+//   - Votes: requested (slot, voter) pairs, each no more often than requested,
+//     and no more votes than requested.
+//   - Range: every block must be a well-formed endorser block, each of its
+//     transactions must match the reference at the same position (the hash of
+//     its CBOR and its encoded size), and no block may repeat. The requested
 //     endpoints are ranking-block points; a reply carries only the endorser
 //     block they certify, so the endpoints cannot be compared to it.
 //
-// seen holds the endorser block hashes already delivered for a range request.
+// For a range reply it returns the endorser block hash, which the caller
+// records to detect a repeat across the stream. The request is the one the slot
+// was acquired for and is never nil while a caller waits.
 func validateResponse(
 	request, resp protocol.Message,
-	seen map[lcommon.Blake2b256]struct{},
-) error {
+) (*lcommon.Blake2b256, error) {
 	switch req := request.(type) {
 	case *MsgBlockRequest:
 		r, ok := resp.(*MsgBlock)
 		if !ok {
-			return unexpectedResponse(request, resp, "wrong message type")
+			return nil, unexpectedResponse(request, resp, "wrong message type")
 		}
-		return validateBlock(req, r)
+		return nil, validateBlock(req, r)
 	case *MsgBlockTxsRequest:
 		r, ok := resp.(*MsgBlockTxs)
 		if !ok {
-			return unexpectedResponse(request, resp, "wrong message type")
+			return nil, unexpectedResponse(request, resp, "wrong message type")
 		}
-		return validateBlockTxs(req, r)
+		return nil, validateBlockTxs(req, r)
 	case *MsgVotesRequest:
 		r, ok := resp.(*MsgVotes)
 		if !ok {
-			return unexpectedResponse(request, resp, "wrong message type")
+			return nil, unexpectedResponse(request, resp, "wrong message type")
 		}
-		return validateVotes(req, r)
+		return nil, validateVotes(req, r)
 	case *MsgBlockRangeRequest:
 		switch r := resp.(type) {
 		case *MsgNextBlockAndTxsInRange:
-			return validateRangeBlock(req, resp, r.BlockRaw, r.TxsRaw, seen)
+			return validateRangeBlock(req, resp, r.BlockRaw, r.TxsRaw)
 		case *MsgLastBlockAndTxsInRange:
-			return validateRangeBlock(req, resp, r.BlockRaw, r.TxsRaw, seen)
+			return validateRangeBlock(req, resp, r.BlockRaw, r.TxsRaw)
 		}
-		return unexpectedResponse(request, resp, "wrong message type")
+		return nil, unexpectedResponse(request, resp, "wrong message type")
 	default:
-		return fmt.Errorf(
-			"%w: no active request for message type %d",
+		// Fail closed: a slot that is waiting always holds one of the requests
+		// above, so this only guards a future request type added without a rule.
+		return nil, fmt.Errorf(
+			"%w: no validation rule for message type %d",
 			ErrUnexpectedResponse,
 			resp.Type(),
 		)
@@ -142,6 +147,11 @@ func validateBlockTxs(req *MsgBlockTxsRequest, resp *MsgBlockTxs) error {
 	return nil
 }
 
+type voteKey struct {
+	slotNo  uint64
+	voterId uint64
+}
+
 func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 	if len(resp.VotesRaw) > len(req.VoteIds) {
 		return unexpectedResponse(
@@ -154,9 +164,11 @@ func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 			),
 		)
 	}
-	pending := make(map[[2]uint64]struct{}, len(req.VoteIds))
+	// A repeated ID in the request is answerable that many times, so count the
+	// occurrences instead of treating the IDs as a set.
+	remaining := make(map[voteKey]int, len(req.VoteIds))
 	for _, id := range req.VoteIds {
-		pending[[2]uint64{id.SlotNo, id.VoterId}] = struct{}{}
+		remaining[voteKey{id.SlotNo, id.VoterId}]++
 	}
 	for idx, raw := range resp.VotesRaw {
 		var vote lcommon.LeiosVote
@@ -167,9 +179,8 @@ func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 				fmt.Sprintf("decode vote %d: %s", idx, err),
 			)
 		}
-		key := [2]uint64{vote.SlotNo, vote.VoterId}
-		// Removing on first sight makes a repeated vote fail this lookup.
-		if _, ok := pending[key]; !ok {
+		key := voteKey{vote.SlotNo, vote.VoterId}
+		if remaining[key] == 0 {
 			return unexpectedResponse(
 				req,
 				resp,
@@ -181,7 +192,7 @@ func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 				),
 			)
 		}
-		delete(pending, key)
+		remaining[key]--
 	}
 	return nil
 }
@@ -191,18 +202,17 @@ func validateRangeBlock(
 	resp protocol.Message,
 	blockRaw []byte,
 	txsRaw []cbor.RawMessage,
-	seen map[lcommon.Blake2b256]struct{},
-) error {
+) (*lcommon.Blake2b256, error) {
 	eb, err := decodeEndorserBlock(blockRaw)
 	if err != nil {
-		return unexpectedResponse(
+		return nil, unexpectedResponse(
 			req,
 			resp,
 			fmt.Sprintf("decode endorser block: %s", err),
 		)
 	}
 	if len(txsRaw) != len(eb.TransactionReferences) {
-		return unexpectedResponse(
+		return nil, unexpectedResponse(
 			req,
 			resp,
 			fmt.Sprintf(
@@ -212,14 +222,30 @@ func validateRangeBlock(
 			),
 		)
 	}
-	hash := eb.Hash()
-	if _, dup := seen[hash]; dup {
-		return unexpectedResponse(
-			req,
-			resp,
-			fmt.Sprintf("endorser block %x repeats in the range", hash.Bytes()),
-		)
+	// An endorser block lists its transactions by the hash of their CBOR and
+	// their encoded size, in the order they are sent.
+	for idx, ref := range eb.TransactionReferences {
+		tx := txsRaw[idx]
+		if uint64(len(tx)) != uint64(ref.TransactionSize) {
+			return nil, unexpectedResponse(
+				req,
+				resp,
+				fmt.Sprintf(
+					"transaction %d is %d bytes, reference says %d",
+					idx,
+					len(tx),
+					ref.TransactionSize,
+				),
+			)
+		}
+		if lcommon.Blake2b256Hash(tx) != ref.TransactionHash {
+			return nil, unexpectedResponse(
+				req,
+				resp,
+				fmt.Sprintf("transaction %d does not match its reference hash", idx),
+			)
+		}
 	}
-	seen[hash] = struct{}{}
-	return nil
+	hash := eb.Hash()
+	return &hash, nil
 }

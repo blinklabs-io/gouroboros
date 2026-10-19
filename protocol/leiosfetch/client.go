@@ -369,16 +369,43 @@ func (s *requestSlot) release(w chan protocol.Message) {
 // validate checks a response against the request still waiting for it. A
 // response with no waiting request is an abandoned request's late reply: the
 // caller is gone, so it is left for the drain path rather than rejected.
+//
+// Decoding runs outside the slot lock so that abandon and release from caller
+// goroutines are not held up by it.
 func (s *requestSlot) validate(msg protocol.Message) error {
+	s.mu.Lock()
+	request := s.request
+	waiting := s.waiter != nil
+	s.mu.Unlock()
+	if !waiting {
+		return nil
+	}
+	rangeBlock, err := validateResponse(request, msg)
+	if err != nil {
+		return err
+	}
+	if rangeBlock == nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.waiter == nil {
+		// Abandoned while decoding; the reply is dropped and the stream state
+		// is reset when the slot is freed.
 		return nil
+	}
+	if _, repeated := s.rangeSeen[*rangeBlock]; repeated {
+		return fmt.Errorf(
+			"%w: endorser block %x repeats in the range",
+			ErrUnexpectedResponse,
+			rangeBlock.Bytes(),
+		)
 	}
 	if s.rangeSeen == nil {
 		s.rangeSeen = make(map[lcommon.Blake2b256]struct{})
 	}
-	return validateResponse(s.request, msg, s.rangeSeen)
+	s.rangeSeen[*rangeBlock] = struct{}{}
+	return nil
 }
 
 // deliver queues a received response for the waiting caller. Streaming range

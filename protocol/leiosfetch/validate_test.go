@@ -30,17 +30,23 @@ import (
 type testEB struct {
 	raw  []byte
 	hash lcommon.Blake2b256
+	txs  []cbor.RawMessage
 }
 
-// testEndorserBlockN builds an endorser block of txCount references. Different
-// seeds give different blocks and so different hashes.
+// testEndorserBlockN builds an endorser block of txCount transactions and
+// returns it with those transactions. Different seeds give different blocks
+// and so different hashes.
 func testEndorserBlockN(t *testing.T, seed byte, txCount int) testEB {
 	t.Helper()
 	refs := make([]lcommon.LeiosTransactionReference, 0, txCount)
+	txs := make([]cbor.RawMessage, 0, txCount)
 	for i := range txCount {
+		tx, err := cbor.Encode([]uint64{uint64(seed), uint64(i)})
+		require.NoError(t, err)
+		txs = append(txs, tx)
 		refs = append(refs, lcommon.LeiosTransactionReference{
-			TransactionHash: lcommon.Blake2b256{seed, byte(i)},
-			TransactionSize: 1,
+			TransactionHash: lcommon.Blake2b256Hash(tx),
+			TransactionSize: uint32(len(tx)),
 		})
 	}
 	raw, err := lcommon.LeiosEndorserBlock{TransactionReferences: refs}.
@@ -48,7 +54,7 @@ func testEndorserBlockN(t *testing.T, seed byte, txCount int) testEB {
 	require.NoError(t, err)
 	eb, err := lcommon.NewLeiosEndorserBlockFromCbor(raw)
 	require.NoError(t, err)
-	return testEB{raw: raw, hash: eb.Hash()}
+	return testEB{raw: raw, hash: eb.Hash(), txs: txs}
 }
 
 func testEndorserBlock(t *testing.T, seed byte) testEB {
@@ -119,10 +125,13 @@ func TestValidateResponse(t *testing.T) {
 		{SlotNo: 5, VoterId: 1},
 		{SlotNo: 5, VoterId: 2},
 	}
+	dupVoteIds := []MsgVotesRequestVoteId{
+		{SlotNo: 5, VoterId: 1},
+		{SlotNo: 5, VoterId: 1},
+	}
 	eb1 := testEndorserBlock(t, 1)
 	eb2 := testEndorserBlock(t, 2)
 	eb3 := testEndorserBlockN(t, 3, 3)
-	oneTx := []cbor.RawMessage{{0x01}}
 	rangeReq := testRangeRequest()
 
 	for _, tc := range []struct {
@@ -231,6 +240,24 @@ func TestValidateResponse(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "repeated request id answered as often as requested",
+			request: NewMsgVotesRequest(dupVoteIds),
+			resp: NewMsgVotes([]cbor.RawMessage{
+				testVote(t, 5, 1),
+				testVote(t, 5, 1),
+			}),
+		},
+		{
+			name:    "repeated request id answered more often than requested",
+			request: NewMsgVotesRequest(dupVoteIds),
+			resp: NewMsgVotes([]cbor.RawMessage{
+				testVote(t, 5, 1),
+				testVote(t, 5, 1),
+				testVote(t, 5, 1),
+			}),
+			wantErr: true,
+		},
+		{
 			name:    "more votes than requested",
 			request: NewMsgVotesRequest(voteIds[:1]),
 			resp: NewMsgVotes([]cbor.RawMessage{
@@ -248,12 +275,12 @@ func TestValidateResponse(t *testing.T) {
 		{
 			name:    "range next accepted",
 			request: rangeReq,
-			resp:    NewMsgNextBlockAndTxsInRange(eb1.raw, oneTx),
+			resp:    NewMsgNextBlockAndTxsInRange(eb1.raw, eb1.txs),
 		},
 		{
 			name:    "range last accepted",
 			request: rangeReq,
-			resp:    NewMsgLastBlockAndTxsInRange(eb3.raw, txs),
+			resp:    NewMsgLastBlockAndTxsInRange(eb3.raw, eb3.txs),
 		},
 		{
 			name:    "range block that is not an endorser block",
@@ -264,25 +291,62 @@ func TestValidateResponse(t *testing.T) {
 		{
 			name:    "range block with too few transactions",
 			request: rangeReq,
-			resp:    NewMsgNextBlockAndTxsInRange(eb3.raw, txs[:2]),
+			resp:    NewMsgNextBlockAndTxsInRange(eb3.raw, eb3.txs[:2]),
+			wantErr: true,
+		},
+		{
+			name:    "range transactions out of order",
+			request: rangeReq,
+			resp: NewMsgNextBlockAndTxsInRange(
+				eb3.raw,
+				[]cbor.RawMessage{eb3.txs[1], eb3.txs[0], eb3.txs[2]},
+			),
+			wantErr: true,
+		},
+		{
+			name:    "range transaction of another block",
+			request: rangeReq,
+			resp: NewMsgNextBlockAndTxsInRange(
+				eb1.raw,
+				[]cbor.RawMessage{eb2.txs[0]},
+			),
+			wantErr: true,
+		},
+		{
+			name:    "range transaction with the right size, wrong bytes",
+			request: rangeReq,
+			resp: NewMsgNextBlockAndTxsInRange(
+				eb1.raw,
+				[]cbor.RawMessage{
+					append(cbor.RawMessage{}, eb1.txs[0][:len(eb1.txs[0])-1]...),
+				},
+			),
+			wantErr: true,
+		},
+		{
+			name:    "range transaction with the wrong size",
+			request: rangeReq,
+			resp: NewMsgNextBlockAndTxsInRange(
+				eb1.raw,
+				[]cbor.RawMessage{append(eb1.txs[0], 0x00)},
+			),
 			wantErr: true,
 		},
 		{
 			name:    "range block with too many transactions",
 			request: rangeReq,
-			resp:    NewMsgLastBlockAndTxsInRange(eb1.raw, txs),
+			resp:    NewMsgLastBlockAndTxsInRange(eb1.raw, eb3.txs),
 			wantErr: true,
 		},
 		{
 			name:    "block request answered by range block",
 			request: testBlockRequest(t, 1),
-			resp:    NewMsgNextBlockAndTxsInRange(eb1.raw, oneTx),
+			resp:    NewMsgNextBlockAndTxsInRange(eb1.raw, eb1.txs),
 			wantErr: true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			seen := make(map[lcommon.Blake2b256]struct{})
-			err := validateResponse(tc.request, tc.resp, seen)
+			_, err := validateResponse(tc.request, tc.resp)
 			if tc.wantErr {
 				require.ErrorIs(t, err, ErrUnexpectedResponse)
 				return
@@ -291,31 +355,9 @@ func TestValidateResponse(t *testing.T) {
 		})
 	}
 
-	t.Run("range block repeats", func(t *testing.T) {
-		seen := make(map[lcommon.Blake2b256]struct{})
-		require.NoError(t, validateResponse(
-			rangeReq,
-			NewMsgNextBlockAndTxsInRange(eb1.raw, oneTx),
-			seen,
-		))
-		require.NoError(t, validateResponse(
-			rangeReq,
-			NewMsgNextBlockAndTxsInRange(eb2.raw, oneTx),
-			seen,
-		))
-		require.ErrorIs(t, validateResponse(
-			rangeReq,
-			NewMsgLastBlockAndTxsInRange(eb1.raw, oneTx),
-			seen,
-		), ErrUnexpectedResponse)
-	})
-
-	t.Run("no active request", func(t *testing.T) {
-		require.ErrorIs(
-			t,
-			validateResponse(nil, NewMsgBlock(eb1.raw), nil),
-			ErrUnexpectedResponse,
-		)
+	t.Run("no validation rule", func(t *testing.T) {
+		_, err := validateResponse(nil, NewMsgBlock(eb1.raw))
+		require.ErrorIs(t, err, ErrUnexpectedResponse)
 	})
 }
 
@@ -343,7 +385,7 @@ func TestRequestSlotRejectsMismatchedReply(t *testing.T) {
 	delivered, err = slot.deliverRange(
 		NewMsgLastBlockAndTxsInRange(
 			testEndorserBlock(t, 1).raw,
-			[]cbor.RawMessage{{0x01}},
+			testEndorserBlock(t, 1).txs,
 		),
 		true,
 	)
@@ -380,8 +422,8 @@ func TestRequestSlotRejectsRepeatedRangeBlock(t *testing.T) {
 	require.NoError(t, err)
 	defer slot.release(w)
 
-	eb := testEndorserBlock(t, 1).raw
-	txs := []cbor.RawMessage{{0x01}}
+	fixture := testEndorserBlock(t, 1)
+	eb, txs := fixture.raw, fixture.txs
 	delivered, err := slot.deliverRange(
 		NewMsgNextBlockAndTxsInRange(eb, txs),
 		false,

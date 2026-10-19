@@ -510,7 +510,7 @@ func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
 			Messages: []protocol.Message{
 				leiosfetch.NewMsgLastBlockAndTxsInRange(
 					eb1.raw,
-					testTxs(1),
+					eb1.txs,
 				),
 			},
 		},
@@ -524,7 +524,7 @@ func TestBlockRangeRequestSubsequentAfterAbandoned(t *testing.T) {
 			Messages: []protocol.Message{
 				leiosfetch.NewMsgLastBlockAndTxsInRange(
 					eb2.raw,
-					testTxs(1),
+					eb2.txs,
 				),
 			},
 		},
@@ -580,9 +580,9 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 			ProtocolId: leiosfetch.ProtocolId,
 			IsResponse: true,
 			Messages: []protocol.Message{
-				leiosfetch.NewMsgNextBlockAndTxsInRange(eb1.raw, testTxs(1)),
-				leiosfetch.NewMsgNextBlockAndTxsInRange(eb2.raw, testTxs(1)),
-				leiosfetch.NewMsgLastBlockAndTxsInRange(eb3.raw, testTxs(1)),
+				leiosfetch.NewMsgNextBlockAndTxsInRange(eb1.raw, eb1.txs),
+				leiosfetch.NewMsgNextBlockAndTxsInRange(eb2.raw, eb2.txs),
+				leiosfetch.NewMsgLastBlockAndTxsInRange(eb3.raw, eb3.txs),
 			},
 		},
 	)
@@ -599,7 +599,8 @@ func TestBlockRangeRequestStreamsMultipleMessages(t *testing.T) {
 }
 
 func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
-	txs := []cbor.RawMessage{{0x80}, {0x80}, {0x80}}
+	ebA := testEB(t, 0x01, 3)
+	ebB := testEB(t, 0x02, 3)
 	conversation := append(
 		conversationHandshake,
 		ouroboros_mock.ConversationEntryInput{
@@ -610,12 +611,8 @@ func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
 			ProtocolId: leiosfetch.ProtocolId,
 			IsResponse: true,
 			Messages: []protocol.Message{
-				leiosfetch.NewMsgNextBlockAndTxsInRange(
-					testEB(t, 0x01, len(txs)).raw, txs,
-				),
-				leiosfetch.NewMsgLastBlockAndTxsInRange(
-					testEB(t, 0x02, len(txs)).raw, txs,
-				),
+				leiosfetch.NewMsgNextBlockAndTxsInRange(ebA.raw, ebA.txs),
+				leiosfetch.NewMsgLastBlockAndTxsInRange(ebB.raw, ebB.txs),
 			},
 		},
 	)
@@ -653,6 +650,11 @@ func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
 }
 
 func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
+	ebs := []testEBFixture{
+		testEB(t, 0x01, 1),
+		testEB(t, 0x02, 1),
+		testEB(t, 0x03, 1),
+	}
 	conversation := append(
 		conversationHandshake,
 		ouroboros_mock.ConversationEntryInput{
@@ -664,13 +666,13 @@ func TestBlockRangeRequestLimitFailsConnection(t *testing.T) {
 			IsResponse: true,
 			Messages: []protocol.Message{
 				leiosfetch.NewMsgNextBlockAndTxsInRange(
-					testEB(t, 0x01, 1).raw, testTxs(1),
+					ebs[0].raw, ebs[0].txs,
 				),
 				leiosfetch.NewMsgNextBlockAndTxsInRange(
-					testEB(t, 0x02, 1).raw, testTxs(1),
+					ebs[1].raw, ebs[1].txs,
 				),
 				leiosfetch.NewMsgLastBlockAndTxsInRange(
-					testEB(t, 0x03, 1).raw, testTxs(1),
+					ebs[2].raw, ebs[2].txs,
 				),
 			},
 		},
@@ -849,6 +851,7 @@ func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
 }
 
 func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
+	stallEB := testEB(t, 0x01, 1)
 	conversation := append(
 		conversationHandshake,
 		ouroboros_mock.ConversationEntryInput{
@@ -860,8 +863,8 @@ func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
 			IsResponse: true,
 			Messages: []protocol.Message{
 				leiosfetch.NewMsgNextBlockAndTxsInRange(
-					testEB(t, 0x01, 1).raw,
-					testTxs(1),
+					stallEB.raw,
+					stallEB.txs,
 				),
 			},
 		},
@@ -1161,17 +1164,22 @@ func TestBlockTxsRequestRejectsBitmapsThePeerRefuses(t *testing.T) {
 type testEBFixture struct {
 	raw  []byte
 	hash []byte
+	txs  []cbor.RawMessage
 }
 
-// testEB builds an endorser block of txCount references and its hash. Distinct
-// seeds give distinct blocks.
+// testEB builds an endorser block of txCount transactions and returns it with
+// its hash and those transactions. Distinct seeds give distinct blocks.
 func testEB(t *testing.T, seed byte, txCount int) testEBFixture {
 	t.Helper()
 	refs := make([]lcommon.LeiosTransactionReference, 0, txCount)
+	txs := make([]cbor.RawMessage, 0, txCount)
 	for i := range txCount {
+		tx, err := cbor.Encode([]uint64{uint64(seed), uint64(i)})
+		require.NoError(t, err)
+		txs = append(txs, tx)
 		refs = append(refs, lcommon.LeiosTransactionReference{
-			TransactionHash: lcommon.Blake2b256{seed, byte(i)},
-			TransactionSize: 1,
+			TransactionHash: lcommon.Blake2b256Hash(tx),
+			TransactionSize: uint32(len(tx)),
 		})
 	}
 	raw, err := lcommon.LeiosEndorserBlock{TransactionReferences: refs}.
@@ -1180,7 +1188,7 @@ func testEB(t *testing.T, seed byte, txCount int) testEBFixture {
 	eb, err := lcommon.NewLeiosEndorserBlockFromCbor(raw)
 	require.NoError(t, err)
 	hash := eb.Hash()
-	return testEBFixture{raw: raw, hash: hash.Bytes()}
+	return testEBFixture{raw: raw, hash: hash.Bytes(), txs: txs}
 }
 
 func testTxs(count int) []cbor.RawMessage {
@@ -1206,45 +1214,42 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 		name        string
 		requestType uint
 		reply       protocol.Message
-		request     func(*leiosfetch.Client) error
+		request     func(*leiosfetch.Client) (any, error)
 	}{
 		{
 			name:        "block",
 			requestType: leiosfetch.MessageTypeBlockRequest,
 			reply:       leiosfetch.NewMsgBlock(eb2.raw),
-			request: func(c *leiosfetch.Client) error {
-				_, err := c.BlockRequest(
+			request: func(c *leiosfetch.Client) (any, error) {
+				return c.BlockRequest(
 					context.Background(),
 					pcommon.NewPoint(12345, eb1.hash),
 				)
-				return err
 			},
 		},
 		{
 			name:        "transactions",
 			requestType: leiosfetch.MessageTypeBlockTxsRequest,
 			reply:       leiosfetch.NewMsgBlockTxs(testTxs(1)),
-			request: func(c *leiosfetch.Client) error {
-				_, err := c.BlockTxsRequest(
+			request: func(c *leiosfetch.Client) (any, error) {
+				return c.BlockTxsRequest(
 					context.Background(),
 					pcommon.NewPoint(12345, eb1.hash),
 					map[uint16]uint64{0: 0b11},
 				)
-				return err
 			},
 		},
 		{
 			name:        "votes",
 			requestType: leiosfetch.MessageTypeVotesRequest,
 			reply:       leiosfetch.NewMsgVotes([]cbor.RawMessage{vote}),
-			request: func(c *leiosfetch.Client) error {
-				_, err := c.VotesRequest(
+			request: func(c *leiosfetch.Client) (any, error) {
+				return c.VotesRequest(
 					context.Background(),
 					[]leiosfetch.MsgVotesRequestVoteId{
 						{SlotNo: 1, VoterId: 1},
 					},
 				)
-				return err
 			},
 		},
 		{
@@ -1252,15 +1257,14 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 			requestType: leiosfetch.MessageTypeBlockRangeRequest,
 			reply: leiosfetch.NewMsgLastBlockAndTxsInRange(
 				eb1.raw,
-				testTxs(2),
+				eb2.txs,
 			),
-			request: func(c *leiosfetch.Client) error {
-				_, err := c.BlockRangeRequest(
+			request: func(c *leiosfetch.Client) (any, error) {
+				return c.BlockRangeRequest(
 					context.Background(),
 					pcommon.NewPoint(12345, testPointHash(0x01)),
 					pcommon.NewPoint(12346, testPointHash(0x02)),
 				)
-				return err
 			},
 		},
 	} {
@@ -1285,7 +1289,10 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 					oConn *ouroboros.Connection,
 					connErrs <-chan error,
 				) {
-					require.Error(t, tc.request(oConn.LeiosFetch().Client))
+					got, err := tc.request(oConn.LeiosFetch().Client)
+					require.Error(t, err)
+					// The mismatched reply must never reach the caller.
+					require.Nil(t, got)
 					select {
 					case connErr := <-connErrs:
 						require.ErrorIs(
@@ -1300,4 +1307,42 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 			)
 		})
 	}
+}
+
+// A request that repeats a vote ID is answered once per occurrence, and the
+// reply is delivered.
+func TestVotesRequestWithRepeatedIdsAcceptsMatchingReply(t *testing.T) {
+	vote, err := cbor.Encode(lcommon.LeiosVote{
+		SlotNo:        5,
+		VoterId:       1,
+		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
+	})
+	require.NoError(t, err)
+	conversation := append(
+		conversationHandshake,
+		ouroboros_mock.ConversationEntryInput{
+			ProtocolId:  leiosfetch.ProtocolId,
+			MessageType: leiosfetch.MessageTypeVotesRequest,
+		},
+		ouroboros_mock.ConversationEntryOutput{
+			ProtocolId: leiosfetch.ProtocolId,
+			IsResponse: true,
+			Messages: []protocol.Message{
+				leiosfetch.NewMsgVotes([]cbor.RawMessage{vote, vote}),
+			},
+		},
+	)
+	runTest(
+		t,
+		conversation,
+		func(t *testing.T, oConn *ouroboros.Connection) {
+			id := leiosfetch.MsgVotesRequestVoteId{SlotNo: 5, VoterId: 1}
+			resp, err := oConn.LeiosFetch().Client.VotesRequest(
+				context.Background(),
+				[]leiosfetch.MsgVotesRequestVoteId{id, id},
+			)
+			require.NoError(t, err)
+			require.Len(t, resp.(*leiosfetch.MsgVotes).VotesRaw, 2)
+		},
+	)
 }

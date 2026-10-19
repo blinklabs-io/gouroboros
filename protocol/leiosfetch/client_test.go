@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -189,7 +188,7 @@ func TestClientMessageHandler(t *testing.T) {
 			name: "NextBlockAndTxsInRange message",
 			msg: NewMsgNextBlockAndTxsInRange(
 				testEndorserBlock(t, 1).raw,
-				[]cbor.RawMessage{{0x01}},
+				testEndorserBlock(t, 1).txs,
 			),
 			expectError: false,
 		},
@@ -197,7 +196,7 @@ func TestClientMessageHandler(t *testing.T) {
 			name: "LastBlockAndTxsInRange message",
 			msg: NewMsgLastBlockAndTxsInRange(
 				testEndorserBlock(t, 1).raw,
-				[]cbor.RawMessage{{0x01}},
+				testEndorserBlock(t, 1).txs,
 			),
 			expectError: false,
 		},
