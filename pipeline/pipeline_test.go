@@ -2326,22 +2326,16 @@ func TestApplyStage_ContextCancellation(t *testing.T) {
 // ============================================================================
 
 func TestBlockPipeline_StartStop(t *testing.T) {
-	// Create pipeline with proper configuration
+	// The block must validate under the verify config: a rejected block
+	// records a fatal error, and Submit would then report that error instead
+	// of ErrPipelineStopped whenever it lands before Stop.
 	p := NewBlockPipeline(
-		WithValidateWorkers(1),
-		WithBlockTypeResolver(resolveTestBlockType),
-		WithChainContextValidator(acceptTestChainContext),
-		WithEta0Provider(
-			StaticEta0Provider(
-				"0000000000000000000000000000000000000000000000000000000000000000",
-			),
-		),
-		WithSlotsPerKesPeriod(129600),
-		WithVerifyConfig(validatingTestVerifyConfig(t)),
-		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
-		WithApplyFunc(func(item *BlockItem) error {
-			return nil
-		}),
+		validatedTestPipelineOptions(
+			t,
+			func(item *BlockItem) error {
+				return nil
+			},
+		)...,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -2352,9 +2346,10 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify pipeline is started (Submit should work)
-	rawCbor := getValidBlockCbor(t)
+	shelley := getValidShelleyBlock(t)
+	rawCbor := shelley.Cbor
 	tip := createTestTip(1000, 500)
-	err = p.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
+	err = p.Submit(ctx, shelley.BlockType, rawCbor, tip)
 	assert.NoError(t, err)
 
 	// Stop pipeline
@@ -2362,7 +2357,7 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Submit after stop should fail
-	err = p.Submit(ctx, uint(ledger.BlockTypeConway), rawCbor, tip)
+	err = p.Submit(ctx, shelley.BlockType, rawCbor, tip)
 	assert.ErrorIs(t, err, ErrPipelineStopped)
 
 	// Start after stop should fail
