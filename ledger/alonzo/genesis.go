@@ -40,8 +40,9 @@ type AlonzoGenesis struct {
 	// is nil when the file has none. A consumer building protocol parameters
 	// must let ExtraConfig.CostModels override the cost models derived from
 	// the genesis (including the models of later eras) once the era
-	// transition has been applied; AlonzoProtocolParameters.UpdateFromGenesis
-	// does this for the Alonzo parameters.
+	// transition has been applied. AlonzoProtocolParameters.UpdateFromGenesis
+	// does this for the Alonzo parameters; a consumer that derives later-era
+	// models afterwards re-applies the overlay with ApplyExtraConfigCostModels.
 	ExtraConfig *AlonzoGenesisExtraConfig `json:"extraConfig,omitempty"`
 }
 

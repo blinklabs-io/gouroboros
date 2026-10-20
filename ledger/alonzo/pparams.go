@@ -237,37 +237,85 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 			if !ok {
 				continue
 			}
-			expectedCount, ok := plutusParamCounts[key]
-			if !ok {
-				continue
-			}
-			if len(model) < expectedCount {
-				return fmt.Errorf(
-					"insufficient param count for %s: %d",
-					versionStr,
-					len(model),
-				)
+			if err := checkCostModelParamCount(versionStr, key, model); err != nil {
+				return err
 			}
 			p.CostModels[key] = slices.Clone(model)
 		}
 	}
 	// Injected cost models override those translated from the genesis, per
 	// language.
-	if genesis.ExtraConfig != nil {
-		for versionStr, model := range genesis.ExtraConfig.CostModels {
-			key, ok := plutusVersionToKey(versionStr)
-			if !ok {
-				continue
-			}
-			if p.CostModels == nil {
-				p.CostModels = make(map[uint][]int64)
-			}
-			cloned := make([]int64, len(model))
-			copy(cloned, model)
-			p.CostModels[key] = cloned
-		}
+	models, err := genesis.ApplyExtraConfigCostModels(p.CostModels)
+	if err != nil {
+		return err
+	}
+	p.CostModels = models
+	return nil
+}
+
+// checkCostModelParamCount rejects a model shorter than the reference
+// parameter count of its language. Languages without a reference count pass.
+func checkCostModelParamCount(
+	version string,
+	key uint,
+	model []int64,
+) error {
+	expectedCount, ok := plutusParamCounts[key]
+	if !ok {
+		return nil
+	}
+	if len(model) < expectedCount {
+		return fmt.Errorf(
+			"insufficient param count for %s: %d",
+			version,
+			len(model),
+		)
 	}
 	return nil
+}
+
+// ApplyExtraConfigCostModels overlays the extraConfig cost models of the
+// genesis onto models, replacing the model of each language it names and
+// keeping the others. The ledger injects them after every era translation,
+// so a caller that derives later-era cost models (for example the Conway
+// PlutusV3 model) from their own genesis must call this last. Models shorter
+// than the language's reference parameter count are rejected before anything
+// is applied. The injected models are copied. A nil models map is allocated
+// when there is something to inject, and the genesis without extraConfig
+// returns models unchanged.
+func (g *AlonzoGenesis) ApplyExtraConfigCostModels(
+	models map[uint][]int64,
+) (map[uint][]int64, error) {
+	if g == nil || g.ExtraConfig == nil {
+		return models, nil
+	}
+	type injected struct {
+		key   uint
+		model []int64
+	}
+	var pending []injected
+	for versionStr, model := range g.ExtraConfig.CostModels {
+		key, ok := plutusVersionToKey(versionStr)
+		if !ok {
+			continue
+		}
+		if err := checkCostModelParamCount(versionStr, key, model); err != nil {
+			return models, err
+		}
+		pending = append(pending, injected{key: key, model: model})
+	}
+	if len(pending) == 0 {
+		return models, nil
+	}
+	if models == nil {
+		models = make(map[uint][]int64)
+	}
+	for _, in := range pending {
+		cloned := make([]int64, len(in.model))
+		copy(cloned, in.model)
+		models[in.key] = cloned
+	}
+	return models, nil
 }
 
 // Helper to convert Plutus version string to key
