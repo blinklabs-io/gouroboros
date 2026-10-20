@@ -744,7 +744,7 @@ func TestGenesisExtraConfigAbsent(t *testing.T) {
 }
 
 func TestGenesisExtraConfigRejectsUnknownFields(t *testing.T) {
-	var raw map[string]json.RawMessage
+	raw := map[string]json.RawMessage{}
 	data, err := os.ReadFile("testdata/alonzo-genesis-extra-config.json")
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &raw))

@@ -262,7 +262,9 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 			if p.CostModels == nil {
 				p.CostModels = make(map[uint][]int64)
 			}
-			p.CostModels[key] = slices.Clone(model)
+			cloned := make([]int64, len(model))
+			copy(cloned, model)
+			p.CostModels[key] = cloned
 		}
 	}
 	return nil
