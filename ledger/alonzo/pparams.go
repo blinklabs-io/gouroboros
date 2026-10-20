@@ -251,6 +251,20 @@ func (p *AlonzoProtocolParameters) UpdateFromGenesis(
 			p.CostModels[key] = slices.Clone(model)
 		}
 	}
+	// Injected cost models override those translated from the genesis, per
+	// language.
+	if genesis.ExtraConfig != nil {
+		for versionStr, model := range genesis.ExtraConfig.CostModels {
+			key, ok := plutusVersionToKey(versionStr)
+			if !ok {
+				continue
+			}
+			if p.CostModels == nil {
+				p.CostModels = make(map[uint][]int64)
+			}
+			p.CostModels[key] = slices.Clone(model)
+		}
+	}
 	return nil
 }
 

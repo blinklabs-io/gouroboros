@@ -1303,3 +1303,19 @@ func TestAlonzoUpdateFromGenesis_CostModelsNotAliased(t *testing.T) {
 	v1[1] = -1
 	assert.Equal(t, int64(2), live[1])
 }
+
+func TestAlonzoUpdateFromGenesisAppliesExtraConfigCostModels(t *testing.T) {
+	t.Parallel()
+	genesis, err := alonzo.NewAlonzoGenesisFromFile(
+		"testdata/alonzo-genesis-extra-config.json",
+	)
+	require.NoError(t, err)
+	// Make the top-level model distinguishable from the injected one.
+	genesis.CostModels["PlutusV1"] = make([]int64, 166)
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	extra := genesis.ExtraConfig.CostModels
+	require.Equal(t, extra["PlutusV1"], params.CostModels[alonzo.PlutusV1Key])
+	require.Equal(t, extra["PlutusV2"], params.CostModels[alonzo.PlutusV2Key])
+	require.Equal(t, extra["PlutusV3"], params.CostModels[alonzo.PlutusV3Key])
+}
