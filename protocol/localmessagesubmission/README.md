@@ -76,6 +76,7 @@ Messages may be rejected for various reasons including:
 ```go
 localmessagesubmission.NewConfig(
     localmessagesubmission.WithSubmitMessageFunc(submitCallback),
+    localmessagesubmission.WithSubmitRefusedFunc(refusedCallback),
     localmessagesubmission.WithAcceptMessageFunc(acceptCallback),
     localmessagesubmission.WithRejectMessageFunc(rejectCallback),
     localmessagesubmission.WithAuthenticator(authenticator),
@@ -109,8 +110,13 @@ Messages require cryptographic authentication using KES (Key-Evolving Signatures
 - Part of CIP-0137 (Distributed Message Queue)
 - Messages are authenticated using KES signatures
 - TTL validation prevents message replay
-- Authenticated message IDs remain reserved until expiration; duplicate
-  submissions are rejected before the application callback runs
+- An authenticated message ID is reserved while the application callback
+  runs and remains reserved until expiration only if the callback accepts
+  the message; a message the callback rejects may be submitted again
+- Duplicate submissions are rejected with `AlreadyReceived` before the
+  application callback runs; `WithSubmitRefusedFunc` observes these and every
+  other rejection the server makes before the callback, for example to count
+  them
 - The replay cache is bounded and rejects new IDs while full
 - The replay cache belongs to the Config returned by `NewConfig`; create one
   Config outside the connection accept loop and reuse it, because separate

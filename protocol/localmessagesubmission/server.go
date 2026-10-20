@@ -43,44 +43,71 @@ var (
 
 type submissionReplayState struct {
 	mu          sync.Mutex
-	acceptedIDs map[string]uint32
+	acceptedIDs map[string]replayEntry
+	nextToken   uint64
+}
+
+// replayEntry records a reserved message ID. The token identifies the holder,
+// so a release by a holder whose entry expired and was pruned cannot remove a
+// newer holder's reservation of the same ID.
+type replayEntry struct {
+	expiresAt uint32
+	token     uint64
 }
 
 func newSubmissionReplayState() *submissionReplayState {
-	return &submissionReplayState{acceptedIDs: make(map[string]uint32)}
+	return &submissionReplayState{acceptedIDs: make(map[string]replayEntry)}
 }
 
+// reserve claims id until expiresAt. It returns false without error when the
+// ID is already reserved. A reservation is held while the submission callback
+// runs and is kept only if the callback accepts the message; otherwise the
+// caller must release it with the returned token.
 func (r *submissionReplayState) reserve(
 	id []byte,
 	expiresAt uint32,
 	now time.Time,
 	maxEntries int,
 	commitAuthentication func() error,
-) (bool, error) {
+) (uint64, bool, error) {
 	if maxEntries < 1 {
-		return false, errInvalidReplayCacheCapacity
+		return 0, false, errInvalidReplayCacheCapacity
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	for acceptedID, expiration := range r.acceptedIDs {
-		if now.Unix() > int64(expiration) {
+	for acceptedID, entry := range r.acceptedIDs {
+		if now.Unix() > int64(entry.expiresAt) {
 			delete(r.acceptedIDs, acceptedID)
 		}
 	}
 	key := string(id)
 	if _, exists := r.acceptedIDs[key]; exists {
-		return false, nil
+		return 0, false, nil
 	}
 	if len(r.acceptedIDs) >= maxEntries {
-		return false, errReplayCacheCapacityExceeded
+		return 0, false, errReplayCacheCapacityExceeded
 	}
 	if commitAuthentication != nil {
 		if err := commitAuthentication(); err != nil {
-			return false, fmt.Errorf("commit message authentication: %w", err)
+			return 0, false, fmt.Errorf(
+				"commit message authentication: %w",
+				err,
+			)
 		}
 	}
-	r.acceptedIDs[key] = expiresAt
-	return true, nil
+	r.nextToken++
+	r.acceptedIDs[key] = replayEntry{expiresAt: expiresAt, token: r.nextToken}
+	return r.nextToken, true, nil
+}
+
+// release drops the reservation of id made with token, if it is still held.
+func (r *submissionReplayState) release(id []byte, token uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := string(id)
+	if entry, exists := r.acceptedIDs[key]; exists && entry.token == token {
+		delete(r.acceptedIDs, key)
+	}
 }
 
 // NewServer returns a new LocalMessageSubmission server object
@@ -167,7 +194,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		return s.sendReject(pcommon.OtherReason{Message: err.Error()})
+		return s.refuse(msgSubmit, pcommon.OtherReason{Message: err.Error()})
 	}
 
 	// Validate inbound message before invoking handler
@@ -183,7 +210,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		return s.sendReject(ttlValidationRejectReason(err))
+		return s.refuse(msgSubmit, ttlValidationRejectReason(err))
 	}
 	if s.config.Authenticator == nil {
 		return errors.New("dmq: message authenticator not configured")
@@ -200,16 +227,16 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		return s.sendReject(pcommon.InvalidReason{Message: err.Error()})
+		return s.refuse(msgSubmit, pcommon.InvalidReason{Message: err.Error()})
 	}
 	now := s.now()
 	if err := s.config.TTLValidator.ValidateMessageTTLAt(
 		&msgSubmit.Message,
 		now,
 	); err != nil {
-		return s.sendReject(ttlValidationRejectReason(err))
+		return s.refuse(msgSubmit, ttlValidationRejectReason(err))
 	}
-	reserved, err := s.config.replayState.reserve(
+	token, reserved, err := s.config.replayState.reserve(
 		msgSubmit.Message.ID(),
 		msgSubmit.Message.Payload.ExpiresAt,
 		now,
@@ -218,24 +245,29 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 	)
 	if errors.Is(err, errReplayCacheCapacityExceeded) ||
 		errors.Is(err, errInvalidReplayCacheCapacity) {
-		return s.sendReject(pcommon.OtherReason{Message: err.Error()})
+		return s.refuse(msgSubmit, pcommon.OtherReason{Message: err.Error()})
 	}
 	if err != nil {
-		return s.sendReject(pcommon.InvalidReason{Message: err.Error()})
+		return s.refuse(msgSubmit, pcommon.InvalidReason{Message: err.Error()})
 	}
 	if !reserved {
-		return s.sendReject(pcommon.AlreadyReceivedReason{})
+		return s.refuse(msgSubmit, pcommon.AlreadyReceivedReason{})
 	}
 
-	// Call the user callback function and send Accept/RejectMessage based on result
-	reason := s.config.SubmitMessageFunc(s.callbackContext, &msgSubmit.Message)
-	if reason == nil {
-		acceptMsg := NewMsgAcceptMessage()
-		if err := s.SendMessage(acceptMsg); err != nil {
-			return err
+	// Only an accepted message keeps its ID reserved. A rejected one, such as
+	// a message refused for a full pool or a KES period that has not begun,
+	// must be admissible again when resubmitted. The release is deferred so
+	// that a panicking callback does not strand the ID until it expires, and
+	// is repeated before the rejection is sent so a client that resubmits as
+	// soon as it sees the reply cannot find the ID still reserved.
+	accepted := false
+	defer func() {
+		if !accepted {
+			s.config.replayState.release(msgSubmit.Message.ID(), token)
 		}
-	} else {
-		// Log rejection reason for observability
+	}()
+	reason := s.config.SubmitMessageFunc(s.callbackContext, &msgSubmit.Message)
+	if reason != nil {
 		s.Protocol.Logger().
 			Warn("message rejected by handler",
 				"component", "network",
@@ -244,9 +276,24 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"reason", reason,
 			)
+		s.config.replayState.release(msgSubmit.Message.ID(), token)
 		return s.sendReject(reason)
 	}
-	return nil
+	accepted = true
+	return s.SendMessage(NewMsgAcceptMessage())
+}
+
+// refuse rejects a submission before it reaches SubmitMessageFunc, reporting
+// it to SubmitRefusedFunc first so the refusal is observable by the time the
+// client sees it.
+func (s *Server) refuse(
+	msg *MsgSubmitMessage,
+	reason pcommon.RejectReason,
+) error {
+	if s.config.SubmitRefusedFunc != nil {
+		s.config.SubmitRefusedFunc(s.callbackContext, &msg.Message, reason)
+	}
+	return s.sendReject(reason)
 }
 
 func (s *Server) sendReject(reason pcommon.RejectReason) error {
