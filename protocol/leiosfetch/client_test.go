@@ -92,6 +92,7 @@ func TestRequestSlotRangeResponseLimits(t *testing.T) {
 			w, err := slot.acquireWithRangeLimits(
 				context.Background(),
 				make(chan struct{}),
+				testRangeRequest(),
 				tc.maxReplies,
 				tc.maxBytes,
 			)
@@ -125,6 +126,7 @@ func TestRequestSlotRangeDecodeErrorDoesNotConsumeLimits(t *testing.T) {
 	w, err := slot.acquireWithRangeLimits(
 		context.Background(),
 		make(chan struct{}),
+		testRangeRequest(),
 		2,
 		2*len(wire),
 	)
@@ -169,7 +171,7 @@ func TestClientMessageHandler(t *testing.T) {
 	}{
 		{
 			name:        "Block message",
-			msg:         NewMsgBlock([]byte{0x82, 0x01, 0x02}),
+			msg:         NewMsgBlock(testEndorserBlock(t, 1).raw),
 			expectError: false,
 		},
 		{
@@ -183,13 +185,19 @@ func TestClientMessageHandler(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "NextBlockAndTxsInRange message",
-			msg:         NewMsgNextBlockAndTxsInRange(nil, nil),
+			name: "NextBlockAndTxsInRange message",
+			msg: NewMsgNextBlockAndTxsInRange(
+				testEndorserBlock(t, 1).raw,
+				testEndorserBlock(t, 1).txs,
+			),
 			expectError: false,
 		},
 		{
-			name:        "LastBlockAndTxsInRange message",
-			msg:         NewMsgLastBlockAndTxsInRange(nil, nil),
+			name: "LastBlockAndTxsInRange message",
+			msg: NewMsgLastBlockAndTxsInRange(
+				testEndorserBlock(t, 1).raw,
+				testEndorserBlock(t, 1).txs,
+			),
 			expectError: false,
 		},
 	}
@@ -206,7 +214,9 @@ func TestClientMessageHandler(t *testing.T) {
 			case MessageTypeBlock, MessageTypeBlockTxs,
 				MessageTypeVotes, MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
 				w, err := client.blockRequestSlot.acquire(
-					context.Background(), client.DoneChan(),
+					context.Background(),
+					client.DoneChan(),
+					requestFor(t, tc.msg),
 				)
 				require.NoError(t, err)
 				deliverCh = w
@@ -261,15 +271,19 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
 
 	// Request A acquires the slot and registers its delivery channel.
-	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
+	)
 	require.NoError(t, err)
 
 	// A's response arrives: delivered to wA and the slot is freed.
-	msgA := NewMsgBlock([]byte{0xaa, 0xbb})
-	require.True(t, client.blockRequestSlot.deliver(msgA, true))
+	msgA := NewMsgBlock(testEndorserBlock(t, 1).raw)
+	requireDelivered(t, &client.blockRequestSlot, msgA)
 
 	// Request B acquires the now-free slot and registers its own channel.
-	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
+	wB, err := client.blockRequestSlot.acquire(
+		context.Background(), client.DoneChan(), testBlockRequest(t, 2),
+	)
 	require.NoError(t, err)
 
 	// A's late context cancellation abandons using A's own channel. B owns the
@@ -277,19 +291,15 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	client.blockRequestSlot.abandon(wA)
 
 	// B's response must be delivered to B (not dropped).
-	msgB := NewMsgBlock([]byte{0xcc, 0xdd})
-	require.True(
-		t,
-		client.blockRequestSlot.deliver(msgB, true),
-		"B's response was dropped: abandon(wA) erased B's waiter",
-	)
+	msgB := NewMsgBlock(testEndorserBlock(t, 2).raw)
+	requireDelivered(t, &client.blockRequestSlot, msgB)
 
 	// B receives its own payload, not A's.
 	select {
 	case got := <-wB:
 		gotBlock, ok := got.(*MsgBlock)
 		require.True(t, ok)
-		assert.Equal(t, []byte{0xcc, 0xdd}, []byte(gotBlock.BlockRaw))
+		assert.Equal(t, testEndorserBlock(t, 2).raw, []byte(gotBlock.BlockRaw))
 	case <-time.After(time.Second):
 		t.Fatal("request B did not receive its response")
 	}
@@ -299,7 +309,7 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 	case got := <-wA:
 		gotBlock, ok := got.(*MsgBlock)
 		require.True(t, ok)
-		assert.Equal(t, []byte{0xaa, 0xbb}, []byte(gotBlock.BlockRaw))
+		assert.Equal(t, testEndorserBlock(t, 1).raw, []byte(gotBlock.BlockRaw))
 	case <-time.After(time.Second):
 		t.Fatal("request A's buffered response went missing")
 	}
@@ -312,7 +322,9 @@ func TestRequestSlotAbandonAfterDeliverKeepsNextWaiter(t *testing.T) {
 // ErrRequestSlotAbandoned entirely.
 func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
-	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
+	)
 	require.NoError(t, err)
 
 	bWaiting := make(chan struct{})
@@ -326,7 +338,9 @@ func TestRequestSlotAbandonWakesExistingAcquirer(t *testing.T) {
 	)
 	defer cancelB()
 	go func() {
-		_, err := client.blockRequestSlot.acquire(ctxB, client.DoneChan())
+		_, err := client.blockRequestSlot.acquire(
+			ctxB, client.DoneChan(), testBlockRequest(t, 1),
+		)
 		bResult <- err
 	}()
 	<-bWaiting
@@ -346,28 +360,32 @@ func TestRequestSlotReleaseAfterReacquireKeepsNextWaiter(t *testing.T) {
 	}
 	client := NewClient(protocol.ProtocolOptions{ConnectionId: connId}, nil)
 
-	wA, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
+	wA, err := client.blockRequestSlot.acquire(
+		context.Background(), client.DoneChan(), testBlockRequest(t, 1),
+	)
 	require.NoError(t, err)
 	// Free the slot via a delivery, then reacquire for request B.
-	require.True(t, client.blockRequestSlot.deliver(NewMsgBlock([]byte{0x01}), true))
+	requireDelivered(
+		t,
+		&client.blockRequestSlot,
+		NewMsgBlock(testEndorserBlock(t, 1).raw),
+	)
 	<-wA
-	wB, err := client.blockRequestSlot.acquire(context.Background(), client.DoneChan())
+	wB, err := client.blockRequestSlot.acquire(
+		context.Background(), client.DoneChan(), testBlockRequest(t, 2),
+	)
 	require.NoError(t, err)
 
 	// A stale release using A's channel must not touch B's registration.
 	client.blockRequestSlot.release(wA)
 
-	msgB := NewMsgBlock([]byte{0x02})
-	require.True(
-		t,
-		client.blockRequestSlot.deliver(msgB, true),
-		"B's response was dropped: release(wA) erased B's waiter",
-	)
+	msgB := NewMsgBlock(testEndorserBlock(t, 2).raw)
+	requireDelivered(t, &client.blockRequestSlot, msgB)
 	select {
 	case got := <-wB:
 		gotBlock, ok := got.(*MsgBlock)
 		require.True(t, ok)
-		assert.Equal(t, []byte{0x02}, []byte(gotBlock.BlockRaw))
+		assert.Equal(t, testEndorserBlock(t, 2).raw, []byte(gotBlock.BlockRaw))
 	case <-time.After(time.Second):
 		t.Fatal("request B did not receive its response")
 	}

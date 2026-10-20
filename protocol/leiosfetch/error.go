@@ -65,3 +65,10 @@ var ErrVoteRequestTooLarge = errors.New(
 var ErrInvalidBlockTxsBitmaps = errors.New(
 	"leios-fetch block transactions request has an invalid bitmap",
 )
+
+// ErrUnexpectedResponse signals that a reply had the message type its state
+// allows but does not describe the request that is waiting for it. The client
+// fails the connection rather than delivering the reply.
+var ErrUnexpectedResponse = errors.New(
+	"leios-fetch response does not match the active request",
+)
