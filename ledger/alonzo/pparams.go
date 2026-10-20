@@ -33,6 +33,7 @@ const (
 	PlutusV1Key uint = 0
 	PlutusV2Key uint = 1
 	PlutusV3Key uint = 2
+	PlutusV4Key uint = 3
 )
 
 // Expected parameter counts for validation
