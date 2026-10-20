@@ -28,6 +28,7 @@ linters:
     - perfsprint
     - prealloc
     - protogetter
+    - recvcheck
     - reassign
     - rowserrcheck
     - spancheck
@@ -40,7 +41,31 @@ linters:
   disable:
     - depguard
     - noctx
-    - recvcheck
+  settings:
+    recvcheck:
+      # Codec methods follow the encoding/json convention: Marshal* may use a
+      # value receiver while Unmarshal* must use a pointer receiver. A
+      # MarshalJSON on a pointer receiver would be skipped by json.Marshal for
+      # non-addressable values, which would emit raw struct fields instead.
+      exclusions:
+        - "*.MarshalJSON"
+        - "*.MarshalCBOR"
+        - "*.UnmarshalCBOR"
+        - "*.UnmarshalJSON"
+        - "*.MarshalText"
+        - "*.UnmarshalText"
+        # Embedded by value so Cbor is promoted to value receivers; the
+        # setters must mutate the embedded state.
+        - "DecodeStoreCbor.Cbor"
+        # Nil-tolerant accessors on *Address coexist with value accessors.
+        - "Address.StakeCredential"
+        - "Address.RewardAccountCredential"
+        - "Address.populateFromBytes"
+        # In-place decode helpers called from the pointer UnmarshalCBOR.
+        - "AddressPayloadPointer.decode"
+        - "ShelleyTransactionInput.unmarshalCBORFields"
+        # Validate rejects a nil receiver.
+        - "UpdateCommitteeGovAction.Validate"
   exclusions:
     generated: lax
     presets:

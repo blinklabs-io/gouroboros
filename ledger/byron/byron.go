@@ -681,7 +681,7 @@ func (t *ByronTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (ByronTransaction) Type() int {
+func (*ByronTransaction) Type() int {
 	return TxTypeByron
 }
 
@@ -1858,7 +1858,7 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (ByronMainBlock) Type() int {
+func (*ByronMainBlock) Type() int {
 	return BlockTypeByronMain
 }
 
@@ -2178,7 +2178,7 @@ func (b *ByronEpochBoundaryBlock) BodyCbor() []byte {
 	return []byte(parts[1])
 }
 
-func (ByronEpochBoundaryBlock) Type() int {
+func (*ByronEpochBoundaryBlock) Type() int {
 	return BlockTypeByronEbb
 }
 

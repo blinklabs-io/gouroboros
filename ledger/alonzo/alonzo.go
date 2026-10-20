@@ -187,7 +187,7 @@ func (b *AlonzoBlock) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(&temp)
 }
 
-func (AlonzoBlock) Type() int {
+func (*AlonzoBlock) Type() int {
 	return BlockTypeAlonzo
 }
 
@@ -1021,11 +1021,11 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *AlonzoTransaction) Metadata() common.TransactionMetadatum {
+func (t AlonzoTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *AlonzoTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t AlonzoTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -1211,7 +1211,7 @@ func (t *AlonzoTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *AlonzoTransaction) Cbor() []byte {
+func (t AlonzoTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {
@@ -1229,7 +1229,7 @@ func (t *AlonzoTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t AlonzoTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Alonzo transaction: %w", err)

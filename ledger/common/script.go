@@ -902,7 +902,7 @@ type NativeScript struct {
 
 func (NativeScript) isScript() {}
 
-func (n *NativeScript) Item() any {
+func (n NativeScript) Item() any {
 	return n.item
 }
 
@@ -1257,7 +1257,7 @@ type NativeScriptRequireGuard struct {
 //   - validityStart: The transaction's validity start slot (0 if not set)
 //   - validityEnd: The transaction's validity end slot (math.MaxUint64 if not set)
 //   - keyHashes: Set of key hashes from VKey witnesses in the transaction
-func (n *NativeScript) Evaluate(
+func (n NativeScript) Evaluate(
 	slot uint64,
 	validityStart, validityEnd uint64,
 	keyHashes map[Blake2b224]bool,
@@ -1269,7 +1269,7 @@ func (n *NativeScript) Evaluate(
 	})
 }
 
-func (n *NativeScript) EvaluateWithGuards(
+func (n NativeScript) EvaluateWithGuards(
 	slot uint64,
 	validityStart, validityEnd uint64,
 	keyHashes map[Blake2b224]bool,
@@ -1306,7 +1306,7 @@ func newCredentialSet(credentials []Credential) map[credentialKey]bool {
 	return ret
 }
 
-func (n *NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
+func (n NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 	if n.item == nil {
 		return false
 	}

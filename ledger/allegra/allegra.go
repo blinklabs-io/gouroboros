@@ -122,7 +122,7 @@ func (b *AllegraBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (AllegraBlock) Type() int {
+func (*AllegraBlock) Type() int {
 	return BlockTypeAllegra
 }
 
@@ -512,11 +512,11 @@ func (t AllegraTransaction) Donation() *big.Int {
 	return t.Body.Donation()
 }
 
-func (t *AllegraTransaction) Metadata() common.TransactionMetadatum {
+func (t AllegraTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *AllegraTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t AllegraTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -584,7 +584,7 @@ func (t *AllegraTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *AllegraTransaction) Cbor() []byte {
+func (t AllegraTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {

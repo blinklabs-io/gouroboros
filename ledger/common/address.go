@@ -732,7 +732,7 @@ func (a *Address) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(addrBytes)
 }
 
-func (a *Address) ToPlutusData() data.PlutusData {
+func (a Address) ToPlutusData() data.PlutusData {
 	if a.addressType == AddressTypeByron {
 		// There is no PlutusData representation for Byron addresses
 		return nil
@@ -872,7 +872,7 @@ func (a Address) PaymentAddress() *Address {
 }
 
 // PaymentKeyHash returns a new Blake2b224 hash of the payment key
-func (a *Address) PaymentKeyHash() Blake2b224 {
+func (a Address) PaymentKeyHash() Blake2b224 {
 	if a.paymentPayload == nil {
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})
@@ -889,7 +889,7 @@ func (a *Address) PaymentKeyHash() Blake2b224 {
 }
 
 // PaymentPayload returns the payment payload
-func (a *Address) PayloadPayload() AddressPayload {
+func (a Address) PayloadPayload() AddressPayload {
 	return a.paymentPayload
 }
 
@@ -916,7 +916,7 @@ func (a Address) StakeAddress() *Address {
 }
 
 // StakeKeyHash returns a new Blake2b224 hash of the stake key
-func (a *Address) StakeKeyHash() Blake2b224 {
+func (a Address) StakeKeyHash() Blake2b224 {
 	if a.stakingPayload == nil {
 		// Return empty hash
 		return Blake2b224([AddressHashSize]byte{})
@@ -933,7 +933,7 @@ func (a *Address) StakeKeyHash() Blake2b224 {
 }
 
 // StakingPayload returns the staking payload
-func (a *Address) StakingPayload() AddressPayload {
+func (a Address) StakingPayload() AddressPayload {
 	return a.stakingPayload
 }
 
@@ -1036,7 +1036,7 @@ func ValidateWithdrawalAddresses[T any](withdrawals map[*Address]T) error {
 	return nil
 }
 
-func (a *Address) ByronAttr() ByronAddressAttributes {
+func (a Address) ByronAttr() ByronAddressAttributes {
 	return a.byronAddressAttr
 }
 
@@ -1424,7 +1424,7 @@ func (a *AddressPayloadPointer) decode(data []byte) (int, string, error) {
 	return offset, outOfRange, nil
 }
 
-func (a *AddressPayloadPointer) encode() []byte {
+func (a AddressPayloadPointer) encode() []byte {
 	writeVarUint := func(dst []byte, val uint64) int {
 		var tmp [10]byte
 		i := len(tmp) - 1

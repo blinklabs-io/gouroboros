@@ -81,13 +81,13 @@ type NetworkConfig struct {
 }
 
 // ActiveSlotCoeffRat returns the active slot coefficient as a *big.Rat.
-func (c *NetworkConfig) ActiveSlotCoeffRat() *big.Rat {
+func (c NetworkConfig) ActiveSlotCoeffRat() *big.Rat {
 	return c.ActiveSlotCoeff.Rat
 }
 
 // SlotDuration returns the slot length as a time.Duration.
 // It returns zero when called on a NetworkConfig that did not pass validation.
-func (c *NetworkConfig) SlotDuration() time.Duration {
+func (c NetworkConfig) SlotDuration() time.Duration {
 	duration, _ := slotDuration(c.SlotLength.Rat)
 	return duration
 }

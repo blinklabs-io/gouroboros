@@ -411,7 +411,7 @@ func defaultDijkstraPerasIntervals(
 	return healingFactor, safetyMargin
 }
 
-func (p DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
+func (p *DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 	return dijkstraProtocolParametersCbor{
 		MinFeeA:                          p.MinFeeA,
 		MinFeeB:                          p.MinFeeB,
@@ -942,7 +942,7 @@ func validateLeiosGenesisOnlyParameters(
 	return nil
 }
 
-func (u *DijkstraProtocolParameterUpdate) hasUpdate() bool {
+func (u DijkstraProtocolParameterUpdate) hasUpdate() bool {
 	return u.MinFeeA != nil ||
 		u.MinFeeB != nil ||
 		u.MaxBlockBodySize != nil ||
@@ -1276,7 +1276,7 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	return data.NewMap(tmpPairs)
 }
 
-func (u *DijkstraProtocolParameterUpdate) conwayUpdate() *conway.ConwayProtocolParameterUpdate {
+func (u DijkstraProtocolParameterUpdate) conwayUpdate() *conway.ConwayProtocolParameterUpdate {
 	return &conway.ConwayProtocolParameterUpdate{
 		MinFeeA:                    u.MinFeeA,
 		MinFeeB:                    u.MinFeeB,

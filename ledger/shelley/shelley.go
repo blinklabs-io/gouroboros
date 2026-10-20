@@ -132,7 +132,7 @@ func (b *ShelleyBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (ShelleyBlock) Type() int {
+func (*ShelleyBlock) Type() int {
 	return BlockTypeShelley
 }
 
@@ -1015,11 +1015,11 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *ShelleyTransaction) Metadata() common.TransactionMetadatum {
+func (t ShelleyTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *ShelleyTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t ShelleyTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -1162,7 +1162,7 @@ func (t ShelleyTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	return tx, nil
 }
 
-func (t *ShelleyTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
+func (t ShelleyTransaction) ProtocolParameterUpdates() (uint64, map[common.Blake2b224]common.ProtocolParameterUpdate) {
 	return t.Body.ProtocolParameterUpdates()
 }
 
@@ -1185,7 +1185,7 @@ func (t *ShelleyTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *ShelleyTransaction) Cbor() []byte {
+func (t ShelleyTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {

@@ -190,7 +190,7 @@ func (b *ConwayBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (ConwayBlock) Type() int {
+func (*ConwayBlock) Type() int {
 	return BlockTypeConway
 }
 
@@ -1162,11 +1162,11 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *ConwayTransaction) Metadata() common.TransactionMetadatum {
+func (t ConwayTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t ConwayTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -1375,7 +1375,7 @@ func (t *ConwayTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *ConwayTransaction) Cbor() []byte {
+func (t ConwayTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {
@@ -1393,7 +1393,7 @@ func (t *ConwayTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t ConwayTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Conway transaction: %w", err)

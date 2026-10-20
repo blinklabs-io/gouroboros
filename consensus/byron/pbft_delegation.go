@@ -136,7 +136,7 @@ func NewPBFTDelegationState(
 
 // ActiveDelegations returns an independent copy of the current mapping from
 // genesis verification-key hashes to active block-signing delegate hashes.
-func (s PBFTDelegationState) ActiveDelegations() map[common.Blake2b224]common.Blake2b224 {
+func (s *PBFTDelegationState) ActiveDelegations() map[common.Blake2b224]common.Blake2b224 {
 	ret := make(
 		map[common.Blake2b224]common.Blake2b224,
 		len(s.activeDelegations),
@@ -149,7 +149,7 @@ func (s PBFTDelegationState) ActiveDelegations() map[common.Blake2b224]common.Bl
 
 // Tick activates all scheduled delegations due at currentSlot and prunes
 // schedules and epoch duplicate records that can no longer affect the ledger.
-func (s PBFTDelegationState) Tick(
+func (s *PBFTDelegationState) Tick(
 	currentEpoch uint64,
 	currentSlot uint64,
 ) PBFTDelegationState {
@@ -189,7 +189,7 @@ func (s PBFTDelegationState) Tick(
 // does not have that limitation. This method is kept so existing callers
 // holding a ByronMainBlockBody.DlgPayload keep compiling while they
 // migrate; it behaves exactly as it did before ApplyPayloadCbor existed.
-func (s PBFTDelegationState) ApplyPayload(
+func (s *PBFTDelegationState) ApplyPayload(
 	currentEpoch uint64,
 	currentSlot uint64,
 	payload []any,
@@ -217,7 +217,7 @@ func (s PBFTDelegationState) ApplyPayload(
 // field's wire encoding -- see byron.DelegationCertificate.EpochCbor. Call
 // it with byron.ByronMainBlockBody.DlgPayloadCbor decoded into
 // []cbor.RawMessage.
-func (s PBFTDelegationState) ApplyPayloadCbor(
+func (s *PBFTDelegationState) ApplyPayloadCbor(
 	currentEpoch uint64,
 	currentSlot uint64,
 	payload []cbor.RawMessage,
@@ -239,7 +239,7 @@ func (s PBFTDelegationState) ApplyPayloadCbor(
 	return next.Tick(currentEpoch, currentSlot), nil
 }
 
-func (s PBFTDelegationState) clone() PBFTDelegationState {
+func (s *PBFTDelegationState) clone() PBFTDelegationState {
 	next := PBFTDelegationState{
 		activeDelegations: make(
 			map[common.Blake2b224]common.Blake2b224,
@@ -367,7 +367,7 @@ func (s *PBFTDelegationState) activate(
 	s.delegationSlots[delegation.delegator] = delegation.activationSlot
 }
 
-func (s PBFTDelegationState) delegateIsActiveForOther(
+func (s *PBFTDelegationState) delegateIsActiveForOther(
 	delegator common.Blake2b224,
 	delegate common.Blake2b224,
 ) bool {

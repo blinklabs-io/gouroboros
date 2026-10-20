@@ -168,7 +168,7 @@ func (b *BabbageBlock) MarshalCBOR() ([]byte, error) {
 	})
 }
 
-func (BabbageBlock) Type() int {
+func (*BabbageBlock) Type() int {
 	return BlockTypeBabbage
 }
 
@@ -1315,11 +1315,11 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-func (t *BabbageTransaction) Metadata() common.TransactionMetadatum {
+func (t BabbageTransaction) Metadata() common.TransactionMetadatum {
 	return t.TxMetadata
 }
 
-func (t *BabbageTransaction) AuxiliaryData() common.AuxiliaryData {
+func (t BabbageTransaction) AuxiliaryData() common.AuxiliaryData {
 	return t.auxData
 }
 
@@ -1522,7 +1522,7 @@ func (t *BabbageTransaction) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpObj)
 }
 
-func (t *BabbageTransaction) Cbor() []byte {
+func (t BabbageTransaction) Cbor() []byte {
 	// Return stored CBOR if we have any
 	cborData := t.DecodeStoreCbor.Cbor()
 	if cborData != nil {
@@ -1540,7 +1540,7 @@ func (t *BabbageTransaction) Cbor() []byte {
 	return cborData
 }
 
-func (t *BabbageTransaction) Utxorpc() (*utxorpc.Tx, error) {
+func (t BabbageTransaction) Utxorpc() (*utxorpc.Tx, error) {
 	tx, err := common.TransactionToUtxorpc(t)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert Babbage transaction: %w", err)
