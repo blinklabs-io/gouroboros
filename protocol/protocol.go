@@ -111,6 +111,12 @@ type Protocol struct {
 	currentState             State
 	currentStateGeneration   uint64
 	peerAgencyReserved       bool
+	// pipelinedTypeGenerations maps each peer message type that a local-agency
+	// state accepts as peer-pipelined to the last generation at which such a
+	// state was entered. A message that waited out a whole round trip uses it
+	// to prove that it was pipelined legally, since the admission poll can
+	// miss the short local-agency state entirely.
+	pipelinedTypeGenerations map[uint]uint64
 	// pipelinedDequeueHook, when non-nil, is invoked by sendLoop immediately
 	// after dequeuing a message through the pipelined-send path, before the
 	// state re-check that decides eligibility or promotion (see
@@ -1509,8 +1515,16 @@ func (p *Protocol) reserveInboundAdmission(
 		continuesPeerAgency := initialStateKnown &&
 			generation == initialGeneration+1 &&
 			p.agencyHolderFor(initialEntry) == agencyPeer
+		// A message that queued behind an earlier one while the peer held
+		// agency may be pipelined behind it. Once that earlier message's
+		// round trip passes through a local-agency state declaring the type,
+		// the message would have been admitted there, so it carries over to
+		// the peer-agency state the round trip ends in.
+		pipelinedAcrossRoundTrip := p.pipelinedTypeGenerations[messageType] >
+			initialGeneration
 		if generation != initialGeneration &&
 			!continuesPeerAgency &&
+			!pipelinedAcrossRoundTrip &&
 			!hadUnreservedPipelinedRequest {
 			return state, inboundAdmission{}, inboundAdmissionDenied
 		}
@@ -2164,6 +2178,12 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		skipTimeout := false
 		switch p.agencyHolderFor(p.config.StateMap[s]) {
 		case agencyLocal:
+			for _, msgType := range p.config.StateMap[s].PipelinedMessageTypes {
+				if p.pipelinedTypeGenerations == nil {
+					p.pipelinedTypeGenerations = make(map[uint]uint64)
+				}
+				p.pipelinedTypeGenerations[uint(msgType)] = p.currentStateGeneration
+			}
 			select {
 			case p.sendReadyChan <- true:
 			default:
