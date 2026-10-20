@@ -44,8 +44,11 @@ linters:
   settings:
     recvcheck:
       # Codec methods follow the encoding/json convention: Marshal* may use a
-      # value receiver while Unmarshal* must use a pointer receiver.
+      # value receiver while Unmarshal* must use a pointer receiver. A
+      # MarshalJSON on a pointer receiver would be skipped by json.Marshal for
+      # non-addressable values, which would emit raw struct fields instead.
       exclusions:
+        - "*.MarshalJSON"
         - "*.MarshalCBOR"
         - "*.UnmarshalCBOR"
         - "*.UnmarshalJSON"
