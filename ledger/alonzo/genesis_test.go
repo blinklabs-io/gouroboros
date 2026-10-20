@@ -15,8 +15,10 @@
 package alonzo_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"math/big"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -719,4 +721,44 @@ func legacyCostModelParamNamesForTest(paramNames []string) []string {
 		}
 	}
 	return ret
+}
+
+func TestGenesisExtraConfigCostModels(t *testing.T) {
+	genesis, err := alonzo.NewAlonzoGenesisFromFile(
+		"testdata/alonzo-genesis-extra-config.json",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, genesis.ExtraConfig)
+	models := genesis.ExtraConfig.CostModels
+	require.Len(t, models["PlutusV1"], 332)
+	require.Len(t, models["PlutusV2"], 332)
+	require.Len(t, models["PlutusV3"], 350)
+}
+
+func TestGenesisExtraConfigAbsent(t *testing.T) {
+	genesis, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisConfig),
+	)
+	require.NoError(t, err)
+	require.Nil(t, genesis.ExtraConfig)
+}
+
+func TestGenesisExtraConfigRejectsUnknownFields(t *testing.T) {
+	raw := map[string]json.RawMessage{}
+	data, err := os.ReadFile("testdata/alonzo-genesis-extra-config.json")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &raw))
+
+	raw["extraConfig"] = json.RawMessage(`{"costModels":{},"bogus":1}`)
+	nested, err := json.Marshal(raw)
+	require.NoError(t, err)
+	_, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(nested))
+	require.ErrorContains(t, err, `unknown field "bogus"`)
+
+	raw["extraConfig"] = json.RawMessage(`{}`)
+	raw["bogusTopLevel"] = json.RawMessage(`1`)
+	top, err := json.Marshal(raw)
+	require.NoError(t, err)
+	_, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(top))
+	require.ErrorContains(t, err, `unknown field "bogusTopLevel"`)
 }

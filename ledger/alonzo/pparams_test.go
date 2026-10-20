@@ -1303,3 +1303,125 @@ func TestAlonzoUpdateFromGenesis_CostModelsNotAliased(t *testing.T) {
 	v1[1] = -1
 	assert.Equal(t, int64(2), live[1])
 }
+
+func TestAlonzoUpdateFromGenesisAppliesExtraConfigCostModels(t *testing.T) {
+	t.Parallel()
+	genesis, err := alonzo.NewAlonzoGenesisFromFile(
+		"testdata/alonzo-genesis-extra-config.json",
+	)
+	require.NoError(t, err)
+	// Make the top-level model distinguishable from the injected one.
+	genesis.CostModels["PlutusV1"] = make([]int64, 166)
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	extra := genesis.ExtraConfig.CostModels
+	require.Equal(t, extra["PlutusV1"], params.CostModels[alonzo.PlutusV1Key])
+	require.Equal(t, extra["PlutusV2"], params.CostModels[alonzo.PlutusV2Key])
+	require.Equal(t, extra["PlutusV3"], params.CostModels[alonzo.PlutusV3Key])
+}
+
+func distinctCostModel(n int, base int64) []int64 {
+	model := make([]int64, n)
+	for i := range model {
+		model[i] = base + int64(i)
+	}
+	return model
+}
+
+func TestAlonzoUpdateFromGenesisExtraConfigKeepsOtherLanguages(t *testing.T) {
+	t.Parallel()
+	genesis := &alonzo.AlonzoGenesis{
+		CostModels: alonzo.AlonzoGenesisCostModels{
+			"PlutusV1": distinctCostModel(166, 1000),
+			"PlutusV2": distinctCostModel(175, 2000),
+		},
+		ExtraConfig: &alonzo.AlonzoGenesisExtraConfig{
+			CostModels: alonzo.AlonzoGenesisCostModels{
+				"PlutusV2": distinctCostModel(175, 3000),
+			},
+		},
+	}
+	var params alonzo.AlonzoProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(genesis))
+	require.Equal(
+		t,
+		distinctCostModel(166, 1000),
+		params.CostModels[alonzo.PlutusV1Key],
+	)
+	require.Equal(
+		t,
+		distinctCostModel(175, 3000),
+		params.CostModels[alonzo.PlutusV2Key],
+	)
+}
+
+func TestAlonzoUpdateFromGenesisRejectsShortExtraConfigModel(t *testing.T) {
+	t.Parallel()
+	genesis := &alonzo.AlonzoGenesis{
+		CostModels: alonzo.AlonzoGenesisCostModels{
+			"PlutusV1": distinctCostModel(166, 1000),
+		},
+		ExtraConfig: &alonzo.AlonzoGenesisExtraConfig{
+			CostModels: alonzo.AlonzoGenesisCostModels{
+				"PlutusV1": distinctCostModel(165, 3000),
+			},
+		},
+	}
+	var params alonzo.AlonzoProtocolParameters
+	err := params.UpdateFromGenesis(genesis)
+	require.ErrorContains(t, err, "insufficient param count for PlutusV1: 165")
+}
+
+func TestAlonzoGenesisApplyExtraConfigCostModels(t *testing.T) {
+	t.Parallel()
+	extraV3 := distinctCostModel(350, 5000)
+	genesis := &alonzo.AlonzoGenesis{
+		ExtraConfig: &alonzo.AlonzoGenesisExtraConfig{
+			CostModels: alonzo.AlonzoGenesisCostModels{"PlutusV3": extraV3},
+		},
+	}
+
+	// A later era's own model is replaced; other languages are kept.
+	models := map[uint][]int64{
+		alonzo.PlutusV1Key: distinctCostModel(166, 1000),
+		alonzo.PlutusV3Key: distinctCostModel(187, 2000),
+	}
+	got, err := genesis.ApplyExtraConfigCostModels(models)
+	require.NoError(t, err)
+	require.Equal(t, extraV3, got[alonzo.PlutusV3Key])
+	require.Equal(t, distinctCostModel(166, 1000), got[alonzo.PlutusV1Key])
+
+	// The injected model is copied, not aliased.
+	live, ok := got[alonzo.PlutusV3Key]
+	if !ok || len(live) == 0 {
+		t.Fatal("expected an injected PlutusV3 model")
+	}
+	live[0] = -1
+	require.Equal(t, int64(5000), extraV3[0])
+
+	// A nil map is allocated when there is something to inject.
+	got, err = genesis.ApplyExtraConfigCostModels(nil)
+	require.NoError(t, err)
+	require.Equal(t, extraV3, got[alonzo.PlutusV3Key])
+
+	// Without extraConfig the models come back unchanged.
+	got, err = (&alonzo.AlonzoGenesis{}).ApplyExtraConfigCostModels(models)
+	require.NoError(t, err)
+	require.Equal(t, models, got)
+
+	// A short model is rejected and nothing is applied.
+	short := &alonzo.AlonzoGenesis{
+		ExtraConfig: &alonzo.AlonzoGenesisExtraConfig{
+			CostModels: alonzo.AlonzoGenesisCostModels{
+				"PlutusV1": distinctCostModel(165, 1),
+				"PlutusV3": extraV3,
+			},
+		},
+	}
+	unchanged := map[uint][]int64{
+		alonzo.PlutusV3Key: distinctCostModel(187, 2000),
+	}
+	_, err = short.ApplyExtraConfigCostModels(unchanged)
+	require.ErrorContains(t, err, "insufficient param count for PlutusV1: 165")
+	require.Equal(t, distinctCostModel(187, 2000), unchanged[alonzo.PlutusV3Key])
+}

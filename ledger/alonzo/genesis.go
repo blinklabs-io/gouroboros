@@ -35,6 +35,24 @@ type AlonzoGenesis struct {
 	MaxTxExUnits         AlonzoGenesisExUnits         `json:"maxTxExUnits"`
 	MaxBlockExUnits      AlonzoGenesisExUnits         `json:"maxBlockExUnits"`
 	CostModels           AlonzoGenesisCostModels      `json:"costModels"`
+
+	// ExtraConfig is the optional extraConfig object of the genesis file. It
+	// is nil when the file has none. A consumer building protocol parameters
+	// must let ExtraConfig.CostModels override the cost models derived from
+	// the genesis (including the models of later eras) once the era
+	// transition has been applied. AlonzoProtocolParameters.UpdateFromGenesis
+	// does this for the Alonzo parameters; a consumer that derives later-era
+	// models afterwards re-applies the overlay with ApplyExtraConfigCostModels.
+	ExtraConfig *AlonzoGenesisExtraConfig `json:"extraConfig,omitempty"`
+}
+
+// AlonzoGenesisExtraConfig mirrors AlonzoExtraConfig in the ledger. Its cost
+// models replace, per language, the cost models translated from the genesis
+// files, so a test network can carry full-length PlutusV1, PlutusV2 and
+// PlutusV3 models without an on-chain parameter update. Each model is a list
+// of values or a map keyed by parameter name.
+type AlonzoGenesisExtraConfig struct {
+	CostModels AlonzoGenesisCostModels `json:"costModels"`
 }
 
 type AlonzoGenesisCostModels map[string][]int64
