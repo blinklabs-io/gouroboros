@@ -23,6 +23,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/lang"
@@ -65,42 +66,30 @@ func (c *AlonzoGenesisCostModels) UnmarshalJSON(data []byte) error {
 		default:
 			return errors.New("unknown language version key: " + langKey)
 		}
-		tmpList, err := decodeGenesisCostModel(langVer, data)
-		if err != nil {
-			return err
+		// Try to decode as list first
+		var tmpList []int64
+		if err := json.Unmarshal(data, &tmpList); err == nil {
+			tmpCostModels[langKey] = tmpList
+			continue
+		}
+		// Decode as map
+		tmpMap := make(map[string]int64)
+		if err := json.Unmarshal(data, &tmpMap); err != nil {
+			return fmt.Errorf("decode cost model: %w", err)
+		}
+		paramNames := costModelParamNamesForMap(langVer, tmpMap)
+		for _, param := range paramNames {
+			val, ok := costModelParamValue(tmpMap, param)
+			// Stop processing if a param name is not present
+			if !ok {
+				break
+			}
+			tmpList = append(tmpList, val)
 		}
 		tmpCostModels[langKey] = tmpList
 	}
 	*c = AlonzoGenesisCostModels(tmpCostModels)
 	return nil
-}
-
-// decodeGenesisCostModel decodes one language's cost model, given either as a
-// list of parameters, kept verbatim, or as a map of parameter names.
-func decodeGenesisCostModel(
-	langVer lang.LanguageVersion,
-	data []byte,
-) ([]int64, error) {
-	// Try to decode as list first
-	var tmpList []int64
-	if err := json.Unmarshal(data, &tmpList); err == nil {
-		return tmpList, nil
-	}
-	// Decode as map
-	tmpMap := make(map[string]int64)
-	if err := json.Unmarshal(data, &tmpMap); err != nil {
-		return nil, fmt.Errorf("decode cost model: %w", err)
-	}
-	paramNames := costModelParamNamesForMap(langVer, tmpMap)
-	for _, param := range paramNames {
-		val, ok := costModelParamValue(tmpMap, param)
-		// Stop processing if a param name is not present
-		if !ok {
-			break
-		}
-		tmpList = append(tmpList, val)
-	}
-	return tmpList, nil
 }
 
 // AlonzoGenesisExtraConfig is the extraConfig block of an Alonzo genesis, as
@@ -114,26 +103,91 @@ type AlonzoGenesisExtraConfig struct {
 }
 
 // extraConfigCostModelLanguages are the language names the reference parser
-// reads from extraConfig.costModels.
+// reads from extraConfig.costModels. For the map form it looks up the names
+// of the parameters the language had when it was introduced
+// (costModelInitParamCount: 166, 175, 251 and 251), and PlutusV4 uses the
+// PlutusV3 parameter names.
 var extraConfigCostModelLanguages = []struct {
-	name    string
-	key     uint
-	version lang.LanguageVersion
+	name           string
+	key            uint
+	paramVersion   lang.LanguageVersion
+	initParamCount int
 }{
-	{"PlutusV1", PlutusV1Key, lang.LanguageVersionV1},
-	{"PlutusV2", PlutusV2Key, lang.LanguageVersionV2},
-	{"PlutusV3", PlutusV3Key, lang.LanguageVersionV3},
-	{"PlutusV4", PlutusV4Key, lang.LanguageVersionV4},
+	{"PlutusV1", PlutusV1Key, lang.LanguageVersionV1, 166},
+	{"PlutusV2", PlutusV2Key, lang.LanguageVersionV2, 175},
+	{"PlutusV3", PlutusV3Key, lang.LanguageVersionV3, 251},
+	{"PlutusV4", PlutusV4Key, lang.LanguageVersionV3, 251},
+}
+
+// plutusV1GenesisParamNames are the six PlutusV1 parameter names that genesis
+// files spell differently from the Plutus parameter enumeration. The
+// reference parser looks up the genesis spelling only.
+var plutusV1GenesisParamNames = map[string]string{
+	"blake2b_256-cpu-arguments-intercept":            "blake2b-cpu-arguments-intercept",
+	"blake2b_256-cpu-arguments-slope":                "blake2b-cpu-arguments-slope",
+	"blake2b_256-memory-arguments":                   "blake2b-memory-arguments",
+	"verifyEd25519Signature-cpu-arguments-intercept": "verifySignature-cpu-arguments-intercept",
+	"verifyEd25519Signature-cpu-arguments-slope":     "verifySignature-cpu-arguments-slope",
+	"verifyEd25519Signature-memory-arguments":        "verifySignature-memory-arguments",
+}
+
+// decodeExtraConfigCostModel follows the reference lenient cost model parser.
+// A list is kept as supplied, whatever its length. A map must name every
+// parameter the language was introduced with, in the genesis spelling; its
+// values are taken in parameter order and other names are ignored.
+func decodeExtraConfigCostModel(
+	paramVersion lang.LanguageVersion,
+	initParamCount int,
+	data []byte,
+) ([]int64, error) {
+	var list []int64
+	if err := json.Unmarshal(data, &list); err == nil {
+		return list, nil
+	}
+	var params map[string]int64
+	if err := json.Unmarshal(data, &params); err != nil {
+		return nil, errors.New("expected a list or a map of cost model parameters")
+	}
+	paramNames := lang.GetParamNamesForVersion(paramVersion)
+	if len(paramNames) < initParamCount {
+		return nil, fmt.Errorf(
+			"only %d parameter names known, %d needed",
+			len(paramNames),
+			initParamCount,
+		)
+	}
+	ret := make([]int64, 0, initParamCount)
+	var missing []string
+	for _, name := range paramNames[:initParamCount] {
+		if paramVersion == lang.LanguageVersionV1 {
+			if genesisName, ok := plutusV1GenesisParamNames[name]; ok {
+				name = genesisName
+			}
+		}
+		value, ok := params[name]
+		if !ok {
+			missing = append(missing, name)
+			continue
+		}
+		ret = append(ret, value)
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"parameter names missing from cost model: %s",
+			strings.Join(missing, ", "),
+		)
+	}
+	return ret, nil
 }
 
 const extraConfigUnknownCostModels = "Unknown"
 
 // UnmarshalJSON follows the reference AlonzoExtraConfig parser: it reads only
-// "costModels", and parses it leniently, so a model may have any number of
-// parameters, every Plutus language is accepted, models for languages the
-// node does not know go under "Unknown" keyed by language number, and other
-// keys are ignored. An "Unknown" entry for a known language number replaces
-// the named entry, as in the reference parser.
+// "costModels", and parses it leniently, so a list may have any number of
+// parameters, PlutusV1 to PlutusV4 are accepted, models for other languages
+// go under "Unknown" as lists keyed by language number, and other keys are
+// ignored. An "Unknown" entry for a known language number replaces the named
+// entry, as in the reference parser.
 func (c *AlonzoGenesisExtraConfig) UnmarshalJSON(data []byte) error {
 	var tmp struct {
 		CostModels json.RawMessage `json:"costModels"`
@@ -155,7 +209,11 @@ func (c *AlonzoGenesisExtraConfig) UnmarshalJSON(data []byte) error {
 		if !ok || isJSONNull(modelData) {
 			continue
 		}
-		model, err := decodeGenesisCostModel(language.version, modelData)
+		model, err := decodeExtraConfigCostModel(
+			language.paramVersion,
+			language.initParamCount,
+			modelData,
+		)
 		if err != nil {
 			return fmt.Errorf(
 				"decode extraConfig %s cost model: %w",

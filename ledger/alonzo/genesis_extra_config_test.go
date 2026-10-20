@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/stretchr/testify/require"
 )
 
@@ -228,4 +229,92 @@ func TestAlonzoGenesisExtraConfigJSONRoundTrip(t *testing.T) {
 	var decoded alonzo.AlonzoGenesisExtraConfig
 	require.NoError(t, json.Unmarshal(encoded, &decoded))
 	require.Equal(t, *genesis.ExtraConfig, decoded)
+}
+
+// paramMap names the first count parameters of version in the genesis
+// spelling, with values start, start+1, and so on.
+func paramMap(
+	t *testing.T,
+	version lang.LanguageVersion,
+	count int,
+	start int64,
+) map[string]int64 {
+	t.Helper()
+	names := lang.GetParamNamesForVersion(version)
+	require.GreaterOrEqual(t, len(names), count)
+	legacy := map[string]string{
+		"blake2b_256-cpu-arguments-intercept":            "blake2b-cpu-arguments-intercept",
+		"blake2b_256-cpu-arguments-slope":                "blake2b-cpu-arguments-slope",
+		"blake2b_256-memory-arguments":                   "blake2b-memory-arguments",
+		"verifyEd25519Signature-cpu-arguments-intercept": "verifySignature-cpu-arguments-intercept",
+		"verifyEd25519Signature-cpu-arguments-slope":     "verifySignature-cpu-arguments-slope",
+		"verifyEd25519Signature-memory-arguments":        "verifySignature-memory-arguments",
+	}
+	ret := make(map[string]int64, count)
+	for i, name := range names[:count] {
+		if version == lang.LanguageVersionV1 {
+			if genesisName, ok := legacy[name]; ok {
+				name = genesisName
+			}
+		}
+		ret[name] = start + int64(i)
+	}
+	return ret
+}
+
+// A map-form model is read with the parameter names the language was
+// introduced with (166, 175, 251, and the PlutusV3 names for PlutusV4), in
+// parameter order, and names past them are ignored.
+func TestAlonzoGenesisExtraConfigMapCostModels(t *testing.T) {
+	v1 := paramMap(t, lang.LanguageVersionV1, 166, 1000)
+	v2 := paramMap(t, lang.LanguageVersionV2, 176, 2000)
+	v3 := paramMap(t, lang.LanguageVersionV3, 251, 3000)
+	v4 := paramMap(t, lang.LanguageVersionV3, 251, 4000)
+	v4["notAParameter-cpu-arguments"] = 9
+	extra := fmt.Sprintf(
+		`{"costModels": {"PlutusV1": %s, "PlutusV2": %s, "PlutusV3": %s, "PlutusV4": %s}}`,
+		mustJSON(t, v1),
+		mustJSON(t, v2),
+		mustJSON(t, v3),
+		mustJSON(t, v4),
+	)
+	genesis, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisWithExtraConfig(t, extra)),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, genesis.ExtraConfig)
+	require.Equal(
+		t,
+		map[uint][]int64{
+			alonzo.PlutusV1Key: seqCostModel(1000, 166),
+			alonzo.PlutusV2Key: seqCostModel(2000, 175),
+			alonzo.PlutusV3Key: seqCostModel(3000, 251),
+			alonzo.PlutusV4Key: seqCostModel(4000, 251),
+		},
+		genesis.ExtraConfig.CostModels,
+	)
+}
+
+func TestAlonzoGenesisExtraConfigMapCostModelMissingParameter(t *testing.T) {
+	v2 := paramMap(t, lang.LanguageVersionV2, 175, 2000)
+	delete(v2, lang.GetParamNamesForVersion(lang.LanguageVersionV2)[174])
+	extra := fmt.Sprintf(`{"costModels": {"PlutusV2": %s}}`, mustJSON(t, v2))
+	_, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisWithExtraConfig(t, extra)),
+	)
+	require.ErrorContains(t, err, "parameter names missing from cost model")
+}
+
+// PlutusV1 maps are read with the genesis spelling of the six renamed
+// parameters only.
+func TestAlonzoGenesisExtraConfigMapCostModelPlutusV1Names(t *testing.T) {
+	v1 := paramMap(t, lang.LanguageVersionV1, 166, 1000)
+	value := v1["blake2b-cpu-arguments-intercept"]
+	delete(v1, "blake2b-cpu-arguments-intercept")
+	v1["blake2b_256-cpu-arguments-intercept"] = value
+	extra := fmt.Sprintf(`{"costModels": {"PlutusV1": %s}}`, mustJSON(t, v1))
+	_, err := alonzo.NewAlonzoGenesisFromReader(
+		strings.NewReader(alonzoGenesisWithExtraConfig(t, extra)),
+	)
+	require.ErrorContains(t, err, "blake2b-cpu-arguments-intercept")
 }
