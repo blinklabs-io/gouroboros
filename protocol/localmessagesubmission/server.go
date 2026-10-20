@@ -257,7 +257,9 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 	// Only an accepted message keeps its ID reserved. A rejected one, such as
 	// a message refused for a full pool or a KES period that has not begun,
 	// must be admissible again when resubmitted. The release is deferred so
-	// that a panicking callback does not strand the ID until it expires.
+	// that a panicking callback does not strand the ID until it expires, and
+	// is repeated before the rejection is sent so a client that resubmits as
+	// soon as it sees the reply cannot find the ID still reserved.
 	accepted := false
 	defer func() {
 		if !accepted {
@@ -274,6 +276,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 				"connection_id", s.callbackContext.ConnectionId.String(),
 				"reason", reason,
 			)
+		s.config.replayState.release(msgSubmit.Message.ID(), token)
 		return s.sendReject(reason)
 	}
 	accepted = true
