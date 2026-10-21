@@ -154,7 +154,7 @@ client.Release()
 - **GetStakePoolParams**: Stake pool parameters
 - **GetStakePoolState**: State of the registered stake pools, with the delegators of each pool on request. Only Leios prototype nodes answer it, from node-to-client version 23; released nodes do not know the query and fail it
 - **GetOpCertCounters**: On-chain operational-certificate counters (pool cold-key hash → highest accepted opcert issue number), the counter a synced node enforces
-- **DebugChainDepState**: Full consensus chain-dependent state (opcert counters, last slot, and evolving/candidate/epoch nonces); supports both the Praos (Babbage+) and TPraos (Shelley–Alonzo) serialisations
+- **DebugChainDepState**: Full consensus chain-dependent state (opcert counters, last slot, and evolving/candidate/epoch nonces); supports the Praos (Babbage+), TPraos (Shelley–Alonzo) and Praos2 (Leios) serialisations
 
 ## Notes
 
