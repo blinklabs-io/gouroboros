@@ -15,7 +15,10 @@
 package localstatequery
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
+	"math"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -306,4 +309,252 @@ func TestDebugChainDepStateOpCertCounterLookup(t *testing.T) {
 			assert.Equal(t, tc.wantOk, ok)
 		})
 	}
+}
+
+// praos2Inner builds the state of a Praos2 (Leios) chain-dep state, with the
+// announcement of the endorser block the last applied header carried.
+func praos2Inner(
+	pool ledger.Blake2b224,
+	announcement []any,
+) []any {
+	return []any{
+		slotAt(42),
+		map[ledger.Blake2b224]uint64{pool: 5},
+		nonceHash(hash32(0xaa)), // evolving
+		nonceNeutral,            // candidate
+		nonceHash(hash32(0xbb)), // epoch
+		nonceNeutral,            // previous epoch
+		nonceNeutral,            // lab
+		nonceNeutral,            // last epoch block
+		announcement,
+	}
+}
+
+// TestDebugChainDepStatePraos2 decodes a Praos2 (Leios) chain-dep-state
+// result, which carries the Praos fields plus the announcement of the endorser
+// block the last applied header carried.
+func TestDebugChainDepStatePraos2(t *testing.T) {
+	pool := blake224(t, poolKeyHashHex)
+	issuer := blake224(t, poolKeyHashHex2)
+	ebHash := hash32(0xee)
+	announcement := []any{
+		[]any{issuer, ebHash, 4096},
+	}
+
+	inner := praos2Inner(pool, announcement)
+	wire, err := cbor.Encode([]any{chainDepStateVersionTPraos, inner})
+	require.NoError(t, err, "encode fixture")
+
+	var got DebugChainDepStateResult
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.Equal(t, ChainDepStateProtocolPraos2, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(42), got.LastSlot.Slot)
+
+	v, ok := got.OpCertCounter(pool)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(5), v)
+
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EvolvingNonce.Type)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.CandidateNonce.Type)
+	require.NotNil(t, got.EpochNonce)
+	require.NotNil(t, got.PreviousEpochNonce)
+	require.NotNil(t, got.LabNonce)
+	require.NotNil(t, got.LastEpochBlockNonce)
+
+	require.NotNil(t, got.Announcement)
+	assert.Equal(t, issuer, got.Announcement.Issuer)
+	assert.Equal(t, ebHash, got.Announcement.EbHash[:])
+	assert.Equal(t, uint32(4096), got.Announcement.EbSize)
+}
+
+// TestDebugChainDepStatePraos2WithoutAnnouncement covers the header that
+// carried no announcement: the ledger writes an empty list for it.
+func TestDebugChainDepStatePraos2WithoutAnnouncement(t *testing.T) {
+	pool := blake224(t, poolKeyHashHex)
+
+	inner := praos2Inner(pool, []any{})
+	wire, err := cbor.Encode([]any{chainDepStateVersionTPraos, inner})
+	require.NoError(t, err, "encode fixture")
+
+	var got DebugChainDepStateResult
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.Equal(t, ChainDepStateProtocolPraos2, got.Protocol)
+	assert.Nil(t, got.Announcement)
+}
+
+// TestDebugChainDepStatePraos2Golden pins the exact Praos2 wire bytes so the
+// decoded field mapping cannot silently drift from the ouroboros-consensus
+// layout.
+func TestDebugChainDepStatePraos2Golden(t *testing.T) {
+	// [1, [ [1,1], {hash:1}, [0], [0], [0], [0], [0], [0], [[hash, hash, 0]] ]]
+	//   82 01                          version 1, outer list-2
+	//   89                             inner list-9
+	//     82 01 01                     lastSlot = At 1
+	//     a1 581c <28-byte hash> 01    opcert counters {hash: 1}
+	//     81 00  (x6)                  six neutral nonces
+	//     81 83 581c <28-byte hash>    the announcement
+	//          5820 <32-byte hash> 00
+	wire, err := hex.DecodeString(
+		"820189" +
+			"820101" +
+			"a1581c" + poolKeyHashHex + "01" +
+			"810081008100810081008100" +
+			"8183581c" + poolKeyHashHex2 +
+			"5820" + strings.Repeat("ab", 32) + "00",
+	)
+	require.NoError(t, err, "hex")
+
+	var got DebugChainDepStateResult
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.Equal(t, ChainDepStateProtocolPraos2, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(1), got.LastSlot.Slot)
+
+	v, ok := got.OpCertCounter(blake224(t, poolKeyHashHex))
+	assert.True(t, ok)
+	assert.Equal(t, uint64(1), v)
+
+	require.NotNil(t, got.Announcement)
+	assert.Equal(t, blake224(t, poolKeyHashHex2), got.Announcement.Issuer)
+	assert.Equal(
+		t,
+		strings.Repeat("ab", 32),
+		hex.EncodeToString(got.Announcement.EbHash[:]),
+	)
+	assert.Equal(t, uint32(0), got.Announcement.EbSize)
+}
+
+// TestDebugChainDepStateRejectsUnknownLayout ensures a state whose layout
+// matches no protocol is surfaced as an error rather than silently producing
+// an empty or mislabelled result.
+func TestDebugChainDepStateRejectsUnknownLayout(t *testing.T) {
+	wire, err := cbor.Encode([]any{chainDepStateVersionTPraos, []any{1, 2, 3}})
+	require.NoError(t, err, "encode fixture")
+
+	var got DebugChainDepStateResult
+	_, err = cbor.Decode(wire, &got)
+	require.Error(t, err, "expected decode error for unknown layout")
+}
+
+// TestDebugChainDepStatePraos2RejectsLongAnnouncement keeps the StrictMaybe
+// of the announcement to its two shapes: the ledger writes the empty list or
+// a one-element list, and decodeStrictMaybe rejects any other length.
+func TestDebugChainDepStatePraos2RejectsLongAnnouncement(t *testing.T) {
+	t.Parallel()
+	pool := blake224(t, poolKeyHashHex)
+	issuer := blake224(t, poolKeyHashHex2)
+	entry := []any{issuer, hash32(0xee), 4096}
+	for _, announcement := range [][]any{
+		{entry, entry},
+		{entry, entry, entry},
+	} {
+		wire, err := cbor.Encode(
+			[]any{
+				chainDepStateVersionTPraos,
+				praos2Inner(pool, announcement),
+			},
+		)
+		require.NoError(t, err, "encode fixture")
+		var got DebugChainDepStateResult
+		_, err = cbor.Decode(wire, &got)
+		require.Errorf(
+			t,
+			err,
+			"announcement of %d entries must be rejected",
+			len(announcement),
+		)
+	}
+}
+
+// TestDebugChainDepStatePraos2EbSizeBoundary pins the width of the endorser
+// block size: EbReferencesAnnouncement holds a Word32 (cardano-ledger
+// Cardano.Ledger.Block), so the largest value is 2^32-1.
+func TestDebugChainDepStatePraos2EbSizeBoundary(t *testing.T) {
+	t.Parallel()
+	pool := blake224(t, poolKeyHashHex)
+	issuer := blake224(t, poolKeyHashHex2)
+	decode := func(size uint64) (DebugChainDepStateResult, error) {
+		wire, err := cbor.Encode([]any{
+			chainDepStateVersionTPraos,
+			praos2Inner(pool, []any{[]any{issuer, hash32(0xee), size}}),
+		})
+		require.NoError(t, err, "encode fixture")
+		var got DebugChainDepStateResult
+		_, err = cbor.Decode(wire, &got)
+		return got, err
+	}
+	got, err := decode(math.MaxUint32)
+	require.NoError(t, err)
+	require.NotNil(t, got.Announcement)
+	assert.Equal(t, uint32(math.MaxUint32), got.Announcement.EbSize)
+	_, err = decode(math.MaxUint32 + 1)
+	require.Error(t, err, "a size above Word32 must be rejected")
+}
+
+// chainDepStateDijkstraDiskGolden is the Praos2 chain-dependent state of the
+// last telescope entry of ouroboros-consensus's Dijkstra disk golden, byte for
+// byte, from ouroboros-consensus at commit
+// 840e789b1cd112e161820a20d30d4546f30e6209:
+// ouroboros-consensus-cardano/golden/cardano/disk/ChainDepState_Dijkstra.
+// It is the version-1 wrapper and the nine-field state, with no announcement.
+const chainDepStateDijkstraDiskGolden = "" +
+	"820189820101a2581ca646474b8f5431261506b6c273d307c7569a4eb6c96b42" +
+	"dd4a29520a02581ce0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b04" +
+	"7b082541018201582012dd0a6a7d0e222a97926da03adb5a7768d31cc7c5c2bd" +
+	"6828e14a7d25fa3a608201582012dd0a6a7d0e222a97926da03adb5a7768d31c" +
+	"c7c5c2bd6828e14a7d25fa3a60810081008201582012dd0a6a7d0e222a97926d" +
+	"a03adb5a7768d31cc7c5c2bd6828e14a7d25fa3a608201582012dd0a6a7d0e22" +
+	"2a97926da03adb5a7768d31cc7c5c2bd6828e14a7d25fa3a6080"
+
+// TestDebugChainDepStatePraos2DijkstraDiskGolden decodes the state consensus
+// itself serialised, so the Praos2 layout is the node's rather than this
+// package's idea of it. The result has no encoder, so this is decode-only.
+func TestDebugChainDepStatePraos2DijkstraDiskGolden(t *testing.T) {
+	t.Parallel()
+	wire, err := hex.DecodeString(chainDepStateDijkstraDiskGolden)
+	require.NoError(t, err, "hex")
+	sum := sha256.Sum256(wire)
+	require.Equal(
+		t,
+		"a1e56ebf3518919d0fb62b3baefbb622e8cf985931a4ff014088dd802cfb59a2",
+		hex.EncodeToString(sum[:]),
+		"fixture is not the consensus golden",
+	)
+
+	var got DebugChainDepStateResult
+	_, err = cbor.Decode(wire, &got)
+	require.NoError(t, err, "decode")
+
+	assert.Equal(t, ChainDepStateProtocolPraos2, got.Protocol)
+	assert.True(t, got.LastSlot.HasSlot)
+	assert.Equal(t, uint64(1), got.LastSlot.Slot)
+	require.Len(t, got.OpCertCounters, 2)
+	v, ok := got.OpCertCounter(
+		blake224(t, "a646474b8f5431261506b6c273d307c7569a4eb6c96b42dd4a29520a"),
+	)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(2), v)
+	v, ok = got.OpCertCounter(
+		blake224(t, "e0a714319812c3f773ba04ec5d6b3ffcd5aad85006805b047b082541"),
+	)
+	assert.True(t, ok)
+	assert.Equal(t, uint64(1), v)
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EvolvingNonce.Type)
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.CandidateNonce.Type)
+	require.NotNil(t, got.EpochNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.EpochNonce.Type)
+	require.NotNil(t, got.PreviousEpochNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.PreviousEpochNonce.Type)
+	require.NotNil(t, got.LabNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.LabNonce.Type)
+	require.NotNil(t, got.LastEpochBlockNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.LastEpochBlockNonce.Type)
+	assert.Nil(t, got.Announcement)
 }

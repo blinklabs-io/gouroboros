@@ -41,6 +41,7 @@ var shelleyQueryVersionRanges = map[int]shelleyQueryVersionRange{
 	QueryTypeShelleyStakeDistribution2:            {first: 21},
 	QueryTypeShelleyMaxMajorProtocolVersion:       {first: 21},
 	QueryTypeShelleyDRepDelegations:               {first: 23},
+	QueryTypeShelleyStakePoolState:                {first: 23},
 }
 
 // shelleyQuerySupported reports whether the node-to-client protocol version
@@ -110,6 +111,8 @@ func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
 		return QueryTypeShelleyMaxMajorProtocolVersion, true
 	case *ShelleyDRepDelegationsQuery:
 		return QueryTypeShelleyDRepDelegations, true
+	case *ShelleyStakePoolStateQuery:
+		return QueryTypeShelleyStakePoolState, true
 	}
 	return 0, false
 }

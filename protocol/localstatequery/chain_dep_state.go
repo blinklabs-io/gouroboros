@@ -20,28 +20,46 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // ChainDepStateProtocol identifies which consensus protocol produced a
-// DebugChainDepState result. The two protocols serialise the chain-dependent
-// state with different on-wire layouts, distinguished by a leading version
-// number, so callers can tell which optional fields are populated.
+// DebugChainDepState result. The protocols serialise the chain-dependent
+// state with different on-wire layouts, so callers can tell which optional
+// fields are populated.
 type ChainDepStateProtocol int
 
 const (
-	// ChainDepStateProtocolTPraos is the Transitional Praos protocol used by
-	// the Shelley, Allegra, Mary and Alonzo eras (serialisation version 1).
-	ChainDepStateProtocolTPraos ChainDepStateProtocol = 1
 	// ChainDepStateProtocolPraos is the Praos protocol used by the Babbage
 	// era and later, including Conway (serialisation version 0).
-	ChainDepStateProtocolPraos ChainDepStateProtocol = 0
+	ChainDepStateProtocolPraos ChainDepStateProtocol = iota
+	// ChainDepStateProtocolTPraos is the Transitional Praos protocol used by
+	// the Shelley, Allegra, Mary and Alonzo eras (serialisation version 1).
+	ChainDepStateProtocolTPraos
+	// ChainDepStateProtocolPraos2 is the Praos2 protocol of the Leios
+	// overlay, which adds the endorser block announcement to the Praos
+	// state. It shares its serialisation version with TPraos, so the
+	// values here identify the protocol rather than the version.
+	ChainDepStateProtocolPraos2
 )
 
 // chainDepState serialisation version tags, as emitted by
-// Ouroboros.Consensus.Protocol.{Praos,TPraos} `encodeVersion`.
+// Ouroboros.Consensus.Protocol.{Praos,TPraos,PolyPraos} `encodeVersion`.
+//
+// The protocols' version numbers are separate namespaces: the hard-fork
+// combinator's era index precedes them, so the codec is already chosen when
+// the version is read. Praos2 therefore writes the same version as TPraos,
+// and the two layouts are told apart by the number of fields in the state.
 const (
 	chainDepStateVersionPraos  uint64 = 0
 	chainDepStateVersionTPraos uint64 = 1
+)
+
+// The number of fields in the serialised state of each protocol.
+const (
+	chainDepStateFieldsPraos  = 8
+	chainDepStateFieldsTPraos = 2
+	chainDepStateFieldsPraos2 = 9
 )
 
 // DebugChainDepStateResult is the typed result of a DebugChainDepState query
@@ -55,8 +73,14 @@ const (
 //	Praos  (Babbage+): [0, [lastSlot, opCertCounters, evolvingNonce,
 //	                        candidateNonce, epochNonce, previousEpochNonce,
 //	                        labNonce, lastEpochBlockNonce]]
+//	Praos2 (Leios):     [1, [lastSlot, opCertCounters, evolvingNonce,
+//	                        candidateNonce, epochNonce, previousEpochNonce,
+//	                        labNonce, lastEpochBlockNonce, announcement]]
 //	TPraos (Shelley..Alonzo): [1, [lastSlot,
 //	                        [opCertCounters, evolvingNonce, candidateNonce]]]
+//
+// Praos2 and TPraos write the same version number, so the layout is told
+// apart by the number of fields in the state.
 //
 // OpCertCounters and the two shared nonces are present for both protocols; the
 // remaining nonce fields are Praos-only and are nil when Protocol is TPraos.
@@ -80,6 +104,29 @@ type DebugChainDepStateResult struct {
 	PreviousEpochNonce  *lcommon.Nonce
 	LabNonce            *lcommon.Nonce
 	LastEpochBlockNonce *lcommon.Nonce
+	// Announcement is the endorser block announcement the last applied
+	// header carried, if any. It is only present for Praos2 results, and is
+	// nil for the other protocols.
+	Announcement *ChainDepStateAnnouncement
+}
+
+// ChainDepStateAnnouncement is the endorser block announcement a Leios header
+// carried, together with the issuer of that header. With the header's slot,
+// the issuer identifies the election the announcement belongs to.
+//
+// On the wire it is a 3-element array:
+//
+//	[ issuer, ebHash, ebSize ]
+type ChainDepStateAnnouncement struct {
+	cbor.StructAsArray
+	// Issuer is the key hash of the block issuer that carried the
+	// announcement.
+	Issuer ledger.Blake2b224
+	// EbHash is the hash of the announced endorser block references.
+	EbHash ledger.Blake2b256
+	// EbSize is the size of the announced endorser block references, a
+	// Word32 in the ledger's EbReferencesAnnouncement.
+	EbSize uint32
 }
 
 // OpCertCounter returns the on-chain operational-certificate counter for a
@@ -137,34 +184,122 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		r.PreviousEpochNonce = &previousEpochNonce
 		r.LabNonce = &labNonce
 		r.LastEpochBlockNonce = &lastEpochBlockNonce
+		// Praos has no announcement.
+		r.Announcement = nil
 	case chainDepStateVersionTPraos:
-		// TPraos (Shelley through Alonzo): [lastSlot, PrtclState], where
-		// PrtclState is [opCertCounters, evolvingNonce, candidateNonce].
-		var t struct {
-			cbor.StructAsArray
-			LastSlot   WithOriginSlot
-			PrtclState struct {
-				cbor.StructAsArray
-				OpCertCounters map[ledger.Blake2b224]uint64
-				EvolvingNonce  lcommon.Nonce
-				CandidateNonce lcommon.Nonce
-			}
-		}
-		if _, err := cbor.Decode(outer.Inner, &t); err != nil {
+		// TPraos (Shelley through Alonzo) and Praos2 (the Leios overlay)
+		// write the same version, so the layout is told apart by the
+		// number of fields in the state.
+		listLen, err := cbor.ListLength(outer.Inner)
+		if err != nil {
 			return err
 		}
-		r.Protocol = ChainDepStateProtocolTPraos
-		r.LastSlot = t.LastSlot
-		r.OpCertCounters = t.PrtclState.OpCertCounters
-		r.EvolvingNonce = t.PrtclState.EvolvingNonce
-		r.CandidateNonce = t.PrtclState.CandidateNonce
-		// EpochNonce and the other Praos-only nonces do not exist in TPraos.
-		// Clear them explicitly so decoding into a reused result cannot leave
-		// stale Praos values from a previous decode.
-		r.EpochNonce = nil
-		r.PreviousEpochNonce = nil
-		r.LabNonce = nil
-		r.LastEpochBlockNonce = nil
+		switch listLen {
+		case chainDepStateFieldsTPraos:
+			// TPraos: [lastSlot, PrtclState], where PrtclState is
+			// [opCertCounters, evolvingNonce, candidateNonce].
+			var t struct {
+				cbor.StructAsArray
+				LastSlot   WithOriginSlot
+				PrtclState struct {
+					cbor.StructAsArray
+					OpCertCounters map[ledger.Blake2b224]uint64
+					EvolvingNonce  lcommon.Nonce
+					CandidateNonce lcommon.Nonce
+				}
+			}
+			if _, err := cbor.Decode(outer.Inner, &t); err != nil {
+				return err
+			}
+			r.Protocol = ChainDepStateProtocolTPraos
+			r.LastSlot = t.LastSlot
+			r.OpCertCounters = t.PrtclState.OpCertCounters
+			r.EvolvingNonce = t.PrtclState.EvolvingNonce
+			r.CandidateNonce = t.PrtclState.CandidateNonce
+			// EpochNonce and the other Praos-only nonces do not exist in
+			// TPraos. Clear them explicitly so decoding into a reused
+			// result cannot leave stale Praos values from a previous
+			// decode.
+			r.EpochNonce = nil
+			r.PreviousEpochNonce = nil
+			r.LabNonce = nil
+			r.LastEpochBlockNonce = nil
+			r.Announcement = nil
+		case chainDepStateFieldsPraos2:
+			// Praos2: the Praos fields, plus the announcement of the
+			// endorser block the last applied header carried.
+			fields, err := cborpreflight.ArrayItems(
+				outer.Inner,
+				chainDepStateFieldsPraos2,
+				"praos2 chain dependent state",
+			)
+			if err != nil {
+				return err
+			}
+			if err := cborpreflight.ValidateMap(
+				fields[1],
+				maxLocalStateQuerySetItems,
+				"praos2 operational certificate counters",
+				nil,
+			); err != nil {
+				return err
+			}
+			if _, err := cborpreflight.ArrayItems(
+				fields[8],
+				1,
+				"praos2 announcement",
+			); err != nil {
+				return err
+			}
+			var p struct {
+				cbor.StructAsArray
+				LastSlot            WithOriginSlot
+				OpCertCounters      map[ledger.Blake2b224]uint64
+				EvolvingNonce       lcommon.Nonce
+				CandidateNonce      lcommon.Nonce
+				EpochNonce          lcommon.Nonce
+				PreviousEpochNonce  lcommon.Nonce
+				LabNonce            lcommon.Nonce
+				LastEpochBlockNonce lcommon.Nonce
+				Announcement        []ChainDepStateAnnouncement
+			}
+			if _, err := cbor.Decode(outer.Inner, &p); err != nil {
+				return err
+			}
+			r.Protocol = ChainDepStateProtocolPraos2
+			r.LastSlot = p.LastSlot
+			r.OpCertCounters = p.OpCertCounters
+			r.EvolvingNonce = p.EvolvingNonce
+			r.CandidateNonce = p.CandidateNonce
+			epochNonce := p.EpochNonce
+			previousEpochNonce := p.PreviousEpochNonce
+			labNonce := p.LabNonce
+			lastEpochBlockNonce := p.LastEpochBlockNonce
+			r.EpochNonce = &epochNonce
+			r.PreviousEpochNonce = &previousEpochNonce
+			r.LabNonce = &labNonce
+			r.LastEpochBlockNonce = &lastEpochBlockNonce
+			// The announcement is a StrictMaybe, which the ledger writes
+			// as a list of zero or one element and decodes by rejecting
+			// any other length.
+			if len(p.Announcement) > 1 {
+				return fmt.Errorf(
+					"praos2 announcement: expected 0 or 1 entries, got %d",
+					len(p.Announcement),
+				)
+			}
+			if len(p.Announcement) == 1 {
+				announcement := p.Announcement[0]
+				r.Announcement = &announcement
+			} else {
+				r.Announcement = nil
+			}
+		default:
+			return fmt.Errorf(
+				"unsupported ChainDepState layout: %d fields",
+				listLen,
+			)
+		}
 	default:
 		return fmt.Errorf(
 			"unsupported ChainDepState serialisation version: %d",
