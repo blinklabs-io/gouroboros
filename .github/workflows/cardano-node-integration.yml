@@ -2,12 +2,13 @@ name: cardano-node-integration
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   cardano-node-integration:
