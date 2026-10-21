@@ -344,3 +344,60 @@ func TestTachysBlockBuilderUsesPublicSchedule(t *testing.T) {
 	require.False(t, wrongResult.Eligible)
 	require.Empty(t, wrongResult.Proof)
 }
+
+func TestTachysAuthorizationFollowsPerSlotLeader(t *testing.T) {
+	t.Parallel()
+	keyA := bytes32(0xa1)
+	keyB := bytes32(0xb2)
+	poolA := common.PoolKeyHash(common.Blake2b224Hash(keyA))
+	poolB := common.PoolKeyHash(common.Blake2b224Hash(keyB))
+	selector, err := NewTachysLeaderSelector(
+		[]TachysPool{{ID: poolA, Stake: 1}, {ID: poolB, Stake: 1}},
+		2,
+	)
+	require.NoError(t, err)
+	nonce := common.Blake2b256Hash([]byte("tachys per-slot nonce"))
+	slotFor := map[common.PoolKeyHash]uint64{}
+	for slot := uint64(0); len(slotFor) < 2; slot++ {
+		require.Less(t, slot, uint64(1000), "no slot found for both pools")
+		leader, err := selector.Leader(nonce[:], slot)
+		require.NoError(t, err)
+		if _, ok := slotFor[leader]; !ok {
+			slotFor[leader] = slot
+		}
+	}
+	for _, c := range []struct {
+		key   []byte
+		pool  common.PoolKeyHash
+		other common.PoolKeyHash
+	}{
+		{keyA, poolA, poolB},
+		{keyB, poolB, poolA},
+	} {
+		own, other := slotFor[c.pool], slotFor[c.other]
+		ok, err := selector.IsLeader(nonce[:], own, c.pool)
+		require.NoError(t, err)
+		require.True(t, ok)
+		ok, err = selector.IsLeader(nonce[:], other, c.pool)
+		require.NoError(t, err)
+		require.False(t, ok, "pool scheduled for another slot accepted")
+		ok, err = selector.AuthorizeIssuer(nonce[:], own, c.key)
+		require.NoError(t, err)
+		require.True(t, ok)
+		ok, err = selector.AuthorizeIssuer(nonce[:], other, c.key)
+		require.NoError(t, err)
+		require.False(
+			t,
+			ok,
+			"registered issuer not scheduled for slot accepted",
+		)
+	}
+}
+
+func bytes32(value byte) []byte {
+	out := make([]byte, 32)
+	for i := range out {
+		out[i] = value
+	}
+	return out
+}
