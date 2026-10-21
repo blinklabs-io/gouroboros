@@ -233,30 +233,44 @@ func TestTachysHeaderValidationKeepsCryptographicChecks(t *testing.T) {
 	tachysResult := tachysValidator.ValidateHeader(input)
 	require.True(t, tachysResult.Valid, "%v", tachysResult.Errors)
 
-	wrongIssuer := append([]byte(nil), coldPublic...)
-	wrongIssuer[0] ^= 0xff
+	wrongSeed := common.Blake2b256Hash([]byte("unscheduled Tachys cold seed"))
+	wrongPrivate := ed25519.NewKeyFromSeed(wrongSeed[:])
+	wrongIssuer := wrongPrivate.Public().(ed25519.PublicKey)
 	wrongProducer := *input
 	wrongProducer.IssuerVkey = wrongIssuer
+	wrongProducer.OpCertSignature = ed25519.Sign(wrongPrivate, opCertBody)
 	wrongResult := tachysValidator.ValidateHeader(&wrongProducer)
 	require.False(t, wrongResult.Valid)
+	require.ErrorContains(
+		t,
+		wrongResult.Errors[0],
+		"issuer is not the scheduled Tachys leader",
+	)
 
 	invalidVRF := *input
 	invalidVRF.VrfProof = append([]byte(nil), input.VrfProof...)
 	invalidVRF.VrfProof[0] ^= 0xff
 	invalidVRFResult := tachysValidator.ValidateHeader(&invalidVRF)
 	require.False(t, invalidVRFResult.Valid)
+	require.ErrorContains(t, invalidVRFResult.Errors[0], "VRF verification failed")
 
 	invalidKES := *input
 	invalidKES.KesSignature = append([]byte(nil), input.KesSignature...)
 	invalidKES.KesSignature[0] ^= 0xff
 	invalidKESResult := tachysValidator.ValidateHeader(&invalidKES)
 	require.False(t, invalidKESResult.Valid)
+	require.ErrorContains(t, invalidKESResult.Errors[0], "KES signature verification failed")
 
 	invalidOpCert := *input
 	invalidOpCert.OpCertSignature = append([]byte(nil), input.OpCertSignature...)
 	invalidOpCert.OpCertSignature[0] ^= 0xff
 	invalidOpCertResult := tachysValidator.ValidateHeader(&invalidOpCert)
 	require.False(t, invalidOpCertResult.Valid)
+	require.ErrorContains(
+		t,
+		invalidOpCertResult.Errors[0],
+		"OpCert signature verification failed",
+	)
 }
 
 func TestTachysBlockBuilderUsesPublicSchedule(t *testing.T) {
