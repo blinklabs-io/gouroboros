@@ -2104,7 +2104,9 @@ func (p *Protocol) recvLoop() {
 				inbound.message,
 				inbound.reservedPipelinedReply,
 			)
-			if inbound.reservedPipelinedReply {
+			// A successful transition returned the reply's reservation
+			// itself; only a failed one leaves it to release here.
+			if inbound.reservedPipelinedReply && transitionErr != nil {
 				p.releasePipelinedReplyAdmission()
 			}
 			if transitionErr != nil {
@@ -2161,19 +2163,23 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		if initialStateSet {
 			p.currentStateGeneration++
 			p.peerAgencyReserved = false
+			p.pendingBytesMu.Lock()
+			// A consumed reply gives back its reservation here, in the same
+			// critical section as its transition. Returning it afterwards
+			// lets a transition of our own land in between, count the
+			// consumed reply as still pending, and reserve peer agency for a
+			// reply that never arrives, stalling every later reply.
+			if consumesPipelinedReply && p.pendingPipelinedReplies > 0 {
+				p.pendingPipelinedReplies--
+			}
 			if consumesPipelinedRequest ||
 				p.agencyHolderFor(p.config.StateMap[s]) == agencyPeer {
-				p.pendingBytesMu.Lock()
 				if consumesPipelinedRequest && p.pendingPipelinedRequests > 0 {
 					p.pendingPipelinedRequests--
 				}
-				reservedReplies := p.pendingPipelinedReplies
-				if consumesPipelinedReply && reservedReplies > 0 {
-					reservedReplies--
-				}
-				p.peerAgencyReserved = reservedReplies > 0
-				p.pendingBytesMu.Unlock()
+				p.peerAgencyReserved = p.pendingPipelinedReplies > 0
 			}
+			p.pendingBytesMu.Unlock()
 		}
 		skipTimeout := false
 		switch p.agencyHolderFor(p.config.StateMap[s]) {
