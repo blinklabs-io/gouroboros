@@ -88,6 +88,37 @@ func (q *ShelleyStakePoolStateQuery) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// MarshalCBOR writes the pool set the way the node's decodeSetSkel and
+// UnmarshalCBOR accept it, whatever order and number of pools the query was
+// built with. An empty set in the filter is written as the empty set, which
+// is not the absent filter.
+func (q ShelleyStakePoolStateQuery) MarshalCBOR() ([]byte, error) {
+	if len(q.Pools) > 1 {
+		return nil, fmt.Errorf(
+			"GetStakePoolState pool filter: expected at most 1 set, got %d",
+			len(q.Pools),
+		)
+	}
+	poolFilter := []any{}
+	if len(q.Pools) == 1 {
+		poolSet, err := encodeStakePoolIdSet(q.Pools[0].Items())
+		if err != nil {
+			return nil, err
+		}
+		if poolSet == nil {
+			poolSet, err = cbor.Encode(cbor.RawTag{
+				Number:  cbor.CborTagSet,
+				Content: []byte{0x80},
+			})
+			if err != nil {
+				return nil, err
+			}
+		}
+		poolFilter = append(poolFilter, cbor.RawMessage(poolSet))
+	}
+	return cbor.Encode([]any{q.Type, poolFilter, q.IncludeDelegators})
+}
+
 // encodeStakePoolIdSet encodes the pool filter of GetStakePoolState the way
 // the node's decodeSetSkel accepts it: a tag-258, definite-length array whose
 // members are in strictly ascending order of their encoding. A Set holds a

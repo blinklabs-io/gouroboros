@@ -297,6 +297,63 @@ func TestStakePoolStateQueryPoolSetCanonicity(t *testing.T) {
 	}
 }
 
+// TestStakePoolStateQueryEncodesCanonicalPoolSet checks that a query built in
+// Go writes its pool set the way the node and this package's decoder require,
+// whatever the order and number of the pools it was given.
+func TestStakePoolStateQueryEncodesCanonicalPoolSet(t *testing.T) {
+	t.Parallel()
+	// More than 23 pools, in descending order and with a duplicate.
+	pools := make([]ledger.PoolId, 0, 31)
+	for b := byte(30); b >= 1; b-- {
+		pools = append(pools, ledger.PoolId(ledger.NewBlake2b224(
+			[]byte(strings.Repeat(string([]byte{b}), 28)),
+		)))
+	}
+	pools = append(pools, pools[0])
+	query := &ShelleyStakePoolStateQuery{
+		Type: QueryTypeShelleyStakePoolState,
+		Pools: []cbor.SetType[ledger.PoolId]{
+			cbor.NewSetType(pools, false),
+		},
+	}
+	data, err := cbor.Encode(query)
+	require.NoError(t, err)
+	poolSet, err := encodeStakePoolIdSet(pools)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"83182881"+hex.EncodeToString(poolSet)+"f4",
+		hex.EncodeToString(data),
+	)
+	decoded, err := decodeShelleyQuery(data)
+	require.NoError(t, err)
+	q, ok := decoded.(*ShelleyStakePoolStateQuery)
+	require.True(t, ok)
+	got, all := q.PoolFilter()
+	assert.False(t, all)
+	assert.Len(t, got, 30)
+
+	// An explicit filter of the empty set is not the absent filter.
+	data, err = cbor.Encode(&ShelleyStakePoolStateQuery{
+		Type: QueryTypeShelleyStakePoolState,
+		Pools: []cbor.SetType[ledger.PoolId]{
+			cbor.NewSetType([]ledger.PoolId{}, false),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "83182881d9010280f4", hex.EncodeToString(data))
+
+	// The filter is a StrictMaybe, so it holds one set at most.
+	_, err = cbor.Encode(&ShelleyStakePoolStateQuery{
+		Type: QueryTypeShelleyStakePoolState,
+		Pools: []cbor.SetType[ledger.PoolId]{
+			cbor.NewSetType(pools[:1], true),
+			cbor.NewSetType(pools[1:2], true),
+		},
+	})
+	require.Error(t, err)
+}
+
 const (
 	goldenPoolA = "0d6a577e9441ad8ed9663931906e4d43ece8f82c712b1d0235affb06"
 	goldenPoolB = "b77908a84072eb9151782d64504f0f6975b7143d49514eaeb0991d00"
