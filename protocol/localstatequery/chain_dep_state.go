@@ -20,6 +20,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // ChainDepStateProtocol identifies which consensus protocol produced a
@@ -227,6 +228,29 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		case chainDepStateFieldsPraos2:
 			// Praos2: the Praos fields, plus the announcement of the
 			// endorser block the last applied header carried.
+			fields, err := cborpreflight.ArrayItems(
+				outer.Inner,
+				chainDepStateFieldsPraos2,
+				"praos2 chain dependent state",
+			)
+			if err != nil {
+				return err
+			}
+			if err := cborpreflight.ValidateMap(
+				fields[1],
+				maxLocalStateQuerySetItems,
+				"praos2 operational certificate counters",
+				nil,
+			); err != nil {
+				return err
+			}
+			if _, err := cborpreflight.ArrayItems(
+				fields[8],
+				1,
+				"praos2 announcement",
+			); err != nil {
+				return err
+			}
 			var p struct {
 				cbor.StructAsArray
 				LastSlot            WithOriginSlot

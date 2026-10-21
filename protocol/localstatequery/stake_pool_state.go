@@ -215,6 +215,39 @@ type StakePoolStateResult struct {
 	Results map[ledger.PoolId]StakePoolStateEntry
 }
 
+const maxStakePoolStateResultItems = 131_072
+
+func (r *StakePoolStateResult) UnmarshalCBOR(data []byte) error {
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		1,
+		"stake pool state result",
+	)
+	if err != nil {
+		return err
+	}
+	if len(fields) != 1 {
+		return fmt.Errorf(
+			"stake pool state result: expected 1 field, got %d",
+			len(fields),
+		)
+	}
+	if err := cborpreflight.ValidateMap(
+		fields[0],
+		maxStakePoolStateResultItems,
+		"stake pool state result map",
+		nil,
+	); err != nil {
+		return err
+	}
+	var results map[ledger.PoolId]StakePoolStateEntry
+	if _, err := cbor.Decode(fields[0], &results); err != nil {
+		return err
+	}
+	r.Results = results
+	return nil
+}
+
 // stakePoolStateFieldCount is the number of fields in the ledger's
 // QueryResultStakePoolState record.
 const stakePoolStateFieldCount = 14
@@ -285,16 +318,44 @@ type stakePoolStateWire struct {
 }
 
 func (e *StakePoolStateEntry) UnmarshalCBOR(data []byte) error {
-	listLen, err := cbor.ListLength(data)
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		stakePoolStateFieldCount,
+		"stake pool state",
+	)
 	if err != nil {
 		return err
 	}
-	if listLen != stakePoolStateFieldCount {
+	if len(fields) != stakePoolStateFieldCount {
 		return fmt.Errorf(
 			"stake pool state: expected %d fields, got %d",
 			stakePoolStateFieldCount,
-			listLen,
+			len(fields),
 		)
+	}
+	for _, collection := range []struct {
+		field int
+		label string
+	}{
+		{field: 6, label: "stake pool owners"},
+		{field: 7, label: "stake pool relays"},
+	} {
+		if _, err := cborpreflight.ArrayItems(
+			fields[collection.field],
+			maxLocalStateQuerySetItems,
+			collection.label,
+		); err != nil {
+			return err
+		}
+	}
+	if !cborIsNull(fields[11]) {
+		if _, err := cborpreflight.ArrayItems(
+			fields[11],
+			maxStakePoolStateResultItems,
+			"stake pool delegators",
+		); err != nil {
+			return err
+		}
 	}
 	var wire stakePoolStateWire
 	if _, err := cbor.Decode(data, &wire); err != nil {
@@ -395,8 +456,12 @@ type StakePoolParamsEntry struct {
 }
 
 func (p *StakePoolParamsEntry) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := cborpreflight.ArrayItems(
+		data,
+		stakePoolParamsFieldCount+1,
+		"stake pool params",
+	)
+	if err != nil {
 		return err
 	}
 	// The BLS key is only in the record from protocol version 12 on, so the
@@ -427,6 +492,21 @@ func (p *StakePoolParamsEntry) UnmarshalCBOR(data []byte) error {
 		return fmt.Errorf("stake pool params: VRF hash: %w", err)
 	}
 	rest := fields[2+offset:]
+	for _, collection := range []struct {
+		field int
+		label string
+	}{
+		{field: 4, label: "stake pool params owners"},
+		{field: 5, label: "stake pool params relays"},
+	} {
+		if _, err := cborpreflight.ArrayItems(
+			rest[collection.field],
+			maxLocalStateQuerySetItems,
+			collection.label,
+		); err != nil {
+			return err
+		}
+	}
 	// A null in the BLS slot is no key, as the ledger reads it
 	// (decodeBlsKeyBackwardsCompatible), not a zero key.
 	if offset == 1 && !cborIsNull(fields[2]) {
