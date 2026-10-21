@@ -20,10 +20,15 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-// The GetGenesisConfig reply has two wire layouts, chosen by the negotiated
+// The GetGenesisConfig reply has three wire layouts, chosen by the negotiated
 // node-to-client protocol version. Up to version 20 the node emits a copy of an
 // older ledger serialisation it keeps for the purpose; from version 21 it emits
-// the ledger's current one.
+// the ledger's current one, which a node normally sends without the extra
+// config the ledger added to the genesis record; from version 24 it emits the
+// record with the extra config. Consensus 4.0.0.0 to 4.2.0.1 (node 11.1.0
+// pre-release, cardano-cli 11.2.1.0 and 11.2.2.0) sent the 16-field record
+// at versions 21 to 23 as well, until 4.2.1.0 reverted that, so the decoder
+// accepts both.
 //
 // The layouts differ in arity at both levels, so the reply identifies itself
 // and the decoder does not need to be told which version was negotiated:
@@ -31,6 +36,10 @@ import (
 //	genesis record   15 fields -> 16 fields, gaining the extra config
 //	protocol params  18 fields -> 17 fields, the protocol version having become
 //	                              a nested pair rather than two adjacent fields
+//
+// The 15-field record occurs with both protocol parameter layouts, so the
+// record arity alone no longer identifies the reply: the protocol parameters
+// have to be read as well.
 //
 // Reading one layout as the other is not a near miss. The protocol parameters
 // sit in the middle of the genesis record, so a wrong guess shifts every
@@ -43,6 +52,32 @@ const (
 
 	genesisPParamsFieldsLegacy  = 18
 	genesisPParamsFieldsCurrent = 17
+)
+
+// GenesisConfigLayout selects the wire layout of a GetGenesisConfig reply.
+type GenesisConfigLayout int
+
+const (
+	// GenesisConfigLayoutAuto derives the layout from the reply's contents:
+	// the legacy layout when it carries no extra config, the current layout
+	// otherwise. It is the zero value, so a reply built in Go encodes the way
+	// it always has.
+	GenesisConfigLayoutAuto GenesisConfigLayout = iota
+	// GenesisConfigLayoutLegacy is the vendored serialisation a node sends up
+	// to node-to-client protocol version 20: a 15-field genesis record with
+	// 18-field protocol parameters.
+	GenesisConfigLayoutLegacy
+	// GenesisConfigLayoutNoExtraConfig is the serialisation a node sends from
+	// node-to-client protocol version 21 to 23 from consensus 4.2.1.0 on: a
+	// 15-field genesis record without the extra config, with the current
+	// 17-field protocol parameters. Consensus 4.0.0.0 to 4.2.0.1 sent the
+	// 16-field record at these versions, which decodes as
+	// GenesisConfigLayoutCurrent.
+	GenesisConfigLayoutNoExtraConfig
+	// GenesisConfigLayoutCurrent is the serialisation a node sends from
+	// node-to-client protocol version 24: a 16-field genesis record with the
+	// extra config, with the current 17-field protocol parameters.
+	GenesisConfigLayoutCurrent
 )
 
 type GenesisConfigResult struct {
@@ -64,10 +99,14 @@ type GenesisConfigResult struct {
 	InitialFunds cbor.RawMessage
 	Staking      cbor.RawMessage
 	// ExtraConfig carries the optional injection configuration the ledger added
-	// alongside the version-21 encoding. It is nil when the reply used the
-	// legacy layout, which has no such field, and it doubles as the record's
-	// layout marker when re-encoding.
+	// alongside the version-21 encoding. It is nil when the reply used a layout
+	// without that field.
 	ExtraConfig cbor.RawMessage
+	// Layout is the wire layout the reply uses. The zero value leaves the
+	// choice to the contents of the reply, which is what a reply built in Go
+	// wants; a reply that was decoded carries the layout it was decoded from,
+	// so that re-encoding it reproduces the same bytes.
+	Layout GenesisConfigLayout
 }
 
 func (g *GenesisConfigResult) UnmarshalCBOR(data []byte) error {
@@ -109,16 +148,38 @@ func (g *GenesisConfigResult) UnmarshalCBOR(data []byte) error {
 	decoded.Staking = fields[len(targets)+2]
 	if len(fields) == genesisConfigFieldsCurrent {
 		decoded.ExtraConfig = fields[genesisConfigFieldsCurrent-1]
+		decoded.Layout = GenesisConfigLayoutCurrent
+	} else if decoded.ProtocolParams.legacyLayout {
+		decoded.Layout = GenesisConfigLayoutLegacy
+	} else {
+		// A 15-field record with the current protocol parameters: the layout
+		// a node sends from node-to-client version 21 to 23 from consensus
+		// 4.2.1.0 on.
+		decoded.Layout = GenesisConfigLayoutNoExtraConfig
 	}
 	*g = decoded
 	return nil
 }
 
 func (g GenesisConfigResult) MarshalCBOR() ([]byte, error) {
+	layout := g.Layout
+	switch layout {
+	case GenesisConfigLayoutAuto, GenesisConfigLayoutLegacy,
+		GenesisConfigLayoutNoExtraConfig, GenesisConfigLayoutCurrent:
+	default:
+		return nil, fmt.Errorf("genesis config: unknown layout %d", layout)
+	}
+	if layout == GenesisConfigLayoutAuto {
+		if g.ExtraConfig != nil {
+			layout = GenesisConfigLayoutCurrent
+		} else {
+			layout = GenesisConfigLayoutLegacy
+		}
+	}
 	// The protocol parameters are nested inside this record, so their layout is
 	// the record's to choose rather than their own.
 	pparams := g.ProtocolParams
-	pparams.legacyLayout = g.ExtraConfig == nil
+	pparams.legacyLayout = layout == GenesisConfigLayoutLegacy
 	fields := []any{
 		g.Start,
 		g.NetworkMagic,
@@ -136,8 +197,14 @@ func (g GenesisConfigResult) MarshalCBOR() ([]byte, error) {
 		g.InitialFunds,
 		g.Staking,
 	}
-	if g.ExtraConfig != nil {
-		fields = append(fields, g.ExtraConfig)
+	if layout == GenesisConfigLayoutCurrent {
+		if g.ExtraConfig != nil {
+			fields = append(fields, g.ExtraConfig)
+		} else {
+			// The ledger holds the extra config in a StrictMaybe, which it
+			// encodes as a list: SNothing is the empty list.
+			fields = append(fields, cbor.RawMessage{0x80})
+		}
 	}
 	return cbor.Encode(fields)
 }

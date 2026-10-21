@@ -16,13 +16,14 @@ package localstatequery_test
 
 import (
 	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 )
 
-// GetGenesisConfig has two wire layouts. Node-to-client protocol version 21
+// GetGenesisConfig has three wire layouts. Node-to-client protocol version 21
 // (ShelleyNodeToClientVersion13) switched the reply from a vendored copy of an
 // older ledger serialisation to the ledger's current one. The two differ in
 // arity at both levels, which is what makes a single decoder possible:
@@ -388,5 +389,203 @@ func TestGenesisConfigProtocolParamsDecodeUntaggedCurrentLayout(t *testing.T) {
 	}
 	if len(got.A0) != 2 || got.A0[0] != 3 || got.A0[1] != 10 {
 		t.Errorf("a0: got %v, want [3 10]", got.A0)
+	}
+}
+
+// genesisConfigNoExtraConfigFixture is the reply a node sends from
+// node-to-client protocol version 21 to 23 (ShelleyNodeToClientVersion15):
+// the 15-field genesis record without the extra config, carrying the current
+// 17-field protocol parameters.
+//
+// The bytes are the consensus project's own golden vector for the Conway era:
+// ouroboros-consensus golden/cardano/QueryVersion3
+// /CardanoNodeToClientVersion19/Result_Conway_GenesisConfig at commit
+// 840e789b1cd112e161820a20d30d4546f30e6209, with the single-element era
+// result wrapper removed.
+const genesisConfigNoExtraConfigFixture = "" +
+	"8f831907e4188700000082090a0a1864140a1a001e8480" +
+	"051b009fdf42f6e4800091000000190800000000001864d81e820001" +
+	"d81e820001d81e820001d81e82000181008202000000a0a082a0a0"
+
+func decodeGenesisConfigNoExtraConfigFixture(t *testing.T) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(genesisConfigNoExtraConfigFixture)
+	if err != nil {
+		t.Fatalf("decoding fixture hex: %v", err)
+	}
+	return decoded
+}
+
+// TestGenesisConfigResultDecodesNoExtraConfigLayout covers the third layout:
+// the genesis record of the legacy arity, but with the current protocol
+// parameters. The record arity alone no longer identifies the layout, so the
+// decoder has to look at the protocol parameters as well.
+func TestGenesisConfigResultDecodesNoExtraConfigLayout(t *testing.T) {
+	var result localstatequery.GenesisConfigResult
+	if _, err := cbor.Decode(
+		decodeGenesisConfigNoExtraConfigFixture(t),
+		&result,
+	); err != nil {
+		t.Fatalf("decoding no-extra-config genesis config: %v", err)
+	}
+	if result.Layout != localstatequery.GenesisConfigLayoutNoExtraConfig {
+		t.Errorf(
+			"layout: got %d, want %d",
+			result.Layout,
+			localstatequery.GenesisConfigLayoutNoExtraConfig,
+		)
+	}
+	if result.ExtraConfig != nil {
+		t.Errorf(
+			"no-extra-config layout carries no extra config, got %v",
+			result.ExtraConfig,
+		)
+	}
+	if result.Start.Year.Int64() != 2020 || result.Start.Day != 135 {
+		t.Errorf("system start: got %v", result.Start)
+	}
+	if result.NetworkMagic != 0 {
+		t.Errorf("network magic: got %d, want 0", result.NetworkMagic)
+	}
+	if result.EpochLength != 100 {
+		t.Errorf("epoch length: got %d, want 100", result.EpochLength)
+	}
+	if result.MaxLovelaceSupply != 45000000000000000 {
+		t.Errorf(
+			"max lovelace supply: got %d, want 45000000000000000",
+			result.MaxLovelaceSupply,
+		)
+	}
+	if result.ProtocolParams.MaxTxSize != 2048 {
+		t.Errorf(
+			"max tx size: got %d, want 2048",
+			result.ProtocolParams.MaxTxSize,
+		)
+	}
+	if result.ProtocolParams.ProtocolVersionMajor != 2 ||
+		result.ProtocolParams.ProtocolVersionMinor != 0 {
+		t.Errorf(
+			"protocol version: got %d.%d, want 2.0",
+			result.ProtocolParams.ProtocolVersionMajor,
+			result.ProtocolParams.ProtocolVersionMinor,
+		)
+	}
+	for name, pair := range map[string][]int{
+		"a0":  result.ProtocolParams.A0,
+		"rho": result.ProtocolParams.Rho,
+		"tau": result.ProtocolParams.Tau,
+		"d":   result.ProtocolParams.DecentralizationParam,
+	} {
+		if len(pair) != 2 || pair[0] != 0 || pair[1] != 1 {
+			t.Errorf("%s: got %v, want [0 1]", name, pair)
+		}
+	}
+	if len(result.GenDelegs) == 0 {
+		t.Error("genesis delegates were not decoded")
+	}
+}
+
+// TestGenesisConfigResultRoundTripsNoExtraConfigLayout pins the encoder to the
+// layout the value was decoded from. Re-encoding this reply in the legacy
+// layout would move the protocol version from a nested pair back to two
+// adjacent fields, which the client reads as different parameters.
+func TestGenesisConfigResultRoundTripsNoExtraConfigLayout(t *testing.T) {
+	original := decodeGenesisConfigNoExtraConfigFixture(t)
+	var result localstatequery.GenesisConfigResult
+	if _, err := cbor.Decode(original, &result); err != nil {
+		t.Fatalf("decoding no-extra-config genesis config: %v", err)
+	}
+	reencoded, err := cbor.Encode(result)
+	if err != nil {
+		t.Fatalf("re-encoding no-extra-config genesis config: %v", err)
+	}
+	if !bytes.Equal(original, reencoded) {
+		t.Errorf(
+			"no-extra-config round trip changed the encoding:\n got %x\nwant %x",
+			reencoded,
+			original,
+		)
+	}
+}
+
+// TestGenesisConfigResultEncodesNoExtraConfigLayout covers the caller that
+// builds the reply rather than decoding it: a node has to say which layout it
+// is sending, because the record arity no longer identifies it.
+func TestGenesisConfigResultEncodesNoExtraConfigLayout(t *testing.T) {
+	result := localstatequery.GenesisConfigResult{
+		Layout:            localstatequery.GenesisConfigLayoutNoExtraConfig,
+		NetworkMagic:      42,
+		MaxLovelaceSupply: 45000000000000000,
+		ProtocolParams: localstatequery.GenesisConfigResultProtocolParameters{
+			ProtocolVersionMajor: 10,
+			ProtocolVersionMinor: 3,
+		},
+	}
+	encoded, err := cbor.Encode(result)
+	if err != nil {
+		t.Fatalf("encoding no-extra-config genesis config: %v", err)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(encoded, &fields); err != nil {
+		t.Fatalf("decoding encoded genesis config: %v", err)
+	}
+	if len(fields) != 15 {
+		t.Errorf("genesis record: got %d fields, want 15", len(fields))
+	}
+	pparamsLen, err := cbor.ListLength(fields[11])
+	if err != nil {
+		t.Fatalf("reading protocol parameter length: %v", err)
+	}
+	if pparamsLen != 17 {
+		t.Errorf(
+			"protocol parameters: got %d fields, want 17",
+			pparamsLen,
+		)
+	}
+}
+
+// TestGenesisConfigResultLayoutAutoFollowsExtraConfig keeps the default
+// behaviour: a reply built in Go without saying which layout it uses encodes
+// the way it always has.
+func TestGenesisConfigResultLayoutAutoFollowsExtraConfig(t *testing.T) {
+	result := localstatequery.GenesisConfigResult{
+		NetworkMagic: 42,
+	}
+	encoded, err := cbor.Encode(result)
+	if err != nil {
+		t.Fatalf("encoding genesis config: %v", err)
+	}
+	fields, err := cbor.ListLength(encoded)
+	if err != nil {
+		t.Fatalf("reading genesis record length: %v", err)
+	}
+	if fields != 15 {
+		t.Errorf("genesis record: got %d fields, want 15", fields)
+	}
+}
+
+// TestGenesisConfigResultEncodesAbsentExtraConfigAsEmptyList pins the 16th
+// field of the current layout when no extra config is set. The ledger encodes
+// sgExtraConfig, a StrictMaybe, as a list: SNothing is the empty list (0x80),
+// not a CBOR null.
+func TestGenesisConfigResultEncodesAbsentExtraConfigAsEmptyList(t *testing.T) {
+	t.Parallel()
+	result := localstatequery.GenesisConfigResult{
+		Layout:       localstatequery.GenesisConfigLayoutCurrent,
+		NetworkMagic: 42,
+	}
+	encoded, err := cbor.Encode(result)
+	if err != nil {
+		t.Fatalf("encoding current genesis config: %v", err)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(encoded, &fields); err != nil {
+		t.Fatalf("decoding encoded genesis config: %v", err)
+	}
+	if len(fields) != 16 {
+		t.Fatalf("genesis record: got %d fields, want 16", len(fields))
+	}
+	if got := hex.EncodeToString(fields[15]); got != "80" {
+		t.Errorf("absent sgExtraConfig: got 0x%s, want 0x80", got)
 	}
 }
