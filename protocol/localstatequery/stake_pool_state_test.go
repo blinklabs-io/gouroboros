@@ -518,6 +518,9 @@ func TestStakePoolStateResultDecodesDijkstraGolden(t *testing.T) {
 	var wrapper []cbor.RawMessage
 	_, err := cbor.Decode(replies[1], &wrapper)
 	require.NoError(t, err)
+	if len(wrapper) != 1 {
+		t.Fatalf("reply wrapper: got %d elements, want 1", len(wrapper))
+	}
 	var entries map[ledger.PoolId]cbor.RawMessage
 	_, err = cbor.Decode(wrapper[0], &entries)
 	require.NoError(t, err)
@@ -564,6 +567,9 @@ func goldenPoolEntryFields(t *testing.T) []cbor.RawMessage {
 	var wrapper []cbor.RawMessage
 	_, err := cbor.Decode(replies[1], &wrapper)
 	require.NoError(t, err)
+	if len(wrapper) != 1 {
+		t.Fatalf("reply wrapper: got %d elements, want 1", len(wrapper))
+	}
 	var entries map[ledger.PoolId]cbor.RawMessage
 	_, err = cbor.Decode(wrapper[0], &entries)
 	require.NoError(t, err)

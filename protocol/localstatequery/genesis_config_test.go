@@ -530,7 +530,7 @@ func TestGenesisConfigResultEncodesNoExtraConfigLayout(t *testing.T) {
 		t.Fatalf("decoding encoded genesis config: %v", err)
 	}
 	if len(fields) != 15 {
-		t.Errorf("genesis record: got %d fields, want 15", len(fields))
+		t.Fatalf("genesis record: got %d fields, want 15", len(fields))
 	}
 	pparamsLen, err := cbor.ListLength(fields[11])
 	if err != nil {
