@@ -93,6 +93,11 @@ const (
 	QueryTypeShelleyMaxMajorProtocolVersion = 38
 	QueryTypeShelleyDRepDelegations         = 39
 
+	// GetStakePoolState (Shelley sub-query 40) reports the state of the
+	// registered stake pools. Only Leios prototype nodes answer it, from
+	// node-to-client version 23; released nodes do not have the query.
+	QueryTypeShelleyStakePoolState = 40
+
 	// A Shelley query needs at most one GetCBOR wrapper in current clients.
 	// Keep compatibility headroom while bounding recursive custom decoding of
 	// peer-controlled queries well below the general CBOR nesting limit.
@@ -271,6 +276,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyStakeDistribution2:      &ShelleyStakeDistribution2Query{},
 		QueryTypeShelleyMaxMajorProtocolVersion: &ShelleyMaxMajorProtocolVersionQuery{},
 		QueryTypeShelleyDRepDelegations:         &ShelleyDRepDelegationsQuery{},
+		QueryTypeShelleyStakePoolState:          &ShelleyStakePoolStateQuery{},
 	}
 }
 

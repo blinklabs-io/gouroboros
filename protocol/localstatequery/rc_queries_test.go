@@ -260,6 +260,7 @@ func TestShelleyQueryVersionGates(t *testing.T) {
 			[]uint16{20},
 		},
 		{QueryTypeShelleyDRepDelegations, []uint16{23}, []uint16{21, 22}},
+		{QueryTypeShelleyStakePoolState, []uint16{23}, []uint16{21, 22}},
 		{QueryTypeShelleyEpochNo, []uint16{9, 23}, nil},
 	}
 	for _, tc := range cases {
@@ -312,6 +313,10 @@ func TestClientRefusesQueriesOutsideVersion(t *testing.T) {
 		}},
 		{"drep_delegations_v22", 22, func(c *Client) error {
 			_, err := c.GetDRepDelegations(nil)
+			return err
+		}},
+		{"stake_pool_state_v22", 22, func(c *Client) error {
+			_, err := c.GetStakePoolState(nil, false)
 			return err
 		}},
 	}

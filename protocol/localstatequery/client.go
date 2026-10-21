@@ -1010,6 +1010,62 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	return &result[0], nil
 }
 
+// GetStakePoolState returns the state of the registered stake pools, Shelley
+// sub-query 40. Only Leios prototype nodes answer it today, from
+// node-to-client protocol version 23: released nodes have no such query, so
+// calling it against one fails.
+//
+// Passing no pool IDs asks about every pool. The delegators of each pool are
+// only included when includeDelegators is set, as they make up most of the
+// size of the reply.
+func (c *Client) GetStakePoolState(
+	poolIds []ledger.PoolId,
+	includeDelegators bool,
+) (*StakePoolStateResult, error) {
+	c.Protocol.Logger().
+		Debug(fmt.Sprintf(
+			"calling GetStakePoolState(poolIds: %+v, includeDelegators: %v)",
+			poolIds,
+			includeDelegators,
+		),
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !shelleyQuerySupported(QueryTypeShelleyStakePoolState, c.version) {
+		return nil, unsupportedQueryError("GetStakePoolState", c.version)
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	poolSet, err := encodeStakePoolIdSet(poolIds)
+	if err != nil {
+		return nil, err
+	}
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	// The pool filter is a StrictMaybe (Set PoolId), encoded as a list: an
+	// empty list selects all pools (SNothing), while a single-element list
+	// holding a tag-258 set restricts the reply to those pools (SJust).
+	poolFilter := []any{}
+	if poolSet != nil {
+		poolFilter = append(poolFilter, cbor.RawMessage(poolSet))
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyStakePoolState,
+		poolFilter,
+		includeDelegators,
+	)
+	var result StakePoolStateResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetStakeSnapshots(
 	poolIds []any,
 ) (*StakeSnapshotsResult, error) {
