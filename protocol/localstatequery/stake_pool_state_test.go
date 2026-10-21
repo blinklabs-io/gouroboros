@@ -644,14 +644,23 @@ func TestStakePoolStateEntryRejectsWrongArity(t *testing.T) {
 	t.Parallel()
 	poolA := goldenPoolId(t, goldenPoolA)
 	fields := goldenPoolEntryFields(t)
-	for name, entryFields := range map[string][]cbor.RawMessage{
-		"thirteen_fields": fields[:stakePoolStateFieldCount-1],
-		"fifteen_fields": append(
-			append([]cbor.RawMessage{}, fields...),
-			cbor.RawMessage{0xf6},
-		),
+	for name, tc := range map[string]struct {
+		fields []cbor.RawMessage
+		want   string
+	}{
+		"thirteen_fields": {
+			fields: fields[:stakePoolStateFieldCount-1],
+			want:   "expected 14 fields",
+		},
+		"fifteen_fields": {
+			fields: append(
+				append([]cbor.RawMessage{}, fields...),
+				cbor.RawMessage{0xf6},
+			),
+			want: "has 15 items, maximum is 14",
+		},
 	} {
-		entry, err := cbor.Encode(entryFields)
+		entry, err := cbor.Encode(tc.fields)
 		require.NoError(t, err)
 		reply, err := cbor.Encode(
 			[]any{map[ledger.PoolId]cbor.RawMessage{poolA: entry}},
@@ -660,7 +669,7 @@ func TestStakePoolStateEntryRejectsWrongArity(t *testing.T) {
 		var result StakePoolStateResult
 		_, err = cbor.Decode(reply, &result)
 		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), "expected 14 fields", name)
+		assert.Contains(t, err.Error(), tc.want, name)
 	}
 }
 
@@ -693,20 +702,29 @@ func TestStakePoolParamsEntryRejectsWrongArity(t *testing.T) {
 	t.Parallel()
 	fields := goldenParamsFields(t)
 	null := cbor.RawMessage{0xf6}
-	for name, params := range map[string][]cbor.RawMessage{
-		"eight_fields": fields[:stakePoolParamsFieldCount-1],
-		"eleven_fields": append(
-			append([]cbor.RawMessage{}, fields...),
-			null,
-			null,
-		),
+	for name, tc := range map[string]struct {
+		fields []cbor.RawMessage
+		want   string
+	}{
+		"eight_fields": {
+			fields: fields[:stakePoolParamsFieldCount-1],
+			want:   "expected 9 or 10 fields",
+		},
+		"eleven_fields": {
+			fields: append(
+				append([]cbor.RawMessage{}, fields...),
+				null,
+				null,
+			),
+			want: "has 11 items, maximum is 10",
+		},
 	} {
-		encoded, err := cbor.Encode(params)
+		encoded, err := cbor.Encode(tc.fields)
 		require.NoError(t, err)
 		var entry StakePoolParamsEntry
 		_, err = cbor.Decode(encoded, &entry)
 		require.Error(t, err, name)
-		assert.Contains(t, err.Error(), "expected 9 or 10 fields", name)
+		assert.Contains(t, err.Error(), tc.want, name)
 	}
 }
 
