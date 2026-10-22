@@ -1519,9 +1519,12 @@ func (p *Protocol) reserveInboundAdmission(
 		// agency may be pipelined behind it. Once that earlier message's
 		// round trip passes through a local-agency state declaring the type,
 		// the message would have been admitted there, so it carries over to
-		// the peer-agency state the round trip ends in.
-		pipelinedAcrossRoundTrip := p.pipelinedTypeGenerations[messageType] >
-			initialGeneration
+		// the peer-agency state the round trip ends in. The same holds when
+		// the message started arriving in that local-agency state itself
+		// (equal generations) and our reply ended it before admission.
+		typeGeneration, declared := p.pipelinedTypeGenerations[messageType]
+		pipelinedAcrossRoundTrip := declared &&
+			typeGeneration >= initialGeneration
 		if generation != initialGeneration &&
 			!continuesPeerAgency &&
 			!pipelinedAcrossRoundTrip &&
