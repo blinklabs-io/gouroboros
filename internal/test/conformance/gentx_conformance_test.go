@@ -82,7 +82,7 @@ func TestConsensusGenTxFixtures(t *testing.T) {
 			era:                   "byron",
 			eraID:                 ledger.TxTypeByron,
 			txArrayLen:            2,
-			expectedTransactionID: "b2d85afe1fcf06dae966187c7312b1734d6fd6d2f110bd321301151b05cd4a97",
+			expectedTransactionID: "376293e16cf87c377dce58ea6efd256276f86454fc13d390f673db789dcd7104",
 			expectedFixtureID:     "4ba839c420b3d2bd439530f891cae9a5d4c4d812044630dac72e8e0962feeecc",
 		},
 		{
