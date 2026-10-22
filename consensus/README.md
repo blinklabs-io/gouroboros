@@ -1,6 +1,7 @@
 # Consensus Package
 
-This package provides Cardano consensus primitives for Ouroboros Praos, enabling block production and chain selection in pure Go.
+This package provides Cardano consensus primitives for Ouroboros Praos and
+Tachys, enabling block production and chain selection in pure Go.
 
 ## Why This Package Exists
 
@@ -84,6 +85,27 @@ The corpus is not an installed-node replay.
 - `BuildHeader()` - Creates a complete header for a new block
 - Helper types for header body, VRF results, and operational certificates
 
+### Tachys Leader Schedule (`tachys.go`)
+
+- `NewTachysLeaderSelector` prepares an immutable cumulative distribution in
+  lexicographic 28-byte pool ID order and rejects empty, duplicate, zero-stake,
+  inconsistent, or overflowing distributions.
+- `Leader` and `IsLeader` perform an O(log n) exact-integer lookup for an
+  absolute slot. `LeaderForSample` supports independent boundary vectors.
+- `IsTachysSlotLeader` and `NewTachysBlockBuilder` retain the CPraos VRF
+  certificate while replacing its private threshold lottery with the public
+  schedule.
+- `NewTachysHeaderValidator` replaces only issuer authorization. VRF proof,
+  KES, operational certificate, counter, and registered VRF key checks remain
+  the same as CPraos.
+
+The implementation pins CIP-0177 revision
+`86b89208d3b2aabb5dcc5b778dfbe09096b4e114`. The epoch nonce is 32 raw bytes,
+the absolute slot is an unsigned 64-bit big-endian value, and the sample is
+the unsigned big-endian value of `BLAKE2b-256(nonce || slot)`. Selection uses
+cross multiplication against cumulative stake, so inclusive lower and
+exclusive upper interval boundaries require no rational rounding or modulo.
+
 ### Chain Selection (`selection.go`)
 
 - `PraosChainSelector` - Implements Praos chain selection rules:
@@ -109,7 +131,8 @@ The corpus is not an installed-node replay.
   2. Block number is previous + 1
   3. Previous hash matches
   4. VRF proof is valid for the claimed slot
-  5. Verified VRF output satisfies the finite E34 leader predicate and pool policy
+  5. Issuer authorization satisfies either the finite E34 Praos predicate or
+     a configured Tachys schedule
   6. KES period is within valid range
   7. KES signature is valid
 - `ValidationError` - Detailed error types with context for debugging
