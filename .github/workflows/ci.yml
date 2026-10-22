@@ -4,11 +4,13 @@ name: "ci"
 on:
   pull_request:
   push:
-    branches:
-      - main
     tags:
       - v*
       - v*.*.*
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
+  cancel-in-progress: true
 
 jobs:
   go-test:
