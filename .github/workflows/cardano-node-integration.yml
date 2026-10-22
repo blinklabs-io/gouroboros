@@ -2,6 +2,8 @@ name: cardano-node-integration
 
 on:
   pull_request:
+  schedule:
+    - cron: '0 1 * * *'
 
 permissions:
   contents: read
