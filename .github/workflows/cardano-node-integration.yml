@@ -29,6 +29,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 https://github.com/actions/setup-go/releases/tag/v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
+          check-latest: true
       # The suite is excluded from untagged builds, so the default go vet,
       # golangci-lint and go test jobs never compile it.
       - name: go vet
