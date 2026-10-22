@@ -12,6 +12,10 @@ jobs:
   fuzz:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
+      # 14 targets would otherwise take 14 of the org's 20 shared job slots
+      # for the whole nightly run.
+      max-parallel: 4
       matrix:
         target:
           # go test rejects -fuzz when the package pattern matches more than
