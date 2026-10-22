@@ -1271,9 +1271,8 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 }
 
 // MarshalCBOR encodes the output as [address, amount] with the amount in
-// shortest form. A decoded output keeps its original address encoding, since
-// that is what the transaction ID commits to; an output built in code gets the
-// tag 24 wrapped address used on the Byron wire.
+// shortest form. A decoded output keeps its original address encoding; an
+// output built in code gets the Byron wire address, [#6.24(payload), crc].
 func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
 	var addr cbor.RawMessage
 	if stored := o.Cbor(); len(stored) > 0 {
@@ -1289,14 +1288,13 @@ func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
 		}
 		addr = fields[0]
 	} else {
+		// Bytes returns the Byron address already in its wire form,
+		// [#6.24(payload), crc], so it is embedded as is rather than wrapped.
 		addrBytes, err := o.OutputAddress.Bytes()
 		if err != nil {
 			return nil, err
 		}
-		addr, err = cbor.Encode(cbor.WrappedCbor(addrBytes))
-		if err != nil {
-			return nil, err
-		}
+		addr = addrBytes
 	}
 	return cbor.Encode(&struct {
 		cbor.StructAsArray

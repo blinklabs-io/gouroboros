@@ -178,9 +178,10 @@ func TestByronInputOutputMarshalCBORRoundTripsWireForm(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode output: %v", err)
 	}
-	// [#6.24(...), amount]: tag 24 follows the array header.
-	if len(outputCbor) < 2 || outputCbor[0] != 0x82 || outputCbor[1] != 0xd8 {
-		t.Fatalf("output address not tag 24 wrapped: %x", outputCbor)
+	// [[#6.24(...), crc], amount]: the address array follows the output
+	// array header, and the address payload is tag 24 wrapped.
+	if len(outputCbor) < 3 || outputCbor[0] != 0x82 || outputCbor[1] != 0x82 || outputCbor[2] != 0xd8 {
+		t.Fatalf("output not in wire form: %x", outputCbor)
 	}
 	var gotOutput byron.ByronTransactionOutput
 	if err := gotOutput.UnmarshalCBOR(outputCbor); err != nil {
@@ -188,5 +189,42 @@ func TestByronInputOutputMarshalCBORRoundTripsWireForm(t *testing.T) {
 	}
 	if gotOutput.Address().String() != address.String() || gotOutput.Amount().Uint64() != 1 {
 		t.Fatalf("output round trip mismatch: %v", gotOutput)
+	}
+}
+
+func TestByronTransactionBodyIdMatchesWireIdForBuiltOutputs(t *testing.T) {
+	t.Parallel()
+	bodyCbor, err := hex.DecodeString(
+		"839f8200d8185824825820a12a839c25a01fa5d118167db5acdbd9e38172ae8f00e5ac0a4997ef792a200700ff" +
+			"9f8282d818584283581c6c9982e7f2b6dcc5eaa880e8014568913c8868d9f0f86eb687b2633ca101581e581c010d876783fb2b4d0d17c86df29af8d35356ed3d1827bf4744f06700001a8dc672c11a000f4240ffa0",
+	)
+	if err != nil {
+		t.Fatalf("decode hex: %v", err)
+	}
+	var decoded byron.ByronTransactionBody
+	if err := decoded.UnmarshalCBOR(bodyCbor); err != nil {
+		t.Fatalf("decode Byron transaction body: %v", err)
+	}
+	// An output built in code has no stored CBOR, so it must encode to the
+	// same wire bytes the decoded output carried.
+	wireOutput := decoded.TxOutputs[0]
+	built := byron.ByronTransactionOutput{
+		OutputAddress: wireOutput.OutputAddress,
+		OutputAmount:  wireOutput.OutputAmount,
+	}
+	builtCbor, err := cbor.Encode(built)
+	if err != nil {
+		t.Fatalf("encode built output: %v", err)
+	}
+	if hex.EncodeToString(builtCbor) != hex.EncodeToString(wireOutput.Cbor()) {
+		t.Fatalf("built output = %x, want wire form %x", builtCbor, wireOutput.Cbor())
+	}
+	body := byron.ByronTransactionBody{
+		TxInputs:   decoded.TxInputs,
+		TxOutputs:  []byron.ByronTransactionOutput{built},
+		Attributes: decoded.Attributes,
+	}
+	if got, want := body.Id(), decoded.WireId(); got != want {
+		t.Fatalf("Id of body with built output = %s, want %s", got, want)
 	}
 }
