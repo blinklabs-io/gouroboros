@@ -20,7 +20,6 @@ jobs:
     with:
       go-arches: '["amd64","386"]'
       nilaway-include-pkgs: github.com/blinklabs-io/gouroboros
-      nilaway-go-version: 1.26.x
       run-golangci-lint: true
       run-nilaway: true
       submodules: true
