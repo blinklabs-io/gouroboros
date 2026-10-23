@@ -101,9 +101,7 @@ func clientTestSignedMessages(
 		}
 		payloadCBOR, err := cbor.Encode(payload)
 		require.NoError(t, err)
-		wrappedCBOR, err := cbor.Encode(payloadCBOR)
-		require.NoError(t, err)
-		kesSignature, err := kes.Sign(kesKey, 0, wrappedCBOR)
+		kesSignature, err := kes.Sign(kesKey, 0, payloadCBOR)
 		require.NoError(t, err)
 		signable := make([]byte, 0, len(kesPub)+16)
 		signable = append(signable, kesPub...)

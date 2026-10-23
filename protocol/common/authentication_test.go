@@ -796,6 +796,19 @@ func buildSignedTestMessage(
 	msgPeriod uint64,
 ) *DmqMessage {
 	t.Helper()
+	return buildSignedTestMessageOver(t, certPeriod, msgPeriod, false)
+}
+
+// buildSignedTestMessageOver is buildSignedTestMessage with a choice of the
+// bytes the KES signature covers: the payload array's CBOR (wrapped false) or
+// that CBOR inside a further byte string (wrapped true).
+func buildSignedTestMessageOver(
+	t *testing.T,
+	certPeriod uint64,
+	msgPeriod uint64,
+	wrapped bool,
+) *DmqMessage {
+	t.Helper()
 
 	// Cold keypair signs the operational certificate.
 	coldPub, coldPriv, err := ed25519.GenerateKey(rand.Reader)
@@ -833,10 +846,13 @@ func buildSignedTestMessage(
 	}
 	payloadCbor, err := cbor.Encode(payload)
 	require.NoError(t, err)
-	wrappedCbor, err := cbor.Encode(payloadCbor)
-	require.NoError(t, err)
+	signed := payloadCbor
+	if wrapped {
+		signed, err = cbor.Encode(payloadCbor)
+		require.NoError(t, err)
+	}
 
-	sig, err := kes.Sign(sk, evolution, wrappedCbor)
+	sig, err := kes.Sign(sk, evolution, signed)
 	require.NoError(t, err)
 
 	msg := &DmqMessage{
@@ -867,6 +883,33 @@ func TestVerifyMessage_EndToEndValid(t *testing.T) {
 	stake.register(poolID, 1000)
 
 	assert.NoError(t, auth.VerifyMessage(msg))
+}
+
+// TestVerifyMessage_KESSignsRawPayloadBytes proves the KES signature is
+// checked over the payload array's own CBOR, the bytes dmq-node signs and the
+// message ID hashes, and that a signature over the byte-string-wrapped payload
+// is refused.
+func TestVerifyMessage_KESSignsRawPayloadBytes(t *testing.T) {
+	stake := newStubStakeAuthority()
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		CurrentSlot:           testCurrentSlot,
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		StakeAuthority:        stake,
+	})
+	require.NoError(t, err)
+
+	raw := buildSignedTestMessageOver(t, 100, 100, false)
+	wrapped := buildSignedTestMessageOver(t, 100, 100, true)
+	for _, msg := range []*DmqMessage{raw, wrapped} {
+		poolID, perr := poolKeyHash(msg.ColdVerificationKey)
+		require.NoError(t, perr)
+		stake.register(poolID, 1000)
+	}
+
+	assert.NoError(t, auth.VerifyMessage(raw))
+	err = auth.VerifyMessage(wrapped)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "KES signature verification failed")
 }
 
 // TestVerifyMessage_EndToEndEvolvedKES proves a message signed at a KES

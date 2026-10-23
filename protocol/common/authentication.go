@@ -477,18 +477,12 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		)
 	}
 
-	// Create CBOR encoding of the message payload as required by spec.
+	// The KES signature covers the payload array's own CBOR bytes, the same
+	// bytes the message ID hashes. Wrapping them in a byte string first
+	// produces a different signed message than dmq-node signs and verifies.
 	payloadCbor, err := cbor.Encode(msg.Payload)
 	if err != nil {
 		return fmt.Errorf("failed to encode payload: %w", err)
-	}
-
-	// Wrap payloadCbor into a CBOR byte string (bstr .cbor messagePayload).
-	// Encoding the raw payloadCbor bytes will produce a CBOR byte string containing
-	// the original CBOR-encoded payload (bstr), which matches the spec.
-	wrappedCbor, err := cbor.Encode(payloadCbor)
-	if err != nil {
-		return fmt.Errorf("failed to encode wrapped payload as bstr: %w", err)
 	}
 
 	if len(msg.OperationalCertificate.KESVerificationKey) != 32 {
@@ -525,7 +519,7 @@ func (m *MessageAuthenticator) verifyKESSignature(
 	)
 
 	valid, err := verifyKesComponents(
-		wrappedCbor,
+		payloadCbor,
 		msg.KESSignature,
 		msg.OperationalCertificate.KESVerificationKey,
 		certPeriod,
@@ -540,7 +534,7 @@ func (m *MessageAuthenticator) verifyKESSignature(
 	}
 	m.logger.Debug(
 		"KES signature verified",
-		"payload_size", len(wrappedCbor),
+		"payload_size", len(payloadCbor),
 	)
 	return nil
 }
