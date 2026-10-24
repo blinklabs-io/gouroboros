@@ -143,10 +143,19 @@ func (c *Client) Release() error {
 	return c.release()
 }
 
-// HasTx returns whether or not the specified transaction ID exists in the mempool snapshot
+// HasTx cannot query an untagged transaction ID because the node-to-client
+// protocol requires the transaction's era.
+//
+// Deprecated: use HasTxForEra.
 func (c *Client) HasTx(txId []byte) (bool, error) {
+	return false, errHasTxEraRequired
+}
+
+// HasTxForEra returns whether the specified era-tagged transaction ID exists
+// in the mempool snapshot.
+func (c *Client) HasTxForEra(eraId uint8, txId []byte) (bool, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("calling HasTx(txId: %x)", txId),
+		Debug(fmt.Sprintf("calling HasTx(eraId: %d, txId: %x)", eraId, txId),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -162,7 +171,7 @@ func (c *Client) HasTx(txId []byte) (bool, error) {
 			return false, err
 		}
 	}
-	msg := NewMsgHasTx(txId)
+	msg := NewMsgHasTxForEra(eraId, txId)
 	if err := c.SendMessage(msg); err != nil {
 		return false, err
 	}
