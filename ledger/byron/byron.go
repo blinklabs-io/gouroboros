@@ -1173,6 +1173,24 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// MarshalCBOR encodes the input in its Byron wire form,
+// [0, #6.24(bytes .cbor [txid, index])].
+func (i ByronTransactionInput) MarshalCBOR() ([]byte, error) {
+	inner, err := cbor.Encode(&struct {
+		cbor.StructAsArray
+		TxId        common.Blake2b256
+		OutputIndex uint32
+	}{TxId: i.TxId, OutputIndex: i.OutputIndex})
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(&struct {
+		cbor.StructAsArray
+		Id   int
+		Cbor cbor.WrappedCbor
+	}{Id: 0, Cbor: cbor.WrappedCbor(inner)})
+}
+
 func (i ByronTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
@@ -1250,6 +1268,39 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// MarshalCBOR encodes the output as [address, amount] with the amount in
+// shortest form. A decoded output keeps its original address encoding; an
+// output built in code gets the Byron wire address, [#6.24(payload), crc].
+func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
+	var addr cbor.RawMessage
+	if stored := o.Cbor(); len(stored) > 0 {
+		var fields []cbor.RawMessage
+		if _, err := cbor.Decode(stored, &fields); err != nil {
+			return nil, err
+		}
+		if len(fields) != 2 {
+			return nil, fmt.Errorf(
+				"byron transaction output has %d fields, expected 2",
+				len(fields),
+			)
+		}
+		addr = fields[0]
+	} else {
+		// Bytes returns the Byron address already in its wire form,
+		// [#6.24(payload), crc], so it is embedded as is rather than wrapped.
+		addrBytes, err := o.OutputAddress.Bytes()
+		if err != nil {
+			return nil, err
+		}
+		addr = addrBytes
+	}
+	return cbor.Encode(&struct {
+		cbor.StructAsArray
+		Address cbor.RawMessage
+		Amount  uint64
+	}{Address: addr, Amount: o.OutputAmount})
 }
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
