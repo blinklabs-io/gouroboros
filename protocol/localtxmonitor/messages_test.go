@@ -17,6 +17,7 @@ package localtxmonitor
 import (
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"reflect"
@@ -71,9 +72,9 @@ var tests = []testDefinition{
 		Message:     NewMsgReplyNextTx(5, []byte{0xDE, 0xAD, 0xBE, 0xEF}),
 	},
 	{
-		CborHex:     "8207" + "5820" + strings.Repeat("de", 32),
+		CborHex:     "82078206" + "5820" + strings.Repeat("de", 32),
 		MessageType: MessageTypeHasTx,
-		Message:     NewMsgHasTx(bytes.Repeat([]byte{0xDE}, 32)),
+		Message:     NewMsgHasTxForEra(6, bytes.Repeat([]byte{0xDE}, 32)),
 	},
 	{
 		CborHex:     "8208f5",
@@ -129,6 +130,33 @@ func TestEncode(t *testing.T) {
 				test.CborHex,
 			)
 		}
+	}
+}
+
+func TestMsgHasTxDecodesHardForkTransactionId(t *testing.T) {
+	wire, err := hex.DecodeString(
+		"82078206" + "5820" + strings.Repeat("de", 32),
+	)
+	if err != nil {
+		t.Fatalf("failed to decode CBOR hex: %s", err)
+	}
+	msg, err := NewMsgFromCbor(MessageTypeHasTx, wire)
+	if err != nil {
+		t.Fatalf("failed to decode cardano-node MsgHasTx: %s", err)
+	}
+	msgHasTx := msg.(*MsgHasTx)
+	if msgHasTx.EraId != 6 {
+		t.Fatalf("decoded unexpected era ID: %d", msgHasTx.EraId)
+	}
+	if !bytes.Equal(msgHasTx.TxId, bytes.Repeat([]byte{0xDE}, 32)) {
+		t.Fatalf("decoded unexpected transaction ID: %x", msgHasTx.TxId)
+	}
+}
+
+func TestMsgHasTxRequiresEra(t *testing.T) {
+	_, err := cbor.Encode(NewMsgHasTx(bytes.Repeat([]byte{0xDE}, 32)))
+	if !errors.Is(err, errHasTxEraRequired) {
+		t.Fatalf("expected missing era error, got: %v", err)
 	}
 }
 

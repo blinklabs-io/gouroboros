@@ -263,32 +263,74 @@ func (m *MsgReplyNextTx) MarshalCBOR() ([]byte, error) {
 
 type MsgHasTx struct {
 	protocol.MessageBase
-	TxId []byte
+	EraId  uint8
+	TxId   []byte
+	eraSet bool
 }
 
+var errHasTxEraRequired = errors.New(
+	"local-tx-monitor: HasTx requires an era ID",
+)
+
+// NewMsgHasTx constructs an incomplete HasTx message from an untagged
+// transaction ID. The message cannot be encoded because the node-to-client
+// protocol requires the transaction's era.
+//
+// Deprecated: use NewMsgHasTxForEra.
 func NewMsgHasTx(txId []byte) *MsgHasTx {
-	m := &MsgHasTx{
+	return &MsgHasTx{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeHasTx,
 		},
 		TxId: txId,
 	}
+}
+
+func NewMsgHasTxForEra(eraId uint8, txId []byte) *MsgHasTx {
+	m := &MsgHasTx{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeHasTx,
+		},
+		EraId:  eraId,
+		TxId:   txId,
+		eraSet: true,
+	}
 	return m
 }
 
-// UnmarshalCBOR decodes a HasTx message and requires a transaction ID of
-// exactly lcommon.Blake2b256Size bytes, so an invalid ID is refused before
-// it is formatted or looked up.
+func (m *MsgHasTx) MarshalCBOR() ([]byte, error) {
+	if !m.eraSet {
+		return nil, errHasTxEraRequired
+	}
+	return cbor.Encode([]any{
+		m.MessageType,
+		[]any{m.EraId, m.TxId},
+	})
+}
+
+// UnmarshalCBOR decodes a HasTx message with the hard-fork era wrapper and
+// requires a transaction ID of exactly lcommon.Blake2b256Size bytes, so an
+// invalid ID is refused before it is formatted or looked up.
 func (m *MsgHasTx) UnmarshalCBOR(data []byte) error {
-	type tMsgHasTx MsgHasTx
-	var tmp tMsgHasTx
+	var tmp struct {
+		cbor.StructAsArray
+		MessageType uint8
+		Transaction struct {
+			cbor.StructAsArray
+			EraId uint8
+			TxId  []byte
+		}
+	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	if err := validateTxId(tmp.TxId); err != nil {
+	if err := validateTxId(tmp.Transaction.TxId); err != nil {
 		return err
 	}
-	*m = MsgHasTx(tmp)
+	m.MessageType = tmp.MessageType
+	m.EraId = tmp.Transaction.EraId
+	m.TxId = tmp.Transaction.TxId
+	m.eraSet = true
 	return nil
 }
 

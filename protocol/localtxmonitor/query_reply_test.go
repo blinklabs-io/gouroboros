@@ -46,7 +46,7 @@ func testQueries() []testQuery {
 			queryType: MessageTypeHasTx,
 			reply:     NewMsgReplyHasTx(true),
 			call: func(c *Client) error {
-				_, err := c.HasTx(txId)
+				_, err := c.HasTxForEra(6, txId)
 				return err
 			},
 		},
@@ -93,7 +93,7 @@ func TestMatchReplyAcceptsOnlyQueryReply(t *testing.T) {
 	reply := NewMsgReplyHasTx(true)
 	assert.False(t, matchReply(&stateContext{}, reply))
 	assert.False(t, matchReply(nil, reply))
-	assert.False(t, matchQuery(nil, NewMsgHasTx(nil)))
+	assert.False(t, matchQuery(nil, NewMsgHasTxForEra(6, nil)))
 }
 
 // TestStateMapMatchesQueriesAndReplies checks that every query leaving
@@ -258,7 +258,7 @@ func TestClientStopReleasesCaller(t *testing.T) {
 	client, conn, _ := startAcquiredTestClient(t)
 	result := make(chan error, 1)
 	go func() {
-		_, err := client.HasTx(bytes.Repeat([]byte{0xab}, 32))
+		_, err := client.HasTxForEra(6, bytes.Repeat([]byte{0xab}, 32))
 		result <- err
 	}()
 	requireQueryTestMessageType(t, conn, MessageTypeHasTx)
@@ -312,7 +312,7 @@ func TestHasTxRequiresTxIdSize(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			txId := bytes.Repeat([]byte{0xab}, tc.size)
-			data, err := cbor.Encode(NewMsgHasTx(txId))
+			data, err := cbor.Encode(NewMsgHasTxForEra(6, txId))
 			require.NoError(t, err)
 			msg, err := NewMsgFromCbor(MessageTypeHasTx, data)
 			if tc.wantErr {
@@ -330,7 +330,7 @@ func TestHasTxRequiresTxIdSize(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
 	result := make(chan error, 1)
 	go func() {
-		_, err := client.HasTx(bytes.Repeat([]byte{0xab}, 31))
+		_, err := client.HasTxForEra(6, bytes.Repeat([]byte{0xab}, 31))
 		result <- err
 	}()
 	select {

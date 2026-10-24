@@ -119,8 +119,8 @@ localtxmonitor.NewConfig(
 // Acquire mempool snapshot
 err := client.Acquire()
 
-// Check if specific transaction is in mempool
-hasTx, err := client.HasTx(txId)
+// Check if a transaction from a specific era is in the mempool
+hasTx, err := client.HasTxForEra(eraId, txId)
 
 // Iterate through mempool transactions
 for {

@@ -127,7 +127,7 @@ func TestHasTxTrue(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			hasTx, err := oConn.LocalTxMonitor().Client.HasTx(testTxId)
+			hasTx, err := oConn.LocalTxMonitor().Client.HasTxForEra(6, testTxId)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
@@ -163,7 +163,7 @@ func TestHasTxFalse(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			hasTx, err := oConn.LocalTxMonitor().Client.HasTx(testTxId)
+			hasTx, err := oConn.LocalTxMonitor().Client.HasTxForEra(6, testTxId)
 			if err != nil {
 				t.Fatalf("received unexpected error: %s", err)
 			}
