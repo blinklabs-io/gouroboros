@@ -66,6 +66,17 @@ var (
 			},
 		},
 	}
+	NetworkCardanoDijkstra = Network{
+		Id:           common.AddressNetworkTestnet,
+		Name:         "dijkstra",
+		NetworkMagic: 6,
+		BootstrapPeers: []NetworkBootstrapPeer{
+			{
+				Address: "dijkstra-node.play.dev.cardano.org",
+				Port:    3001,
+			},
+		},
+	}
 	NetworkCardanoMusashi = Network{
 		Id:           common.AddressNetworkTestnet,
 		Name:         "musashi",
@@ -146,6 +157,7 @@ var networks = []Network{
 	NetworkCardanoPreprod,
 	NetworkCardanoPreview,
 	NetworkCardanoSancho,
+	NetworkCardanoDijkstra,
 	NetworkCardanoMusashi,
 	NetworkPrimeMainnet,
 	NetworkPrimeTestnet,
