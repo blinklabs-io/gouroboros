@@ -17,6 +17,7 @@ package leiosfetch
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -171,6 +172,9 @@ func writePipelineTestRequest(conn net.Conn, msg protocol.Message) error {
 		return err
 	}
 	segment := muxer.NewSegment(ProtocolId, data, false)
+	if segment == nil {
+		return errors.New("request does not fit one segment")
+	}
 	buf := &bytes.Buffer{}
 	if err := binary.Write(buf, binary.BigEndian, segment.SegmentHeader); err != nil {
 		return err
