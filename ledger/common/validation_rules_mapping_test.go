@@ -273,7 +273,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateSignatures,                   // UtxoValidationRuleSignatures
 		dijkstra.UtxoValidateCostModelsPresent,            // UtxoValidationRuleCostModelsPresent
 		dijkstra.UtxoValidateScriptDataHash,               // UtxoValidationRuleScriptDataHash
-		conway.UtxoValidateInlineDatumsWithPlutusV1,       // UtxoValidationRuleInlineDatumsWithPlutusV1
+		dijkstra.UtxoValidateInlineDatumsWithPlutusV1,     // UtxoValidationRuleInlineDatumsWithPlutusV1
 		dijkstra.UtxoValidateConwayFeaturesWithPlutusV1V2, // UtxoValidationRuleConwayFeaturesWithPlutusV1V2
 		dijkstra.UtxoValidateOutsideValidityIntervalUtxo,  // UtxoValidationRuleOutsideValidityInterval
 		dijkstra.UtxoValidateOutsideForecast,              // UtxoValidationRuleOutsideForecast
