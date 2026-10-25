@@ -1061,24 +1061,53 @@ func verifyBlock(
 		)
 	}
 
-	// Verify block body hash (can be skipped via config)
-	// Intended usage: production should keep this enabled for security.
-	// Tests or environments lacking full block CBOR may set
-	// VerifyConfig{SkipBodyHashValidation:true} to bypass this check.
+	// Verify the signed block body size and body hash for post-Byron blocks.
+	// These local integrity checks are independent of protocol-parameter block
+	// limits and share the explicit body-integrity validation bypass.
 	expectedBodyHash := block.BlockBodyHash()
 	if block.Era() != byron.EraByron && !config.SkipBodyHashValidation {
 		rawCbor := block.Cbor()
 		if len(rawCbor) == 0 {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeConfiguration,
-				"block CBOR is required for body hash verification",
+				"block CBOR is required for body size verification",
 				map[string]any{
-					"slot":                      slot,
-					"block_number":              blockNo,
-					"era":                       era,
-					"skip_body_hash_validation": config.SkipBodyHashValidation,
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
 				},
 				nil,
+			)
+		}
+		bodySize, sizeErr := common.BlockBodySizeFromCbor(rawCbor)
+		if sizeErr != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"failed to calculate block body size",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+				},
+				sizeErr,
+			)
+		}
+		declaredBodySize := block.BlockBodySize()
+		if bodySize != declaredBodySize {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeProtocol,
+				"block body size differs from signed header",
+				map[string]any{
+					"slot":               slot,
+					"block_number":       blockNo,
+					"era":                era,
+					"body_size":          bodySize,
+					"declared_body_size": declaredBodySize,
+				},
+				common.BlockBodySizeMismatchError{
+					BlockBodySize:         bodySize,
+					DeclaredBlockBodySize: declaredBodySize,
+				},
 			)
 		}
 		era := block.Era()
@@ -1195,12 +1224,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					limitsErr,
 				)
 			}
-			// A zero-value MaxBlockExUnits (both Memory and Steps unset)
-			// is treated as "no limit" and skipped, consistent with the
-			// maxBodySize > 0 / maxHeaderSize > 0 guards below.
-			hasNonZeroMaxExUnits := maxExUnits.Memory > 0 ||
-				maxExUnits.Steps > 0
-			if hasMaxExUnits && hasNonZeroMaxExUnits && len(txs) > 0 {
+			if hasMaxExUnits && len(txs) > 0 {
 				totalExUnits, sumErr := sumBlockExUnits(txs)
 				if sumErr != nil {
 					return common.NewValidationError(

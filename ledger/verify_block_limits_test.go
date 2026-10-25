@@ -15,6 +15,8 @@
 package ledger_test
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -23,11 +25,13 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	"github.com/blinklabs-io/gouroboros/vrf"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
@@ -46,6 +50,52 @@ const blockLimitsTestEta0Hex = "4ef95a10f639d0cf16bb963c3a580d4bf2a95b6ae7848702
 
 const blockLimitsTestSlotsPerKesPeriod = uint64(129600)
 
+type blockLimitsSigningMaterial struct {
+	coldVkey        common.IssuerVkey
+	kesSkey         *kes.SecretKey
+	kesVkey         []byte
+	vrfVkey         []byte
+	vrfProof        []byte
+	vrfOutput       []byte
+	kesPeriod       uint64
+	opCertSignature []byte
+}
+
+func newBlockLimitsSigningMaterial(
+	t *testing.T,
+	slot uint64,
+) blockLimitsSigningMaterial {
+	t.Helper()
+	coldPub, coldPriv, err := ed25519.GenerateKey(bytes.NewReader(
+		bytes.Repeat([]byte{0x11}, 64),
+	))
+	require.NoError(t, err)
+	kesSkey, kesVkey, err := kes.KeyGen(6, bytes.Repeat([]byte{0x22}, 32))
+	require.NoError(t, err)
+	vrfVkey, vrfSkey, err := vrf.KeyGen(bytes.Repeat([]byte{0x33}, 32))
+	require.NoError(t, err)
+	eta0, err := hex.DecodeString(blockLimitsTestEta0Hex)
+	require.NoError(t, err)
+	vrfMsg, err := vrf.MkInputVrf(int64(slot), eta0) // #nosec G115
+	require.NoError(t, err)
+	vrfProof, vrfOutput, err := vrf.Prove(vrfSkey, vrfMsg)
+	require.NoError(t, err)
+	kesPeriod := slot / blockLimitsTestSlotsPerKesPeriod
+	return blockLimitsSigningMaterial{
+		coldVkey:  common.IssuerVkey(coldPub),
+		kesSkey:   kesSkey,
+		kesVkey:   kesVkey,
+		vrfVkey:   vrfVkey,
+		vrfProof:  vrfProof,
+		vrfOutput: vrfOutput,
+		kesPeriod: kesPeriod,
+		opCertSignature: ed25519.Sign(
+			coldPriv,
+			common.OpCertSignableBytes(kesVkey, 0, kesPeriod),
+		),
+	}
+}
+
 // buildBlockLimitsTestBlock decodes the shared real header, attaches
 // numTxs synthetic Conway transactions each carrying a single spend
 // redeemer with the given ExUnits, encodes the whole block, and re-decodes
@@ -57,17 +107,21 @@ func buildBlockLimitsTestBlock(
 	numTxs int,
 	perTxExUnits common.ExUnits,
 ) ledger.Block {
-	t.Helper()
-
-	headerCborBytes, err := hex.DecodeString(blockLimitsTestHeaderHex)
-	require.NoError(t, err)
-	header, err := ledger.NewBlockHeaderFromCbor(
-		ledger.BlockTypeConway,
-		headerCborBytes,
+	return buildBlockLimitsTestBlockWithDeclaredSize(
+		t,
+		numTxs,
+		perTxExUnits,
+		func(actual uint64) uint64 { return actual },
 	)
-	require.NoError(t, err)
-	conwayHeader, ok := header.(*conway.ConwayBlockHeader)
-	require.True(t, ok)
+}
+
+func buildBlockLimitsTestBlockWithDeclaredSize(
+	t *testing.T,
+	numTxs int,
+	perTxExUnits common.ExUnits,
+	declaredSize func(uint64) uint64,
+) ledger.Block {
+	t.Helper()
 
 	txBody := conway.ConwayTransactionBody{
 		TxFee: 200000,
@@ -89,21 +143,34 @@ func buildBlockLimitsTestBlock(
 		bodies[i] = txBody
 		witnesses[i] = witnessSet
 	}
+	metadata := common.TransactionMetadataSet{}
+	invalidTransactions := []uint{}
+	bodyParts := []any{bodies, witnesses, metadata, invalidTransactions}
+	var bodySize uint64
+	var bodyHashes []byte
+	for _, part := range bodyParts {
+		encoded, err := cbor.Encode(part)
+		require.NoError(t, err)
+		bodySize += uint64(len(encoded))
+		bodyHashes = append(bodyHashes, common.Blake2b256Hash(encoded).Bytes()...)
+	}
+	conwayHeader := signedConwayLimitsHeader(
+		t,
+		declaredSize(bodySize),
+		common.Blake2b256Hash(bodyHashes),
+	)
 
 	craftedBlock := &conway.ConwayBlock{
 		BlockHeader:            conwayHeader,
 		TransactionBodies:      bodies,
 		TransactionWitnessSets: witnesses,
-		TransactionMetadataSet: common.TransactionMetadataSet{},
-		InvalidTransactions:    []uint{},
+		TransactionMetadataSet: metadata,
+		InvalidTransactions:    invalidTransactions,
 	}
 
 	blockCbor, err := cbor.Encode(craftedBlock)
 	require.NoError(t, err)
 
-	// SkipBodyHashValidation: the crafted body's hash won't match the real
-	// header's declared body hash (this fixture swaps in synthetic
-	// transactions), which is orthogonal to what these tests exercise.
 	decodedBlock, err := ledger.NewBlockFromCbor(
 		ledger.BlockTypeConway,
 		blockCbor,
@@ -111,6 +178,118 @@ func buildBlockLimitsTestBlock(
 	)
 	require.NoError(t, err)
 	return decodedBlock
+}
+
+func TestVerifyBlock_BlockBodySizeMatchesSignedHeader(t *testing.T) {
+	tests := []struct {
+		name         string
+		declaredSize func(uint64) uint64
+		wantMismatch bool
+	}{
+		{
+			name:         "exact",
+			declaredSize: func(actual uint64) uint64 { return actual },
+		},
+		{
+			name:         "declared zero",
+			declaredSize: func(uint64) uint64 { return 0 },
+			wantMismatch: true,
+		},
+		{
+			name:         "declared larger",
+			declaredSize: func(actual uint64) uint64 { return actual + 1 },
+			wantMismatch: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := buildBlockLimitsTestBlockWithDeclaredSize(
+				t,
+				1,
+				common.ExUnits{},
+				test.declaredSize,
+			)
+			config := blockLimitsTestVerifyConfig(
+				&conway.ConwayProtocolParameters{},
+			)
+			config.SkipBodyHashValidation = false
+			config.SkipBlockLimitsValidation = true
+			valid, _, _, _, err := ledger.VerifyBlock(
+				block,
+				blockLimitsTestEta0Hex,
+				blockLimitsTestSlotsPerKesPeriod,
+				config,
+			)
+			if !test.wantMismatch {
+				require.NoError(t, err)
+				require.True(t, valid)
+				return
+			}
+			require.False(t, valid)
+			require.ErrorIs(t, err, common.ErrBlockBodySizeMismatch)
+			var mismatch common.BlockBodySizeMismatchError
+			require.ErrorAs(t, err, &mismatch)
+			require.NotEqual(
+				t,
+				mismatch.BlockBodySize,
+				mismatch.DeclaredBlockBodySize,
+			)
+		})
+	}
+}
+
+func signedConwayLimitsHeader(
+	t *testing.T,
+	bodySize uint64,
+	bodyHash common.Blake2b256,
+) *conway.ConwayBlockHeader {
+	t.Helper()
+	fixtureCbor, err := hex.DecodeString(blockLimitsTestHeaderHex)
+	require.NoError(t, err)
+	fixture, err := ledger.NewBlockHeaderFromCbor(
+		ledger.BlockTypeConway,
+		fixtureCbor,
+	)
+	require.NoError(t, err)
+	fixtureHeader := fixture.(*conway.ConwayBlockHeader)
+
+	signing := newBlockLimitsSigningMaterial(t, fixtureHeader.Body.Slot)
+
+	body := fixtureHeader.Body
+	body.BlockBodySize = bodySize
+	body.BlockBodyHash = bodyHash
+	body.IssuerVkey = signing.coldVkey
+	body.VrfKey = signing.vrfVkey
+	body.VrfResult = common.VrfResult{
+		Output: signing.vrfOutput,
+		Proof:  signing.vrfProof,
+	}
+	body.OpCert = babbage.BabbageOpCert{
+		HotVkey:        signing.kesVkey,
+		SequenceNumber: 0,
+		KesPeriod:      signing.kesPeriod,
+		Signature:      signing.opCertSignature,
+	}
+	header := &conway.ConwayBlockHeader{
+		BabbageBlockHeader: babbage.BabbageBlockHeader{
+			Body:      body,
+			Signature: make([]byte, kes.CardanoKesSignatureSize),
+		},
+	}
+	unsigned, err := cbor.Encode(header)
+	require.NoError(t, err)
+	var top []cbor.RawMessage
+	_, err = cbor.Decode(unsigned, &top)
+	require.NoError(t, err)
+	require.Len(t, top, 2)
+	header.Signature, err = kes.Sign(signing.kesSkey, 0, top[0])
+	require.NoError(t, err)
+	signed, err := cbor.Encode(header)
+	require.NoError(t, err)
+	decoded := &conway.ConwayBlockHeader{}
+	_, err = cbor.Decode(signed, decoded)
+	require.NoError(t, err)
+	return decoded
 }
 
 func blockLimitsTestVerifyConfig(
@@ -320,11 +499,9 @@ func TestVerifyBlock_BlockLimits_BodySizeTooBig(t *testing.T) {
 	)
 }
 
-// TestVerifyBlock_BlockLimits_ZeroLimitsAreUnlimited confirms that leaving
-// MaxBlockExUnits, MaxBlockBodySize, and MaxBlockHeaderSize at their zero
-// values is treated as "unlimited" (each guard is skipped), not as a limit
-// of zero, so VerifyBlock still passes.
-func TestVerifyBlock_BlockLimits_ZeroLimitsAreUnlimited(t *testing.T) {
+// TestVerifyBlock_BlockLimits_ZeroSizeLimitsAreUnlimited confirms that the
+// zero values for body and header size limits disable those optional limits.
+func TestVerifyBlock_BlockLimits_ZeroSizeLimitsAreUnlimited(t *testing.T) {
 	block := buildBlockLimitsTestBlock(t, 3, common.ExUnits{
 		Memory: 1_000_000,
 		Steps:  100_000_000,
@@ -333,7 +510,10 @@ func TestVerifyBlock_BlockLimits_ZeroLimitsAreUnlimited(t *testing.T) {
 	pp := &conway.ConwayProtocolParameters{
 		MaxBlockBodySize:   0,
 		MaxBlockHeaderSize: 0,
-		MaxBlockExUnits:    common.ExUnits{},
+		MaxBlockExUnits: common.ExUnits{
+			Memory: 62_000_000,
+			Steps:  40_000_000_000,
+		},
 	}
 
 	valid, _, _, _, err := ledger.VerifyBlock(

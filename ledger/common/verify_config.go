@@ -106,9 +106,10 @@ type VerifyConfig struct {
 	// This is for callers that need to distinguish a representable block from
 	// a validation failure before applying their own validation.
 	SkipHeaderValidation bool
-	// SkipBodyHashValidation disables body hash verification in VerifyBlock().
-	// When false (default), full block CBOR must be available for validation.
-	// Useful for scenarios where full block CBOR is unavailable.
+	// SkipBodyHashValidation disables block body integrity verification in
+	// VerifyBlock(), including the signed body size and body hash checks. When
+	// false (default), full block CBOR must be available for validation. Useful
+	// for scenarios where full block CBOR is unavailable.
 	SkipBodyHashValidation bool
 	// SkipTransactionValidation disables transaction validation in VerifyBlock().
 	// When false (default), LedgerState and ProtocolParameters must be set.
