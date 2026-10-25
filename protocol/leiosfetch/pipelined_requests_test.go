@@ -31,20 +31,29 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newPipelineTestServer starts a started server whose block and block
-// transactions callbacks answer with the request's slot as the reply marker.
-// The first callback to run blocks until the returned release func is called
-// (the cleanup calls it too, so a failing test cannot hang), which holds the
-// server in a reply-outstanding state while the test pipelines more requests.
 // pipelineMarker is a small CBOR array that identifies the request, by slot,
 // that a reply answers.
 func pipelineMarker(slot uint64) cbor.RawMessage {
 	return cbor.RawMessage{0x82, 0x01, 0x18, byte(slot)}
 }
 
-func newPipelineTestServer(
-	t *testing.T,
-) (net.Conn, <-chan error, func(), <-chan struct{}) {
+// pipelineTestServer is the client end of a connection to a started server.
+type pipelineTestServer struct {
+	conn           net.Conn
+	protocolErrors <-chan error
+	muxerErrors    <-chan error
+	// release unblocks the held first callback.
+	release func()
+	// holding is closed once the first callback is running.
+	holding <-chan struct{}
+}
+
+// newPipelineTestServer starts a server whose block and block transactions
+// callbacks answer with the request's slot as the reply marker. The first
+// callback to run blocks until release is called (the cleanup calls it too,
+// so a failing test cannot hang), which holds the server in a
+// reply-outstanding state while the test pipelines more requests.
+func newPipelineTestServer(t *testing.T) pipelineTestServer {
 	t.Helper()
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
@@ -99,7 +108,25 @@ func newPipelineTestServer(
 		_ = connA.Close()
 		_ = connB.Close()
 	})
-	return connB, protocolErrors, releaseFn, holding
+	return pipelineTestServer{
+		conn:           connB,
+		protocolErrors: protocolErrors,
+		muxerErrors:    m.ErrorChan(),
+		release:        releaseFn,
+		holding:        holding,
+	}
+}
+
+// waitForHold waits until the server is running the first callback.
+func (s pipelineTestServer) waitForHold(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.holding:
+	case err := <-s.protocolErrors:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not start the first request")
+	}
 }
 
 // pipelineReplyReader decodes replies from a connection. The server may batch
@@ -190,24 +217,22 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			conn, protocolErrors, release, holding := newPipelineTestServer(t)
+			srv := newPipelineTestServer(t)
 			send := func(r request) error {
 				if r.txs {
 					return writePipelineTestRequest(
-						conn, NewMsgBlockTxsRequest(point(r.slot), bitmaps),
+						srv.conn, NewMsgBlockTxsRequest(point(r.slot), bitmaps),
 					)
 				}
-				return writePipelineTestRequest(conn, NewMsgBlockRequest(point(r.slot)))
+				return writePipelineTestRequest(
+					srv.conn, NewMsgBlockRequest(point(r.slot)),
+				)
 			}
 			require.NoError(t, send(tc.requests[0]))
-			select {
-			case <-holding:
-			case err := <-protocolErrors:
-				require.NoError(t, err)
-			case <-time.After(5 * time.Second):
-				t.Fatal("server did not start the first request")
-			}
-			// The first reply is outstanding while the rest arrive.
+			srv.waitForHold(t)
+			// The first reply is outstanding while the rest arrive. A pipe
+			// write returns once the server has read it, so every request is
+			// on the server before the first reply is released.
 			sent := make(chan error, 1)
 			go func() {
 				for _, r := range tc.requests[1:] {
@@ -218,14 +243,16 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 				}
 				sent <- nil
 			}()
-			// Nothing the server does while holding the first reply may fail it.
 			select {
-			case err := <-protocolErrors:
+			case err := <-sent:
 				require.NoError(t, err)
-			case <-time.After(300 * time.Millisecond):
+			case err := <-srv.protocolErrors:
+				require.NoError(t, err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("server did not read the pipelined requests")
 			}
-			release()
-			replies := &pipelineReplyReader{conn: conn}
+			srv.release()
+			replies := &pipelineReplyReader{conn: srv.conn}
 			for i, r := range tc.requests {
 				msg := replies.next(t)
 				if r.txs {
@@ -238,9 +265,8 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 				require.True(t, ok, "reply %d is %T", i, msg)
 				require.Equal(t, pipelineMarker(r.slot), got.BlockRaw)
 			}
-			require.NoError(t, <-sent)
 			select {
-			case err := <-protocolErrors:
+			case err := <-srv.protocolErrors:
 				require.NoError(t, err)
 			default:
 			}
@@ -253,23 +279,57 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 // violation.
 func TestServerRejectsUnpipelinedRequestWhileReplying(t *testing.T) {
 	t.Parallel()
-	conn, protocolErrors, release, holding := newPipelineTestServer(t)
-	require.NoError(t, writePipelineTestRequest(conn, NewMsgBlockRequest(
+	srv := newPipelineTestServer(t)
+	require.NoError(t, writePipelineTestRequest(srv.conn, NewMsgBlockRequest(
 		pcommon.NewPoint(1, testPointHash(1)),
 	)))
+	srv.waitForHold(t)
+	go func() { _ = writePipelineTestRequest(srv.conn, NewMsgVotesRequest(nil)) }()
 	select {
-	case <-holding:
-	case err := <-protocolErrors:
-		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("server did not start the first request")
-	}
-	go func() { _ = writePipelineTestRequest(conn, NewMsgVotesRequest(nil)) }()
-	select {
-	case err := <-protocolErrors:
+	case err := <-srv.protocolErrors:
 		require.ErrorContains(t, err, "message type")
 	case <-time.After(5 * time.Second):
 		t.Fatal("votes request pipelined behind a block request was accepted")
 	}
-	release()
+}
+
+// Pipelined requests are held in bounded queues while a reply is outstanding.
+// A client that keeps sending past them overruns the protocol's ingress limit,
+// and the connection fails instead of the queue growing.
+func TestServerFailsConnectionWhenPipelinedRequestsOverrunIngress(t *testing.T) {
+	t.Parallel()
+	srv := newPipelineTestServer(t)
+	require.NoError(t, writePipelineTestRequest(srv.conn, NewMsgBlockRequest(
+		pcommon.NewPoint(1, testPointHash(1)),
+	)))
+	srv.waitForHold(t)
+	// The largest request the decoder accepts, so a few hundred of them
+	// exceed the receive queue and the ingress limit together.
+	bitmaps := make(map[uint16]uint64, maxWireBlockBitmaps)
+	for i := range uint16(maxWireBlockBitmaps) {
+		bitmaps[i] = 1
+	}
+	request := NewMsgBlockTxsRequest(
+		pcommon.NewPoint(2, testPointHash(2)),
+		bitmaps,
+	)
+	data, err := cbor.Encode(request)
+	require.NoError(t, err)
+	require.Less(t, len(data), MaxIdleMessageBytes)
+	count := 4*MaxBlockMessageBytes/len(data) + 1
+	go func() {
+		for range count {
+			if writePipelineTestRequest(srv.conn, request) != nil {
+				return
+			}
+		}
+	}()
+	select {
+	case err := <-srv.muxerErrors:
+		require.ErrorIs(t, err, muxer.ErrIngressOverflow)
+	case err := <-srv.protocolErrors:
+		t.Fatalf("protocol failed before the ingress limit: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("pipelined requests past the ingress limit were accepted")
+	}
 }
