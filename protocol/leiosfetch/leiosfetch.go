@@ -66,6 +66,13 @@ var (
 	StateDone       = protocol.NewState(6, "Done")
 )
 
+// pipelinedFetchRequests are the requests a client may send while a reply to
+// an earlier Block or BlockTxs request is outstanding.
+var pipelinedFetchRequests = []uint8{
+	MessageTypeBlockRequest,
+	MessageTypeBlockTxsRequest,
+}
+
 var StateMap = protocol.StateMap{
 	StateIdle: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyClient,
@@ -96,6 +103,12 @@ var StateMap = protocol.StateMap{
 	StateBlock: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxBlockMessageBytes,
+		// A client pipelines further block and block transactions requests
+		// behind one the server has not answered yet; they are queued and
+		// answered in request order once the reply returns the state to Idle.
+		// Votes and block range requests are not pipelined by the reference
+		// client, so they are still refused here.
+		PipelinedMessageTypes: pipelinedFetchRequests,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlock,
@@ -106,6 +119,12 @@ var StateMap = protocol.StateMap{
 	StateBlockTxs: protocol.StateMapEntry{
 		Agency:                  protocol.AgencyServer,
 		PendingMessageByteLimit: MaxBlockTxsMessageBytes,
+		// A client pipelines further block and block transactions requests
+		// behind one the server has not answered yet; they are queued and
+		// answered in request order once the reply returns the state to Idle.
+		// Votes and block range requests are not pipelined by the reference
+		// client, so they are still refused here.
+		PipelinedMessageTypes: pipelinedFetchRequests,
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:  MessageTypeBlockTxs,
