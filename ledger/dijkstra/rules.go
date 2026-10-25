@@ -4261,7 +4261,6 @@ func UtxoValidateCollateralContainsNonAda(
 	if redeemerCount(tx) == 0 {
 		return nil
 	}
-	badOutputs := []common.TransactionOutput{}
 	totalCollateral := new(big.Int)
 	totalAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](nil)
 	for _, collateralInput := range tx.Collateral() {
@@ -4273,20 +4272,17 @@ func UtxoValidateCollateralContainsNonAda(
 		if amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
-		assets := utxo.Output.Assets()
-		totalAssets.Add(assets)
-		if assets == nil || len(assets.Policies()) == 0 {
-			continue
-		}
-		badOutputs = append(badOutputs, utxo.Output)
+		totalAssets.Add(utxo.Output.Assets())
 	}
-	if len(badOutputs) == 0 {
-		return nil
-	}
+	// The net collateral (inputs minus the collateral return) must be ADA
+	// only, so the return's assets have to match the inputs' assets even
+	// when the inputs carry none.
+	var collReturnAssets *common.MultiAsset[common.MultiAssetTypeOutput]
 	if collReturn := tx.CollateralReturn(); collReturn != nil {
-		if (&totalAssets).Compare(collReturn.Assets()) {
-			return nil
-		}
+		collReturnAssets = collReturn.Assets()
+	}
+	if (&totalAssets).Compare(collReturnAssets) {
+		return nil
 	}
 	var providedU uint64
 	if totalCollateral.IsUint64() {
