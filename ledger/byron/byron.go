@@ -16,6 +16,7 @@ package byron
 
 import (
 	"crypto/ed25519"
+	"crypto/sha3"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -698,34 +699,12 @@ func (t *ByronTransaction) WireId() common.Blake2b256 {
 // protocol-magic and constructor-specific signing domains.
 func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
 	for idx, witness := range t.Twit {
-		outer, ok := witness.Value().([]any)
-		if !ok || len(outer) != 2 {
-			return fmt.Errorf("invalid Byron transaction witness %d", idx)
-		}
-		constructor, ok := asUint64(outer[0])
-		if !ok || (constructor != 0 && constructor != 2) {
-			continue
-		}
-		wrapped, ok := outer[1].(cbor.WrappedCbor)
-		if !ok {
-			return fmt.Errorf("invalid Byron transaction witness %d payload", idx)
-		}
-		var fields []any
-		consumed, err := cbor.Decode(wrapped.Bytes(), &fields)
-		if err != nil || consumed != len(wrapped.Bytes()) || len(fields) != 2 {
-			return fmt.Errorf("invalid Byron transaction witness %d fields", idx)
-		}
-		publicKey, ok := asBytes(fields[0])
-		expectedKeySize := ed25519.PublicKeySize
-		if constructor == 0 {
-			expectedKeySize = VerificationKeySize
-		}
-		if !ok || len(publicKey) != expectedKeySize {
-			return fmt.Errorf("invalid Byron transaction witness %d public key", idx)
-		}
-		signature, ok := asBytes(fields[1])
-		if !ok {
-			return fmt.Errorf("invalid Byron transaction witness %d signature", idx)
+		constructor, publicKey, signature, err := decodeTransactionWitness(
+			witness,
+			idx,
+		)
+		if err != nil {
+			return err
 		}
 		tag := byte(0x01)
 		if constructor == 2 {
@@ -749,6 +728,160 @@ func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
 		}
 	}
 	return nil
+}
+
+// ValidateAgainstUtxo verifies a Byron transaction using the UTxO set it
+// consumes. Byron fees are implicit, so value is conserved when the resolved
+// input value is at least the value of the outputs that enter the UTxO set.
+func (t *ByronTransaction) ValidateAgainstUtxo(
+	protocolMagic uint32,
+	state common.UtxoState,
+) error {
+	if state == nil {
+		return errors.New("byron transaction validation requires UTxO state")
+	}
+	if len(t.Body.TxInputs) != len(t.Twit) {
+		return fmt.Errorf(
+			"byron transaction has %d inputs but %d witnesses",
+			len(t.Body.TxInputs),
+			len(t.Twit),
+		)
+	}
+	inputValue := new(big.Int)
+	seenInputs := make(map[ByronTransactionInput]struct{}, len(t.Body.TxInputs))
+	for idx, input := range t.Body.TxInputs {
+		if _, seen := seenInputs[input]; seen {
+			return fmt.Errorf("duplicate byron transaction input %s", input.String())
+		}
+		seenInputs[input] = struct{}{}
+		utxo, err := common.ResolveInputUtxo(state, input)
+		if err != nil {
+			return fmt.Errorf("resolve byron transaction input %d: %w", idx, err)
+		}
+		constructor, publicKey, _, err := decodeTransactionWitness(t.Twit[idx], idx)
+		if err != nil {
+			return err
+		}
+		matches, err := byronWitnessMatchesAddress(
+			constructor,
+			publicKey,
+			utxo.Output.Address(),
+		)
+		if err != nil {
+			return fmt.Errorf("validate byron transaction witness %d address: %w", idx, err)
+		}
+		if !matches {
+			return fmt.Errorf(
+				"byron transaction witness %d does not authorize input %s",
+				idx,
+				input.String(),
+			)
+		}
+		amount := utxo.Output.Amount()
+		if amount == nil || amount.Sign() < 0 {
+			return fmt.Errorf(
+				"byron transaction input %d has invalid resolved value",
+				idx,
+			)
+		}
+		inputValue.Add(inputValue, amount)
+	}
+	if err := t.ValidateVKeyWitnesses(protocolMagic); err != nil {
+		return err
+	}
+	outputValue := new(big.Int)
+	for idx, utxo := range t.Produced() {
+		if utxo.Output == nil {
+			return fmt.Errorf("byron transaction output %d is nil", idx)
+		}
+		amount := utxo.Output.Amount()
+		if amount == nil || amount.Sign() < 0 {
+			return fmt.Errorf("byron transaction output %d has invalid value", idx)
+		}
+		outputValue.Add(outputValue, amount)
+	}
+	if outputValue.Cmp(inputValue) > 0 {
+		return fmt.Errorf(
+			"byron transaction output value %s exceeds input value %s",
+			outputValue,
+			inputValue,
+		)
+	}
+	return nil
+}
+
+func decodeTransactionWitness(
+	witness cbor.Value,
+	idx int,
+) (uint64, []byte, []byte, error) {
+	outer, ok := witness.Value().([]any)
+	if !ok || len(outer) != 2 {
+		return 0, nil, nil, fmt.Errorf("invalid Byron transaction witness %d", idx)
+	}
+	constructor, ok := asUint64(outer[0])
+	if !ok || (constructor != 0 && constructor != 2) {
+		return 0, nil, nil, fmt.Errorf(
+			"invalid Byron transaction witness %d constructor",
+			idx,
+		)
+	}
+	wrapped, ok := outer[1].(cbor.WrappedCbor)
+	if !ok {
+		return 0, nil, nil, fmt.Errorf(
+			"invalid Byron transaction witness %d payload",
+			idx,
+		)
+	}
+	var fields []any
+	consumed, err := cbor.Decode(wrapped.Bytes(), &fields)
+	if err != nil || consumed != len(wrapped.Bytes()) || len(fields) != 2 {
+		return 0, nil, nil, fmt.Errorf(
+			"invalid Byron transaction witness %d fields",
+			idx,
+		)
+	}
+	publicKey, ok := asBytes(fields[0])
+	expectedKeySize := ed25519.PublicKeySize
+	if constructor == 0 {
+		expectedKeySize = VerificationKeySize
+	}
+	if !ok || len(publicKey) != expectedKeySize {
+		return 0, nil, nil, fmt.Errorf(
+			"invalid Byron transaction witness %d public key",
+			idx,
+		)
+	}
+	signature, ok := asBytes(fields[1])
+	if !ok {
+		return 0, nil, nil, fmt.Errorf(
+			"invalid Byron transaction witness %d signature",
+			idx,
+		)
+	}
+	return constructor, publicKey, signature, nil
+}
+
+func byronWitnessMatchesAddress(
+	constructor uint64,
+	publicKey []byte,
+	address common.Address,
+) (bool, error) {
+	if address.Type() != common.AddressTypeByron ||
+		address.ByronType() != constructor {
+		return false, nil
+	}
+	rootData, err := cbor.Encode([]any{
+		constructor,
+		[]any{constructor, publicKey},
+		address.ByronAttr(),
+	})
+	if err != nil {
+		return false, err
+	}
+	sha3Sum := sha3.Sum256(rootData)
+	root := common.Blake2b224Hash(sha3Sum[:])
+	payload, ok := address.PayloadPayload().(common.AddressPayloadKeyHash)
+	return ok && payload.Hash == root, nil
 }
 
 func (t *ByronTransaction) ValidateByronVKeyWitnesses() error {

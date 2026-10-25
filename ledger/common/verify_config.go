@@ -133,7 +133,8 @@ type VerifyConfig struct {
 	LedgerState LedgerState
 	// ProtocolParameters provides the current protocol parameters for
 	// transaction validation and block-limits validation.
-	// Required if SkipTransactionValidation is false. When set and
+	// Required for Shelley-family transaction validation when
+	// SkipTransactionValidation is false. When set and
 	// SkipBlockLimitsValidation is false, also enables block-wide
 	// execution-unit and size validation (see SkipBlockLimitsValidation).
 	ProtocolParameters ProtocolParameters

@@ -1324,16 +1324,47 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	}
 
 	// Verify transactions (can be skipped via config)
-	// Requires LedgerState and ProtocolParameters in config if enabled.
+	// Byron requires LedgerState; Shelley-family eras require LedgerState and
+	// ProtocolParameters.
 	if block.Era() == byron.EraByron && !config.SkipTransactionValidation {
 		if mainBlock, ok := block.(*byron.ByronMainBlock); ok {
+			if len(mainBlock.Body.TxPayload) > 0 && config.LedgerState == nil {
+				return common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"ledger state is required for Byron transaction validation",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+						"era":          era,
+					},
+					nil,
+				)
+			}
+			blockState := common.NewBlockLedgerState(config.LedgerState)
 			for idx := range mainBlock.Body.TxPayload {
-				if err := mainBlock.Body.TxPayload[idx].ValidateVKeyWitnesses(
+				tx := &mainBlock.Body.TxPayload[idx]
+				if err := tx.ValidateAgainstUtxo(
 					mainBlock.BlockHeader.ProtocolMagic,
+					blockState,
 				); err != nil {
 					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,
-						"Byron block transaction witness validation failed",
+						"Byron block transaction validation failed",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"transaction":  idx,
+						},
+						err,
+					)
+				}
+				if err := blockState.ApplyTransaction(
+					tx,
+					config.ProtocolParameters,
+				); err != nil {
+					return common.NewValidationError(
+						common.ValidationErrorTypeTransaction,
+						"failed to apply Byron block transaction",
 						map[string]any{
 							"block_slot":   slot,
 							"block_number": blockNo,
