@@ -383,6 +383,53 @@ func TestDijkstraPhase2InvalidStillChecksCollateral(t *testing.T) {
 	require.ErrorAs(t, rule(tx, 0, state, &DijkstraProtocolParameters{}), &collateralErr)
 }
 
+func TestDijkstraCollateralReturnAssetsWithAdaOnlyInputs(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			common.Blake2b224Hash([]byte("policy")): {
+				cbor.NewByteString([]byte("asset")): big.NewInt(1),
+			},
+		},
+	)
+	newTx := func(collReturn *DijkstraTransactionOutput) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxCollateral:       cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+				TxCollateralReturn: collReturn,
+			},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{{}: {}},
+				},
+			},
+			TxIsValid: true,
+		}
+	}
+	rule, _ := dijkstraValidationRule(t, "ledger/dijkstra.UtxoValidateCollateralContainsNonAda")
+	pp := &DijkstraProtocolParameters{}
+
+	// ADA-only inputs with no collateral return
+	require.NoError(t, rule(newTx(nil), 0, state, pp))
+	// ADA-only inputs with an ADA-only collateral return
+	require.NoError(t, rule(newTx(&DijkstraTransactionOutput{
+		Output: babbage.BabbageTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{Amount: 1},
+		},
+	}), 0, state, pp))
+	// ADA-only inputs with a collateral return that carries tokens
+	var collateralErr alonzo.CollateralContainsNonAdaError
+	require.ErrorAs(t, rule(newTx(&DijkstraTransactionOutput{
+		Output: babbage.BabbageTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: 1,
+				Assets: &assets,
+			},
+		},
+	}), 0, state, pp), &collateralErr)
+}
+
 func TestDijkstraPhase2InvalidChecksProposalReturnAddressShape(t *testing.T) {
 	rule, _ := dijkstraValidationRule(
 		t,
