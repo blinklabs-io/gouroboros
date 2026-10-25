@@ -753,13 +753,27 @@ func UtxoValidateDelegation(
 		return err
 	}
 
-	// Track credentials/pools registered within this transaction
-	inTxStakeRegs := make(map[common.Blake2b224]bool)
+	// Track the effective registration state produced by earlier
+	// certificates. Credential type is part of the identity, and a false
+	// entry must override a registration in the starting ledger state.
+	type stakeCredentialKey struct {
+		credType uint
+		hash     common.Blake2b224
+	}
+	stakeKey := func(cred common.Credential) stakeCredentialKey {
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
+	}
+	inTxStakeState := make(map[stakeCredentialKey]bool)
 	inTxPoolRegs := make(map[common.PoolKeyHash]bool)
 
 	isStakeRegistered := func(cred common.Credential) bool {
-		return ls.IsStakeCredentialRegistered(cred) ||
-			inTxStakeRegs[cred.Credential]
+		if registered, ok := inTxStakeState[stakeKey(cred)]; ok {
+			return registered
+		}
+		return ls.IsStakeCredentialRegistered(cred)
 	}
 
 	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
@@ -769,11 +783,10 @@ func UtxoValidateDelegation(
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.StakeRegistrationCertificate:
-			inTxStakeRegs[c.StakeCredential.Credential] = true
+			inTxStakeState[stakeKey(c.StakeCredential)] = true
 
 		case *common.StakeDeregistrationCertificate:
-			// Remove from in-tx registrations so subsequent delegations fail
-			delete(inTxStakeRegs, c.StakeCredential.Credential)
+			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
@@ -1158,6 +1171,7 @@ func (s *poolCertificateState) applyRegistration(
 		s.current[cert.Operator] = cert
 	} else {
 		if previous, ok := s.future[cert.Operator]; ok &&
+			previous.VrfKeyHash != current.VrfKeyHash &&
 			s.vrfOwners[previous.VrfKeyHash] == cert.Operator {
 			delete(s.vrfOwners, previous.VrfKeyHash)
 		}
