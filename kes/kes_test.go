@@ -270,6 +270,44 @@ func TestSum0KesSigVerifyRejectsMalformedInputs(t *testing.T) {
 	)
 }
 
+func TestSum0KesSigVerifyPeriodRange(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(nil)
+	require.NoError(t, err)
+	message := []byte("single KES period")
+	signature := Sum0KesSig(ed25519.Sign(privateKey, message))
+
+	require.True(t, signature.Verify(0, publicKey, message))
+	require.False(t, signature.Verify(1, publicKey, message))
+	require.False(t, signature.Verify(math.MaxUint64, publicKey, message))
+
+	malformed := append(Sum0KesSig(nil), signature...)
+	malformed[0] ^= 0xff
+	require.False(t, malformed.Verify(0, publicKey, message))
+}
+
+func TestSumXKesSigVerifyPeriodRange(t *testing.T) {
+	for _, depth := range []uint64{1, CardanoKesDepth} {
+		t.Run(fmt.Sprintf("depth_%d", depth), func(t *testing.T) {
+			sk, publicKey, err := KeyGen(depth, testSeed)
+			require.NoError(t, err)
+			maxPeriod := MaxPeriod(depth)
+			lastPeriod := maxPeriod - 1
+			for range lastPeriod {
+				sk, err = Update(sk)
+				require.NoError(t, err)
+			}
+			message := []byte("sum KES period boundary")
+			signature, err := Sign(sk, lastPeriod, message)
+			require.NoError(t, err)
+			proof, err := NewSumKesFromBytes(depth, signature)
+			require.NoError(t, err)
+
+			require.True(t, proof.Verify(lastPeriod, publicKey, message))
+			require.False(t, proof.Verify(maxPeriod, publicKey, message))
+		})
+	}
+}
+
 func TestVerifySignedKESRejectsNonStrictEd25519Leaves(t *testing.T) {
 	message := []byte("header body")
 	identity := make(ed25519.PublicKey, ed25519.PublicKeySize)

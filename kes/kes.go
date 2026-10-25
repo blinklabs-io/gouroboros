@@ -165,10 +165,13 @@ func (s SumXKesSig) Verify(
 
 // Verify verifies a depth-0 KES signature (Ed25519)
 func (s Sum0KesSig) Verify(
-	_ uint64,
+	period uint64,
 	pubKey ed25519.PublicKey,
 	msg []byte,
 ) bool {
+	if period != 0 {
+		return false
+	}
 	return verifyEd25519Strict(pubKey, msg, s)
 }
 
