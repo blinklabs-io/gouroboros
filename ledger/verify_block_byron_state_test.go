@@ -185,6 +185,97 @@ func TestVerifyBlockStateRequiresByronUtxoState(t *testing.T) {
 	require.ErrorContains(t, err, "ledger state is required")
 }
 
+func TestVerifyBlockStateRejectsZeroFeeByronTransaction(t *testing.T) {
+	t.Parallel()
+
+	input := byron.ByronTransactionInput{TxId: common.Blake2b256{8}}
+	tx, address := signedByronStateTransaction(
+		t,
+		common.ByronAddressTypePubkey,
+		input,
+		10,
+	)
+	state := byronStateWithInput(input, address, 10)
+
+	err := ledger.VerifyBlockState(byronStateBlock(tx), byronStateConfig(state))
+	require.ErrorContains(t, err, "below minimum fee")
+}
+
+func TestVerifyBlockStateEnforcesByronSizeFeePolicy(t *testing.T) {
+	t.Parallel()
+
+	input := byron.ByronTransactionInput{TxId: common.Blake2b256{9}}
+	tx, address := signedByronStateTransaction(
+		t,
+		common.ByronAddressTypePubkey,
+		input,
+		100,
+	)
+	minFee := uint64(len(tx.Cbor()))
+	config := func(state common.LedgerState) common.VerifyConfig {
+		cfg := byronStateConfig(state)
+		cfg.ByronTxFeePolicy = &common.ByronTxFeePolicy{Multiplier: 1_000_000_000}
+		return cfg
+	}
+
+	err := ledger.VerifyBlockState(
+		byronStateBlock(tx),
+		config(byronStateWithInput(input, address, 100+minFee-1)),
+	)
+	require.ErrorContains(t, err, "below minimum fee")
+	require.NoError(t, ledger.VerifyBlockState(
+		byronStateBlock(tx),
+		config(byronStateWithInput(input, address, 100+minFee)),
+	))
+}
+
+func TestVerifyBlockStateExemptsRedeemOnlyByronSpendFromFee(t *testing.T) {
+	t.Parallel()
+
+	input := byron.ByronTransactionInput{TxId: common.Blake2b256{10}}
+	tx, address := signedByronStateTransaction(
+		t,
+		common.ByronAddressTypeRedeem,
+		input,
+		10,
+	)
+	state := byronStateWithInput(input, address, 10)
+
+	require.NoError(t, ledger.VerifyBlockState(
+		byronStateBlock(tx),
+		byronStateConfig(state),
+	))
+}
+
+func TestVerifyBlockStateRequiresByronFeePolicy(t *testing.T) {
+	t.Parallel()
+
+	input := byron.ByronTransactionInput{TxId: common.Blake2b256{11}}
+	tx, address := signedByronStateTransaction(
+		t,
+		common.ByronAddressTypePubkey,
+		input,
+		9,
+	)
+	cfg := byronStateConfig(byronStateWithInput(input, address, 10))
+	cfg.ByronTxFeePolicy = nil
+
+	err := ledger.VerifyBlockState(byronStateBlock(tx), cfg)
+	require.ErrorContains(t, err, "requires a fee policy")
+}
+
+func TestByronTxFeePolicyMinFeeRoundsUp(t *testing.T) {
+	t.Parallel()
+
+	policy := common.ByronTxFeePolicy{
+		Summand:    155_381_000_000_000,
+		Multiplier: 43_946_000_000,
+	}
+	// 155381 + 43.946*10 = 155820.46 lovelace, rounded up.
+	require.Equal(t, "155821", policy.MinFee(10).String())
+	require.Equal(t, "155381", policy.MinFee(0).String())
+}
+
 func signedByronStateTransaction(
 	t *testing.T,
 	addressType uint64,
@@ -278,7 +369,10 @@ func byronStateWithInput(
 
 func byronStateConfig(state common.LedgerState) common.VerifyConfig {
 	return common.VerifyConfig{
-		LedgerState:               state,
+		LedgerState: state,
+		ByronTxFeePolicy: &common.ByronTxFeePolicy{
+			Summand: 1_000_000_000,
+		},
 		SkipStakePoolValidation:   true,
 		SkipBlockLimitsValidation: true,
 	}

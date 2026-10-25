@@ -731,14 +731,19 @@ func (t *ByronTransaction) ValidateVKeyWitnesses(protocolMagic uint32) error {
 }
 
 // ValidateAgainstUtxo verifies a Byron transaction using the UTxO set it
-// consumes. Byron fees are implicit, so value is conserved when the resolved
-// input value is at least the value of the outputs that enter the UTxO set.
+// consumes. Byron fees are implicit: the fee is the resolved input value minus
+// the output value and must be at least the minimum from feePolicy, which is
+// required.
 func (t *ByronTransaction) ValidateAgainstUtxo(
 	protocolMagic uint32,
 	state common.UtxoState,
+	feePolicy *common.ByronTxFeePolicy,
 ) error {
 	if state == nil {
 		return errors.New("byron transaction validation requires UTxO state")
+	}
+	if feePolicy == nil {
+		return errors.New("byron transaction validation requires a fee policy")
 	}
 	if len(t.Body.TxInputs) != len(t.Twit) {
 		return fmt.Errorf(
@@ -748,6 +753,7 @@ func (t *ByronTransaction) ValidateAgainstUtxo(
 		)
 	}
 	inputValue := new(big.Int)
+	allRedeemInputs := true
 	seenInputs := make(map[ByronTransactionInput]struct{}, len(t.Body.TxInputs))
 	for idx, input := range t.Body.TxInputs {
 		if _, seen := seenInputs[input]; seen {
@@ -776,6 +782,9 @@ func (t *ByronTransaction) ValidateAgainstUtxo(
 				idx,
 				input.String(),
 			)
+		}
+		if constructor != common.ByronAddressTypeRedeem {
+			allRedeemInputs = false
 		}
 		amount := utxo.Output.Amount()
 		if amount == nil || amount.Sign() < 0 {
@@ -806,6 +815,19 @@ func (t *ByronTransaction) ValidateAgainstUtxo(
 			outputValue,
 			inputValue,
 		)
+	}
+	// Redeem-only spends are exempt from the minimum fee. The fee is sized
+	// over the serialized transaction including its witnesses.
+	if !allRedeemInputs {
+		fee := new(big.Int).Sub(inputValue, outputValue)
+		minFee := feePolicy.MinFee(len(t.Cbor()))
+		if fee.Cmp(minFee) < 0 {
+			return fmt.Errorf(
+				"byron transaction fee %s is below minimum fee %s",
+				fee,
+				minFee,
+			)
+		}
 	}
 	return nil
 }

@@ -1346,6 +1346,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				if err := tx.ValidateAgainstUtxo(
 					mainBlock.BlockHeader.ProtocolMagic,
 					blockState,
+					config.ByronTxFeePolicy,
 				); err != nil {
 					return common.NewValidationError(
 						common.ValidationErrorTypeTransaction,

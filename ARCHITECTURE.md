@@ -488,6 +488,9 @@ err = ts.SubmitTx(txCbor)
 `VerifyBlockLocal()` checks cryptography and body integrity without ledger state.
 `VerifyBlockState()` checks certificates, block limits, transactions, and pool
 registration against the state before the block. `VerifyBlock()` combines both.
+Byron transaction validation also requires `VerifyConfig.ByronTxFeePolicy` and
+fails closed when it is unset: the fee must be at least the linear policy's
+minimum for the serialized transaction size, except for redeem-only spends.
 These helpers are not complete consensus gates. They do not receive the previous
 header, active
 stake distribution, active slot coefficient, max KES evolutions, or operational
