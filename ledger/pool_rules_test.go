@@ -754,6 +754,25 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		))
 	})
 
+	t.Run("new pool retains active key", func(t *testing.T) {
+		activate := registration(registeringPool, currentVrf)
+		repeat := registration(registeringPool, currentVrf)
+		update := registration(registeringPool, replacementVrf)
+		claimActive := registration(otherPool, currentVrf)
+		state := withFuturePoolState(mockledger.NewLedgerStateBuilder().
+			WithNetworkId(common.AddressNetworkMainnet).
+			Build())
+		err := shelley.UtxoValidatePoolCertificates(
+			poolCertTx(activate, repeat, update, claimActive),
+			0,
+			state,
+			pparams,
+		)
+		var target shelley.VrfKeyHashAlreadyRegisteredError
+		require.ErrorAs(t, err, &target)
+		require.Equal(t, registeringPool, target.RegisteredBy)
+	})
+
 	t.Run("re-registration can restore inherited future key in one tx", func(t *testing.T) {
 		replace := registration(registeringPool, replacementVrf)
 		restore := registration(registeringPool, sharedVrf)

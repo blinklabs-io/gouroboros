@@ -439,7 +439,8 @@ func (b *BlockLedgerState) applyPoolRegistration(
 		pool.retirementEpoch = nil
 		pool.retirementKnown = true
 	} else {
-		if pool.future != nil && pool.future.VrfKeyHash != cert.VrfKeyHash {
+		if pool.future != nil && pool.future.VrfKeyHash != cert.VrfKeyHash &&
+			pool.future.VrfKeyHash != current.VrfKeyHash {
 			delete(b.vrfKeys, pool.future.VrfKeyHash)
 			b.vrfReleased[pool.future.VrfKeyHash] = struct{}{}
 		}

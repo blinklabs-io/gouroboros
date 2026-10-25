@@ -475,6 +475,7 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 		name    string
 		txs     []common.Transaction
 		wantErr bool
+		wantIdx int
 	}{
 		{
 			name: "re-registration can return to the current VRF key",
@@ -498,6 +499,17 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 				register(0xe2, other, 0x42),
 			},
 			wantErr: true,
+			wantIdx: 1,
+		},
+		{
+			name: "the current key remains claimed after a repeated update",
+			txs: []common.Transaction{
+				register(0xe1, pool, 0x41),
+				register(0xe2, pool, 0x42),
+				register(0xe3, other, 0x41),
+			},
+			wantErr: true,
+			wantIdx: 2,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -508,7 +520,7 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 			}
 			var vrfErr shelley.VrfKeyHashAlreadyRegisteredError
 			require.ErrorAs(t, err, &vrfErr)
-			require.Equal(t, 1, idx)
+			require.Equal(t, test.wantIdx, idx)
 		})
 	}
 }

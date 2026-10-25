@@ -5100,11 +5100,18 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
 	}
 	ledgerState := func(owners map[common.Blake2b256]common.PoolKeyHash) common.LedgerState {
-		return mockledger.NewLedgerStateBuilder().
+		builder := mockledger.NewLedgerStateBuilder().
 			WithVrfKeyInUseFunc(func(key common.Blake2b256) (bool, common.PoolKeyHash, error) {
 				owner, ok := owners[key]
 				return ok, owner, nil
-			}).Build()
+			})
+		if owner, ok := owners[keyA]; ok && owner == poolP {
+			builder.WithPools([]*common.PoolRegistrationCertificate{{
+				Operator:   poolP,
+				VrfKeyHash: keyA,
+			}})
+		}
+		return builder.Build()
 	}
 	registration := func(pool common.PoolKeyHash, key common.Blake2b256) common.Certificate {
 		return &common.PoolRegistrationCertificate{Operator: pool, VrfKeyHash: key}
@@ -5144,6 +5151,21 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 			require.Equal(t, key, duplicate.VrfKeyHash)
 			require.Equal(t, poolP, duplicate.ExistingPoolId)
 		}
+	})
+
+	t.Run("new pool retains active key", func(t *testing.T) {
+		state := ledgerState(nil)
+		err := validate(
+			state,
+			registration(poolP, keyA),
+			registration(poolP, keyA),
+			registration(poolP, keyB),
+			registration(poolQ, keyA),
+		)
+		var duplicate conway.DuplicateVrfKeyError
+		require.ErrorAs(t, err, &duplicate)
+		require.Equal(t, keyA, duplicate.VrfKeyHash)
+		require.Equal(t, poolP, duplicate.ExistingPoolId)
 	})
 
 	t.Run("one transaction keeps the active and latest pending keys", func(t *testing.T) {
