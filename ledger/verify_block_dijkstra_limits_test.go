@@ -15,8 +15,6 @@
 package ledger_test
 
 import (
-	"bytes"
-	"crypto/ed25519"
 	"encoding/hex"
 	"math/big"
 	"testing"
@@ -28,7 +26,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
-	"github.com/blinklabs-io/gouroboros/vrf"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/stretchr/testify/require"
 )
@@ -94,43 +91,23 @@ func signedDijkstraTestHeader(
 	)
 	require.NoError(t, err)
 	slot := fixture.SlotNumber()
-
-	coldPub, coldPriv, err := ed25519.GenerateKey(bytes.NewReader(
-		bytes.Repeat([]byte{0x11}, 64),
-	))
-	require.NoError(t, err)
-	kesSk, kesVkey, err := kes.KeyGen(6, bytes.Repeat([]byte{0x22}, 32))
-	require.NoError(t, err)
-	vrfVkey, vrfSk, err := vrf.KeyGen(bytes.Repeat([]byte{0x33}, 32))
-	require.NoError(t, err)
-	eta0, err := hex.DecodeString(blockLimitsTestEta0Hex)
-	require.NoError(t, err)
-	vrfMsg, err := vrf.MkInputVrf(int64(slot), eta0) // #nosec G115
-	require.NoError(t, err)
-	vrfProof, vrfOutput, err := vrf.Prove(vrfSk, vrfMsg)
-	require.NoError(t, err)
-
-	kesPeriod := slot / blockLimitsTestSlotsPerKesPeriod
-	opCertSig := ed25519.Sign(
-		coldPriv,
-		common.OpCertSignableBytes(kesVkey, 0, kesPeriod),
-	)
+	signing := newBlockLimitsSigningMaterial(t, slot)
 	header := &dijkstra.DijkstraBlockHeader{
 		BabbageBlockHeader: babbage.BabbageBlockHeader{
 			Body: babbage.BabbageBlockHeaderBody{
 				BlockNumber: fixture.BlockNumber(),
 				Slot:        slot,
-				IssuerVkey:  common.IssuerVkey(coldPub),
-				VrfKey:      vrfVkey,
+				IssuerVkey:  signing.coldVkey,
+				VrfKey:      signing.vrfVkey,
 				VrfResult: common.VrfResult{
-					Output: vrfOutput,
-					Proof:  vrfProof,
+					Output: signing.vrfOutput,
+					Proof:  signing.vrfProof,
 				},
 				OpCert: babbage.BabbageOpCert{
-					HotVkey:        kesVkey,
+					HotVkey:        signing.kesVkey,
 					SequenceNumber: 0,
-					KesPeriod:      kesPeriod,
-					Signature:      opCertSig,
+					KesPeriod:      signing.kesPeriod,
+					Signature:      signing.opCertSignature,
 				},
 				ProtoVersion: babbage.BabbageProtoVersion{
 					Major: dijkstra.MinProtocolVersionDijkstra,
@@ -148,7 +125,7 @@ func signedDijkstraTestHeader(
 	_, err = cbor.Decode(unsigned, &top)
 	require.NoError(t, err)
 	require.Len(t, top, 2)
-	kesSig, err := kes.Sign(kesSk, 0, top[0])
+	kesSig, err := kes.Sign(signing.kesSkey, 0, top[0])
 	require.NoError(t, err)
 	header.Signature = kesSig
 	signed, err := header.MarshalCBOR()
@@ -163,14 +140,32 @@ func buildDijkstraLimitsTestBlock(
 	t *testing.T,
 	txs []dijkstra.DijkstraTransaction,
 ) ledger.Block {
+	return buildDijkstraLimitsTestBlockWithDeclaredSize(
+		t,
+		txs,
+		func(actual uint64) uint64 { return actual },
+	)
+}
+
+func buildDijkstraLimitsTestBlockWithDeclaredSize(
+	t *testing.T,
+	txs []dijkstra.DijkstraTransaction,
+	declaredSize func(uint64) uint64,
+) ledger.Block {
 	t.Helper()
-	dijkstraHeader := signedDijkstraLimitsHeader(t)
+	body := dijkstra.DijkstraBlockBody{Transactions: txs}
+	bodyCbor, err := cbor.Encode(body)
+	require.NoError(t, err)
+	dijkstraHeader := signedDijkstraTestHeader(t, func(
+		header *dijkstra.DijkstraBlockHeader,
+	) {
+		header.Body.BlockBodySize = declaredSize(uint64(len(bodyCbor)))
+		header.Body.BlockBodyHash = common.Blake2b256Hash(bodyCbor)
+	})
 
 	crafted := &dijkstra.DijkstraBlock{
 		BlockHeader: dijkstraHeader,
-		BlockBody: dijkstra.DijkstraBlockBody{
-			Transactions: txs,
-		},
+		BlockBody:   body,
 	}
 	blockCbor, err := cbor.Encode(crafted)
 	require.NoError(t, err)
@@ -181,6 +176,26 @@ func buildDijkstraLimitsTestBlock(
 	)
 	require.NoError(t, err)
 	return decoded
+}
+
+func TestVerifyBlockDijkstraBodySizeMatchesSignedHeader(t *testing.T) {
+	block := buildDijkstraLimitsTestBlockWithDeclaredSize(
+		t,
+		nil,
+		func(actual uint64) uint64 { return actual + 1 },
+	)
+	valid, _, _, _, err := ledger.VerifyBlock(
+		block,
+		blockLimitsTestEta0Hex,
+		blockLimitsTestSlotsPerKesPeriod,
+		common.VerifyConfig{
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+			SkipBlockLimitsValidation: true,
+		},
+	)
+	require.False(t, valid)
+	require.ErrorIs(t, err, common.ErrBlockBodySizeMismatch)
 }
 
 func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
@@ -212,6 +227,17 @@ func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
 			max:       common.ExUnits{Memory: 55, Steps: 67},
 			wantError: true,
 		},
+		{
+			name:      "zero memory limit",
+			max:       common.ExUnits{Steps: wantTotal.Steps},
+			wantError: true,
+		},
+		{
+			name:      "zero steps limit",
+			max:       common.ExUnits{Memory: wantTotal.Memory},
+			wantError: true,
+		},
+		{name: "zero limit", max: common.ExUnits{}, wantError: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -242,4 +268,25 @@ func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
 			require.Equal(t, wantTotal, target.TotalExUnits)
 		})
 	}
+}
+
+func TestVerifyBlockDijkstraZeroExUnitsAtZeroLimit(t *testing.T) {
+	block := buildDijkstraLimitsTestBlock(
+		t,
+		[]dijkstra.DijkstraTransaction{{TxIsValid: true}},
+	)
+	pp := &dijkstra.DijkstraProtocolParameters{}
+	valid, _, _, _, err := ledger.VerifyBlock(
+		block,
+		blockLimitsTestEta0Hex,
+		blockLimitsTestSlotsPerKesPeriod,
+		common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+			ProtocolParameters:        pp,
+		},
+	)
+	require.NoError(t, err)
+	require.True(t, valid)
 }

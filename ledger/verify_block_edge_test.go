@@ -236,12 +236,12 @@ func TestVerifyBlock_BodyHashTampering(t *testing.T) {
 		assert.False(t, kesValid, "tampered header must fail KES")
 	})
 
-	t.Run("VerifyBlock rejects a mismatched body", func(t *testing.T) {
+	t.Run("VerifyBlock rejects a mismatched body size", func(t *testing.T) {
 		// The fixture header's block_body_hash is the mainnet one; this
-		// block's body is empty, so the two cannot agree. VerifyBlock only
-		// reaches its body hash branch after VRF, the operational
-		// certificate cold signature and KES have all passed, so this also
-		// pins the order of those checks.
+		// block's body is empty, so both the declared size and hash disagree.
+		// VerifyBlock only reaches its body integrity checks after VRF, the
+		// operational certificate cold signature and KES have all passed, so
+		// this also pins the order of those checks.
 		raw, err := hex.DecodeString(realConwayHeaderHex)
 		require.NoError(t, err)
 		emptyBodyBlockCbor := []byte{0x85}
@@ -267,11 +267,11 @@ func TestVerifyBlock_BodyHashTampering(t *testing.T) {
 			config,
 		)
 		require.Error(t, err)
-		require.ErrorContains(t, err, "body hash mismatch")
+		require.ErrorIs(t, err, common.ErrBlockBodySizeMismatch)
 		assert.False(t, isValid)
 
-		// Skipping the rule is the only difference, so the error above is
-		// attributable to it.
+		// Skipping body integrity is the only difference, so the error above
+		// is attributable to it.
 		isValid, _, _, _, err = ledger.VerifyBlock(
 			block,
 			realConwayHeaderEta0Hex,

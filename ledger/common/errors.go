@@ -552,6 +552,28 @@ func (BlockBodySizeTooBigError) Is(target error) bool {
 	return target == ErrBlockBodySizeTooBig
 }
 
+// BlockBodySizeMismatchError indicates that a block's serialized body size
+// differs from the size committed to by its signed header.
+type BlockBodySizeMismatchError struct {
+	BlockBodySize         uint64
+	DeclaredBlockBodySize uint64
+}
+
+func (e BlockBodySizeMismatchError) Error() string {
+	return fmt.Sprintf(
+		"block body size mismatch: size %d, declared %d",
+		e.BlockBodySize,
+		e.DeclaredBlockBodySize,
+	)
+}
+
+// ErrBlockBodySizeMismatch identifies a signed block body size mismatch.
+var ErrBlockBodySizeMismatch = errors.New("block body size mismatch")
+
+func (BlockBodySizeMismatchError) Is(target error) bool {
+	return target == ErrBlockBodySizeMismatch
+}
+
 // BlockHeaderSizeTooBigError indicates a block header's serialized size
 // exceeds the protocol's maximum block header size (ppMaxBlockHeaderSize).
 type BlockHeaderSizeTooBigError struct {
