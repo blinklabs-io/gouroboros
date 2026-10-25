@@ -234,3 +234,91 @@ func TestDijkstraDatumRuleUsesSubtransactionReferenceScripts(
 		state,
 	))
 }
+
+// A consumed input missing from the ledger state contributes no spending
+// purpose, but the inputs that do resolve keep theirs: cardano-ledger's
+// getSpendingScriptsNeeded skips only the inputs absent from the UTxO. The
+// missing input is left to BadInputs, which runs after the witness rules.
+func TestDijkstraWitnessRulesKeepResolvableSpendingPurposes(t *testing.T) {
+	v3 := common.PlutusV3Script{0x21}
+	scriptInput, scriptUtxo := dijkstraScriptLockedInput(t, v3, 966)
+	missingInput := shelley.MustNewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		967,
+	)
+	witnesses := testDijkstraWitnessSet(t, v3)
+	witnesses.WsRedeemers = evaluateTestRedeemers(
+		common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0},
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{scriptInput, missingInput},
+			),
+		},
+		WitnessSet: witnesses,
+		TxIsValid:  true,
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{scriptUtxo}).
+		Build()
+
+	for _, id := range []common.UtxoValidationRuleId{
+		common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		common.UtxoValidationRuleExtraneousRedeemers,
+	} {
+		require.NoError(t, verifyDijkstraRule(t, id, tx, state), id)
+	}
+	var bad shelley.BadInputsUtxoError
+	require.ErrorAs(t, verifyDijkstraRule(
+		t,
+		common.UtxoValidationRuleBadInputs,
+		tx,
+		state,
+	), &bad)
+	require.Len(t, bad.Inputs, 1)
+	require.Equal(t, missingInput.String(), bad.Inputs[0].String())
+}
+
+// A missing reference input stays a reference-input resolution failure for
+// the witness rules even when a consumed input of the same level is missing
+// too.
+func TestDijkstraWitnessRulesReportMissingReferenceInput(t *testing.T) {
+	v3 := common.PlutusV3Script{0x22}
+	scriptInput, scriptUtxo := dijkstraScriptLockedInput(t, v3, 968)
+	missingInput := shelley.MustNewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		969,
+	)
+	missingReference := shelley.MustNewShelleyTransactionInput(
+		"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		970,
+	)
+	witnesses := testDijkstraWitnessSet(t, v3)
+	witnesses.WsRedeemers = evaluateTestRedeemers(
+		common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 0},
+	)
+	tx := &DijkstraTransaction{
+		Body: DijkstraTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{scriptInput, missingInput},
+			),
+			TxReferenceInputs: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{missingReference},
+				true,
+			),
+		},
+		WitnessSet: witnesses,
+		TxIsValid:  true,
+	}
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{scriptUtxo}).
+		Build()
+
+	require.ErrorIs(t, verifyDijkstraRule(
+		t,
+		common.UtxoValidationRuleRedeemerAndScriptWitnesses,
+		tx,
+		state,
+	), common.ErrReferenceInputResolution)
+}

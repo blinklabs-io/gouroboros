@@ -21,6 +21,7 @@ import (
 	"iter"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1770,8 +1771,21 @@ func dijkstraWitnessRuleLevels(
 	available := make(map[common.ScriptHash]common.Script)
 	for levelIndex, txLevel := range txLevels {
 		view, err := script.NewTxScriptView(txLevel, ls)
-		if err != nil && !errors.Is(err, common.ErrInputResolution) {
-			return nil, nil, err
+		if err != nil {
+			if !errors.Is(err, common.ErrInputResolution) {
+				return nil, nil, err
+			}
+			// The partial view leaves the resolved inputs unset, which would
+			// drop the spending purposes of every input that did resolve.
+			inputs, refInputs, err := dijkstraResolvableLevelInputs(
+				txLevel,
+				ls,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+			view.ResolvedInputs = inputs
+			view.ResolvedReferenceInputs = refInputs
 		}
 		for hash, candidate := range view.Available {
 			available[hash] = candidate
@@ -1799,6 +1813,50 @@ func dijkstraWitnessRuleLevels(
 		levels[len(levels)-1].subLevels = levels[:len(levels)-1]
 	}
 	return levels, available, nil
+}
+
+// dijkstraResolvableLevelInputs resolves a level's inputs as the witness
+// predicates see them. A consumed input absent from ls is skipped and keeps no
+// spending purpose, as in cardano-ledger's getSpendingScriptsNeeded, while the
+// inputs that resolve keep theirs; a missing reference input is reported.
+func dijkstraResolvableLevelInputs(
+	tx common.Transaction,
+	ls common.LedgerState,
+) (inputs, refInputs []common.Utxo, err error) {
+	if ls == nil || dijkstraLedgerStateIsNil(ls) {
+		if refs := tx.ReferenceInputs(); len(refs) > 0 {
+			return nil, nil, common.ReferenceInputResolutionError{
+				Input: refs[0],
+				Err:   errDijkstraLedgerStateUnavailable,
+			}
+		}
+		return nil, nil, nil
+	}
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		inputs = append(inputs, utxo)
+	}
+	for _, input := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			return nil, nil, common.ReferenceInputResolutionError{
+				Input: input,
+				Err:   err,
+			}
+		}
+		refInputs = append(refInputs, utxo)
+	}
+	return inputs, refInputs, nil
+}
+
+var errDijkstraLedgerStateUnavailable = errors.New("ledger state unavailable")
+
+func dijkstraLedgerStateIsNil(ls common.LedgerState) bool {
+	rv := reflect.ValueOf(ls)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 func addDijkstraWitnessScripts(
