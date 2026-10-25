@@ -167,19 +167,25 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msgHasTx := msg.(*MsgHasTx)
-	txId := hex.EncodeToString(msgHasTx.TxId)
-	hasTx := false
-	for _, tx := range s.mempoolTxs {
-		if tx.txObj.Hash().String() == txId {
-			hasTx = true
-			break
-		}
-	}
+	hasTx := s.hasTx(msgHasTx)
 	newMsg := NewMsgReplyHasTx(hasTx)
 	if err := s.SendMessage(newMsg); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *Server) hasTx(msg *MsgHasTx) bool {
+	txId := hex.EncodeToString(msg.TxId)
+	for _, tx := range s.mempoolTxs {
+		if tx.EraId != uint(msg.EraId) {
+			continue
+		}
+		if tx.txObj.Hash().String() == txId {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleNextTx() error {
