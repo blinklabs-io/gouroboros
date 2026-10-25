@@ -55,6 +55,9 @@ import (
 const (
 	// Default connection timeout
 	DefaultConnectTimeout = 30 * time.Second
+	// DefaultHandshakeTimeout bounds the initial handshake during connection
+	// setup. It does not alter the protocol state timeouts.
+	DefaultHandshakeTimeout = 30 * time.Second
 )
 
 type ConnectionId = connection.ConnectionId
@@ -86,6 +89,7 @@ type Connection struct {
 	fullDuplex            bool
 	peerSharingEnabled    bool
 	queryMode             bool
+	handshakeTimeout      time.Duration
 	queryReplyVersionMap  protocol.ProtocolVersionMap
 	protocolMu            sync.RWMutex
 	protocolsReady        bool
@@ -131,6 +135,7 @@ func NewConnection(options ...ConnectionOptionFunc) (*Connection, error) {
 	c := &Connection{
 		protoErrorChan:        make(chan error, 10),
 		handshakeFinishedChan: make(chan any),
+		handshakeTimeout:      DefaultHandshakeTimeout,
 		connClosedChan:        make(chan struct{}),
 		// Create a discard logger to throw away logs. We do this so
 		// we don't have to add guards around every log operation if
@@ -728,6 +733,8 @@ func (c *Connection) setupConnection() error {
 	}
 	c.muxer.StartOnce()
 	// Wait for handshake completion or error
+	handshakeTimer := time.NewTimer(c.handshakeTimeout)
+	defer handshakeTimer.Stop()
 	select {
 	case <-c.doneChan:
 		// Return an error if we're shutting down
@@ -738,6 +745,12 @@ func (c *Connection) setupConnection() error {
 		return err
 	case <-c.handshakeFinishedChan:
 		// This is purposely empty, but we need this case to break out when this channel is closed
+	case <-handshakeTimer.C:
+		c.Close()
+		return fmt.Errorf(
+			"handshake did not complete within %s",
+			c.handshakeTimeout,
+		)
 	}
 	// In query mode, the connection is terminated after the query reply. Return without
 	// setting up any mini-protocols.

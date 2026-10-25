@@ -134,6 +134,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithFullDuplex", ouroboros.WithFullDuplex(true)},
 		{"WithPeerSharing", ouroboros.WithPeerSharing(true)},
 		{"WithQueryMode", ouroboros.WithQueryMode(true)},
+		{"WithHandshakeTimeout", ouroboros.WithHandshakeTimeout(time.Second)},
 		{"WithLogger", ouroboros.WithLogger(slog.Default())},
 		{"WithErrorChan", ouroboros.WithErrorChan(make(chan error, 10))},
 		{"WithNetwork", ouroboros.WithNetwork(ouroboros.NetworkMainnet)},
@@ -157,6 +158,32 @@ func TestConnectionOptions(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, conn)
 		})
+	}
+}
+
+func TestNodeToClientHandshakeSetupTimeout(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	local, remote := net.Pipe()
+	t.Cleanup(func() { require.NoError(t, remote.Close()) })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := ouroboros.NewConnection(
+			ouroboros.WithConnection(local),
+			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+			ouroboros.WithServer(true),
+			ouroboros.WithHandshakeTimeout(50*time.Millisecond),
+		)
+		result <- err
+	}()
+
+	_, err := remote.Write([]byte{0})
+	require.NoError(t, err)
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "handshake did not complete")
+	case <-time.After(time.Second):
+		t.Fatal("incomplete node-to-client handshake retained the connection")
 	}
 }
 
