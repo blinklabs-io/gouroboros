@@ -73,6 +73,10 @@ The LeiosFetch protocol retrieves Leios-specific data including blocks, block tr
 | **BlockRange** | 5 | Server | Streaming blocks in range |
 | **Done** | 6 | None | Terminal state |
 
+### Pipelining
+
+A client may pipeline `BlockRequest` and `BlockTxsRequest` behind a request the server has not answered yet, so the server can receive them while in `Block` or `BlockTxs`. The server queues each one until the protocol returns to `Idle`, then answers it, so replies follow request order. Queued requests are bounded by the receive queue, the state's pending-message byte limit, and the protocol's ingress limit; a client that keeps sending past them fails the connection. `VotesRequest` and `BlockRangeRequest` are not pipelined: the reference client does not send them, and one sent while a reply is outstanding is a protocol violation.
+
 ## Messages
 
 | Message | Type ID | Direction | Description |
