@@ -153,6 +153,20 @@ func TestMsgHasTxDecodesHardForkTransactionId(t *testing.T) {
 	}
 }
 
+// TestMsgHasTxRejectsUntaggedTransactionId checks that a HasTx request
+// carrying a bare transaction ID, without the hard-fork era wrapper, is
+// refused.
+func TestMsgHasTxRejectsUntaggedTransactionId(t *testing.T) {
+	wire, err := hex.DecodeString("8207" + "5820" + strings.Repeat("de", 32))
+	if err != nil {
+		t.Fatalf("failed to decode CBOR hex: %s", err)
+	}
+	msg, err := NewMsgFromCbor(MessageTypeHasTx, wire)
+	if err == nil {
+		t.Fatalf("decoded untagged MsgHasTx: %#v", msg)
+	}
+}
+
 func TestMsgHasTxRequiresEra(t *testing.T) {
 	_, err := cbor.Encode(NewMsgHasTx(bytes.Repeat([]byte{0xDE}, 32)))
 	if !errors.Is(err, errHasTxEraRequired) {
