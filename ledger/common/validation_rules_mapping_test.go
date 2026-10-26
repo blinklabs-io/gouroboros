@@ -133,6 +133,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
 		alonzo.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
 		alonzo.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
+		alonzo.UtxoValidateTooManyCollateralInputs,     // UtxoValidationRuleTooManyCollateralInputs
 		alonzo.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
 		alonzo.UtxoValidateExtraneousRedeemers,         // UtxoValidationRuleExtraneousRedeemers
 		alonzo.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
