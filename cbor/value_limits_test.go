@@ -16,6 +16,7 @@ package cbor
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"testing"
 
 	_cbor "github.com/fxamacker/cbor/v2"
@@ -115,4 +116,32 @@ func TestValuePrefixAllocationIgnoresUnconsumedTail(t *testing.T) {
 		result.AllocedBytesPerOp(),
 	)
 	require.Less(t, result.AllocedBytesPerOp(), int64(32*1024))
+}
+
+// A map-key array is digested element by element, so its digest buffer must
+// grow with the elements that decode rather than with its declared length.
+func TestValueMapKeyArrayDigestsGrowAsEntriesDecode(t *testing.T) {
+	const count = 100_000
+	// {[{0: 0, 0: 0}, 0, ...]: 0} is well formed, so it passes the selected
+	// mode's checks, but the duplicate key fails the first entry.
+	data := []byte{0xa1, 0x9a, 0, 1, 0x86, 0xa0, 0xa2, 0, 0, 0, 0}
+	data = append(data, make([]byte, count-1)...)
+	data = append(data, 0)
+	var value Value
+	_, err := Decode(data, &value)
+	require.True(t, IsDuplicateMapKeyError(err), "got %v", err)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			var value Value
+			if _, err := Decode(data, &value); err == nil {
+				b.Fatal("expected duplicate map key error")
+			}
+		}
+	})
+	t.Logf(
+		"%d-entry map-key array failing at its first entry: %d bytes/op",
+		count,
+		result.AllocedBytesPerOp(),
+	)
+	require.Less(t, result.AllocedBytesPerOp(), int64(count*sha256.Size/4))
 }
