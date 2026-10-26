@@ -1264,6 +1264,16 @@ func cborCollectionHeader(raw []byte, expectedMajor byte) (uint64, int, bool, er
 }
 
 func cborItemEnd(raw []byte, offset int) (int, error) {
+	return cborItemEndAtDepth(raw, offset, 0)
+}
+
+func cborItemEndAtDepth(raw []byte, offset, depth int) (int, error) {
+	if depth > cbor.MaxNestedLevels {
+		return 0, fmt.Errorf(
+			"byron CBOR nesting exceeds %d",
+			cbor.MaxNestedLevels,
+		)
+	}
 	if offset >= len(raw) {
 		return 0, errors.New("truncated CBOR item")
 	}
@@ -1300,8 +1310,14 @@ func cborItemEnd(raw []byte, offset int) (int, error) {
 	case 2, 3:
 		if indefinite {
 			for itemOffset < len(raw) && raw[itemOffset] != 0xff {
-				chunkEnd, err := cborItemEnd(raw, itemOffset)
-				if err != nil || raw[itemOffset]>>5 != major || raw[itemOffset]&0x1f == 31 {
+				// Chunks must be definite strings of the same major type. Check the
+				// header first: recursing into an indefinite or non-string chunk
+				// would traverse it without consuming nesting depth.
+				if raw[itemOffset]>>5 != major || raw[itemOffset]&0x1f == 31 {
+					return 0, errors.New("invalid indefinite string chunk")
+				}
+				chunkEnd, err := cborItemEndAtDepth(raw, itemOffset, depth)
+				if err != nil {
 					return 0, errors.New("invalid indefinite string chunk")
 				}
 				itemOffset = chunkEnd
@@ -1332,14 +1348,14 @@ func cborItemEnd(raw []byte, offset int) (int, error) {
 			if itemOffset >= len(raw) || index >= uint64(len(raw)) {
 				return 0, errors.New("truncated CBOR collection")
 			}
-			itemOffset, err = cborItemEnd(raw, itemOffset)
+			itemOffset, err = cborItemEndAtDepth(raw, itemOffset, depth+1)
 			if err != nil {
 				return 0, err
 			}
 		}
 		return itemOffset, nil
 	case 6:
-		return cborItemEnd(raw, itemOffset)
+		return cborItemEndAtDepth(raw, itemOffset, depth+1)
 	case 7:
 		if argument <= 23 {
 			return itemOffset, nil
