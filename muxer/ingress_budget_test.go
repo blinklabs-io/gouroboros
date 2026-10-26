@@ -19,6 +19,7 @@ import (
 	"math"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/stretchr/testify/require"
@@ -32,14 +33,29 @@ const segmentCapacity = 10
 // segmentSize is the payload size of every segment these tests send.
 const segmentSize = 10
 
+func retainedSegmentCost(payloadBytes int) int {
+	return payloadBytes +
+		int(unsafe.Sizeof(muxer.Segment{})) +
+		int(unsafe.Sizeof((*muxer.Segment)(nil)))
+}
+
 // ingressSegments returns n segments of segmentSize bytes for protocolId.
 func ingressSegments(t *testing.T, protocolId uint16, n int) []byte {
+	return ingressSegmentsSized(t, protocolId, n, segmentSize)
+}
+
+func ingressSegmentsSized(
+	t *testing.T,
+	protocolId uint16,
+	n int,
+	payloadSize int,
+) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	for range n {
 		seg := muxer.NewSegment(
 			protocolId,
-			bytes.Repeat([]byte("x"), segmentSize),
+			bytes.Repeat([]byte("x"), payloadSize),
 			false,
 		)
 		require.NotNil(t, seg)
@@ -109,8 +125,9 @@ func TestIngressBudgetBoundsAggregateAcrossProtocols(t *testing.T) {
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
 	require.True(t, m.SetIngressLimit(0x02, muxer.ProtocolRoleResponder, 1000))
 	require.Equal(t, muxer.DefaultIngressBudget, m.IngressBudget())
-	m.SetIngressBudget(200)
-	require.Equal(t, 200, m.IngressBudget())
+	budget := 20 * retainedSegmentCost(segmentSize)
+	m.SetIngressBudget(budget)
+	require.Equal(t, budget, m.IngressBudget())
 	m.Start()
 
 	stallProtocol(t, conn, m, recvA, 0x01, 0)
@@ -144,7 +161,7 @@ func TestIngressBudgetIsReturnedAsQueuesDrain(t *testing.T) {
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
-	m.SetIngressBudget(120)
+	m.SetIngressBudget(12 * retainedSegmentCost(segmentSize))
 	m.Start()
 
 	// Fifty segments, 500 bytes, are sent in batches of ten: the budget
@@ -178,7 +195,7 @@ func TestIngressBudgetIsReturnedWhenProtocolUnregisters(t *testing.T) {
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
-	m.SetIngressBudget(200)
+	m.SetIngressBudget(20 * retainedSegmentCost(segmentSize))
 	m.Start()
 
 	stallProtocol(t, conn, m, recv, 0x01, 0)
@@ -206,7 +223,7 @@ func TestIngressBudgetBackpressureWaitsInsteadOfFailing(t *testing.T) {
 		t,
 		m.SetIngressBackpressure(0x01, muxer.ProtocolRoleResponder, true),
 	)
-	m.SetIngressBudget(50)
+	m.SetIngressBudget(5 * retainedSegmentCost(segmentSize))
 	m.Start()
 
 	const total = 40
@@ -240,7 +257,7 @@ func TestIngressBudgetBackpressureAdmitsWhenOwnQueueEmpty(t *testing.T) {
 		t,
 		m.SetIngressBackpressure(0x02, muxer.ProtocolRoleResponder, true),
 	)
-	m.SetIngressBudget(120)
+	m.SetIngressBudget(12 * retainedSegmentCost(segmentSize))
 	m.Start()
 
 	// The holder's stalled queue takes the whole budget.
@@ -272,7 +289,7 @@ func TestIngressBudgetBackpressureWakesOnOtherRoleRelease(t *testing.T) {
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
 	require.True(t, m.SetIngressLimit(0x02, muxer.ProtocolRoleResponder, 1000))
 	require.True(t, m.SetIngressBackpressure(0x02, muxer.ProtocolRoleResponder, true))
-	m.SetIngressBudget(120)
+	m.SetIngressBudget(12 * retainedSegmentCost(segmentSize))
 	m.Start()
 
 	stallProtocol(t, conn, m, waiting, 0x02, 0)
@@ -325,16 +342,18 @@ func TestIngressBudgetExtensionAdmitsSolicitedIngress(t *testing.T) {
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
-	m.SetIngressBudget(200)
+	baseBudget := 20 * retainedSegmentCost(segmentSize)
+	extension := 30 * retainedSegmentCost(segmentSize)
+	m.SetIngressBudget(baseBudget)
 	require.True(
 		t,
-		m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, 300),
+		m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, extension),
 	)
 	require.False(
 		t,
-		m.SetIngressBudgetExtension(0x09, muxer.ProtocolRoleResponder, 300),
+		m.SetIngressBudgetExtension(0x09, muxer.ProtocolRoleResponder, extension),
 	)
-	require.Equal(t, 500, m.IngressBudget())
+	require.Equal(t, baseBudget+extension, m.IngressBudget())
 	m.Start()
 
 	stallProtocol(t, conn, m, recv, 0x01, 0)
@@ -352,7 +371,7 @@ func TestIngressBudgetExtensionAdmitsSolicitedIngress(t *testing.T) {
 	}
 
 	m.UnregisterProtocol(0x01, muxer.ProtocolRoleResponder)
-	require.Equal(t, 200, m.IngressBudget())
+	require.Equal(t, baseBudget, m.IngressBudget())
 }
 
 // TestIngressBudgetExtensionIsReplacedAndCleared checks each call replaces
@@ -404,4 +423,32 @@ func TestIngressBudgetExtensionsCannotOverflowAcrossRoles(t *testing.T) {
 	}
 	require.Less(t, m.IngressBudget(), math.MaxInt)
 	require.Greater(t, m.IngressBudget(), 100)
+}
+
+// A peer can split ingress into minimum-size segments. The connection budget
+// must charge the segment object and queue entry as well as its payload, or the
+// same configured budget retains far more memory as frames get smaller.
+func TestIngressBudgetChargesRetainedSegmentCost(t *testing.T) {
+	t.Parallel()
+
+	conn := newMockConn()
+	m := muxer.New(conn)
+	defer m.Stop()
+
+	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
+	m.Start()
+
+	stallProtocol(t, conn, m, recv, 0x01, 0)
+	const tinyPayloadSize = 1
+	m.SetIngressBudget(2 * retainedSegmentCost(tinyPayloadSize))
+	conn.WriteToReadBuf(ingressSegmentsSized(t, 0x01, 3, tinyPayloadSize))
+
+	select {
+	case err := <-m.ErrorChan():
+		require.ErrorIs(t, err, muxer.ErrIngressOverflow)
+		require.ErrorContains(t, err, "connection budget")
+	case <-time.After(5 * time.Second):
+		t.Fatal("retained segment overhead did not exhaust the ingress budget")
+	}
 }
