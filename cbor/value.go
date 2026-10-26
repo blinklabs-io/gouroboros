@@ -380,10 +380,8 @@ func (v *Value) processArray(
 		return 0, errors.New("invalid CBOR array header")
 	}
 	newValue := []any{}
+	// Grown by append: the declared count is untrusted until entries decode.
 	var childDigests [][sha256.Size]byte
-	if mapKeyDigestOut != nil {
-		childDigests = make([][sha256.Size]byte, 0, itemCount)
-	}
 	position := int(headerLength)
 	for itemIndex := 0; indefinite || itemIndex < itemCount; itemIndex++ {
 		if position >= len(data) {
