@@ -287,7 +287,7 @@ func releaseMachine(
 // evalContext) with the given budget and returns the unit-result flag and
 // budget consumption, which are computed even when Run fails. Trusted data
 // arguments must be finite, valid values decoded from or built from ledger
-// state; without arguments, RunContext validates the whole program tree.
+// state; without arguments, the whole program tree is validated.
 //
 // The Machine is released only after Run has returned and its ExBudget has
 // been read, never from a defer: a Run that panics leaves the Machine out of
@@ -303,32 +303,14 @@ func runPooledMachineContext(
 	trustedDataArguments ...data.PlutusData,
 ) (cek.ExBudget, bool, error) {
 	machine := checkoutMachineWithBudget(version, evalContext, budget)
-	var result syn.Term[syn.DeBruijn]
-	var runErr error
-	if len(trustedDataArguments) == 0 {
-		result, runErr = machine.RunContext(ctx, program)
-	} else {
-		result, runErr = machine.RunContextWithTrustedDataArguments(
-			ctx,
-			program,
-			trustedDataArguments...,
-		)
-	}
-	isUnit := runErr == nil && isPlutusUnitResult(result)
+	// RunScriptContext never discharges the final value, as the reference
+	// ledger does not: validation must not depend on plutigo's discharge bound.
+	isUnit, runErr := machine.RunScriptContext(
+		ctx,
+		program,
+		trustedDataArguments...,
+	)
 	consumed := budget.Sub(&machine.ExBudget)
 	releaseMachine(version, evalContext, machine)
 	return consumed, isUnit, runErr
-}
-
-func isPlutusUnitResult(term syn.Term[syn.DeBruijn]) bool {
-	constant, ok := term.(*syn.Constant)
-	if !ok {
-		return false
-	}
-	switch constant.Con.(type) {
-	case syn.Unit, *syn.Unit:
-		return true
-	default:
-		return false
-	}
 }
