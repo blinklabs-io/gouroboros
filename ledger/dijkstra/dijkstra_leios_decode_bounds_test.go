@@ -301,6 +301,7 @@ func TestDijkstraBlockBodyDecodesIndefiniteTransactionArray(t *testing.T) {
 	var items []cbor.RawMessage
 	_, err = cbor.Decode(definite, &items)
 	require.NoError(t, err)
+	require.Len(t, items, 3)
 	require.Equal(t, byte(0x82), items[0][0])
 	txs := append([]byte{0x9f}, items[0][1:]...)
 	txs = append(txs, 0xff)
