@@ -419,7 +419,7 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build eval context: %v", err)
 	}
-	run := func(label string, ctxData data.PlutusData) (string, error) {
+	run := func(label string, ctxData data.PlutusData) (string, lcommon.ExUnits, error) {
 		usedExUnits, execErr := plutusScript.Evaluate(
 			ctxData, redeemerValue.ExUnits, evalContext,
 		)
@@ -431,11 +431,11 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 			"%s: verdict=%s steps=%d mem=%d execErr=%v",
 			label, verdict, usedExUnits.Steps, usedExUnits.Memory, execErr,
 		)
-		return verdict, execErr
+		return verdict, usedExUnits, execErr
 	}
 
-	postVerdict, postExecErr := run("post-fix (Normalize)", postCtxData)
-	bypassVerdict, bypassExecErr := run("bypass  (fidelity)", bypassCtxData)
+	postVerdict, postUnits, postExecErr := run("post-fix (Normalize)", postCtxData)
+	bypassVerdict, bypassUnits, bypassExecErr := run("bypass  (fidelity)", bypassCtxData)
 
 	t.Logf("RESULT post-fix:  %s", postVerdict)
 	t.Logf("RESULT bypass:    %s", bypassVerdict)
@@ -452,15 +452,21 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 			postExecErr,
 		)
 	}
-	// The bug still reproducing: the same context built with the decoder's
-	// preserved definite/indefinite fidelity must still fail. Without this the
-	// test cannot tell "Normalize fixes the divergence" from "the fixture no
-	// longer exhibits the divergence at all", and would keep passing after it
-	// had stopped testing anything.
-	if bypassExecErr == nil {
-		t.Fatal(
-			"fidelity-preserving script context unexpectedly evaluated; " +
-				"this fixture no longer reproduces the encoding divergence",
+	// plutigo's serialiseData encodes the normalized form, as the reference
+	// does, so evaluation no longer depends on the wire encoding of the data
+	// it is applied to: the fidelity-preserving context must evaluate to the
+	// same result and the same ExUnits. (Before plutigo v0.10.0 it failed,
+	// which is why the evaluation boundaries here still Normalize.)
+	if bypassExecErr != nil {
+		t.Fatalf(
+			"fidelity-preserving script context failed to evaluate: %v",
+			bypassExecErr,
+		)
+	}
+	if bypassUnits != postUnits {
+		t.Fatalf(
+			"evaluation depends on redeemer encoding: normalized used %+v, raw used %+v",
+			postUnits, bypassUnits,
 		)
 	}
 

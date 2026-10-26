@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	filippo.io/edwards25519 v1.2.0
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
-	github.com/blinklabs-io/plutigo v0.9.10
+	github.com/blinklabs-io/plutigo v0.10.0
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/consensys/gnark-crypto v0.22.0
 	github.com/fxamacker/cbor/v2 v2.9.6
@@ -19,11 +19,11 @@ require (
 
 require (
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.5.0 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.3 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
