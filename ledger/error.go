@@ -413,7 +413,7 @@ func getEraSpecificUtxoFailureConstants(
 
 func NewGenericErrorFromCbor(cborData []byte) (error, error) {
 	newErr := &GenericError{}
-	if _, err := cbor.Decode(cborData, newErr); err != nil {
+	if _, err := cbor.DecodeStrict(cborData, newErr); err != nil {
 		return nil, err
 	}
 	return newErr, nil
@@ -425,8 +425,10 @@ type GenericError struct {
 }
 
 func (e *GenericError) UnmarshalCBOR(data []byte) error {
+	// NOTE: rejection payloads come from the peer, so the collection counts
+	// are bounded by the strict mode before any entry is materialized.
 	var tmpValue cbor.Value
-	if _, err := cbor.Decode(data, &tmpValue); err != nil {
+	if _, err := cbor.DecodeStrict(data, &tmpValue); err != nil {
 		return err
 	}
 	e.Value = tmpValue.Value()
