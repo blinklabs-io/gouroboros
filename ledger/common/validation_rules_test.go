@@ -156,6 +156,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleTransactionNetworkId,
 				common.UtxoValidationRuleMaxTxSize,
 				common.UtxoValidationRuleExUnitsTooBig,
+				common.UtxoValidationRuleTooManyCollateralInputs,
 				common.UtxoValidationRuleNativeScripts,
 				common.UtxoValidationRuleExtraneousRedeemers,
 				common.UtxoValidationRuleMalformedReferenceScripts,

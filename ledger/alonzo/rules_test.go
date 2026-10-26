@@ -1329,6 +1329,39 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 	)
 }
 
+func TestUtxoValidationRulesRejectTooManyCollateralInputs(t *testing.T) {
+	testInputTxId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	testTx := &alonzo.AlonzoTransaction{
+		Body: alonzo.AlonzoTransactionBody{
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 1),
+				},
+				false,
+			),
+		},
+	}
+	var collateralLimitRule common.UtxoValidationRuleFunc
+	for _, descriptor := range alonzo.UtxoValidationRuleDescriptors() {
+		if descriptor.Id == common.UtxoValidationRuleTooManyCollateralInputs {
+			collateralLimitRule = descriptor.Validator
+			break
+		}
+	}
+	require.NotNil(t, collateralLimitRule)
+	err := collateralLimitRule(
+		testTx,
+		0,
+		mockledger.NewLedgerStateBuilder().Build(),
+		&alonzo.AlonzoProtocolParameters{MaxCollateralInputs: 1},
+	)
+	var limitErr alonzo.TooManyCollateralInputsError
+	require.ErrorAs(t, err, &limitErr)
+	require.Equal(t, uint(2), limitErr.Provided)
+	require.Equal(t, uint(1), limitErr.Max)
+}
+
 func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 	testRedeemerSmall := alonzo.AlonzoRedeemer{
 		ExUnits: common.ExUnits{

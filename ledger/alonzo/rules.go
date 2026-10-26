@@ -146,6 +146,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateExUnitsTooBigUtxo,
 	},
 	{
+		Id:        common.UtxoValidationRuleTooManyCollateralInputs,
+		Validator: UtxoValidateTooManyCollateralInputs,
+	},
+	{
 		Id:        common.UtxoValidationRuleNativeScripts,
 		Validator: UtxoValidateNativeScripts,
 	},
@@ -211,7 +215,8 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
 		UtxoValidateWrongNetworkWithdrawal, UtxoValidateTransactionNetworkId,
 		UtxoValidateMaxTxSizeUtxo,
-		UtxoValidateExUnitsTooBigUtxo, UtxoValidateNativeScripts,
+		UtxoValidateExUnitsTooBigUtxo, UtxoValidateTooManyCollateralInputs,
+		UtxoValidateNativeScripts,
 		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 	),
@@ -321,6 +326,26 @@ func UtxoValidateExUnitsTooBigUtxo(
 			Steps:  totalSteps,
 		},
 		MaxTxExUnits: tmpPparams.MaxTxExUnits,
+	}
+}
+
+func UtxoValidateTooManyCollateralInputs(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	tmpPparams, ok := pp.(*AlonzoProtocolParameters)
+	if !ok {
+		return errors.New("pparams are not expected type")
+	}
+	collateralCount := uint(len(tx.Collateral()))
+	if collateralCount <= tmpPparams.MaxCollateralInputs {
+		return nil
+	}
+	return TooManyCollateralInputsError{
+		Provided: collateralCount,
+		Max:      tmpPparams.MaxCollateralInputs,
 	}
 }
 

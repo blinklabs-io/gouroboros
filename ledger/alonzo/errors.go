@@ -65,6 +65,19 @@ func (NoCollateralInputsError) Error() string {
 	return "no collateral inputs"
 }
 
+type TooManyCollateralInputsError struct {
+	Provided uint
+	Max      uint
+}
+
+func (e TooManyCollateralInputsError) Error() string {
+	return fmt.Sprintf(
+		"too many collateral inputs: provided %d, maximum %d",
+		e.Provided,
+		e.Max,
+	)
+}
+
 // Witness validation errors (alias to common types)
 type MissingVKeyWitnessesError = common.MissingVKeyWitnessesError
 
