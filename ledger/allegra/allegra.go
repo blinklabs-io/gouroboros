@@ -250,6 +250,9 @@ func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
 	*b = AllegraTransactionBody(tmp)
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err

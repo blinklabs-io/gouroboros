@@ -394,6 +394,9 @@ func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
 	*b = ShelleyTransactionBody(tmp)
 	// cardano-ledger decodes the Shelley body with
 	// SparseKeyed "TxBody" basicShelleyTxBodyRaw boxBody

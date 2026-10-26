@@ -59,6 +59,24 @@ type CertificateWrapper struct {
 	Certificate Certificate
 }
 
+// ValidatePreConwayCertificateTypes rejects certificate constructors that
+// were introduced with the Conway era.
+func ValidatePreConwayCertificateTypes(
+	certificates []CertificateWrapper,
+) error {
+	for idx, certificate := range certificates {
+		if CertificateType(certificate.Type) >
+			CertificateTypeMoveInstantaneousRewards {
+			return fmt.Errorf(
+				"certificate type is not valid before Conway: index %d type %d",
+				idx,
+				certificate.Type,
+			)
+		}
+	}
+	return nil
+}
+
 func (c *CertificateWrapper) UnmarshalCBOR(data []byte) error {
 	// Determine cert type
 	certType, err := cbor.DecodeIdFromList(data)
