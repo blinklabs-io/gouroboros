@@ -141,6 +141,15 @@ func TestFixedShapeRepliesRejectOversizedArraysBeforeDecoding(t *testing.T) {
 			_, err := g.DecodeCommittee()
 			return err
 		}},
+		{"DRep state anchor", func() error {
+			// [expiry, anchor, deposit, delegators] with an oversized anchor.
+			var v DRepStateEntry
+			return v.UnmarshalCBOR(cat(
+				[]byte{0x84, 0x00},
+				big,
+				[]byte{0x00, 0xd9, 0x01, 0x02, 0x80},
+			))
+		}},
 		{"DRep keyed result wrapper", func() error {
 			return decodeDRepKeyedResult(
 				big,

@@ -381,15 +381,11 @@ func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberReward
 		QueryTypeShelleyNonMyopicMemberRewards,
 		stakesSet,
 	)
-	// The result is wrapped in a single-element array
-	var wrappedResult []NonMyopicMemberRewardsResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from non-myopic member rewards query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[NonMyopicMemberRewardsResult](
+		c,
+		query,
+		"non-myopic member rewards",
+	)
 }
 
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
@@ -1098,15 +1094,7 @@ func (c *Client) GetStakeSnapshots(
 		QueryTypeShelleyStakeSnapshots,
 		poolFilter,
 	)
-	// The result is wrapped in a single-element array
-	var wrappedResult []StakeSnapshotsResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from stake snapshots query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[StakeSnapshotsResult](c, query, "stake snapshots")
 }
 
 func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
@@ -1338,15 +1326,7 @@ func (c *Client) GetDRepState(
 		QueryTypeShelleyDRepState,
 		credSet,
 	)
-	// The result is wrapped in a single-element array.
-	var wrappedResult []DRepStateResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from DRep state query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[DRepStateResult](c, query, "DRep state")
 }
 
 // GetDRepStakeDistr returns the stake distribution across DReps (CIP-1694).

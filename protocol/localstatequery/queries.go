@@ -1984,20 +1984,27 @@ func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
 	var raw struct {
 		cbor.StructAsArray
 		Expiry     uint64
-		Anchor     []lcommon.GovAnchor
+		Anchor     cbor.RawMessage
 		Deposit    uint64
 		Delegators []StakeCredential
 	}
 	if _, err := cbor.Decode(data, &raw); err != nil {
 		return err
 	}
-	e.Expiry = raw.Expiry
-	if len(raw.Anchor) > 0 {
-		anchor := raw.Anchor[0]
-		e.Anchor = &anchor
-	} else {
-		e.Anchor = nil
+	// The anchor is a StrictMaybe: a list of zero or one anchors.
+	anchors, err := decodeBoundedArray(raw.Anchor, 1, "DRep state anchor")
+	if err != nil {
+		return err
 	}
+	var anchor *lcommon.GovAnchor
+	if len(anchors) == 1 {
+		anchor = &lcommon.GovAnchor{}
+		if _, err := cbor.Decode(anchors[0], anchor); err != nil {
+			return fmt.Errorf("DRep state anchor: %w", err)
+		}
+	}
+	e.Expiry = raw.Expiry
+	e.Anchor = anchor
 	e.Deposit = raw.Deposit
 	e.Delegators = raw.Delegators
 	return nil

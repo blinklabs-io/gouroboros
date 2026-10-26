@@ -70,6 +70,30 @@ func TestFixedShapeClientRepliesRejectOversizedArrays(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name:         "non-myopic member rewards",
+			conversation: conversationCurrentEra,
+			query: func(c *localstatequery.Client) error {
+				_, err := c.GetNonMyopicMemberRewards([]any{uint64(1)})
+				return err
+			},
+		},
+		{
+			name:         "stake snapshots",
+			conversation: conversationCurrentEra,
+			query: func(c *localstatequery.Client) error {
+				_, err := c.GetStakeSnapshots(nil)
+				return err
+			},
+		},
+		{
+			name:         "DRep state",
+			conversation: conversationConwayEra,
+			query: func(c *localstatequery.Client) error {
+				_, err := c.GetDRepState(nil)
+				return err
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
