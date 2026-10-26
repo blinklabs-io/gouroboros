@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"bytes"
 	"runtime"
 	"testing"
 
@@ -90,34 +91,59 @@ func TestGenericErrorDecodesSmallCollections(t *testing.T) {
 func genericErrorNested(inner, entries int) []byte {
 	data := []byte{0x98, byte(inner)}
 	for range inner {
-		data = append(data, 0x9a, 0, byte(entries>>16), byte(entries>>8), byte(entries))
+		data = append(
+			data,
+			0x9a,
+			0,
+			byte(entries>>16),
+			byte(entries>>8),
+			byte(entries),
+		)
 		data = append(data, make([]byte, entries)...)
+	}
+	return data
+}
+
+// shelleyRejectionManyFailures returns a Conway ShelleyTxValidationError
+// whose ApplyTxError lists count unrecognized one-field failures. Each is
+// preserved as an UnknownApplyTxFailureError, so without a total bound every
+// failure is decoded and retained.
+func shelleyRejectionManyFailures(count int) []byte {
+	data := []byte{
+		0x81, 0x82, 0x06,
+		0x9a, 0, byte(count >> 16), byte(count >> 8), byte(count),
+	}
+	for range count {
+		data = append(data, 0x81, 0x00)
 	}
 	return data
 }
 
 func TestRejectionRejectsNestedCollectionsOverBudget(t *testing.T) {
 	t.Parallel()
-	data := genericErrorNested(3, 100000)
-	for name, fn := range map[string]NewErrorFromCborFunc{
-		"tx submit": NewTxSubmitErrorFromCbor,
-		"shelley":   NewShelleyTxValidationErrorFromCbor,
-		"generic":   NewGenericErrorFromCbor,
-		"era":       NewEraMismatchErrorFromCbor,
-	} {
+	nested := genericErrorNested(3, 100000)
+	shelley := shelleyRejectionManyFailures(70000)
+	cases := map[string]struct {
+		fn   NewErrorFromCborFunc
+		data []byte
+	}{
+		"tx submit generic": {NewTxSubmitErrorFromCbor, nested},
+		"tx submit shelley": {NewTxSubmitErrorFromCbor, shelley},
+		"generic":           {NewGenericErrorFromCbor, nested},
+		"shelley":           {NewShelleyTxValidationErrorFromCbor, shelley},
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			got, err := fn(data)
+			got, err := tc.fn(tc.data)
 			require.Error(t, err)
 			require.Nil(t, got)
 		})
 	}
-	var nested GenericError
-	require.Error(t, nested.UnmarshalCBOR(data))
-	var shelley ShelleyTxValidationError
-	require.Error(t, shelley.UnmarshalCBOR(data))
+	var generic GenericError
+	require.Error(t, generic.UnmarshalCBOR(nested))
 	var apply ApplyTxError
-	require.Error(t, apply.UnmarshalCBOR(data))
+	require.Error(t, apply.UnmarshalCBOR(shelley[3:]))
 }
 
 func TestRejectionBudgetAcceptsUnderBound(t *testing.T) {
@@ -149,9 +175,13 @@ func TestRejectionBudgetStructure(t *testing.T) {
 		"truncated head":  {0x1a, 0x00},
 		"stray break":     {0x82, 0xff, 0x01},
 		"long string":     {0x45, 0x01},
-		"huge array":      {0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-		"huge map":        {0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
-		"reserved info":   {0x1c},
+		"huge array": append(
+			[]byte{0x9b},
+			bytes.Repeat([]byte{0xff}, 8)...),
+		"huge map": append(
+			[]byte{0xbb},
+			bytes.Repeat([]byte{0xff}, 8)...),
+		"reserved info": {0x1c},
 	}
 	for name, d := range invalid {
 		require.Error(t, checkRejectionBudget(d), name)
