@@ -1094,21 +1094,35 @@ func UtxoValidatePoolCertificates(
 	tx common.Transaction, slot uint64, ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return validateDijkstraConwayGovernanceLevels(
-		tx, slot, ls, pp, func(
-			level common.Transaction,
-			slot uint64,
-			state common.LedgerState,
-			pp common.ProtocolParameters,
-		) error {
-			if err := conway.UtxoValidatePoolCertificates(
-				level, slot, state, pp,
-			); err != nil {
-				return err
-			}
-			return validateDijkstraPoolBlsKeys(level)
-		},
-	)
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		if err := conway.UtxoValidatePoolCertificates(tx, slot, ls, pp); err != nil {
+			return err
+		}
+		return validateDijkstraPoolBlsKeys(tx)
+	}
+	if !tx.IsValid() {
+		return nil
+	}
+	params, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	state := common.NewBlockLedgerState(ls)
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.UtxoValidatePoolCertificates(
+			level, slot, state, params,
+		); err != nil {
+			return err
+		}
+		if err := validateDijkstraPoolBlsKeys(level); err != nil {
+			return err
+		}
+		if err := state.ApplyPoolCertificates(level.Certificates()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateDijkstraPoolBlsKeys(tx common.Transaction) error {
@@ -1138,12 +1152,33 @@ func UtxoValidateCertificateDeposits(
 	tx common.Transaction, slot uint64, ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if _, ok := tx.(*DijkstraTransaction); !ok {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
 		return conway.UtxoValidateCertificateDeposits(tx, slot, ls, pp)
 	}
-	return conway.UtxoValidateCertificateDeposits(
-		dijkstraBatchView(tx), slot, ls, pp,
-	)
+	if !tx.IsValid() {
+		return nil
+	}
+	effects, err := dijkstraTx.LedgerEffectLevels()
+	if err != nil {
+		return err
+	}
+	levels := dijkstraTransactionLevels(dijkstraTx)
+	if len(effects) != len(levels) {
+		return errors.New("Dijkstra transaction level effects do not match validation levels")
+	}
+	state := common.NewBlockLedgerState(ls)
+	for idx, level := range levels {
+		if err := conway.UtxoValidateCertificateDeposits(
+			level, slot, state, pp,
+		); err != nil {
+			return err
+		}
+		if err := state.ApplyCertificateDepositLevel(effects[idx], pp); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func UtxoValidateProposalProcedures(
