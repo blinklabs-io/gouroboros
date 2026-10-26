@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"errors"
 	"testing"
+	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -228,4 +229,96 @@ func testDijkstraBlockWithBody(
 		},
 		BlockBody: body,
 	}
+}
+
+// Each one-byte entry would reserve a whole DijkstraTransaction if the
+// transaction slice were sized from the entry count, so the slice must grow
+// only with entries that decode.
+func TestDijkstraBlockBodyTransactionsGrowAsEntriesDecode(t *testing.T) {
+	const count = 10_000
+	data := []byte{0x83, 0x99, count >> 8, count & 0xff}
+	data = append(data, make([]byte, count)...)
+	data = append(data, 0xf6, 0xf6)
+	var body DijkstraBlockBody
+	err := body.UnmarshalCBOR(data)
+	require.ErrorContains(t, err, "decode Dijkstra transaction 0")
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			var body DijkstraBlockBody
+			if err := body.UnmarshalCBOR(data); err == nil {
+				b.Fatal("expected transaction decode error")
+			}
+		}
+	})
+	t.Logf(
+		"%d one-byte transaction entries failing at the first: %d bytes/op",
+		count,
+		result.AllocedBytesPerOp(),
+	)
+	require.Less(
+		t,
+		result.AllocedBytesPerOp(),
+		int64(count*unsafe.Sizeof(DijkstraTransaction{})/4),
+	)
+}
+
+// The transaction entries decode one at a time, so a declared count reserves
+// no per-entry raw message before the first entry fails.
+func TestDijkstraBlockBodyTransactionEntriesDecodeOneAtATime(t *testing.T) {
+	const count = 10_000
+	data := []byte{0x83, 0x99, count >> 8, count & 0xff}
+	data = append(data, make([]byte, count)...)
+	data = append(data, 0xf6, 0xf6)
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			var body DijkstraBlockBody
+			if err := body.UnmarshalCBOR(data); err == nil {
+				b.Fatal("expected transaction decode error")
+			}
+		}
+	})
+	t.Logf(
+		"%d one-byte transaction entries failing at the first: %d bytes/op",
+		count,
+		result.AllocedBytesPerOp(),
+	)
+	require.Less(
+		t,
+		result.AllocedBytesPerOp(),
+		int64(count*unsafe.Sizeof(cbor.RawMessage{})/2),
+	)
+}
+
+func TestDijkstraBlockBodyDecodesIndefiniteTransactionArray(t *testing.T) {
+	body := DijkstraBlockBody{
+		Transactions: []DijkstraTransaction{
+			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+			{Body: DijkstraTransactionBody{TxFee: 2}, TxIsValid: false},
+		},
+	}
+	definite, err := body.MarshalCBOR()
+	require.NoError(t, err)
+	var items []cbor.RawMessage
+	_, err = cbor.Decode(definite, &items)
+	require.NoError(t, err)
+	require.Len(t, items, 3)
+	require.Equal(t, byte(0x82), items[0][0])
+	txs := append([]byte{0x9f}, items[0][1:]...)
+	txs = append(txs, 0xff)
+	indefinite, err := cbor.Encode([]cbor.RawMessage{txs, items[1], items[2]})
+	require.NoError(t, err)
+
+	var decoded DijkstraBlockBody
+	require.NoError(t, decoded.UnmarshalCBOR(indefinite))
+	require.Len(t, decoded.Transactions, 2)
+	require.Equal(t, uint64(1), decoded.Transactions[0].Body.TxFee)
+	require.True(t, decoded.Transactions[0].TxIsValid)
+	require.Equal(t, uint64(2), decoded.Transactions[1].Body.TxFee)
+	require.False(t, decoded.Transactions[1].TxIsValid)
+}
+
+func TestDijkstraBlockBodyRejectsNonArrayTransactions(t *testing.T) {
+	var body DijkstraBlockBody
+	err := body.UnmarshalCBOR([]byte{0x83, 0xa0, 0xf6, 0xf6})
+	require.ErrorContains(t, err, "decode Dijkstra transactions")
 }
