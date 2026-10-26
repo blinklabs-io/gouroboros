@@ -446,10 +446,17 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 				)
 			return err
 		}
+	}
+	commitAuthentication := func() error { return nil }
+	if len(msgReply.Messages) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		if err := s.config.Authenticator.VerifyMessage(&msgReply.Messages[i]); err != nil {
+		var err error
+		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
+			msgReply.Messages,
+		)
+		if err != nil {
 			s.Protocol.Logger().
 				Warn("message authentication failed",
 					"component", "network",
@@ -467,6 +474,10 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		return invalidMessageSubmissionMessage(
 			"message request changed while validating its reply",
 		)
+	}
+	if err := commitAuthentication(); err != nil {
+		s.lock.Unlock()
+		return err
 	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
