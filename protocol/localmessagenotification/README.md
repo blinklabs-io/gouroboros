@@ -128,7 +128,8 @@ The client validates every message passed to the configured callback:
 - KES signature verification
 - TTL validation
 - Messages already delivered are dropped until expiration, including after reconnection
-- A full replay cache evicts the earliest-expiring accepted IDs to admit fresh messages; an evicted message can be delivered again if replayed before expiration
+- Accepted IDs are never evicted before expiration; a reply that would exceed `MaxReplayEntries` unexpired IDs is refused with an error and nothing in it is delivered
+- The default replay bound holds 31 unexpired messages per stake pool, the most a dmq-node admits, for 4096 pools
 
 ## Notes
 

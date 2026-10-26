@@ -378,6 +378,44 @@ func TestClientReplayAdmissionNeverEvictsForBatch(t *testing.T) {
 	}
 }
 
+// TestClientDefaultReplayBoundHoldsHonestMempool fills the replay cache with
+// the most unexpired messages a dmq-node mempool can hold for 4096 pools: one
+// per pool per minute, each expiring at most 30 minutes ahead. A reconnect
+// replays that mempool, so the default bound must still admit a fresh message.
+func TestClientDefaultReplayBoundHoldsHonestMempool(t *testing.T) {
+	t.Parallel()
+	const (
+		pools         = 4096
+		maxTTLMinutes = 30
+		perPool       = maxTTLMinutes + 1
+	)
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	client.now = func() time.Time { return time.Unix(100, 0) }
+	client.replayState.mu.Lock()
+	for i := range pools*perPool - 1 {
+		client.replayState.acceptedIDs[fmt.Sprintf("honest-%d", i)] = 1900
+	}
+	client.replayState.mu.Unlock()
+
+	require.NoError(t, client.messageHandler(
+		NewMsgReplyMessagesNonBlocking(
+			[]pcommon.DmqMessage{clientTestMessage(t, "fresh", 1900)},
+			false,
+		),
+	))
+	require.Equal(t, int32(1), callbacks.Load())
+	require.Len(t, client.replayState.acceptedIDs, pools*perPool)
+}
+
 func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
