@@ -265,7 +265,7 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 		QueryTypeChainBlockNo,
 	)
 	result := []any{}
-	if err := c.runQuery(query, &result); err != nil {
+	if err := c.runQueryMaxItems(query, &result, 2); err != nil {
 		return 0, err
 	}
 	switch {
@@ -345,7 +345,7 @@ func (c *Client) GetEpochNo() (int, error) {
 		QueryTypeShelleyEpochNo,
 	)
 	result := []int{}
-	if err := c.runQuery(query, &result); err != nil {
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return 0, err
 	}
 	if len(result) == 0 {
@@ -381,15 +381,11 @@ func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberReward
 		QueryTypeShelleyNonMyopicMemberRewards,
 		stakesSet,
 	)
-	// The result is wrapped in a single-element array
-	var wrappedResult []NonMyopicMemberRewardsResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from non-myopic member rewards query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[NonMyopicMemberRewardsResult](
+		c,
+		query,
+		"non-myopic member rewards",
+	)
 }
 
 // GetCurrentProtocolParams returns the set of protocol params that are currently in effect
@@ -414,7 +410,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 	switch currentEra {
 	case ledger.EraIdDijkstra:
 		result := []ledger.DijkstraProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -425,7 +421,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdConway:
 		result := []ledger.ConwayProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -434,7 +430,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdBabbage:
 		result := []ledger.BabbageProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -443,7 +439,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdAlonzo:
 		result := []ledger.AlonzoProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -452,7 +448,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdMary:
 		result := []ledger.MaryProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -461,7 +457,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdAllegra:
 		result := []ledger.AllegraProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -470,7 +466,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 		return &result[0], nil
 	case ledger.EraIdShelley:
 		result := []ledger.ShelleyProtocolParameters{}
-		if err := c.runQuery(query, &result); err != nil {
+		if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 			return nil, err
 		}
 		if len(result) == 0 {
@@ -707,7 +703,7 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 		QueryTypeShelleyGenesisConfig,
 	)
 	result := []GenesisConfigResult{}
-	if err := c.runQuery(query, &result); err != nil {
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
 	if len(result) == 0 {
@@ -787,7 +783,7 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 // down.
 func runWrappedQuery[T any](c *Client, query any, name string) (*T, error) {
 	result := []T{}
-	if err := c.runQuery(query, &result); err != nil {
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
 	if len(result) == 0 {
@@ -1001,7 +997,7 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 		poolFilter,
 	)
 	result := []PoolStateResult{}
-	if err := c.runQuery(query, &result); err != nil {
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
 	if len(result) == 0 {
@@ -1098,15 +1094,7 @@ func (c *Client) GetStakeSnapshots(
 		QueryTypeShelleyStakeSnapshots,
 		poolFilter,
 	)
-	// The result is wrapped in a single-element array
-	var wrappedResult []StakeSnapshotsResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from stake snapshots query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[StakeSnapshotsResult](c, query, "stake snapshots")
 }
 
 func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
@@ -1338,15 +1326,7 @@ func (c *Client) GetDRepState(
 		QueryTypeShelleyDRepState,
 		credSet,
 	)
-	// The result is wrapped in a single-element array.
-	var wrappedResult []DRepStateResult
-	if err := c.runQuery(query, &wrappedResult); err != nil {
-		return nil, err
-	}
-	if len(wrappedResult) == 0 {
-		return nil, errors.New("empty result from DRep state query")
-	}
-	return &wrappedResult[0], nil
+	return runWrappedQuery[DRepStateResult](c, query, "DRep state")
 }
 
 // GetDRepStakeDistr returns the stake distribution across DReps (CIP-1694).
@@ -2084,6 +2064,17 @@ func (c *Client) release() error {
 }
 
 func (c *Client) runQuery(query any, result any) error {
+	return c.runQueryMaxItems(query, result, 0)
+}
+
+// runQueryMaxItems runs a query whose reply is an array of at most maxItems
+// items and rejects a longer one before decoding into result. A maxItems of
+// zero leaves the reply unbounded.
+func (c *Client) runQueryMaxItems(
+	query any,
+	result any,
+	maxItems int,
+) error {
 	msg := NewMsgQuery(query)
 	if !c.acquired {
 		if err := c.acquire(AcquireVolatileTip{}); err != nil {
@@ -2096,6 +2087,11 @@ func (c *Client) runQuery(query any, result any) error {
 	resultCbor, ok := <-c.queryResultChan
 	if !ok {
 		return protocol.ErrProtocolShuttingDown
+	}
+	if maxItems > 0 {
+		if err := boundArray(resultCbor, maxItems, "query result"); err != nil {
+			return err
+		}
 	}
 	if _, err := cbor.Decode(resultCbor, result); err != nil {
 		return err

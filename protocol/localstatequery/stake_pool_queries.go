@@ -94,8 +94,8 @@ type IndividualPoolStake struct {
 }
 
 func (s *IndividualPoolStake) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 4, "IndividualPoolStake")
+	if err != nil {
 		return err
 	}
 	if len(fields) != 3 && len(fields) != 4 {
@@ -118,8 +118,8 @@ func (s *IndividualPoolStake) UnmarshalCBOR(data []byte) error {
 	}
 	// The fourth field is a StrictMaybe BlsKey, a list of at most one key.
 	if len(fields) == 4 {
-		var maybe []cbor.RawMessage
-		if _, err := cbor.Decode(fields[3], &maybe); err != nil {
+		maybe, err := decodeBoundedArray(fields[3], 1, "BLS key")
+		if err != nil {
 			return fmt.Errorf("IndividualPoolStake: BLS key: %w", err)
 		}
 		switch len(maybe) {

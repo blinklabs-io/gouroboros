@@ -1792,8 +1792,8 @@ type ShelleyGetLedgerPeerSnapshotQuery struct {
 }
 
 func (q *ShelleyGetLedgerPeerSnapshotQuery) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 2, "GetLedgerPeerSnapshot")
+	if err != nil {
 		return err
 	}
 	if len(fields) != 1 && len(fields) != 2 {
@@ -1915,8 +1915,8 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	if len(g.Committee) == 1 && g.Committee[0] == 0xf6 {
 		return nil, nil
 	}
-	var wrapper []cbor.RawMessage
-	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
+	wrapper, err := decodeBoundedArray(g.Committee, 2, "committee")
+	if err != nil {
 		return nil, err
 	}
 	if len(wrapper) == 0 {
@@ -1984,20 +1984,27 @@ func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
 	var raw struct {
 		cbor.StructAsArray
 		Expiry     uint64
-		Anchor     []lcommon.GovAnchor
+		Anchor     cbor.RawMessage
 		Deposit    uint64
 		Delegators []StakeCredential
 	}
 	if _, err := cbor.Decode(data, &raw); err != nil {
 		return err
 	}
-	e.Expiry = raw.Expiry
-	if len(raw.Anchor) > 0 {
-		anchor := raw.Anchor[0]
-		e.Anchor = &anchor
-	} else {
-		e.Anchor = nil
+	// The anchor is a StrictMaybe: a list of zero or one anchors.
+	anchors, err := decodeBoundedArray(raw.Anchor, 1, "DRep state anchor")
+	if err != nil {
+		return err
 	}
+	var anchor *lcommon.GovAnchor
+	if len(anchors) == 1 {
+		anchor = &lcommon.GovAnchor{}
+		if _, err := cbor.Decode(anchors[0], anchor); err != nil {
+			return fmt.Errorf("DRep state anchor: %w", err)
+		}
+	}
+	e.Expiry = raw.Expiry
+	e.Anchor = anchor
 	e.Deposit = raw.Deposit
 	e.Delegators = raw.Delegators
 	return nil

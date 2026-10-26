@@ -124,8 +124,9 @@ func decodeDRepKeyedResult(
 	what string,
 	decodeValue func(dec *cbor.StreamDecoder, drep lcommon.Drep) error,
 ) error {
-	var wrapper []cbor.RawMessage
-	if _, err := cbor.Decode(data, &wrapper); err != nil {
+	// A two-element array is the era-mismatch reply, reported below.
+	wrapper, err := decodeBoundedArray(data, 2, what)
+	if err != nil {
 		return err
 	}
 	if len(wrapper) != 1 {
