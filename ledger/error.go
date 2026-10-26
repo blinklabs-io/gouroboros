@@ -412,8 +412,11 @@ func getEraSpecificUtxoFailureConstants(
 }
 
 func NewGenericErrorFromCbor(cborData []byte) (error, error) {
+	if err := checkRejectionBudget(cborData); err != nil {
+		return nil, err
+	}
 	newErr := &GenericError{}
-	if _, err := cbor.Decode(cborData, newErr); err != nil {
+	if _, err := cbor.DecodeStrict(cborData, newErr); err != nil {
 		return nil, err
 	}
 	return newErr, nil
@@ -425,8 +428,13 @@ type GenericError struct {
 }
 
 func (e *GenericError) UnmarshalCBOR(data []byte) error {
+	if err := checkRejectionBudget(data); err != nil {
+		return err
+	}
+	// NOTE: rejection payloads come from the peer, so the collection counts
+	// are bounded by the strict mode before any entry is materialized.
 	var tmpValue cbor.Value
-	if _, err := cbor.Decode(data, &tmpValue); err != nil {
+	if _, err := cbor.DecodeStrict(data, &tmpValue); err != nil {
 		return err
 	}
 	e.Value = tmpValue.Value()
@@ -503,6 +511,9 @@ func (e *UnknownUtxoFailureError) Error() string {
 }
 
 func NewEraMismatchErrorFromCbor(cborData []byte) (error, error) {
+	if err := checkRejectionBudget(cborData); err != nil {
+		return nil, err
+	}
 	newErr := &EraMismatch{}
 	if _, err := cbor.Decode(cborData, newErr); err != nil {
 		return nil, err
@@ -568,6 +579,9 @@ func (e *EraMismatch) MarshalCBOR() ([]byte, error) {
 
 // Helper function to try to parse CBOR as various error types
 func NewTxSubmitErrorFromCbor(cborData []byte) (error, error) {
+	if err := checkRejectionBudget(cborData); err != nil {
+		return nil, err
+	}
 	for _, newErrFunc := range []NewErrorFromCborFunc{
 		NewEraMismatchErrorFromCbor,
 		NewShelleyTxValidationErrorFromCbor,
@@ -583,6 +597,9 @@ func NewTxSubmitErrorFromCbor(cborData []byte) (error, error) {
 }
 
 func NewShelleyTxValidationErrorFromCbor(cborData []byte) (error, error) {
+	if err := checkRejectionBudget(cborData); err != nil {
+		return nil, err
+	}
 	newErr := &ShelleyTxValidationError{}
 	if _, err := cbor.Decode(cborData, newErr); err != nil {
 		return nil, err
@@ -596,6 +613,9 @@ type ShelleyTxValidationError struct {
 }
 
 func (e *ShelleyTxValidationError) UnmarshalCBOR(data []byte) error {
+	if err := checkRejectionBudget(data); err != nil {
+		return err
+	}
 	var tmpData struct {
 		cbor.StructAsArray
 		Inner struct {
@@ -633,6 +653,9 @@ type ApplyTxError struct {
 }
 
 func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
+	if err := checkRejectionBudget(data); err != nil {
+		return err
+	}
 	var tmpData []cbor.RawMessage
 	if _, err := cbor.Decode(data, &tmpData); err != nil {
 		return err
