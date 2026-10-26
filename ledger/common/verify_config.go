@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"golang.org/x/crypto/blake2b"
@@ -133,10 +134,38 @@ type VerifyConfig struct {
 	LedgerState LedgerState
 	// ProtocolParameters provides the current protocol parameters for
 	// transaction validation and block-limits validation.
-	// Required if SkipTransactionValidation is false. When set and
+	// Required for Shelley-family transaction validation when
+	// SkipTransactionValidation is false. When set and
 	// SkipBlockLimitsValidation is false, also enables block-wide
 	// execution-unit and size validation (see SkipBlockLimitsValidation).
 	ProtocolParameters ProtocolParameters
+	// ByronTxFeePolicy is the Byron linear transaction fee policy. It is
+	// required for Byron transaction validation when SkipTransactionValidation
+	// is false; validation fails closed when it is nil.
+	ByronTxFeePolicy *ByronTxFeePolicy
+}
+
+// ByronTxFeePolicy is the Byron TxSizeLinear fee policy. Both values are in
+// nano-lovelace (1e-9 lovelace), the unit used by the Byron genesis
+// txFeePolicy, so the minimum fee for a transaction of size bytes is
+// ceil((Summand + Multiplier*size) / 1e9) lovelace.
+type ByronTxFeePolicy struct {
+	Summand    uint64
+	Multiplier uint64
+}
+
+// MinFee returns the minimum fee in lovelace for a serialized transaction of
+// txSize bytes.
+func (p ByronTxFeePolicy) MinFee(txSize int) *big.Int {
+	total := new(big.Int).SetUint64(p.Multiplier)
+	total.Mul(total, big.NewInt(int64(txSize)))
+	total.Add(total, new(big.Int).SetUint64(p.Summand))
+	denominator := big.NewInt(1_000_000_000)
+	quotient, remainder := new(big.Int).QuoRem(total, denominator, new(big.Int))
+	if remainder.Sign() > 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	return quotient
 }
 
 // ValidateBlockBodyHash validates the block body hash during parsing.
