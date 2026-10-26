@@ -551,6 +551,9 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
+		return err
+	}
 	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
 	tmp.TxReferenceInputs = coalesceUntaggedTransactionInputs(
 		tmp.TxReferenceInputs,
