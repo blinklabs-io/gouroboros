@@ -15,6 +15,7 @@
 package ledger
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,4 +82,100 @@ func TestGenericErrorDecodesSmallCollections(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, data, genErr.Cbor)
 	require.Equal(t, []any{uint64(1), uint64(2), uint64(3)}, genErr.Value)
+}
+
+// genericErrorNested returns an outer array of inner arrays. Each inner array
+// is within the per-collection decoder limit; only the total exceeds the
+// rejection item budget.
+func genericErrorNested(inner, entries int) []byte {
+	data := []byte{0x98, byte(inner)}
+	for range inner {
+		data = append(data, 0x9a, 0, byte(entries>>16), byte(entries>>8), byte(entries))
+		data = append(data, make([]byte, entries)...)
+	}
+	return data
+}
+
+func TestRejectionRejectsNestedCollectionsOverBudget(t *testing.T) {
+	t.Parallel()
+	data := genericErrorNested(3, 100000)
+	for name, fn := range map[string]NewErrorFromCborFunc{
+		"tx submit": NewTxSubmitErrorFromCbor,
+		"shelley":   NewShelleyTxValidationErrorFromCbor,
+		"generic":   NewGenericErrorFromCbor,
+		"era":       NewEraMismatchErrorFromCbor,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got, err := fn(data)
+			require.Error(t, err)
+			require.Nil(t, got)
+		})
+	}
+	var nested GenericError
+	require.Error(t, nested.UnmarshalCBOR(data))
+	var shelley ShelleyTxValidationError
+	require.Error(t, shelley.UnmarshalCBOR(data))
+	var apply ApplyTxError
+	require.Error(t, apply.UnmarshalCBOR(data))
+}
+
+func TestRejectionBudgetAcceptsUnderBound(t *testing.T) {
+	t.Parallel()
+	// 2 inner arrays of 60000 plus 3 container items: under the budget.
+	data := genericErrorNested(2, 60000)
+	got, err := NewTxSubmitErrorFromCbor(data)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+}
+
+func TestRejectionBudgetStructure(t *testing.T) {
+	t.Parallel()
+	valid := [][]byte{
+		{0x00},
+		{0x9f, 0x01, 0x02, 0xff},             // indefinite array
+		{0xbf, 0x01, 0x02, 0xff},             // indefinite map
+		{0xc1, 0x1a, 0x00, 0x00, 0x00, 0x01}, // tag
+		{0x63, 'a', 'b', 'c'},                // text string
+		{0x5f, 0x41, 0x01, 0xff},             // indefinite bytes
+		{0xa1, 0x01, 0x82, 0x01, 0xf6},       // map with nested array
+	}
+	for _, d := range valid {
+		require.NoError(t, checkRejectionBudget(d), "%x", d)
+	}
+	invalid := map[string][]byte{
+		"empty":           {},
+		"truncated array": {0x82, 0x01},
+		"truncated head":  {0x1a, 0x00},
+		"stray break":     {0x82, 0xff, 0x01},
+		"long string":     {0x45, 0x01},
+		"huge array":      {0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+		"huge map":        {0xbb, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
+		"reserved info":   {0x1c},
+	}
+	for name, d := range invalid {
+		require.Error(t, checkRejectionBudget(d), name)
+	}
+	deep := make([]byte, 0, 20000)
+	for range 20000 {
+		deep = append(deep, 0x81)
+	}
+	require.Error(t, checkRejectionBudget(append(deep, 0x00)))
+}
+
+func TestRejectionOverBudgetAllocatesLittle(t *testing.T) {
+	// Not t.Parallel: reads process-wide allocation counters.
+	data := genericErrorNested(30, 131072)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	_, err := NewTxSubmitErrorFromCbor(data)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	require.Less(
+		t,
+		after.TotalAlloc-before.TotalAlloc,
+		uint64(8<<20),
+		"rejected payload must not be materialized",
+	)
 }
