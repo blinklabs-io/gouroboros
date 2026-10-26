@@ -17,6 +17,7 @@ package dijkstra
 import (
 	"errors"
 	"testing"
+	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -228,4 +229,35 @@ func testDijkstraBlockWithBody(
 		},
 		BlockBody: body,
 	}
+}
+
+// Each one-byte entry would reserve a whole DijkstraTransaction if the
+// transaction slice were sized from the entry count, so the slice must grow
+// only with entries that decode.
+func TestDijkstraBlockBodyTransactionsGrowAsEntriesDecode(t *testing.T) {
+	const count = 10_000
+	data := []byte{0x83, 0x99, count >> 8, count & 0xff}
+	data = append(data, make([]byte, count)...)
+	data = append(data, 0xf6, 0xf6)
+	var body DijkstraBlockBody
+	err := body.UnmarshalCBOR(data)
+	require.ErrorContains(t, err, "decode Dijkstra transaction 0")
+	result := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			var body DijkstraBlockBody
+			if err := body.UnmarshalCBOR(data); err == nil {
+				b.Fatal("expected transaction decode error")
+			}
+		}
+	})
+	t.Logf(
+		"%d one-byte transaction entries failing at the first: %d bytes/op",
+		count,
+		result.AllocedBytesPerOp(),
+	)
+	require.Less(
+		t,
+		result.AllocedBytesPerOp(),
+		int64(count*unsafe.Sizeof(DijkstraTransaction{})/4),
+	)
 }
