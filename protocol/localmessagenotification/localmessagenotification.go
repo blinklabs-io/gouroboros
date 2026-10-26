@@ -145,9 +145,9 @@ type Config struct {
 	// Client timeouts
 	BlockingRequestTimeout time.Duration
 	// MaxReplayEntries bounds the number of accepted message IDs retained by
-	// the client until their signed expiration time. When accepting fresh
-	// messages would exceed the bound, the earliest-expiring IDs are evicted;
-	// an evicted message can be delivered again if replayed before expiration.
+	// the client until their signed expiration time. An ID is never evicted
+	// before its message expires; when accepting fresh messages would exceed
+	// the bound, the reply is refused with an error.
 	MaxReplayEntries int
 
 	// Shared configuration
