@@ -72,6 +72,32 @@ type rawBlockHeaderInfo struct {
 	prevHash []byte
 }
 
+func rawArrayDecoder(
+	data []byte,
+	name string,
+) (*cbor.StreamDecoder, int, error) {
+	decoder, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return nil, 0, fmt.Errorf("decode %s: %w", name, err)
+	}
+	fieldCount, _, _, err := decoder.DecodeArrayHeader()
+	if err != nil {
+		return nil, 0, fmt.Errorf("decode %s: %w", name, err)
+	}
+	return decoder, fieldCount, nil
+}
+
+func nextRawArrayItem(
+	decoder *cbor.StreamDecoder,
+	name string,
+) ([]byte, error) {
+	offset, length, err := decoder.Skip()
+	if err != nil {
+		return nil, fmt.Errorf("decode %s: %w", name, err)
+	}
+	return decoder.RawBytes(offset, length), nil
+}
+
 // rawBlockHeaderInfoFromCbor reads a block's point and previous-block hash
 // straight from its CBOR, without a typed era decode.
 //
@@ -88,64 +114,83 @@ func rawBlockHeaderInfoFromCbor(
 	data []byte,
 	byronSlotsPerEpoch uint64,
 ) (rawBlockHeaderInfo, error) {
-	var blockElems []cbor.RawMessage
-	if _, err := cbor.Decode(data, &blockElems); err != nil {
-		return rawBlockHeaderInfo{}, fmt.Errorf(
-			"decode raw block: %w",
-			err,
-		)
+	blockDecoder, blockFields, err := rawArrayDecoder(data, "raw block")
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
 	}
-	if len(blockElems) == 0 {
+	if blockFields == 0 {
 		return rawBlockHeaderInfo{}, errors.New("raw block has no header")
 	}
-	headerCbor := []byte(blockElems[0])
-	var headerElems []cbor.RawMessage
-	if _, err := cbor.Decode(headerCbor, &headerElems); err != nil {
-		return rawBlockHeaderInfo{}, fmt.Errorf(
-			"decode raw block header: %w",
-			err,
-		)
+	headerCbor, err := nextRawArrayItem(blockDecoder, "raw block header")
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
 	}
-	if len(headerElems) == 0 {
+	for i := 1; i < blockFields; i++ {
+		if _, err := nextRawArrayItem(blockDecoder, "raw block field"); err != nil {
+			return rawBlockHeaderInfo{}, err
+		}
+	}
+	if !blockDecoder.EOF() {
+		return rawBlockHeaderInfo{}, errors.New("raw block has trailing data")
+	}
+	headerDecoder, headerFields, err := rawArrayDecoder(
+		headerCbor,
+		"raw block header",
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	if headerFields == 0 {
 		return rawBlockHeaderInfo{}, errors.New(
 			"raw block header has no body",
 		)
 	}
-	if len(headerElems) == 5 {
+	if headerFields == 5 {
 		return rawByronBlockHeaderInfo(
 			headerCbor,
-			headerElems,
+			headerDecoder,
 			byronSlotsPerEpoch,
 		)
 	}
-	if len(headerElems) != 2 {
+	if headerFields != 2 {
 		return rawBlockHeaderInfo{}, fmt.Errorf(
 			"raw block header has %d fields, expected 2 or 5",
-			len(headerElems),
+			headerFields,
 		)
 	}
-	var bodyElems []cbor.RawMessage
-	if _, err := cbor.Decode(headerElems[0], &bodyElems); err != nil {
-		return rawBlockHeaderInfo{}, fmt.Errorf(
-			"decode raw block header body: %w",
-			err,
-		)
+	bodyCbor, err := nextRawArrayItem(headerDecoder, "raw block header body")
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
 	}
-	if len(bodyElems) < blockHeaderBodyMinFields {
+	bodyDecoder, bodyFields, err := rawArrayDecoder(
+		bodyCbor,
+		"raw block header body",
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	if bodyFields < blockHeaderBodyMinFields {
 		return rawBlockHeaderInfo{}, fmt.Errorf(
 			"raw block header body has %d fields, expected at least %d",
-			len(bodyElems),
+			bodyFields,
 			blockHeaderBodyMinFields,
 		)
 	}
+	if _, err := nextRawArrayItem(bodyDecoder, "raw block number"); err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
 	var slot uint64
-	if _, err := cbor.Decode(bodyElems[1], &slot); err != nil {
+	if _, _, err := bodyDecoder.Decode(&slot); err != nil {
 		return rawBlockHeaderInfo{}, fmt.Errorf(
 			"decode raw block header slot: %w",
 			err,
 		)
 	}
-	prevHash, err := decodeRawPrevHash(bodyElems[2])
+	prevHashCbor, err := nextRawArrayItem(bodyDecoder, "raw block previous hash")
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	prevHash, err := decodeRawPrevHash(prevHashCbor)
 	if err != nil {
 		return rawBlockHeaderInfo{}, err
 	}
@@ -158,33 +203,53 @@ func rawBlockHeaderInfoFromCbor(
 
 func rawByronBlockHeaderInfo(
 	headerCbor []byte,
-	headerElems []cbor.RawMessage,
+	headerDecoder *cbor.StreamDecoder,
 	slotsPerEpoch uint64,
 ) (rawBlockHeaderInfo, error) {
 	if slotsPerEpoch == 0 {
 		slotsPerEpoch = ledgerbyron.ByronSlotsPerEpoch
 	}
+	if _, err := nextRawArrayItem(headerDecoder, "raw Byron protocol magic"); err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	prevHashCbor, err := nextRawArrayItem(
+		headerDecoder,
+		"raw Byron previous hash",
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
 	var prevHash lcommon.Blake2b256
-	if _, err := cbor.Decode(headerElems[1], &prevHash); err != nil {
+	if _, err := cbor.Decode(prevHashCbor, &prevHash); err != nil {
 		return rawBlockHeaderInfo{}, fmt.Errorf(
 			"decode raw Byron previous hash: %w",
 			err,
 		)
 	}
-	var consensus []cbor.RawMessage
-	if _, err := cbor.Decode(headerElems[3], &consensus); err != nil {
-		return rawBlockHeaderInfo{}, fmt.Errorf(
-			"decode raw Byron consensus data: %w",
-			err,
-		)
+	if _, err := nextRawArrayItem(headerDecoder, "raw Byron body proof"); err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	consensusCbor, err := nextRawArrayItem(
+		headerDecoder,
+		"raw Byron consensus data",
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
+	}
+	consensusDecoder, consensusFields, err := rawArrayDecoder(
+		consensusCbor,
+		"raw Byron consensus data",
+	)
+	if err != nil {
+		return rawBlockHeaderInfo{}, err
 	}
 	var blockType uint
 	var epoch uint64
 	var slotInEpoch uint64
-	switch len(consensus) {
+	switch consensusFields {
 	case 2:
 		blockType = ledger.BlockTypeByronEbb
-		if _, err := cbor.Decode(consensus[0], &epoch); err != nil {
+		if _, _, err := consensusDecoder.Decode(&epoch); err != nil {
 			return rawBlockHeaderInfo{}, fmt.Errorf(
 				"decode raw Byron EBB epoch: %w",
 				err,
@@ -192,24 +257,42 @@ func rawByronBlockHeaderInfo(
 		}
 	case 4:
 		blockType = ledger.BlockTypeByronMain
-		var slotID []uint64
-		if _, err := cbor.Decode(consensus[0], &slotID); err != nil {
+		slotIdCbor, err := nextRawArrayItem(
+			consensusDecoder,
+			"raw Byron slot ID",
+		)
+		if err != nil {
+			return rawBlockHeaderInfo{}, err
+		}
+		slotIdDecoder, slotIdFields, err := rawArrayDecoder(
+			slotIdCbor,
+			"raw Byron slot ID",
+		)
+		if err != nil {
+			return rawBlockHeaderInfo{}, err
+		}
+		if slotIdFields != 2 {
 			return rawBlockHeaderInfo{}, fmt.Errorf(
-				"decode raw Byron slot ID: %w",
+				"raw Byron slot ID has %d fields, expected 2",
+				slotIdFields,
+			)
+		}
+		if _, _, err := slotIdDecoder.Decode(&epoch); err != nil {
+			return rawBlockHeaderInfo{}, fmt.Errorf(
+				"decode raw Byron epoch: %w",
 				err,
 			)
 		}
-		if len(slotID) != 2 {
+		if _, _, err := slotIdDecoder.Decode(&slotInEpoch); err != nil {
 			return rawBlockHeaderInfo{}, fmt.Errorf(
-				"raw Byron slot ID has %d fields, expected 2",
-				len(slotID),
+				"decode raw Byron slot: %w",
+				err,
 			)
 		}
-		epoch, slotInEpoch = slotID[0], slotID[1]
 	default:
 		return rawBlockHeaderInfo{}, fmt.Errorf(
 			"raw Byron consensus data has %d fields, expected 2 or 4",
-			len(consensus),
+			consensusFields,
 		)
 	}
 	slot, err := ledgerbyron.SlotNumberFromEpochAndSlot(
@@ -234,7 +317,7 @@ func rawByronBlockHeaderInfo(
 // encode it as null, which the typed header decoders turn into the zero hash
 // (see babbage.BabbageBlockHeaderBody.UnmarshalCBOR); mirror that here so the
 // two paths agree.
-func decodeRawPrevHash(data cbor.RawMessage) ([]byte, error) {
+func decodeRawPrevHash(data []byte) ([]byte, error) {
 	if len(data) == 1 && data[0] == 0xf6 {
 		var zero lcommon.Blake2b256
 		return zero.Bytes(), nil
