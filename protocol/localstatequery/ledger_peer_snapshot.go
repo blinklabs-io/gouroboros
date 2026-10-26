@@ -128,8 +128,8 @@ func (r *RelayAccessPoint) UnmarshalCBOR(data []byte) error {
 	r.IPv6 = nil
 	r.Domain = nil
 	r.Port = nil
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 3, "RelayAccessPoint")
+	if err != nil {
 		return err
 	}
 	if len(fields) == 0 {
@@ -258,6 +258,9 @@ func encodeRelay(kind RelayKind, port uint16, addr []byte) ([]byte, error) {
 func decodeIPWords(data []byte, count int, bits uint) (net.IP, error) {
 	var ip net.IP
 	var n int
+	if err := boundArray(data, count, "address words"); err != nil {
+		return nil, err
+	}
 	if bits == 8 {
 		var octets []uint8
 		if _, err := cbor.Decode(data, &octets); err != nil {
@@ -333,8 +336,8 @@ type PoolLedgerPeers struct {
 }
 
 func (p *PoolLedgerPeers) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 2, "PoolLedgerPeers")
+	if err != nil {
 		return err
 	}
 	if len(fields) != 2 {
@@ -378,8 +381,8 @@ type PoolLedgerPeersDetail struct {
 }
 
 func (d *PoolLedgerPeersDetail) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 2, "PoolLedgerPeersDetail")
+	if err != nil {
 		return err
 	}
 	if len(fields) != 2 {
@@ -477,8 +480,8 @@ type LedgerPeerSnapshotResult struct {
 }
 
 func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
-	var outer []cbor.RawMessage
-	if _, err := cbor.Decode(data, &outer); err != nil {
+	outer, err := decodeBoundedArray(data, 2, "LedgerPeerSnapshot")
+	if err != nil {
 		return err
 	}
 	if len(outer) != 2 {
@@ -493,10 +496,15 @@ func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
 	}
 	var inner []cbor.RawMessage
 	switch version {
-	case ledgerPeerSnapshotWireVersion,
-		ledgerPeerSnapshotWireVersionBig,
+	case ledgerPeerSnapshotWireVersion:
+		inner, err = decodeBoundedArray(outer[1], 2, "LedgerPeerSnapshot v1")
+		if err != nil {
+			return err
+		}
+	case ledgerPeerSnapshotWireVersionBig,
 		ledgerPeerSnapshotWireVersionAll:
-		if _, err := cbor.Decode(outer[1], &inner); err != nil {
+		inner, err = decodeBoundedArray(outer[1], 3, "LedgerPeerSnapshot body")
+		if err != nil {
 			return err
 		}
 	default:
@@ -539,12 +547,18 @@ func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(inner[1], &tmp.NetworkMagic); err != nil {
 		return fmt.Errorf("LedgerPeerSnapshot: network magic: %w", err)
 	}
-	var pools [][]cbor.RawMessage
-	if _, err := cbor.Decode(inner[2], &pools); err != nil {
+	var rawPools []cbor.RawMessage
+	if _, err := cbor.Decode(inner[2], &rawPools); err != nil {
 		return err
 	}
-	tmp.Pools = make([]PoolLedgerPeers, 0, len(pools))
-	for _, fields := range pools {
+	tmp.Pools = make([]PoolLedgerPeers, 0, len(rawPools))
+	for _, rawPool := range rawPools {
+		// A pool is a fixed-shape record of at most three fields, so its
+		// length is bounded before a slice is allocated for it.
+		fields, err := decodeBoundedArray(rawPool, 3, "LedgerPeerSnapshot pool")
+		if err != nil {
+			return err
+		}
 		var pool PoolLedgerPeers
 		if version == ledgerPeerSnapshotWireVersionBig {
 			if len(fields) != 3 {
@@ -649,8 +663,8 @@ func (l LedgerPeerSnapshotResult) MarshalCBOR() ([]byte, error) {
 // decodeSnapshotPoint decodes the snapshot's Point RawBlockHash: [0] at
 // origin, [1, slot, hash] otherwise.
 func decodeSnapshotPoint(data []byte) (WithOriginSlot, []byte, error) {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 3, "LedgerPeerSnapshot point")
+	if err != nil {
 		return WithOriginSlot{}, nil, err
 	}
 	if len(fields) == 0 {

@@ -1792,8 +1792,8 @@ type ShelleyGetLedgerPeerSnapshotQuery struct {
 }
 
 func (q *ShelleyGetLedgerPeerSnapshotQuery) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(data, 2, "GetLedgerPeerSnapshot")
+	if err != nil {
 		return err
 	}
 	if len(fields) != 1 && len(fields) != 2 {
@@ -1915,8 +1915,8 @@ func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	if len(g.Committee) == 1 && g.Committee[0] == 0xf6 {
 		return nil, nil
 	}
-	var wrapper []cbor.RawMessage
-	if _, err := cbor.Decode(g.Committee, &wrapper); err != nil {
+	wrapper, err := decodeBoundedArray(g.Committee, 2, "committee")
+	if err != nil {
 		return nil, err
 	}
 	if len(wrapper) == 0 {

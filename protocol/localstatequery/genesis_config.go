@@ -110,8 +110,12 @@ type GenesisConfigResult struct {
 }
 
 func (g *GenesisConfigResult) UnmarshalCBOR(data []byte) error {
-	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, err := decodeBoundedArray(
+		data,
+		genesisConfigFieldsCurrent,
+		"genesis config",
+	)
+	if err != nil {
 		return err
 	}
 	if len(fields) != genesisConfigFieldsLegacy &&
@@ -282,6 +286,9 @@ func (r genesisRational) MarshalCBOR() ([]byte, error) {
 func (r *genesisRational) UnmarshalCBOR(data []byte) error {
 	if len(data) >= 2 && data[0] == 0xd8 && data[1] == cbor.CborTagRational {
 		data = data[2:]
+	}
+	if err := boundArray(data, 2, "genesis rational"); err != nil {
+		return err
 	}
 	var pair []int
 	if _, err := cbor.Decode(data, &pair); err != nil {

@@ -30,8 +30,8 @@ func decodeRational(data []byte) (*big.Rat, error) {
 	if len(data) >= 2 && data[0] == 0xd8 && data[1] == cbor.CborTagRational {
 		data = data[2:]
 	}
-	var parts []cbor.RawMessage
-	if _, err := cbor.Decode(data, &parts); err != nil {
+	parts, err := decodeBoundedArray(data, 2, "rational")
+	if err != nil {
 		return nil, fmt.Errorf("decoding rational: %w", err)
 	}
 	if len(parts) != 2 {
