@@ -21,6 +21,7 @@ import (
 	"iter"
 	"math"
 	"math/big"
+	"reflect"
 	"slices"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -121,7 +122,7 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	},
 	{
 		Id:        common.UtxoValidationRuleInlineDatumsWithPlutusV1,
-		Validator: conway.UtxoValidateInlineDatumsWithPlutusV1,
+		Validator: UtxoValidateInlineDatumsWithPlutusV1,
 	},
 	{
 		Id:        common.UtxoValidationRuleConwayFeaturesWithPlutusV1V2,
@@ -1769,42 +1770,30 @@ func dijkstraWitnessRuleLevels(
 	levels := make([]dijkstraScriptLevel, 0, len(txLevels))
 	available := make(map[common.ScriptHash]common.Script)
 	for levelIndex, txLevel := range txLevels {
-		addDijkstraWitnessScripts(available, txLevel.Witnesses())
-		var inputs, refInputs []common.Utxo
-		if ls != nil {
-			for _, input := range txLevel.Inputs() {
-				utxo, err := ls.UtxoById(input)
-				if err != nil {
-					continue
-				}
-				inputs = append(inputs, utxo)
+		view, err := script.NewTxScriptView(txLevel, ls)
+		if err != nil {
+			if !errors.Is(err, common.ErrInputResolution) {
+				return nil, nil, err
 			}
-			for _, input := range txLevel.ReferenceInputs() {
-				utxo, err := ls.UtxoById(input)
-				if err != nil {
-					return nil, nil, common.ReferenceInputResolutionError{
-						Input: input,
-						Err:   err,
-					}
-				}
-				refInputs = append(refInputs, utxo)
+			// The partial view leaves the resolved inputs unset, which would
+			// drop the spending purposes of every input that did resolve.
+			inputs, refInputs, err := dijkstraResolvableLevelInputs(
+				txLevel,
+				ls,
+			)
+			if err != nil {
+				return nil, nil, err
 			}
+			view.ResolvedInputs = inputs
+			view.ResolvedReferenceInputs = refInputs
 		}
-		resolved := script.ConcatResolvedInputs(inputs, refInputs)
-		for _, utxo := range resolved {
-			if utxo.Output == nil || utxo.Output.ScriptRef() == nil {
-				continue
-			}
-			candidate := utxo.Output.ScriptRef()
-			available[candidate.Hash()] = candidate
+		for hash, candidate := range view.Available {
+			available[hash] = candidate
 		}
 		level := dijkstraScriptLevel{
-			tx:       txLevel,
-			resolved: resolved,
-			view: script.TxScriptView{
-				ResolvedInputs:          inputs,
-				ResolvedReferenceInputs: refInputs,
-			},
+			tx:        txLevel,
+			resolved:  view.AllResolvedInputs(),
+			view:      view,
 			slotState: ls,
 			txInfoV4:  &dijkstraTxInfoV4Cache{},
 		}
@@ -1824,6 +1813,50 @@ func dijkstraWitnessRuleLevels(
 		levels[len(levels)-1].subLevels = levels[:len(levels)-1]
 	}
 	return levels, available, nil
+}
+
+// dijkstraResolvableLevelInputs resolves a level's inputs as the witness
+// predicates see them. A consumed input absent from ls is skipped and keeps no
+// spending purpose, as in cardano-ledger's getSpendingScriptsNeeded, while the
+// inputs that resolve keep theirs; a missing reference input is reported.
+func dijkstraResolvableLevelInputs(
+	tx common.Transaction,
+	ls common.LedgerState,
+) (inputs, refInputs []common.Utxo, err error) {
+	if ls == nil || dijkstraLedgerStateIsNil(ls) {
+		if refs := tx.ReferenceInputs(); len(refs) > 0 {
+			return nil, nil, common.ReferenceInputResolutionError{
+				Input: refs[0],
+				Err:   errDijkstraLedgerStateUnavailable,
+			}
+		}
+		return nil, nil, nil
+	}
+	for _, input := range tx.Inputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			continue
+		}
+		inputs = append(inputs, utxo)
+	}
+	for _, input := range tx.ReferenceInputs() {
+		utxo, err := ls.UtxoById(input)
+		if err != nil {
+			return nil, nil, common.ReferenceInputResolutionError{
+				Input: input,
+				Err:   err,
+			}
+		}
+		refInputs = append(refInputs, utxo)
+	}
+	return inputs, refInputs, nil
+}
+
+var errDijkstraLedgerStateUnavailable = errors.New("ledger state unavailable")
+
+func dijkstraLedgerStateIsNil(ls common.LedgerState) bool {
+	rv := reflect.ValueOf(ls)
+	return rv.Kind() == reflect.Pointer && rv.IsNil()
 }
 
 func addDijkstraWitnessScripts(
@@ -1871,38 +1904,42 @@ func UtxoValidateConwayFeaturesWithPlutusV1V2(
 		)
 	}
 
-	type levelView struct {
-		tx   dijkstraConwayFeatureTransaction
-		view script.TxScriptView
+	levels, _, err := dijkstraWitnessRuleLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
 	}
-	txLevels := dijkstraTransactionLevels(dijkstraTx)
-	levels := make([]levelView, 0, len(txLevels))
-	for _, txLevel := range txLevels {
-		levels = append(levels, levelView{tx: txLevel})
-	}
-
-	available := make(map[common.ScriptHash]common.Script)
-	for idx := range levels {
-		view, err := script.NewTxScriptView(levels[idx].tx, ls)
-		if err != nil {
-			if !errors.Is(err, common.ErrInputResolution) {
-				return err
-			}
-		}
-		levels[idx].view = view
-		for hash, candidate := range view.Available {
-			available[hash] = candidate
-		}
-	}
-
-	for idx := range levels {
-		view := levels[idx].view.WithAvailableScripts(
-			levels[idx].tx,
-			available,
-		)
+	for _, level := range levels {
 		if err := conway.ValidateConwayFeaturesWithPlutusV1V2(
-			levels[idx].tx,
-			view,
+			level.tx,
+			level.view,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// UtxoValidateInlineDatumsWithPlutusV1 applies the PlutusV1 translation
+// restriction at each Dijkstra transaction level. Scripts are available across
+// levels, while needed scripts and translated outputs stay level-local.
+func UtxoValidateInlineDatumsWithPlutusV1(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return conway.UtxoValidateInlineDatumsWithPlutusV1(tx, slot, ls, pp)
+	}
+	levels, _, err := dijkstraWitnessRuleLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	for _, level := range levels {
+		if err := babbage.ValidateInlineDatumsWithPlutusV1(
+			level.tx,
+			level.view,
 		); err != nil {
 			return err
 		}
@@ -4169,12 +4206,22 @@ func UtxoValidateSupplementalDatums(
 	if !ok {
 		return conway.UtxoValidateSupplementalDatums(tx, slot, ls, pp)
 	}
-	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := conway.UtxoValidateSupplementalDatums(
-			level,
-			slot,
+	levels, _, err := dijkstraWitnessRuleLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	for _, level := range levels {
+		if err := common.ValidateRequiredSpendingDatumsWithAvailableScripts(
+			level.tx,
 			ls,
-			pp,
+			level.view.Available,
+		); err != nil {
+			return err
+		}
+		if err := common.ValidateSupplementalDatumsWithAvailableScripts(
+			level.tx,
+			ls,
+			level.view.Available,
 		); err != nil {
 			return err
 		}

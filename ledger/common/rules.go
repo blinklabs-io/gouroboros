@@ -1615,6 +1615,25 @@ func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
 	if err != nil {
 		return err
 	}
+	return ValidateRequiredSpendingDatumsWithAvailableScripts(
+		tx,
+		ls,
+		requirements.available,
+	)
+}
+
+// ValidateRequiredSpendingDatumsWithAvailableScripts checks datum-hash
+// spending inputs against a caller-provided script set. It is used when an era
+// makes scripts available across transaction levels while datum witnesses stay
+// local to one level.
+func ValidateRequiredSpendingDatumsWithAvailableScripts(
+	tx Transaction,
+	ls LedgerState,
+	available map[ScriptHash]Script,
+) error {
+	if ls == nil {
+		return nil
+	}
 	witnessDatums := make(map[Blake2b256]struct{})
 	if witnesses := tx.Witnesses(); witnesses != nil {
 		for _, datum := range witnesses.PlutusData() {
@@ -1631,7 +1650,7 @@ func ValidateRequiredSpendingDatums(tx Transaction, ls LedgerState) error {
 			continue
 		}
 		scriptHash := ScriptHash(address.PaymentKeyHash())
-		plutusScript, found := requirements.available[scriptHash]
+		plutusScript, found := available[scriptHash]
 		if !found {
 			continue
 		}
@@ -1674,6 +1693,25 @@ func ValidateSupplementalDatums(tx Transaction, ls LedgerState) error {
 	if err != nil {
 		return err
 	}
+	return ValidateSupplementalDatumsWithAvailableScripts(
+		tx,
+		ls,
+		requirements.available,
+	)
+}
+
+// ValidateSupplementalDatumsWithAvailableScripts checks witness datums
+// against a caller-provided script set. Datum hashes and witnesses remain
+// scoped to tx.
+func ValidateSupplementalDatumsWithAvailableScripts(
+	tx Transaction,
+	ls LedgerState,
+	available map[ScriptHash]Script,
+) error {
+	witnesses := tx.Witnesses()
+	if witnesses == nil || len(witnesses.PlutusData()) == 0 {
+		return nil
+	}
 	justified := make(map[Blake2b256]struct{})
 	addDatumHash := func(output TransactionOutput) {
 		if output == nil || output.Datum() != nil {
@@ -1696,7 +1734,7 @@ func ValidateSupplementalDatums(tx Transaction, ls LedgerState) error {
 			continue
 		}
 		scriptHash := ScriptHash(address.PaymentKeyHash())
-		if plutusScript, found := requirements.available[scriptHash]; found {
+		if plutusScript, found := available[scriptHash]; found {
 			if _, isPlutus := PlutusScriptVersion(plutusScript); isPlutus {
 				addDatumHash(utxo.Output)
 			}

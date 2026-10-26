@@ -437,6 +437,16 @@ func UtxoValidateInlineDatumsWithPlutusV1(
 	if err != nil {
 		return err
 	}
+	return ValidateInlineDatumsWithPlutusV1(tx, view)
+}
+
+// ValidateInlineDatumsWithPlutusV1 applies the PlutusV1 translation
+// restrictions using a caller-provided script view. Later eras use this when
+// script availability spans more than one transaction level.
+func ValidateInlineDatumsWithPlutusV1(
+	tx common.Transaction,
+	view script.TxScriptView,
+) error {
 	needsV1 := view.NeedsAny(func(s common.Script) bool {
 		_, ok := s.(common.PlutusV1Script)
 		return ok
