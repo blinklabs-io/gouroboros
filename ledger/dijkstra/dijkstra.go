@@ -292,6 +292,64 @@ type DijkstraBlockBody struct {
 	PerasCertificate []byte
 }
 
+// decodeDijkstraBlockTransactions decodes a definite- or indefinite-length
+// transaction array one entry at a time. Each entry can be a single byte, so
+// the declared count must not size any per-entry allocation before the
+// entries decode.
+func decodeDijkstraBlockTransactions(
+	raw []byte,
+) ([]DijkstraTransaction, error) {
+	count, headerSize, indefinite := cbor.ArrayInfo(raw)
+	if count < 0 {
+		return nil, errors.New("decode Dijkstra transactions: not an array")
+	}
+	entries := raw[headerSize:]
+	dec, err := cbor.NewStreamDecoder(entries)
+	if err != nil {
+		return nil, fmt.Errorf("decode Dijkstra transactions: %w", err)
+	}
+	txs := make([]DijkstraTransaction, 0)
+	for idx := 0; indefinite || idx < count; idx++ {
+		if indefinite {
+			pos := dec.Position()
+			if pos >= len(entries) {
+				return nil, errors.New(
+					"decode Dijkstra transactions: missing break",
+				)
+			}
+			if entries[pos] == 0xff {
+				break
+			}
+		}
+		start, length, err := dec.Skip()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"decode Dijkstra transaction %d: %w",
+				idx,
+				err,
+			)
+		}
+		tx, err := newDijkstraBlockTransactionFromCbor(
+			dec.RawBytes(start, length),
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"decode Dijkstra transaction %d: %w",
+				idx,
+				err,
+			)
+		}
+		if tx == nil {
+			return nil, fmt.Errorf(
+				"decode Dijkstra transaction %d: constructor returned nil",
+				idx,
+			)
+		}
+		txs = append(txs, *tx)
+	}
+	return txs, nil
+}
+
 func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 	var items []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &items); err != nil {
@@ -304,22 +362,9 @@ func (b *DijkstraBlockBody) UnmarshalCBOR(cborData []byte) error {
 		)
 	}
 	// items[0]: transactions [* block_transaction]
-	var rawTxs []cbor.RawMessage
-	if _, err := cbor.Decode(items[0], &rawTxs); err != nil {
-		return fmt.Errorf("decode Dijkstra transactions: %w", err)
-	}
-	// Each entry can be a single byte, so the declared count must not size a
-	// slice of whole transactions before the entries decode.
-	txs := make([]DijkstraTransaction, 0)
-	for idx, rawTx := range rawTxs {
-		tx, err := newDijkstraBlockTransactionFromCbor(rawTx)
-		if err != nil {
-			return fmt.Errorf("decode Dijkstra transaction %d: %w", idx, err)
-		}
-		if tx == nil {
-			return fmt.Errorf("decode Dijkstra transaction %d: constructor returned nil", idx)
-		}
-		txs = append(txs, *tx)
+	txs, err := decodeDijkstraBlockTransactions(items[0])
+	if err != nil {
+		return err
 	}
 	// items[1]: leios_certificate.
 	leiosCert, err := decodeDijkstraLeiosCertificate(items[1])
