@@ -48,3 +48,35 @@ func TestCborItemEndNestingLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestCborItemEndRejectsInvalidStringChunksWithoutTraversal(t *testing.T) {
+	for _, major := range []byte{0x40, 0x60} {
+		t.Run("wrong major type", func(t *testing.T) {
+			wrong := byte(0x40 ^ 0x60 ^ major)
+			_, err := cborItemEnd([]byte{major | 31, wrong | 1, 0x00, 0xff}, 0)
+			require.ErrorContains(t, err, "invalid indefinite string chunk")
+		})
+		t.Run("nested indefinite chunk", func(t *testing.T) {
+			_, err := cborItemEnd(
+				[]byte{major | 31, major | 31, major | 1, 0x00, 0xff, 0xff},
+				0,
+			)
+			require.ErrorContains(t, err, "invalid indefinite string chunk")
+		})
+		t.Run("non-string chunk", func(t *testing.T) {
+			_, err := cborItemEnd([]byte{major | 31, 0x81, 0x00, 0xff}, 0)
+			require.ErrorContains(t, err, "invalid indefinite string chunk")
+		})
+		t.Run("deeply nested indefinite chunks are not traversed", func(t *testing.T) {
+			// Indefinite string nesting consumes no depth budget, so recursing into
+			// each chunk would cost one frame and one error per nesting level.
+			raw := bytes.Repeat([]byte{major | 31}, 100_000)
+			allocs := testing.AllocsPerRun(5, func() {
+				_, _ = cborItemEnd(raw, 0)
+			})
+			require.Less(t, allocs, 100.0)
+			_, err := cborItemEnd(raw, 0)
+			require.ErrorContains(t, err, "invalid indefinite string chunk")
+		})
+	}
+}
