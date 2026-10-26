@@ -173,6 +173,34 @@ func TestRawBlockHeaderInfoRejectsMalformed(t *testing.T) {
 	}
 }
 
+func TestRawBlockHeaderInfoDoesNotAllocateUnusedBlockFields(t *testing.T) {
+	header := []any{
+		[]any{uint64(1), uint64(2), make([]byte, 32)},
+		[]byte{},
+	}
+	minimalRaw, err := cbor.Encode([]any{header})
+	require.NoError(t, err)
+	blockFields := make([]any, 4096)
+	blockFields[0] = header
+	for i := 1; i < len(blockFields); i++ {
+		blockFields[i] = nil
+	}
+	largeRaw, err := cbor.Encode(blockFields)
+	require.NoError(t, err)
+
+	parseAllocs := func(raw []byte) float64 {
+		var parseErr error
+		allocs := testing.AllocsPerRun(1, func() {
+			_, parseErr = rawBlockHeaderInfoFromCbor(raw, 0)
+		})
+		require.NoError(t, parseErr)
+		return allocs
+	}
+	minimalAllocs := parseAllocs(minimalRaw)
+	largeAllocs := parseAllocs(largeRaw)
+	require.LessOrEqual(t, largeAllocs-minimalAllocs, float64(8))
+}
+
 // withNullPrevHash rewrites a block's header-body prev_hash to CBOR null,
 // producing the encoding an origin header uses.
 func withNullPrevHash(t *testing.T, raw []byte) []byte {
