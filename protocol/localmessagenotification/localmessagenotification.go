@@ -37,8 +37,18 @@ const (
 	// (DMQ.NodeToClient: localMsgNotification miniProtocolNum =
 	// MiniProtocolNum 15) and Pallas (PROTOCOL_N2C_MSG_NOTIFICATION = 15)
 	// both use 15.
-	ProtocolID              = 15
-	defaultMaxReplayEntries = 10000
+	ProtocolID = 15
+)
+
+// The default replay bound covers every message an honest dmq-node can hold
+// unexpired. Its mempool admits one message per pool per minute (minSigDelay)
+// expiring at most 30 minutes ahead (maxSigExpiresAtDelay, DMQ/Policy.hs), so
+// at most 31 per pool. The server replays that whole mempool on every
+// connection, so a smaller bound refuses honest replies until IDs expire.
+const (
+	replayEntriesPerPool    = 31
+	replayPools             = 4096
+	defaultMaxReplayEntries = replayEntriesPerPool * replayPools
 )
 
 // State timeouts for Local Message Notification protocol
@@ -145,9 +155,12 @@ type Config struct {
 	// Client timeouts
 	BlockingRequestTimeout time.Duration
 	// MaxReplayEntries bounds the number of accepted message IDs retained by
-	// the client until their signed expiration time. When accepting fresh
-	// messages would exceed the bound, the earliest-expiring IDs are evicted;
-	// an evicted message can be delivered again if replayed before expiration.
+	// the client until their signed expiration time. An ID is never evicted
+	// before its message expires. A reply whose fresh messages would exceed
+	// the bound is refused with an error, which closes the connection, and
+	// later replies are refused until enough accepted IDs expire. The
+	// default holds 31 unexpired messages per stake pool, the most a
+	// dmq-node admits, for 4096 pools. Zero selects the default.
 	MaxReplayEntries int
 
 	// Shared configuration

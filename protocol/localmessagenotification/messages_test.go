@@ -41,7 +41,7 @@ func TestReplyMessageCountPreflightRejectsBeforeCollectionAllocation(t *testing.
 		_, err = newMsgFromCborWithLimit(
 			MessageTypeReplyMessagesNonBlocking,
 			data,
-			defaultMaxReplayEntries,
+			replyDecodeLimit(&Config{}),
 		)
 	})
 	require.ErrorContains(t, err, "maximum")
