@@ -65,25 +65,28 @@ taken yet.
 | Handshake | 655,350 (floor; state limit 5,760) |
 | Local protocols | effective `MaxReadBufferSize` (16 MB) |
 
-The muxer also bounds the segment payload queued across every protocol role
-on the connection (`Muxer.SetIngressBudget`, default
-`muxer.DefaultIngressBudget`, 64 MB). The specification mandates no aggregate
-figure, so this is an implementation bound: it keeps many individually bounded
-queues from adding up to an unbounded total. A protocol that solicits more than
-its ordinary limit, as a block-fetch client does for a large range, extends the
+The muxer also bounds the retained cost of segments queued across every
+protocol role on the connection (`Muxer.SetIngressBudget`, default
+`muxer.DefaultIngressBudget`, 64 MB). Each segment is charged for its payload
+allocation, `Segment` object, and queue entry. Per-protocol limits and ingress
+metrics continue to report payload bytes. The specification mandates no
+aggregate figure, so this is an implementation bound: it keeps many
+individually bounded queues, including queues of minimum-size frames, from
+adding up to an unbounded total. A protocol that solicits more than its
+ordinary limit, as a block-fetch client does for a large range, extends the
 budget by the excess while it has asked for it
 (`Muxer.SetIngressBudgetExtension`, set from `Protocol.SetIngressAllowance`),
-so the budget never refuses a reply the protocol has said it will accept; the
-budget in force is the base plus every role's extension (`Muxer.IngressBudget`).
-Ingress that would take the connection past it stops the connection with
-`muxer.ErrIngressOverflow`, except for a protocol role with backpressure
-enabled, which pauses the read loop instead and is always admitted when its own
-queue is empty, so segments held by other roles cannot wedge it. That
-admission can exceed the budget by one segment (65,535 bytes) per
-backpressured role. Queued bytes are returned to the budget when the muxer
-moves a segment to the protocol's delivery channel and when its receiver is
-unregistered. The queue memory of a connection is therefore bounded by the
-base budget, plus the extensions, plus
+so normally-framed replies have room for their retained overhead while highly
+fragmented replies remain bounded. The budget in force is the base plus every
+role's extension (`Muxer.IngressBudget`). Ingress that would take the
+connection past it stops the connection with `muxer.ErrIngressOverflow`,
+except for a protocol role with backpressure enabled, which pauses the read
+loop instead and is always admitted when its own queue is empty, so segments
+held by other roles cannot wedge it. That admission can exceed the budget by
+the retained cost of one segment per backpressured role. Queued cost is
+returned to the budget when the muxer moves a segment to the protocol's
+delivery channel and when its receiver is unregistered. The queue memory of a
+connection is therefore bounded by the base budget, plus the extensions, plus
 that overshoot. The budget counts only the muxer's ingress queues: each
 protocol's delivery channel (ten segments), the segment its delivery goroutine
 holds, and its reassembly buffers are outside it.
