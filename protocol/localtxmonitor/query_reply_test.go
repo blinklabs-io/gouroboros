@@ -17,8 +17,11 @@ package localtxmonitor
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -46,7 +49,7 @@ func testQueries() []testQuery {
 			queryType: MessageTypeHasTx,
 			reply:     NewMsgReplyHasTx(true),
 			call: func(c *Client) error {
-				_, err := c.HasTx(txId)
+				_, err := c.HasTxForEra(6, txId)
 				return err
 			},
 		},
@@ -93,7 +96,7 @@ func TestMatchReplyAcceptsOnlyQueryReply(t *testing.T) {
 	reply := NewMsgReplyHasTx(true)
 	assert.False(t, matchReply(&stateContext{}, reply))
 	assert.False(t, matchReply(nil, reply))
-	assert.False(t, matchQuery(nil, NewMsgHasTx(nil)))
+	assert.False(t, matchQuery(nil, NewMsgHasTxForEra(6, nil)))
 }
 
 // TestStateMapMatchesQueriesAndReplies checks that every query leaving
@@ -258,7 +261,7 @@ func TestClientStopReleasesCaller(t *testing.T) {
 	client, conn, _ := startAcquiredTestClient(t)
 	result := make(chan error, 1)
 	go func() {
-		_, err := client.HasTx(bytes.Repeat([]byte{0xab}, 32))
+		_, err := client.HasTxForEra(6, bytes.Repeat([]byte{0xab}, 32))
 		result <- err
 	}()
 	requireQueryTestMessageType(t, conn, MessageTypeHasTx)
@@ -312,7 +315,7 @@ func TestHasTxRequiresTxIdSize(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			txId := bytes.Repeat([]byte{0xab}, tc.size)
-			data, err := cbor.Encode(NewMsgHasTx(txId))
+			data, err := cbor.Encode(NewMsgHasTxForEra(6, txId))
 			require.NoError(t, err)
 			msg, err := NewMsgFromCbor(MessageTypeHasTx, data)
 			if tc.wantErr {
@@ -330,7 +333,7 @@ func TestHasTxRequiresTxIdSize(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
 	result := make(chan error, 1)
 	go func() {
-		_, err := client.HasTx(bytes.Repeat([]byte{0xab}, 31))
+		_, err := client.HasTxForEra(6, bytes.Repeat([]byte{0xab}, 31))
 		result <- err
 	}()
 	select {
@@ -338,5 +341,63 @@ func TestHasTxRequiresTxIdSize(t *testing.T) {
 		require.ErrorContains(t, err, "transaction ID must be 32 bytes")
 	case <-time.After(5 * time.Second):
 		t.Fatal("HasTx did not reject the transaction ID before sending")
+	}
+}
+
+// TestClientHasTxRequiresEra checks that the deprecated untagged HasTx
+// returns an error without sending anything to the node.
+func TestClientHasTxRequiresEra(t *testing.T) {
+	client, conn, _ := startAcquiredTestClient(t)
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.HasTx(bytes.Repeat([]byte{0xab}, 32))
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, errHasTxEraRequired)
+	case <-time.After(5 * time.Second):
+		t.Fatal("HasTx did not return")
+	}
+	require.NoError(
+		t,
+		conn.SetReadDeadline(time.Now().Add(100*time.Millisecond)),
+	)
+	n, err := conn.Read(make([]byte, 1))
+	require.Zero(t, n, "HasTx sent a request without an era")
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+}
+
+// TestClientHasTxForEraSendsEra checks that the era passed to HasTxForEra is
+// the one encoded in the request the node receives.
+func TestClientHasTxForEraSendsEra(t *testing.T) {
+	txId := bytes.Repeat([]byte{0xab}, 32)
+	for _, eraId := range []uint8{1, 6} {
+		t.Run(fmt.Sprintf("era%d", eraId), func(t *testing.T) {
+			client, conn, errorChan := startAcquiredTestClient(t)
+			result := make(chan error, 1)
+			go func() {
+				hasTx, err := client.HasTxForEra(eraId, txId)
+				if err == nil && !hasTx {
+					err = errors.New("HasTxForEra returned false")
+				}
+				result <- err
+			}()
+			var msg MsgHasTx
+			_, err := cbor.Decode(readQueryTestSegment(t, conn).Payload, &msg)
+			require.NoError(t, err)
+			require.Equal(t, uint8(MessageTypeHasTx), msg.MessageType)
+			require.Equal(t, eraId, msg.EraId)
+			require.Equal(t, txId, msg.TxId)
+			writeQueryTestMessage(t, conn, NewMsgReplyHasTx(true))
+			select {
+			case err := <-result:
+				require.NoError(t, err)
+			case err := <-errorChan:
+				t.Fatalf("protocol failed: %v", err)
+			case <-time.After(5 * time.Second):
+				t.Fatal("query did not complete")
+			}
+		})
 	}
 }
