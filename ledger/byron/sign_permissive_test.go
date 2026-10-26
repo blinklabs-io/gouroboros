@@ -63,10 +63,13 @@ func TestByronMainnetRedeemWitnessValidatesWireTransactionHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The historical witness covers the original body bytes, while UTxO
-	// identity uses the canonical transaction encoding.
-	if tx.Body.Id() == tx.Body.WireId() {
-		t.Fatal("real Byron transaction did not preserve the wire/ID distinction")
+	// The transaction is canonically encoded, so UTxO identity and the
+	// witnessed wire hash agree.
+	if tx.Body.Id() != tx.Body.WireId() {
+		t.Fatalf(
+			"Id %s differs from WireId %s for a canonically encoded transaction",
+			tx.Body.Id(), tx.Body.WireId(),
+		)
 	}
 	if err := tx.ValidateVKeyWitnesses(MainnetProtocolMagic); err != nil {
 		t.Fatalf("real Mainnet transaction witness did not validate: %v", err)

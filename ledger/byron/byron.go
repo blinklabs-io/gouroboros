@@ -1328,6 +1328,24 @@ func (i *ByronTransactionInput) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// MarshalCBOR encodes the input in its Byron wire form,
+// [0, #6.24(bytes .cbor [txid, index])].
+func (i ByronTransactionInput) MarshalCBOR() ([]byte, error) {
+	inner, err := cbor.Encode(&struct {
+		cbor.StructAsArray
+		TxId        common.Blake2b256
+		OutputIndex uint32
+	}{TxId: i.TxId, OutputIndex: i.OutputIndex})
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(&struct {
+		cbor.StructAsArray
+		Id   int
+		Cbor cbor.WrappedCbor
+	}{Id: 0, Cbor: cbor.WrappedCbor(inner)})
+}
+
 func (i ByronTransactionInput) Id() common.Blake2b256 {
 	return i.TxId
 }
@@ -1405,6 +1423,52 @@ func (o *ByronTransactionOutput) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// MarshalCBOR encodes the output as [address, amount] in canonical form: the
+// amount in shortest form and a Byron address re-encoded from its decoded
+// fields, as the reference TxOut encoder does. A decoded output therefore
+// encodes the same as one built in code, whatever accepted encoding it was
+// read from.
+func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
+	addr, err := canonicalByronAddressCbor(o.OutputAddress)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode(&struct {
+		cbor.StructAsArray
+		Address cbor.RawMessage
+		Amount  uint64
+	}{Address: addr, Amount: o.OutputAmount})
+}
+
+// canonicalByronAddressCbor returns the CBOR item for addr as the reference
+// encodeCrcProtected writes it: [#6.24(payload), crc] with every integer and
+// length in shortest form, and the attribute map rebuilt from its parsed
+// fields in ascending key order. The stored attribute bytes are not reused,
+// because the decoder accepts attribute maps that are out of key order or
+// carry non-shortest heads, and those bytes would otherwise reach the
+// transaction ID.
+func canonicalByronAddressCbor(addr common.Address) (cbor.RawMessage, error) {
+	if addr.Type() != common.AddressTypeByron {
+		return addr.MarshalCBOR()
+	}
+	attr := addr.ByronAttr()
+	canonical, err := common.NewByronAddressFromParts(
+		addr.ByronType(),
+		addr.PaymentKeyHash().Bytes(),
+		common.ByronAddressAttributes{
+			Payload:  attr.Payload,
+			Network:  attr.Network,
+			Unparsed: attr.Unparsed,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Bytes returns the Byron address already as a CBOR item,
+	// [#6.24(payload), crc], so it is embedded as is rather than wrapped.
+	return canonical.Bytes()
 }
 
 func (o ByronTransactionOutput) ToPlutusData() data.PlutusData {
