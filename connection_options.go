@@ -182,9 +182,13 @@ func WithQueryMode(queryMode bool) ConnectionOptionFunc {
 // WithHandshakeTimeout sets the maximum time connection setup waits for the
 // initial handshake to complete. This admission limit applies to both
 // node-to-node and node-to-client connections without changing either
-// protocol's state timeouts.
+// protocol's state timeouts. A non-positive duration leaves the default in
+// place so an unset configuration value cannot disable connection setup.
 func WithHandshakeTimeout(timeout time.Duration) ConnectionOptionFunc {
 	return func(c *Connection) {
+		if timeout <= 0 {
+			return
+		}
 		c.handshakeTimeout = timeout
 	}
 }

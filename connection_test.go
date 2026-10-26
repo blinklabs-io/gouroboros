@@ -172,7 +172,7 @@ func TestNodeToClientHandshakeSetupTimeout(t *testing.T) {
 			ouroboros.WithConnection(local),
 			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 			ouroboros.WithServer(true),
-			ouroboros.WithHandshakeTimeout(50*time.Millisecond),
+			ouroboros.WithHandshakeTimeout(500*time.Millisecond),
 		)
 		result <- err
 	}()
@@ -182,8 +182,30 @@ func TestNodeToClientHandshakeSetupTimeout(t *testing.T) {
 	select {
 	case err := <-result:
 		require.ErrorContains(t, err, "handshake did not complete")
-	case <-time.After(time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("incomplete node-to-client handshake retained the connection")
+	}
+}
+
+func TestNonPositiveHandshakeTimeoutUsesDefault(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			defer goleak.VerifyNone(t)
+			mockConn := ouroboros_mock.NewConnection(
+				ouroboros_mock.ProtocolRoleClient,
+				[]ouroboros_mock.ConversationEntry{
+					ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+					ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+				},
+			)
+			conn, err := ouroboros.NewConnection(
+				ouroboros.WithConnection(mockConn),
+				ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+				ouroboros.WithHandshakeTimeout(timeout),
+			)
+			require.NoError(t, err)
+			require.NoError(t, conn.Close())
+		})
 	}
 }
 
