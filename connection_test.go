@@ -134,6 +134,7 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithFullDuplex", ouroboros.WithFullDuplex(true)},
 		{"WithPeerSharing", ouroboros.WithPeerSharing(true)},
 		{"WithQueryMode", ouroboros.WithQueryMode(true)},
+		{"WithHandshakeTimeout", ouroboros.WithHandshakeTimeout(time.Second)},
 		{"WithLogger", ouroboros.WithLogger(slog.Default())},
 		{"WithErrorChan", ouroboros.WithErrorChan(make(chan error, 10))},
 		{"WithNetwork", ouroboros.WithNetwork(ouroboros.NetworkMainnet)},
@@ -156,6 +157,54 @@ func TestConnectionOptions(t *testing.T) {
 			conn, err := ouroboros.New(tc.option)
 			require.NoError(t, err)
 			require.NotNil(t, conn)
+		})
+	}
+}
+
+func TestNodeToClientHandshakeSetupTimeout(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	local, remote := net.Pipe()
+	t.Cleanup(func() { require.NoError(t, remote.Close()) })
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := ouroboros.NewConnection(
+			ouroboros.WithConnection(local),
+			ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+			ouroboros.WithServer(true),
+			ouroboros.WithHandshakeTimeout(500*time.Millisecond),
+		)
+		result <- err
+	}()
+
+	_, err := remote.Write([]byte{0})
+	require.NoError(t, err)
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "handshake did not complete")
+	case <-time.After(3 * time.Second):
+		t.Fatal("incomplete node-to-client handshake retained the connection")
+	}
+}
+
+func TestNonPositiveHandshakeTimeoutUsesDefault(t *testing.T) {
+	for _, timeout := range []time.Duration{0, -time.Second} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			defer goleak.VerifyNone(t)
+			mockConn := ouroboros_mock.NewConnection(
+				ouroboros_mock.ProtocolRoleClient,
+				[]ouroboros_mock.ConversationEntry{
+					ouroboros_mock.ConversationEntryHandshakeRequestGeneric,
+					ouroboros_mock.ConversationEntryHandshakeNtCResponse,
+				},
+			)
+			conn, err := ouroboros.NewConnection(
+				ouroboros.WithConnection(mockConn),
+				ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+				ouroboros.WithHandshakeTimeout(timeout),
+			)
+			require.NoError(t, err)
+			require.NoError(t, conn.Close())
 		})
 	}
 }
