@@ -1165,7 +1165,7 @@ func UtxoValidateCertificateDeposits(
 	}
 	levels := dijkstraTransactionLevels(dijkstraTx)
 	if len(effects) != len(levels) {
-		return errors.New("Dijkstra transaction level effects do not match validation levels")
+		return errors.New("dijkstra transaction level effects do not match validation levels")
 	}
 	state := common.NewBlockLedgerState(ls)
 	for idx, level := range levels {
