@@ -395,7 +395,7 @@ func TestDRepStakeDistrResultDoesNotAllocateFromDeclaredCount(t *testing.T) {
 	runtime.GC()
 	runtime.ReadMemStats(&before)
 	var result DRepStakeDistrResult
-	err := result.UnmarshalCBOR(data)
+	_, err := cbor.Decode(data, &result)
 	runtime.ReadMemStats(&after)
 
 	require.ErrorContains(t, err, "duplicate DRep")
