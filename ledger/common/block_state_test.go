@@ -410,3 +410,70 @@ func TestBlockLedgerStateAppliesDijkstraSubTransactions(t *testing.T) {
 		common.GovActionId{TransactionId: tx.Hash()},
 	))
 }
+
+func TestBlockLedgerStateNestedStakeDepositsComposeInLedgerOrder(
+	t *testing.T,
+) {
+	t.Parallel()
+	fromBase := blockTestCredential(0x01)
+	fromInner := blockTestCredential(0x02)
+	replaced := blockTestCredential(0x03)
+	released := blockTestCredential(0x04)
+	untouched := blockTestCredential(0x05)
+	base := mockledger.NewLedgerStateBuilder().
+		WithRewardAccountCredentialBalance(fromBase, 0).
+		WithStakeCredentialDeposits(map[mockledger.RewardAccountKey]uint64{
+			mockledger.NewRewardAccountKey(fromBase): 1_000_000,
+		}).
+		Build()
+	inner := common.NewBlockLedgerState(base)
+	applyBlockTestTxs(t, inner, blockTestTx(t, 0xa1, true).WithCertificates(
+		&common.RegistrationCertificate{
+			StakeCredential: fromInner,
+			Amount:          2_000_000,
+		},
+		&common.RegistrationCertificate{
+			StakeCredential: replaced,
+			Amount:          3_000_000,
+		},
+		&common.RegistrationCertificate{
+			StakeCredential: released,
+			Amount:          4_000_000,
+		},
+	))
+	outer := common.NewBlockLedgerState(inner)
+	applyBlockTestTxs(t, outer, blockTestTx(t, 0xa2, true).WithCertificates(
+		&common.DeregistrationCertificate{
+			StakeCredential: replaced,
+			Amount:          3_000_000,
+		},
+		&common.RegistrationCertificate{
+			StakeCredential: replaced,
+			Amount:          5_000_000,
+		},
+		&common.DeregistrationCertificate{
+			StakeCredential: released,
+			Amount:          4_000_000,
+		},
+	))
+
+	deposits, ok := common.StakeCredentialDepositStateFor(outer)
+	require.True(t, ok)
+	for _, tc := range []struct {
+		name string
+		cred common.Credential
+		want *uint64
+	}{
+		{"base only", fromBase, uint64Ptr(1_000_000)},
+		{"inner block only", fromInner, uint64Ptr(2_000_000)},
+		{"outer re-registration wins", replaced, uint64Ptr(5_000_000)},
+		{"outer deregistration hides inner", released, nil},
+		{"unknown everywhere", untouched, nil},
+	} {
+		deposit, err := deposits.StakeCredentialDeposit(tc.cred)
+		require.NoError(t, err, tc.name)
+		require.Equal(t, tc.want, deposit, tc.name)
+	}
+}
+
+func uint64Ptr(v uint64) *uint64 { return &v }

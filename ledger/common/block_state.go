@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"slices"
 	"time"
 )
 
@@ -212,42 +213,16 @@ func (b *BlockLedgerState) applyLevel(
 	level LedgerEffectLevel,
 	pp ProtocolParameters,
 ) error {
-	for addr, amount := range level.Body.Withdrawals() {
-		cred, err := addr.RewardAccountCredential()
-		if err != nil {
-			continue
-		}
-		balance, err := b.RewardAccountBalance(cred)
-		if err != nil {
-			return err
-		}
-		// A withdrawal need not drain the account from Dijkstra on, so the
-		// remainder stays available to later transactions.
-		remaining := uint64(0)
-		if balance != nil && amount != nil && amount.IsUint64() &&
-			amount.Uint64() <= *balance {
-			remaining = *balance - amount.Uint64()
-		}
-		account := b.account(cred)
-		account.balance = remaining
-		account.balanceKnown = true
+	if err := b.applyWithdrawals(level.Body.Withdrawals()); err != nil {
+		return err
 	}
 	for _, cert := range level.Body.Certificates() {
 		if err := b.applyCertificate(cert, pp); err != nil {
 			return err
 		}
 	}
-	for _, deposit := range level.DirectDeposits {
-		balance, err := b.RewardAccountBalance(deposit.Credential)
-		if err != nil {
-			return err
-		}
-		if balance == nil {
-			continue
-		}
-		account := b.account(deposit.Credential)
-		account.balance = *balance + deposit.Amount
-		account.balanceKnown = true
+	if err := b.applyDirectDeposits(level.DirectDeposits); err != nil {
+		return err
 	}
 	for idx, proposal := range level.Body.ProposalProcedures() {
 		if idx > int(MaxGovActionIdx) {
@@ -273,6 +248,79 @@ func (b *BlockLedgerState) applyLevel(
 		}
 	}
 	return nil
+}
+
+func (b *BlockLedgerState) applyWithdrawals(
+	withdrawals map[*Address]*big.Int,
+) error {
+	for addr, amount := range withdrawals {
+		cred, err := addr.RewardAccountCredential()
+		if err != nil {
+			continue
+		}
+		balance, err := b.RewardAccountBalance(cred)
+		if err != nil {
+			return err
+		}
+		// A withdrawal need not drain the account from Dijkstra on, so the
+		// remainder stays available to later transactions.
+		remaining := uint64(0)
+		if balance != nil && amount != nil && amount.IsUint64() &&
+			amount.Uint64() <= *balance {
+			remaining = *balance - amount.Uint64()
+		}
+		account := b.account(cred)
+		account.balance = remaining
+		account.balanceKnown = true
+	}
+	return nil
+}
+
+func (b *BlockLedgerState) applyDirectDeposits(
+	deposits []DirectDeposit,
+) error {
+	for _, deposit := range deposits {
+		balance, err := b.RewardAccountBalance(deposit.Credential)
+		if err != nil {
+			return err
+		}
+		if balance == nil {
+			continue
+		}
+		account := b.account(deposit.Credential)
+		account.balance = *balance + deposit.Amount
+		account.balanceKnown = true
+	}
+	return nil
+}
+
+// ApplyCertificateDepositLevel folds the ordered account and registration
+// effects used by certificate-deposit validation into this view.
+func (b *BlockLedgerState) ApplyCertificateDepositLevel(
+	level LedgerEffectLevel,
+	pp ProtocolParameters,
+) error {
+	if err := b.applyWithdrawals(level.Body.Withdrawals()); err != nil {
+		return err
+	}
+	for _, certificate := range level.Body.Certificates() {
+		switch certificate.(type) {
+		case *StakeRegistrationCertificate,
+			*RegistrationCertificate,
+			*StakeRegistrationDelegationCertificate,
+			*VoteRegistrationDelegationCertificate,
+			*StakeVoteRegistrationDelegationCertificate,
+			*StakeDeregistrationCertificate,
+			*DeregistrationCertificate,
+			*RegistrationDrepCertificate,
+			*UpdateDrepCertificate,
+			*DeregistrationDrepCertificate:
+			if err := b.applyCertificate(certificate, pp); err != nil {
+				return err
+			}
+		}
+	}
+	return b.applyDirectDeposits(level.DirectDeposits)
 }
 
 // account returns the block's record for cred, creating an empty one.
@@ -331,6 +379,9 @@ func (b *BlockLedgerState) applyCertificate(
 	pp ProtocolParameters,
 ) error {
 	b.seq++
+	if applied, err := b.applyPoolCertificate(cert); applied || err != nil {
+		return err
+	}
 	switch c := cert.(type) {
 	case *StakeRegistrationCertificate:
 		deposit, err := blockKeyDeposit(pp)
@@ -356,10 +407,6 @@ func (b *BlockLedgerState) applyCertificate(
 		b.delegateVote(c.StakeCredential, c.Drep)
 	case *StakeVoteDelegationCertificate:
 		b.delegateVote(c.StakeCredential, c.Drep)
-	case *PoolRegistrationCertificate:
-		if err := b.applyPoolRegistration(c); err != nil {
-			return err
-		}
 	case *MoveInstantaneousRewardsCertificate:
 		for cred, delta := range c.Reward.Rewards {
 			if cred == nil || delta == nil {
@@ -372,11 +419,6 @@ func (b *BlockLedgerState) applyCertificate(
 			}
 			b.mirPending[key] = total
 		}
-	case *PoolRetirementCertificate:
-		epoch := c.Epoch
-		pool := b.pool(c.PoolKeyHash)
-		pool.retirementEpoch = &epoch
-		pool.retirementKnown = true
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
 		b.drep(c.DrepCredential).registration = &DRepRegistration{
@@ -406,6 +448,37 @@ func (b *BlockLedgerState) applyCertificate(
 		b.committeeColdHot[blockCredKey(c.ColdCredential)] = &hot
 	case *ResignCommitteeColdCertificate:
 		b.committeeColdHot[blockCredKey(c.ColdCredential)] = nil
+	}
+	return nil
+}
+
+func (b *BlockLedgerState) applyPoolCertificate(
+	cert Certificate,
+) (bool, error) {
+	switch c := cert.(type) {
+	case *PoolRegistrationCertificate:
+		return true, b.applyPoolRegistration(c)
+	case *PoolRetirementCertificate:
+		epoch := c.Epoch
+		pool := b.pool(c.PoolKeyHash)
+		pool.retirementEpoch = &epoch
+		pool.retirementKnown = true
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+// ApplyPoolCertificates folds only pool registrations and retirements into
+// this view. It lets the POOL validator carry state between transaction levels
+// without applying unrelated certificate or account effects.
+func (b *BlockLedgerState) ApplyPoolCertificates(
+	certificates []Certificate,
+) error {
+	for _, certificate := range certificates {
+		if _, err := b.applyPoolCertificate(certificate); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -873,6 +946,26 @@ func findBlockLedgerState(ls LedgerState) *BlockLedgerState {
 	return nil
 }
 
+// blockLedgerStateChain returns every block-scoped view in wrapper order,
+// from the outermost view to the innermost one.
+func blockLedgerStateChain(ls LedgerState) []*BlockLedgerState {
+	var ret []*BlockLedgerState
+	for ls != nil {
+		switch s := ls.(type) {
+		case *BlockLedgerState:
+			ret = append(ret, s)
+			ls = s.base
+		case *cachedLedgerState:
+			ls = s.LedgerState
+		case LedgerStateUnwrapper:
+			ls = s.UnwrapLedgerState()
+		default:
+			return ret
+		}
+	}
+	return ret
+}
+
 // PendingInstantaneousRewardsFor returns the instantaneous rewards pending for
 // cred in the pot named by source: those the wrapped state reports through
 // PendingInstantaneousRewardsState plus those earlier transactions in the
@@ -915,8 +1008,8 @@ func StakeCredentialDepositStateFor(
 	if !ok {
 		return nil, false
 	}
-	if b := findBlockLedgerState(ls); b != nil {
-		return blockStakeCredentialDeposits{block: b, base: base}, true
+	for _, state := range slices.Backward(blockLedgerStateChain(ls)) {
+		base = blockStakeCredentialDeposits{block: state, base: base}
 	}
 	return base, true
 }
