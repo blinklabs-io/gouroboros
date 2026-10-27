@@ -283,6 +283,10 @@ opts into its configured `Propose` timeout. N2C has no state timeouts and does
 not opt in. After the initial transition, `Confirm` uses the normal state
 timeout. Client and server instances copy the N2N map and can override the
 applicable timeout with `WithTimeout`; the N2C map remains timeout-free.
+Connection setup separately limits the time allowed for the initial handshake
+to complete. This admission limit defaults to 30 seconds and can be configured
+with `ouroboros.WithHandshakeTimeout`; it does not change protocol state
+timeouts.
 
 ## Keep Alive
 

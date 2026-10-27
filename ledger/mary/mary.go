@@ -610,7 +610,7 @@ func (t MaryTransaction) Cbor() []byte {
 		return nil
 	}
 	// Delegate to MarshalCBOR which handles encoding
-	cborData, err := cbor.Encode(t)
+	cborData, err := t.MarshalCBOR()
 	if err != nil {
 		panic("CBOR encoding that should never fail has failed: " + err.Error())
 	}

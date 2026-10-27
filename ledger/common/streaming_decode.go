@@ -57,6 +57,87 @@ type StreamingBlockDecoder struct {
 	offsets *BlockTransactionOffsets
 }
 
+const (
+	minBlockComponents = 2
+	maxBlockComponents = 5
+)
+
+// decodeBlockArray returns the original encoding of each top-level block
+// component without allowing the CBOR decoder to allocate from an untrusted
+// array length. Supported blocks have two through five components.
+func decodeBlockArray(
+	data []byte,
+	stream *cbor.StreamDecoder,
+) ([]cbor.RawMessage, uint32, error) {
+	componentCount, headerSize, indefinite := cbor.ArrayInfo(data)
+	if componentCount < 0 {
+		return nil, 0, errors.New("invalid block array header")
+	}
+	if !indefinite &&
+		(componentCount < minBlockComponents ||
+			componentCount > maxBlockComponents) {
+		return nil, 0, fmt.Errorf(
+			"invalid block component count %d",
+			componentCount,
+		)
+	}
+	if err := stream.Advance(int(headerSize)); err != nil {
+		return nil, 0, err
+	}
+
+	capacity := componentCount
+	if indefinite {
+		capacity = maxBlockComponents
+	}
+	components := make([]cbor.RawMessage, 0, capacity)
+	for indefinite || len(components) < componentCount {
+		position := stream.Position()
+		if position >= len(data) {
+			return nil, 0, errors.New("unterminated block array")
+		}
+		if indefinite && data[position] == 0xff {
+			if err := stream.Advance(1); err != nil {
+				return nil, 0, err
+			}
+			break
+		}
+		if len(components) == maxBlockComponents {
+			return nil, 0, fmt.Errorf(
+				"invalid block component count: more than %d",
+				maxBlockComponents,
+			)
+		}
+		offset, length, err := stream.Skip()
+		if err != nil {
+			return nil, 0, err
+		}
+		components = append(
+			components,
+			cbor.RawMessage(data[offset:offset+length]),
+		)
+	}
+	if len(components) < minBlockComponents {
+		return nil, 0, fmt.Errorf(
+			"invalid block component count %d",
+			len(components),
+		)
+	}
+	if stream.Position() != len(data) {
+		return nil, 0, errors.New("unexpected trailing CBOR data")
+	}
+	return components, headerSize, nil
+}
+
+func decodeBlockArrayBytes(
+	data []byte,
+) ([]cbor.RawMessage, uint32, error) {
+	stream, err := cbor.NewStreamDecoder(data)
+	if err != nil {
+		return nil, 0, err
+	}
+	return decodeBlockArray(data, stream)
+}
+
 // NewStreamingBlockDecoder creates a decoder for the given block CBOR.
 func NewStreamingBlockDecoder(data []byte) (*StreamingBlockDecoder, error) {
 	stream, err := cbor.NewStreamDecoder(data)
@@ -85,9 +166,7 @@ func NewStreamingBlockDecoder(data []byte) (*StreamingBlockDecoder, error) {
 // Note: The actual Block struct is created by calling the appropriate era-specific
 // decoder on the raw data. This function focuses on offset extraction.
 func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, error) {
-	// Decode block as array of RawMessage to get component boundaries
-	var blockArray []cbor.RawMessage
-	blockStart, _, err := d.stream.Decode(&blockArray)
+	blockArray, arrayHeaderSize, err := decodeBlockArray(d.data, d.stream)
 	if err != nil {
 		return nil, fmt.Errorf("decode block array: %w", err)
 	}
@@ -109,16 +188,9 @@ func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, e
 		return d.offsets, nil
 	}
 
-	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, invalid_txs[]]
-	// Decoding arrays loses whether the wire header was definite or indefinite.
-	_, arrayHeaderSize, _ := cborArrayInfo(d.data[blockStart:])
-	if arrayHeaderSize == 0 {
-		return nil, errors.New("invalid block array header")
-	}
-
 	// Track positions as we walk through the block
 	// #nosec G115 -- Cardano block components are well under 4GiB
-	pos := uint32(blockStart) + uint32(arrayHeaderSize)
+	pos := arrayHeaderSize
 
 	// Skip header (blockArray[0])
 	// #nosec G115 -- block header <<4GiB

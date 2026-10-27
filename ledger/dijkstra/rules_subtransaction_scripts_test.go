@@ -1089,3 +1089,110 @@ func TestVerifyTransactionAcceptsNonGuardPlutusV4(t *testing.T) {
 		[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
 	))
 }
+
+// The script must reach validation through witness-set key 8 on the wire,
+// not through a witness set built in memory.
+func TestVerifyTransactionDecodedPlutusV4WitnessAtKey8(t *testing.T) {
+	decodedMintTx := func(
+		t *testing.T,
+		policy common.Script,
+		witnesses []common.PlutusV4Script,
+	) *DijkstraTransaction {
+		t.Helper()
+		mint := common.NewMultiAsset(
+			map[common.Blake2b224]map[cbor.ByteString]*big.Int{
+				policy.Hash(): {cbor.NewByteString(nil): big.NewInt(1)},
+			},
+		)
+		tx := &DijkstraTransaction{
+			Body: DijkstraTransactionBody{TxMint: &mint},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsRedeemers: DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagMint}: {
+							Data: evaluateTestRedeemerData(),
+							ExUnits: common.ExUnits{
+								Steps:  10_000_000,
+								Memory: 10_000_000,
+							},
+						},
+					},
+				},
+			},
+			TxIsValid: true,
+		}
+		if len(witnesses) > 0 {
+			tx.WitnessSet.WsPlutusV4Scripts = cbor.NewSetType(witnesses, true)
+		}
+		wire, err := tx.MarshalCBOR()
+		require.NoError(t, err)
+		decoded, err := NewDijkstraTransactionFromCbor(wire)
+		require.NoError(t, err)
+		var parts []cbor.RawMessage
+		_, err = cbor.Decode(wire, &parts)
+		require.NoError(t, err)
+		var fields map[uint]cbor.RawMessage
+		_, err = cbor.Decode(parts[1], &fields)
+		require.NoError(t, err)
+		_, hasKey8 := fields[8]
+		require.Equal(t, len(witnesses) > 0, hasKey8)
+		return decoded
+	}
+	rules := []common.UtxoValidationRuleFunc{
+		UtxoValidateMalformedReferenceScripts,
+		UtxoValidateScriptWitnesses,
+		UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidatePlutusScripts,
+	}
+
+	t.Run("succeeding script", func(t *testing.T) {
+		v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+		tx := decodedMintTx(
+			t,
+			v4,
+			[]common.PlutusV4Script{v4.(common.PlutusV4Script)},
+		)
+		decodedScripts := tx.WitnessSet.PlutusV4Scripts()
+		require.Len(t, decodedScripts, 1)
+		require.Equal(t, v4.Hash(), decodedScripts[0].Hash())
+		require.NoError(t, common.VerifyTransaction(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+			rules,
+		))
+	})
+
+	t.Run("failing script is evaluated", func(t *testing.T) {
+		v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, true)
+		tx := decodedMintTx(
+			t,
+			v4,
+			[]common.PlutusV4Script{v4.(common.PlutusV4Script)},
+		)
+		var failed common.PlutusScriptFailedError
+		require.ErrorAs(t, common.VerifyTransaction(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+			[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
+		), &failed)
+		require.Equal(t, v4.Hash(), failed.ScriptHash)
+	})
+
+	t.Run("missing key 8 witness", func(t *testing.T) {
+		v4 := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
+		tx := decodedMintTx(t, v4, nil)
+		var missing common.MissingScriptWitnessesError
+		require.ErrorAs(t, common.VerifyTransaction(
+			tx,
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			dijkstraGuardTestPParams(),
+			[]common.UtxoValidationRuleFunc{UtxoValidateScriptWitnesses},
+		), &missing)
+		require.Equal(t, v4.Hash(), missing.ScriptHash)
+	})
+}
