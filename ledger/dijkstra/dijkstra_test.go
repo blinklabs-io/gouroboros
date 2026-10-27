@@ -339,10 +339,19 @@ func TestDijkstraWitnessSetDecodesPlutusV4ScriptsAtKey8(t *testing.T) {
 func TestDijkstraWitnessSetRejectsDuplicatePlutusV4Scripts(t *testing.T) {
 	t.Parallel()
 	script := common.PlutusV4Script{0x41, 0x00}
-	encoded, err := cbor.Encode(map[uint]any{8: []any{script, script}})
-	require.NoError(t, err)
-	var witnesses DijkstraTransactionWitnessSet
-	require.Error(t, witnesses.UnmarshalCBOR(encoded))
+	for _, value := range []any{
+		[]any{script, script},
+		cbor.Set([]any{script, script}),
+	} {
+		encoded, err := cbor.Encode(map[uint]any{8: value})
+		require.NoError(t, err)
+		var witnesses DijkstraTransactionWitnessSet
+		require.ErrorContains(
+			t,
+			witnesses.UnmarshalCBOR(encoded),
+			"duplicate member in set",
+		)
+	}
 }
 
 func TestDijkstraWitnessSetEncodesPlutusV4ScriptsAtKey8(t *testing.T) {
