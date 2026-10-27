@@ -2037,18 +2037,19 @@ func (b *ByronMainBlock) UnmarshalCBOR(cborData []byte) error {
 	// so mutating it changes neither the header hash, the PBFT signature, nor
 	// the body proofs, and would decode undetected otherwise
 	// (blinklabs-io/gouroboros#2340).
-	var extra []cbor.RawMessage
-	if _, err := cbor.Decode(rawParts[2], &extra); err != nil {
+	if err := requireByronArrayLength(
+		rawParts[2], "byron main block extra body data", 1,
+	); err != nil {
+		return err
+	}
+	extraAttrs, err := byronArrayField(
+		rawParts[2], "byron main block extra body data", 0, 1,
+	)
+	if err != nil {
 		return fmt.Errorf("decode byron main block extra body data: %w", err)
 	}
-	if len(extra) != 1 {
-		return fmt.Errorf(
-			"byron main block extra body data has %d fields, expected 1",
-			len(extra),
-		)
-	}
 	if err := requireEmptyCborMap(
-		extra[0], "byron main block extra body data attributes",
+		extraAttrs, "byron main block extra body data attributes",
 	); err != nil {
 		return err
 	}
@@ -2244,6 +2245,13 @@ func decodeDefiniteCborList(
 	if _, _, indefinite := cbor.ArrayInfo(raw); indefinite {
 		return nil, fmt.Errorf(
 			"%s must be a definite-length CBOR list", field,
+		)
+	}
+	// Check the declared length before decoding so a header claiming a huge
+	// array is rejected without materializing its elements.
+	if length, _, _ := cbor.ArrayInfo(raw); length >= 0 && length != n {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d", field, length, n,
 		)
 	}
 	var parts []cbor.RawMessage

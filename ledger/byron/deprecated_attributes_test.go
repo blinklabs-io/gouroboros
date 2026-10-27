@@ -16,6 +16,7 @@ package byron_test
 
 import (
 	"encoding/hex"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -215,6 +216,35 @@ func TestByronMainBlockRejectsMalformedExtraBodyData(t *testing.T) {
 			require.Error(t, block.UnmarshalCBOR(mutated))
 		})
 	}
+}
+
+// TestByronMainBlockRejectsOversizedExtraBodyDataBeforeDecoding checks the
+// extra body data's declared length before its elements are decoded, so an
+// array header claiming a million items is rejected without materializing
+// them.
+func TestByronMainBlockRejectsOversizedExtraBodyDataBeforeDecoding(
+	t *testing.T,
+) {
+	raw := realByronBlockCbor(t)
+
+	const items = 1_000_000
+	oversized := append(
+		[]byte{0x9a, 0x00, 0x0f, 0x42, 0x40}, // array(1000000)
+		make([]byte, items)...,               // one-byte items: 0
+	)
+	mutated := replaceBlockExtraWhole(t, raw, oversized)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	var block byron.ByronMainBlock
+	err := block.UnmarshalCBOR(mutated)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorContains(t, err, "has 1000000 fields, expected 1")
+	// Materializing the items as raw messages costs about 24 MB; the
+	// payload itself is about 1 MB.
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(8<<20))
 }
 
 // TestByronMainBlockHeaderRejectsNonEmptyBlockVersionsAttributes is the
