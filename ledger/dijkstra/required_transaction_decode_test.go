@@ -129,29 +129,44 @@ func TestDijkstraTransactionDecodeRejectsInvalidBootstrapChainCodeWidths(
 	}
 }
 
-func TestDijkstraTransactionMarshalRejectsPlutusV4Witnesses(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		cached bool
-	}{{name: "uncached"}, {name: "cached", cached: true}} {
-		t.Run(tc.name, func(t *testing.T) {
-			tx := &DijkstraTransaction{
-				WitnessSet: DijkstraTransactionWitnessSet{
-					WsPlutusV4Scripts: cbor.NewSetType(
-						[]common.PlutusV4Script{{0x01}},
-						true,
-					),
-				},
-			}
-			if tc.cached {
-				tx.SetCbor([]byte{0x83, 0xa0, 0xa0, 0xf6})
-			}
-			_, err := tx.MarshalCBOR()
-			require.ErrorContains(
-				t,
-				err,
-				"must be supplied by reference scripts",
-			)
-		})
-	}
+func TestDijkstraTransactionMarshalEncodesPlutusV4Witnesses(t *testing.T) {
+	t.Parallel()
+	script := common.PlutusV4Script{0x01}
+	t.Run("uncached", func(t *testing.T) {
+		t.Parallel()
+		tx := &DijkstraTransaction{
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsPlutusV4Scripts: cbor.NewSetType(
+					[]common.PlutusV4Script{script},
+					true,
+				),
+			},
+		}
+		encoded, err := tx.MarshalCBOR()
+		require.NoError(t, err)
+		var parts []cbor.RawMessage
+		_, err = cbor.Decode(encoded, &parts)
+		require.NoError(t, err)
+		require.Len(t, parts, 3)
+		var fields map[uint]cbor.RawMessage
+		_, err = cbor.Decode(parts[1], &fields)
+		require.NoError(t, err)
+		require.Contains(t, fields, uint(8))
+	})
+	t.Run("cached", func(t *testing.T) {
+		t.Parallel()
+		cached := []byte{0x83, 0xa0, 0xa0, 0xf6}
+		tx := &DijkstraTransaction{
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsPlutusV4Scripts: cbor.NewSetType(
+					[]common.PlutusV4Script{script},
+					true,
+				),
+			},
+		}
+		tx.SetCbor(cached)
+		encoded, err := tx.MarshalCBOR()
+		require.NoError(t, err)
+		require.Equal(t, cached, encoded)
+	})
 }

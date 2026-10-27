@@ -294,14 +294,16 @@ func TestDijkstraTransactionBodiesRequirePositiveTreasuryDonation(t *testing.T) 
 	}
 }
 
-func TestDijkstraWitnessSetRejectsEmptyFieldsAndUnsupportedKey8(t *testing.T) {
-	for _, key := range []uint{0, 1, 2, 3, 4, 6, 7} {
+func TestDijkstraWitnessSetRejectsEmptyFields(t *testing.T) {
+	t.Parallel()
+	for _, key := range []uint{0, 1, 2, 3, 4, 6, 7, 8} {
 		for _, tagged := range []bool{false, true} {
 			value := any([]any{})
 			if tagged {
 				value = cbor.Set([]any{})
 			}
 			t.Run(fmt.Sprintf("empty_%d/tagged_%t", key, tagged), func(t *testing.T) {
+				t.Parallel()
 				encoded, err := cbor.Encode(map[uint]any{key: value})
 				require.NoError(t, err)
 				var witnesses DijkstraTransactionWitnessSet
@@ -309,39 +311,111 @@ func TestDijkstraWitnessSetRejectsEmptyFieldsAndUnsupportedKey8(t *testing.T) {
 			})
 		}
 	}
-	for _, value := range []any{
-		[]any{}, []any{common.PlutusV4Script{0x41, 0x00}},
-		cbor.Set([]any{}), cbor.Set([]any{common.PlutusV4Script{0x41, 0x00}}),
-	} {
-		encoded, err := cbor.Encode(map[uint]any{8: value})
-		require.NoError(t, err)
-		var witnesses DijkstraTransactionWitnessSet
-		require.ErrorContains(t, witnesses.UnmarshalCBOR(encoded), "does not support field 8")
-	}
 	encoded, err := cbor.Encode(map[uint]any{5: map[uint]any{}})
 	require.NoError(t, err)
 	var witnesses DijkstraTransactionWitnessSet
 	require.ErrorContains(t, witnesses.UnmarshalCBOR(encoded), "must not be empty")
-	constructed := DijkstraTransactionWitnessSet{
-		WsPlutusV4Scripts: cbor.NewSetType(
-			[]common.PlutusV4Script{{0x41, 0x00}},
-			true,
-		),
-	}
-	encoded, err = cbor.Encode(constructed)
-	require.ErrorContains(t, err, "does not support field 8")
 }
 
-func TestDijkstraTransactionRejectsCachedUnsupportedPlutusV4Witnesses(t *testing.T) {
-	tx := DijkstraTransaction{}
-	tx.SetCbor([]byte{0x80})
-	tx.WitnessSet.WsPlutusV4Scripts = cbor.NewSetType(
-		[]common.PlutusV4Script{{0x41, 0x00}},
-		true,
-	)
+func TestDijkstraWitnessSetDecodesPlutusV4ScriptsAtKey8(t *testing.T) {
+	t.Parallel()
+	script := common.PlutusV4Script{0x41, 0x00}
+	for _, value := range []any{
+		[]any{script},
+		cbor.Set([]any{script}),
+	} {
+		encoded, err := cbor.Encode(map[uint]any{8: value})
+		require.NoError(t, err)
+		var witnesses DijkstraTransactionWitnessSet
+		require.NoError(t, witnesses.UnmarshalCBOR(encoded))
+		require.Equal(t, []common.PlutusV4Script{script}, witnesses.PlutusV4Scripts())
+		require.Equal(t, encoded, witnesses.Cbor())
+		reencoded, err := cbor.Encode(witnesses)
+		require.NoError(t, err)
+		require.Equal(t, encoded, reencoded)
+	}
+}
 
-	_, err := tx.MarshalCBOR()
-	require.ErrorContains(t, err, "must be supplied by reference scripts")
+func TestDijkstraWitnessSetRejectsDuplicatePlutusV4Scripts(t *testing.T) {
+	t.Parallel()
+	script := common.PlutusV4Script{0x41, 0x00}
+	for _, value := range []any{
+		[]any{script, script},
+		cbor.Set([]any{script, script}),
+	} {
+		encoded, err := cbor.Encode(map[uint]any{8: value})
+		require.NoError(t, err)
+		var witnesses DijkstraTransactionWitnessSet
+		require.ErrorContains(
+			t,
+			witnesses.UnmarshalCBOR(encoded),
+			"duplicate member in set",
+		)
+	}
+}
+
+func TestDijkstraWitnessSetEncodesPlutusV4ScriptsAtKey8(t *testing.T) {
+	t.Parallel()
+	script := common.PlutusV4Script{0x41, 0x00}
+	for _, tagged := range []bool{false, true} {
+		constructed := DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{script},
+				tagged,
+			),
+		}
+		encoded, err := cbor.Encode(constructed)
+		require.NoError(t, err)
+		var fields map[uint]cbor.RawMessage
+		_, err = cbor.Decode(encoded, &fields)
+		require.NoError(t, err)
+		require.Len(t, fields, 1)
+		require.Contains(t, fields, uint(8))
+		var decoded DijkstraTransactionWitnessSet
+		require.NoError(t, decoded.UnmarshalCBOR(encoded))
+		require.Equal(t, []common.PlutusV4Script{script}, decoded.PlutusV4Scripts())
+	}
+}
+
+func TestDijkstraTransactionRoundTripsPlutusV4Witnesses(t *testing.T) {
+	t.Parallel()
+	script := common.PlutusV4Script{0x41, 0x00}
+	bodyWire, err := cbor.Encode(map[uint]any{
+		0: cbor.NewSetType([]any{}, false),
+		1: []any{},
+		2: uint64(0),
+	})
+	require.NoError(t, err)
+	witnessWire, err := cbor.Encode(map[uint]any{8: cbor.Set([]any{script})})
+	require.NoError(t, err)
+	txWire, err := cbor.Encode([]any{
+		cbor.RawMessage(bodyWire),
+		cbor.RawMessage(witnessWire),
+		true,
+		nil,
+	})
+	require.NoError(t, err)
+	tx, err := NewDijkstraTransactionFromCbor(txWire)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		[]common.PlutusV4Script{script},
+		common.PlutusV4ScriptsFromWitnessSet(tx.Witnesses()),
+	)
+	got, err := tx.MarshalCBOR()
+	require.NoError(t, err)
+	require.Equal(t, txWire, got)
+
+	constructed := &DijkstraTransaction{
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsPlutusV4Scripts: cbor.NewSetType(
+				[]common.PlutusV4Script{script},
+				true,
+			),
+		},
+	}
+	_, err = constructed.MarshalCBOR()
+	require.NoError(t, err)
 }
 
 func TestDijkstraTransactionBodiesRejectNegativeCurrentTreasuryValue(
