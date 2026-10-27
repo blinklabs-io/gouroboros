@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"slices"
 	"time"
 )
 
@@ -1007,9 +1008,8 @@ func StakeCredentialDepositStateFor(
 	if !ok {
 		return nil, false
 	}
-	states := blockLedgerStateChain(ls)
-	for idx := len(states) - 1; idx >= 0; idx-- {
-		base = blockStakeCredentialDeposits{block: states[idx], base: base}
+	for _, state := range slices.Backward(blockLedgerStateChain(ls)) {
+		base = blockStakeCredentialDeposits{block: state, base: base}
 	}
 	return base, true
 }
