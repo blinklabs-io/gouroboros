@@ -2191,9 +2191,8 @@ func extractDijkstraSubTransactionOffsets(
 // blocks (4+ element: [header, tx_bodies, witnesses, metadata, ...]) and
 // Dijkstra blocks (2-element: [header, block_body]).
 func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error) {
-	// First pass: decode block as array of RawMessages to get component boundaries
-	var blockArray []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &blockArray); err != nil {
+	blockArray, arrayHeaderSize, err := decodeBlockArrayBytes(cborData)
+	if err != nil {
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
 	}
 
@@ -2236,11 +2235,6 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 			return nil, err
 		}
 	}
-
-	// Shelley+ block layout: [header, tx_bodies[], witnesses[], metadata_map, ...]
-	// Calculate header size by finding where blockArray[0] starts
-	// CBOR array header is 1 byte for arrays < 24 elements, more for larger
-	arrayHeaderSize := cborArrayHeaderSize(len(blockArray))
 
 	// blockArray[0] is the header, blockArray[1] is tx bodies, blockArray[2] is witnesses
 	// blockArray[3] is metadata (if present)
@@ -2956,18 +2950,6 @@ func cborMapInfo(data []byte) (int, uint32, bool) {
 	default:
 		return -1, 0, false
 	}
-}
-
-// cborArrayHeaderSize returns the CBOR header size in bytes for an array of given length.
-func cborArrayHeaderSize(length int) uint32 {
-	if length < 24 {
-		return 1 // 0x80 + length
-	} else if length < 256 {
-		return 2 // 0x98 + 1-byte length
-	} else if length < 65536 {
-		return 3 // 0x99 + 2-byte length
-	}
-	return 5 // 0x9a + 4-byte length (covers up to 2^32 elements)
 }
 
 // AddInt64Checked adds two int64 values and returns the result with an overflow flag.

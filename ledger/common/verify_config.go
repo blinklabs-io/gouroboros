@@ -250,17 +250,11 @@ func ValidateBlockBodyHash(
 // enabled), so the redundant decode is skipped entirely when the check is a
 // no-op. Tracked as a known follow-up rather than addressed here.
 func BlockBodySizeFromCbor(rawCbor []byte) (uint64, error) {
-	var raw []cbor.RawMessage
-	if _, err := cbor.Decode(rawCbor, &raw); err != nil {
+	raw, _, err := decodeBlockArrayBytes(rawCbor)
+	if err != nil {
 		return 0, fmt.Errorf(
 			"failed to decode block CBOR for body size calculation: %w",
 			err,
-		)
-	}
-	if len(raw) < 2 {
-		return 0, fmt.Errorf(
-			"invalid block CBOR structure for body size calculation: expected at least 2 elements, got %d",
-			len(raw),
 		)
 	}
 	var size uint64
