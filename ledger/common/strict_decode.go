@@ -30,7 +30,7 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	if expected < 0 {
 		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
 	}
-	arrayLength, _, indefinite := cbor.ArrayInfo(data)
+	arrayLength, headerLength, indefinite := cbor.ArrayInfo(data)
 	if arrayLength < 0 && !indefinite {
 		return fmt.Errorf("%s must be a CBOR array", name)
 	}
@@ -43,17 +43,48 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 		}
 		return nil
 	}
-	var items []cbor.RawMessage
-	n, err := cbor.Decode(data, &items)
-	if err != nil {
+	offset := int(headerLength)
+	for index := range expected {
+		if offset >= len(data) {
+			return fmt.Errorf("decode %s: indefinite-length array is not terminated", name)
+		}
+		if data[offset] == 0xff {
+			return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, index)
+		}
+		var item validatedCBORItem
+		itemLength, err := cbor.Decode(data[offset:], &item)
+		if err != nil {
+			return fmt.Errorf("decode %s array element %d: %w", name, index, err)
+		}
+		offset += itemLength
+	}
+	if offset >= len(data) {
+		return fmt.Errorf("decode %s: indefinite-length array is not terminated", name)
+	}
+	if data[offset] != 0xff {
+		return fmt.Errorf(
+			"%s must contain %d array elements, got more than %d",
+			name,
+			expected,
+			expected,
+		)
+	}
+	offset++
+	if offset != len(data) {
+		return fmt.Errorf("decode %s: %d trailing bytes after array", name, len(data)-offset)
+	}
+	// Include the outer array when enforcing the decoder's nesting limit.
+	if err := cbor.ValidateExact(data); err != nil {
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
-	if n != len(data) {
-		return fmt.Errorf("decode %s: %d trailing bytes after array", name, len(data)-n)
-	}
-	if len(items) != expected {
-		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, len(items))
-	}
+	return nil
+}
+
+// validatedCBORItem lets Decode validate and skip one item without retaining
+// its encoded or decoded value.
+type validatedCBORItem struct{}
+
+func (*validatedCBORItem) UnmarshalCBOR([]byte) error {
 	return nil
 }
 
