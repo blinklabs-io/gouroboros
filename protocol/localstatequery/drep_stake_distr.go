@@ -153,10 +153,9 @@ func decodeDRepKeyedResult(
 			return fmt.Errorf("%s: %w", what, err)
 		}
 	}
-	// distr is a cbor.RawMessage taken out of the result array, so it is one
-	// well-formed CBOR item: a definite-length map header cannot declare more
-	// pairs than the item actually carries, and entryCount is therefore
-	// bounded by len(distr).
+	// The seen maps start empty and grow as keys are decoded. Sizing them
+	// from entryCount would allocate for every declared pair before a single
+	// key is checked, so a small payload could force a large allocation.
 	//
 	// The decode modes in the cbor package reject a repeated map key
 	// (DupMapKeyEnforcedAPF), so every other map-shaped result in this
@@ -173,8 +172,8 @@ func decodeDRepKeyedResult(
 		drepType   int
 		credential string
 	}
-	seenEncoded := make(map[string]struct{}, entryCount)
-	seenDrep := make(map[drepKey]struct{}, entryCount)
+	seenEncoded := make(map[string]struct{})
+	seenDrep := make(map[drepKey]struct{})
 	for i := 0; indefinite || i < entryCount; i++ {
 		if indefinite {
 			// A bounds guard before the index below, not a validation

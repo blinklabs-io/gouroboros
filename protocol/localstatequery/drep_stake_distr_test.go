@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -372,4 +373,33 @@ func TestDRepStakeDistrResultRejectsNonCanonicalDuplicateDRep(t *testing.T) {
 		require.ErrorContains(t, err, "takes exactly 1 list item")
 		require.Empty(t, result)
 	})
+}
+
+// TestDRepStakeDistrResultDoesNotAllocateFromDeclaredCount feeds a map whose
+// header declares far more pairs than are checked before the second key
+// repeats the first. The seen sets must not be sized from the declared count,
+// or a payload that is rejected on its second entry still pays for them all.
+func TestDRepStakeDistrResultDoesNotAllocateFromDeclaredCount(t *testing.T) {
+	const pairs = 200000
+	var payload bytes.Buffer
+	payload.WriteByte(0x81)
+	payload.Write([]byte{0xba, 0x00, 0x03, 0x0d, 0x40}) // map(200000)
+	payload.Write(mustDecodeHex(t, "8102"+"00"))
+	payload.Write(mustDecodeHex(t, "8102"+"00"))
+	for i := 2; i < pairs; i++ {
+		payload.Write([]byte{0x00, 0x00})
+	}
+	data := payload.Bytes()
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	var result DRepStakeDistrResult
+	_, err := cbor.Decode(data, &result)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorContains(t, err, "duplicate DRep")
+	// Sizing the two seen sets from the declared count costs several MiB;
+	// the payload itself is under 400 KiB.
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(2<<20))
 }
