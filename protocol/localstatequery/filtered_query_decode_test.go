@@ -185,9 +185,9 @@ func TestPoolFilterClientParamsMatchDecoder(t *testing.T) {
 			{name: "specific pool", ids: []any{pool}},
 		} {
 			t.Run(query.name+"/"+tc.name, func(t *testing.T) {
-				wire, err := cbor.Encode(
-					buildQuery(query.typeID, poolFilterQueryParam(tc.ids)),
-				)
+				params, err := poolFilterQueryParam(tc.ids)
+				require.NoError(t, err)
+				wire, err := cbor.Encode(buildQuery(query.typeID, params))
 				require.NoError(t, err)
 				decoded, err := decodeShelleyQuery(wire)
 				require.NoError(t, err)
