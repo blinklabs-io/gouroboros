@@ -35,6 +35,19 @@ import (
 	_cbor "github.com/fxamacker/cbor/v2"
 )
 
+// MaxMapKeyItems is the most data items a single composite map key may hold,
+// counting every item nested anywhere inside it. A composite key is retained
+// whole as the Go map key and carries an identity digest for each of its
+// entries while it decodes, so without this bound one key could hold decoded
+// memory far beyond any Cardano structure: keys inside a maximum-size
+// transaction stay well below it. It is a var so an application decoding
+// trusted data with larger keys can raise it.
+var MaxMapKeyItems = 65536
+
+// ErrMapKeyItemBudget reports a composite map key holding more than
+// MaxMapKeyItems data items.
+var ErrMapKeyItemBudget = errors.New("composite map key exceeds item budget")
+
 // Helpful wrapper for parsing arbitrary CBOR data which may contain types that
 // cannot be easily represented in Go (such as maps with bytestring keys)
 type Value struct {
@@ -64,6 +77,7 @@ func (v *Value) UnmarshalCBOR(data []byte) error {
 		data,
 		true,
 		nil,
+		nil,
 		0,
 		rejectDuplicateMapKeys,
 		decMode,
@@ -75,6 +89,7 @@ func (v *Value) unmarshalCBOR(
 	data []byte,
 	retainCbor bool,
 	mapKeyDigestOut *[sha256.Size]byte,
+	keyItems *int,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -113,6 +128,7 @@ func (v *Value) unmarshalCBOR(
 		return v.processMap(
 			data,
 			mapKeyDigestOut,
+			keyItems,
 			depth,
 			duplicateKeyPolicy,
 			decMode,
@@ -121,6 +137,7 @@ func (v *Value) unmarshalCBOR(
 		return v.processArray(
 			data,
 			mapKeyDigestOut,
+			keyItems,
 			depth,
 			duplicateKeyPolicy,
 			decMode,
@@ -155,6 +172,23 @@ func (v *Value) unmarshalCBOR(
 		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
 	case CborTypeTag:
+		if keyItems != nil {
+			// Tag content is decoded by the library rather than by this
+			// walker, so its items are counted before anything is decoded.
+			// The tag itself was already charged by its parent.
+			items, err := countItems(data, *keyItems+1)
+			if err != nil {
+				if errors.Is(err, ErrItemBudget) {
+					return 0, fmt.Errorf(
+						"%w of %d",
+						ErrMapKeyItemBudget,
+						MaxMapKeyItems,
+					)
+				}
+				return 0, err
+			}
+			*keyItems -= items - 1
+		}
 		// Parse as a raw tag to get number and nested CBOR data
 		tmpTag := RawTag{}
 		decodedLength, err := decodeWithMode(
@@ -210,6 +244,19 @@ func (v *Value) unmarshalCBOR(
 	}
 }
 
+// spendMapKeyItem charges one data item to a composite map key's budget. A
+// nil budget means the item is not inside a map key.
+func spendMapKeyItem(keyItems *int) error {
+	if keyItems == nil {
+		return nil
+	}
+	if *keyItems <= 0 {
+		return fmt.Errorf("%w of %d", ErrMapKeyItemBudget, MaxMapKeyItems)
+	}
+	*keyItems--
+	return nil
+}
+
 func setMapKeyDigest(out *[sha256.Size]byte, value any) {
 	if out != nil {
 		*out = mapKeyDigest(value)
@@ -248,6 +295,7 @@ func (v Value) MarshalJSON() ([]byte, error) {
 func (v *Value) processMap(
 	data []byte,
 	mapKeyDigestOut *[sha256.Size]byte,
+	keyItems *int,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -290,14 +338,24 @@ func (v *Value) processMap(
 			return position, nil
 		}
 
+		if err := spendMapKeyItem(keyItems); err != nil {
+			return 0, err
+		}
 		var (
 			key       Value
 			keyDigest [sha256.Size]byte
 		)
+		// A key nested in a composite key spends the enclosing key's budget.
+		childKeyItems := keyItems
+		if childKeyItems == nil {
+			remaining := MaxMapKeyItems
+			childKeyItems = &remaining
+		}
 		keyLength, keyErr := key.unmarshalCBOR(
 			data[position:],
 			false,
 			&keyDigest,
+			childKeyItems,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
@@ -328,10 +386,14 @@ func (v *Value) processMap(
 		if mapKeyDigestOut != nil {
 			valueDigestOut = &valueDigest
 		}
+		if err := spendMapKeyItem(keyItems); err != nil {
+			return 0, err
+		}
 		valueLength, valueErr := value.unmarshalCBOR(
 			data[position:],
 			false,
 			valueDigestOut,
+			keyItems,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
@@ -371,6 +433,7 @@ func (v *Value) processMap(
 func (v *Value) processArray(
 	data []byte,
 	mapKeyDigestOut *[sha256.Size]byte,
+	keyItems *int,
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
@@ -404,10 +467,14 @@ func (v *Value) processArray(
 		if mapKeyDigestOut != nil {
 			valueDigestOut = &valueDigest
 		}
+		if err := spendMapKeyItem(keyItems); err != nil {
+			return 0, err
+		}
 		valueLength, err := value.unmarshalCBOR(
 			data[position:],
 			false,
 			valueDigestOut,
+			keyItems,
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,

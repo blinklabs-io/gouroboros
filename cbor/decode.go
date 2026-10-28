@@ -201,6 +201,7 @@ func decodeWithMode(
 			dataBytes,
 			true,
 			nil,
+			nil,
 			0,
 			duplicateKeyPolicy,
 			decMode,

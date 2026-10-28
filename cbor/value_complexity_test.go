@@ -98,6 +98,7 @@ func TestValueIncrementalMapKeyDigestPreservesIdentity(t *testing.T) {
 				tt.data,
 				false,
 				&digest,
+				nil,
 				0,
 				keepLastDuplicateMapKey,
 				decMode,
