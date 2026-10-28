@@ -47,6 +47,17 @@ const DefaultMaxUnacknowledgedMessageIDs = 100
 
 const defaultMaxQueueSize = 100
 
+// The default replay bound covers every message an honest dmq-node can hold
+// unexpired. Its mempool admits one message per pool per minute (minSigDelay)
+// expiring at most 30 minutes ahead (maxSigExpiresAtDelay, DMQ/Policy.hs), so
+// at most 31 per pool. A peer can relay that whole mempool on one connection,
+// so a smaller bound refuses honest replies until IDs expire.
+const (
+	replayEntriesPerPool    = 31
+	replayPools             = 4096
+	defaultMaxReplayEntries = replayEntriesPerPool * replayPools
+)
+
 // State machine states for Message Submission protocol
 const (
 	stateInitId               = 1
@@ -272,8 +283,17 @@ type Config struct {
 	// Shared configuration
 	MaxQueueSize                int
 	MaxUnacknowledgedMessageIDs int
-	Authenticator               *pcommon.MessageAuthenticator
-	TTLValidator                *pcommon.TTLValidator
+	// MaxReplayEntries bounds the message IDs a server retains, per
+	// connection, as delivered until their signed expiration time. A message
+	// whose ID is retained is dropped instead of being delivered again. An
+	// ID is never evicted before its message expires, so a reply whose fresh
+	// messages would exceed the bound is refused with an error, which closes
+	// the connection. The default holds 31 unexpired messages per stake pool,
+	// the most a dmq-node admits, for 4096 pools. Zero or a negative value
+	// selects the default.
+	MaxReplayEntries int
+	Authenticator    *pcommon.MessageAuthenticator
+	TTLValidator     *pcommon.TTLValidator
 	// LegacyV1MessageEncoding preserves the pre-CIP-0137-v4 V1 message
 	// wire shape for peers that still expect messageId inside messagePayload.
 	// The default false value uses the current CIP-0137 message shape.
@@ -317,6 +337,7 @@ func NewConfig(options ...MessageSubmissionOptionFunc) Config {
 	c := Config{
 		MaxQueueSize:                 defaultMaxQueueSize,
 		MaxUnacknowledgedMessageIDs:  DefaultMaxUnacknowledgedMessageIDs,
+		MaxReplayEntries:             defaultMaxReplayEntries,
 		InitTimeout:                  InitTimeout,
 		IdleTimeout:                  IdleTimeout,
 		MessageIdsBlockingTimeout:    MessageIdsBlockingTimeout,
@@ -351,6 +372,9 @@ func normalizeConfig(cfg *Config) Config {
 	}
 	if ret.MaxUnacknowledgedMessageIDs <= 0 {
 		ret.MaxUnacknowledgedMessageIDs = DefaultMaxUnacknowledgedMessageIDs
+	}
+	if ret.MaxReplayEntries <= 0 {
+		ret.MaxReplayEntries = defaultMaxReplayEntries
 	}
 	if ret.InitTimeout == 0 {
 		ret.InitTimeout = InitTimeout
@@ -420,6 +444,14 @@ func WithMaxQueueSize(maxQueueSize int) MessageSubmissionOptionFunc {
 func WithMaxUnacknowledgedMessageIDs(max int) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.MaxUnacknowledgedMessageIDs = max
+	}
+}
+
+// WithMaxReplayEntries sets the maximum delivered message IDs a server retains
+// per connection until their messages expire.
+func WithMaxReplayEntries(maxReplayEntries int) MessageSubmissionOptionFunc {
+	return func(c *Config) {
+		c.MaxReplayEntries = maxReplayEntries
 	}
 }
 

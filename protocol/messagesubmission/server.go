@@ -25,6 +25,10 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
+var errReplayCacheCapacityExceeded = errors.New(
+	"dmq: message submission replay cache capacity exceeded",
+)
+
 // Server implements the MessageSubmission server
 type Server struct {
 	*protocol.Protocol
@@ -38,6 +42,12 @@ type Server struct {
 	pendingMessageIDs [][]byte
 	pendingIDRequest  *messageIDRequest
 	pendingMsgRequest *messageRequest
+	// deliveredIDs maps each message ID handed to ReplyMessagesFunc to its
+	// expiry. An ID stays until its message expires so that a peer cannot
+	// get the same message delivered again by re-announcing it after it was
+	// acknowledged.
+	deliveredIDs map[string]uint32
+	now          func() time.Time
 }
 
 // NewServer returns a new MessageSubmission server object
@@ -47,6 +57,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config:            &normalizedCfg,
 		messageQueue:      make([]*pcommon.DmqMessage, 0),
 		pendingMessageIDs: [][]byte{},
+		deliveredIDs:      make(map[string]uint32),
+		now:               time.Now,
 		protoVersion:      protoOptions.Version,
 	}
 	s.callbackContext = CallbackContext{
@@ -432,10 +444,14 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		s.lock.Unlock()
 		return err
 	}
+	fresh, err := s.admitFreshMessagesLocked(msgReply.Messages)
 	s.lock.Unlock()
+	if err != nil {
+		return err
+	}
 
-	for i := range msgReply.Messages {
-		if err := s.config.TTLValidator.ValidateMessageTTL(&msgReply.Messages[i]); err != nil {
+	for i := range fresh {
+		if err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i]); err != nil {
 			s.Protocol.Logger().
 				Warn("message validation failed",
 					"component", "network",
@@ -448,13 +464,12 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		}
 	}
 	commitAuthentication := func() error { return nil }
-	if len(msgReply.Messages) > 0 {
+	if len(fresh) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		var err error
 		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
-			msgReply.Messages,
+			fresh,
 		)
 		if err != nil {
 			s.Protocol.Logger().
@@ -479,11 +494,14 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		s.lock.Unlock()
 		return err
 	}
+	for i := range fresh {
+		s.deliveredIDs[string(fresh[i].ID())] = fresh[i].Payload.ExpiresAt
+	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, msgReply.Messages)
+		s.config.ReplyMessagesFunc(s.callbackContext, fresh)
 	}
 
 	return nil
@@ -499,4 +517,37 @@ func (s *Server) handleDone() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	return nil
+}
+
+// admitFreshMessagesLocked returns the messages whose IDs were not already
+// delivered on this connection. A repeated ID is dropped rather than treated
+// as a protocol violation, and before authentication because the operational
+// certificate it carried may have been superseded since. When the unexpired
+// delivered IDs plus the fresh messages exceed the configured capacity the
+// reply is refused whole, since forgetting an unexpired ID would allow its
+// message to be delivered again.
+func (s *Server) admitFreshMessagesLocked(
+	messages []pcommon.DmqMessage,
+) ([]pcommon.DmqMessage, error) {
+	s.pruneDeliveredLocked(s.now())
+	fresh := make([]pcommon.DmqMessage, 0, len(messages))
+	for i := range messages {
+		if _, ok := s.deliveredIDs[string(messages[i].ID())]; ok {
+			continue
+		}
+		fresh = append(fresh, messages[i])
+	}
+	if len(s.deliveredIDs)+len(fresh) > s.config.MaxReplayEntries {
+		return nil, errReplayCacheCapacityExceeded
+	}
+	return fresh, nil
+}
+
+func (s *Server) pruneDeliveredLocked(now time.Time) {
+	nowUnix := now.Unix()
+	for id, expiresAt := range s.deliveredIDs {
+		if nowUnix > int64(expiresAt) {
+			delete(s.deliveredIDs, id)
+		}
+	}
 }

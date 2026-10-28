@@ -237,3 +237,148 @@ func TestServerAcceptedReplyCommitsAuthenticationState(t *testing.T) {
 	err := server.handleReplyMessages(NewMsgReplyMessages(messages[2:]))
 	require.ErrorContains(t, err, "opcert number went backwards")
 }
+
+func TestServerDropsReplyForAlreadyDeliveredMessage(t *testing.T) {
+	t.Parallel()
+	messages, authenticator := serverTestSignedMessages(
+		t,
+		[]string{"first", "second"},
+		[]uint64{1, 1},
+	)
+	var delivered [][]byte
+	cfg := NewConfig(
+		WithAuthenticator(authenticator),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, msgs []pcommon.DmqMessage) {
+				for i := range msgs {
+					delivered = append(delivered, msgs[i].ID())
+				}
+			},
+		),
+	)
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+	request := func(msgs ...pcommon.DmqMessage) {
+		ids := make(map[string]struct{}, len(msgs))
+		for i := range msgs {
+			ids[string(msgs[i].ID())] = struct{}{}
+		}
+		server.pendingMsgRequest = &messageRequest{ids: ids}
+	}
+
+	request(messages[0])
+	require.NoError(
+		t,
+		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+	)
+	require.Equal(t, [][]byte{messages[0].ID()}, delivered)
+
+	// The first ID is acknowledged and announced again alongside a new one.
+	request(messages...)
+	require.NoError(
+		t,
+		server.handleReplyMessages(NewMsgReplyMessages(messages)),
+	)
+	require.Equal(
+		t,
+		[][]byte{messages[0].ID(), messages[1].ID()},
+		delivered,
+		"an already delivered message must not reach the callback again",
+	)
+	require.Nil(t, server.pendingMsgRequest)
+}
+
+func serverTestRequest(server *Server, msgs ...pcommon.DmqMessage) {
+	ids := make(map[string]struct{}, len(msgs))
+	for i := range msgs {
+		ids[string(msgs[i].ID())] = struct{}{}
+	}
+	server.pendingMsgRequest = &messageRequest{ids: ids}
+}
+
+func TestServerReplayCacheCapacityIsBounded(t *testing.T) {
+	t.Parallel()
+	messages, authenticator := serverTestSignedMessages(
+		t,
+		[]string{"first", "second"},
+		[]uint64{1, 1},
+	)
+	var delivered int
+	cfg := NewConfig(
+		WithAuthenticator(authenticator),
+		WithMaxReplayEntries(1),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, msgs []pcommon.DmqMessage) {
+				delivered += len(msgs)
+			},
+		),
+	)
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+
+	serverTestRequest(server, messages[0])
+	require.NoError(
+		t,
+		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+	)
+	serverTestRequest(server, messages[1])
+	err := server.handleReplyMessages(NewMsgReplyMessages(messages[1:]))
+	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
+	require.Equal(t, 1, delivered)
+	require.Len(t, server.deliveredIDs, 1)
+}
+
+func TestServerReplayCacheReleasesExpiredIDs(t *testing.T) {
+	t.Parallel()
+	messages, authenticator := serverTestSignedMessages(
+		t,
+		[]string{"first", "second"},
+		[]uint64{1, 1},
+	)
+	var delivered [][]byte
+	cfg := NewConfig(
+		WithAuthenticator(authenticator),
+		WithMaxReplayEntries(1),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, msgs []pcommon.DmqMessage) {
+				for i := range msgs {
+					delivered = append(delivered, msgs[i].ID())
+				}
+			},
+		),
+	)
+	server := NewServer(protocol.ProtocolOptions{}, &cfg)
+
+	serverTestRequest(server, messages[0])
+	require.NoError(
+		t,
+		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+	)
+
+	// Once the first message expires its slot is released, so a full cache
+	// admits the next message.
+	server.now = func() time.Time {
+		return time.Unix(int64(messages[0].Payload.ExpiresAt)+1, 0)
+	}
+	serverTestRequest(server, messages[1])
+	require.NoError(
+		t,
+		server.handleReplyMessages(NewMsgReplyMessages(messages[1:])),
+	)
+	require.Equal(t, [][]byte{messages[0].ID(), messages[1].ID()}, delivered)
+	require.Equal(
+		t,
+		map[string]uint32{
+			string(messages[1].ID()): messages[1].Payload.ExpiresAt,
+		},
+		server.deliveredIDs,
+	)
+}
+
+func TestServerReplayCacheDefaultCoversHonestMempool(t *testing.T) {
+	t.Parallel()
+	for _, maxEntries := range []int{0, -1} {
+		cfg := Config{MaxReplayEntries: maxEntries}
+		server := NewServer(protocol.ProtocolOptions{}, &cfg)
+		require.Equal(t, 31*4096, server.config.MaxReplayEntries)
+	}
+	require.Equal(t, 31*4096, NewConfig().MaxReplayEntries)
+}
