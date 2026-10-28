@@ -404,26 +404,45 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 	)
 }
 
-// TestRatRejectsOversizedArrayBeforeDecoding checks the item count of the
-// rational's array before its items are decoded, so an array of a million
-// items is rejected without building them.
+// TestRatRejectsOversizedArrayBeforeDecoding checks the shape of the
+// rational's array and of its two items before they are decoded, so an array
+// of a million items is rejected without building it, whether it is the
+// rational itself or one of its items.
 func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 	// Each header declares array(1000000), followed by one-byte items (0).
 	// The nested case wraps the array in a second tag (55799) to check the
-	// count is read through every leading tag.
-	// The indefinite case has no declared count, so its items must be
-	// counted without building them.
+	// count is read through every leading tag. The indefinite cases declare
+	// no count. The numerator cases have the right count of two but put the
+	// million items in the numerator, which must be an integer.
 	tests := map[string]struct {
 		header  []byte
 		trailer []byte
+		wantErr string
 	}{
-		"tagged": {header: []byte{0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40}},
-		"nested tags": {header: []byte{
-			0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
-		}},
+		"tagged": {
+			header:  []byte{0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+			wantErr: "got 1000000 elements",
+		},
+		"nested tags": {
+			header: []byte{
+				0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+			},
+			wantErr: "got 1000000 elements",
+		},
 		"indefinite": {
 			header:  []byte{0xd8, 0x1e, 0x9f},
 			trailer: []byte{0xff},
+			wantErr: "got 1000000 elements",
+		},
+		"array numerator": {
+			header:  []byte{0xd8, 0x1e, 0x82, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+			trailer: []byte{0x01},
+			wantErr: "numerator",
+		},
+		"indefinite array numerator": {
+			header:  []byte{0xd8, 0x1e, 0x82, 0x9f},
+			trailer: []byte{0xff, 0x01},
+			wantErr: "numerator",
 		},
 	}
 	for name, tc := range tests {
@@ -437,7 +456,7 @@ func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 			_, err := cbor.Decode(data, &rat)
 			runtime.ReadMemStats(&after)
 
-			require.ErrorContains(t, err, "got 1000000 elements")
+			require.ErrorContains(t, err, tc.wantErr)
 			// Building the items as []any costs about 16 MB; the payload
 			// is 1 MB.
 			require.Less(

@@ -113,7 +113,11 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 			count,
 		)
 	}
-	tmpRat := []any{}
+	// The items stay raw and are decoded straight into big.Int, which takes
+	// an integer or a bignum and rejects anything else from its header.
+	// Decoding them as any would build an item that is an array before its
+	// type is checked.
+	tmpRat := []RawMessage{}
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
 	}
@@ -123,29 +127,13 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 			len(tmpRat),
 		)
 	}
-	// Convert numerator to big.Int
 	tmpNum := new(big.Int)
-	switch v := tmpRat[0].(type) {
-	case int64:
-		tmpNum.SetInt64(v)
-	case uint64:
-		tmpNum.SetUint64(v)
-	case big.Int:
-		tmpNum.Set(&v)
-	default:
-		return fmt.Errorf("unsupported numerator type for cbor.Rat: %T", v)
+	if _, err := Decode(tmpRat[0], tmpNum); err != nil {
+		return fmt.Errorf("unsupported numerator for cbor.Rat: %w", err)
 	}
-	// Convert denominator to big.Int
 	tmpDenom := new(big.Int)
-	switch v := tmpRat[1].(type) {
-	case int64:
-		tmpDenom.SetInt64(v)
-	case uint64:
-		tmpDenom.SetUint64(v)
-	case big.Int:
-		tmpDenom.Set(&v)
-	default:
-		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
+	if _, err := Decode(tmpRat[1], tmpDenom); err != nil {
+		return fmt.Errorf("unsupported denominator for cbor.Rat: %w", err)
 	}
 	// Check for zero denominator
 	if tmpDenom.Sign() == 0 {

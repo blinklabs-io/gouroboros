@@ -167,54 +167,59 @@ func TestFixedShapeRepliesRejectOversizedArraysBeforeDecoding(t *testing.T) {
 	}
 }
 
-// TestDistributionRepliesRejectIndefiniteRationalBeforeDecoding feeds each
-// pool's stake fraction as an indefinite-length array of a million items. An
-// indefinite array declares no count, so a decoder that builds its items
-// before checking for two allocates about 16 MB from a 1 MB reply.
-func TestDistributionRepliesRejectIndefiniteRationalBeforeDecoding(
+// TestDistributionRepliesRejectOversizedRationalBeforeDecoding feeds each
+// pool's stake fraction as a million-item array that a fixed-shape check
+// rejects: the fraction itself as an indefinite-length array, which declares
+// no count, or a two-item fraction whose numerator is the array. A decoder
+// that builds those items before checking them allocates about 16 MB from a
+// 1 MB reply.
+func TestDistributionRepliesRejectOversizedRationalBeforeDecoding(
 	t *testing.T,
 ) {
 	poolID := cat([]byte{0x58, 0x1c}, make([]byte, 28))
 	vrfHash := cat([]byte{0x58, 0x20}, make([]byte, 32))
-	stakeFraction := cat(
-		[]byte{0xd8, 0x1e, 0x9f},
-		make([]byte, 1_000_000),
-		[]byte{0xff},
-	)
-	// [ { pool_id => [ stake_fraction, vrf_hash ] } ]
-	reply := cat(
-		[]byte{0x81, 0xa1},
-		poolID,
-		[]byte{0x82},
-		stakeFraction,
-		vrfHash,
-	)
-	tests := map[string]func() error{
-		"pool distribution": func() error {
-			var v PoolDistrResult
-			_, err := cbor.Decode(reply, &v)
-			return err
-		},
-		"stake distribution": func() error {
-			var v StakeDistributionResult
-			_, err := cbor.Decode(reply, &v)
-			return err
-		},
+	million := make([]byte, 1_000_000)
+	fractions := map[string][]byte{
+		"indefinite fraction": cat(
+			[]byte{0xd8, 0x1e, 0x9f},
+			million,
+			[]byte{0xff},
+		),
+		"array numerator": cat(
+			[]byte{0xd8, 0x1e, 0x82, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+			million,
+			[]byte{0x01},
+		),
 	}
-	for name, decode := range tests {
-		t.Run(name, func(t *testing.T) {
-			var before, after runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&before)
-			err := decode()
-			runtime.ReadMemStats(&after)
+	results := map[string]func() any{
+		"pool distribution":  func() any { return &PoolDistrResult{} },
+		"stake distribution": func() any { return &StakeDistributionResult{} },
+	}
+	for fractionName, stakeFraction := range fractions {
+		// [ { pool_id => [ stake_fraction, vrf_hash ] } ]
+		reply := cat(
+			[]byte{0x81, 0xa1},
+			poolID,
+			[]byte{0x82},
+			stakeFraction,
+			vrfHash,
+		)
+		for resultName, newResult := range results {
+			t.Run(resultName+"/"+fractionName, func(t *testing.T) {
+				result := newResult()
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				_, err := cbor.Decode(reply, result)
+				runtime.ReadMemStats(&after)
 
-			require.ErrorContains(t, err, "expected exactly 2 elements")
-			require.Less(
-				t,
-				after.TotalAlloc-before.TotalAlloc,
-				uint64(4<<20),
-			)
-		})
+				require.ErrorContains(t, err, "cbor.Rat")
+				require.Less(
+					t,
+					after.TotalAlloc-before.TotalAlloc,
+					uint64(4<<20),
+				)
+			})
+		}
 	}
 }
