@@ -736,10 +736,13 @@ func VerifyBlock(
 	return verifyBlock(block, eta0Hex, slotsPerKesPeriod, config, false)
 }
 
-// VerifyBlockLocal checks header cryptography and body integrity without
-// reading ledger state or protocol parameters. Success does not certify
-// transaction validity, block limits, pool registration, certificates, or the
-// Dijkstra header rules that depend on protocol parameters.
+// VerifyBlockLocal checks body integrity and the header cryptography that does
+// not require chain state or protocol parameters. Byron blocks have no Praos
+// VRF or KES evidence, so their local check validates the body proof; their
+// OBFT/PBFT signature and delegation rules remain chain-context checks.
+// Success does not certify transaction validity, block limits, pool
+// registration, certificates, or the Dijkstra header rules that depend on
+// protocol parameters.
 func VerifyBlockLocal(
 	block Block,
 	eta0Hex string,
@@ -757,6 +760,12 @@ func verifyBlock(
 	localOnly bool,
 ) (bool, string, uint64, uint64, error) {
 	vrfHex := ""
+	if localOnly {
+		switch block.(type) {
+		case *byron.ByronMainBlock, *byron.ByronEpochBoundaryBlock:
+			return verifyByronBlockLocal(block)
+		}
+	}
 
 	// Decode eta0
 	eta0, err := hex.DecodeString(eta0Hex)
@@ -1142,6 +1151,29 @@ func verifyBlock(
 		return false, "", 0, 0, err
 	}
 	return true, vrfHex, blockNo, slot, nil
+}
+
+func verifyByronBlockLocal(
+	block Block,
+) (bool, string, uint64, uint64, error) {
+	var err error
+	switch typedBlock := block.(type) {
+	case *byron.ByronMainBlock:
+		err = typedBlock.ValidateBodyProof()
+	case *byron.ByronEpochBoundaryBlock:
+		err = typedBlock.ValidateBodyProof()
+	default:
+		err = fmt.Errorf("unsupported Byron block type %T", block)
+	}
+	if err != nil {
+		return false, "", 0, 0, common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Byron block body proof validation failed",
+			map[string]any{"block_type": fmt.Sprintf("%T", block)},
+			err,
+		)
+	}
+	return true, "", block.BlockNumber(), block.SlotNumber(), nil
 }
 
 // VerifyBlockState checks the Dijkstra header rules, certificates, block

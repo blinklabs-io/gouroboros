@@ -98,7 +98,8 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 
 	block := item.Block()
 	slot := block.SlotNumber()
-	if block.Era().Id == ledgerbyron.EraIdByron {
+	isByron := block.Era().Id == ledgerbyron.EraIdByron
+	if isByron {
 		var err error
 		slot, err = ledgerbyron.SlotNumberFromHeader(
 			block,
@@ -112,27 +113,30 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 		}
 	}
 
-	// Get the epoch nonce from the provider
-	if s.config.Eta0Provider == nil {
-		duration := time.Since(start)
-		configErr := fmt.Errorf(
-			"eta0 provider not configured for slot %d",
-			slot,
-		)
-		item.SetValidation(false, "", configErr, duration)
-		return configErr
-	}
+	eta0 := ""
+	if !isByron || !s.config.BlockLocal {
+		if s.config.Eta0Provider == nil {
+			duration := time.Since(start)
+			configErr := fmt.Errorf(
+				"eta0 provider not configured for slot %d",
+				slot,
+			)
+			item.SetValidation(false, "", configErr, duration)
+			return configErr
+		}
 
-	eta0, err := s.config.Eta0Provider(slot)
-	if err != nil {
-		duration := time.Since(start)
-		providerErr := fmt.Errorf(
-			"eta0 provider error for slot %d: %w",
-			slot,
-			err,
-		)
-		item.SetValidation(false, "", providerErr, duration)
-		return providerErr
+		providedEta0, err := s.config.Eta0Provider(slot)
+		if err != nil {
+			duration := time.Since(start)
+			providerErr := fmt.Errorf(
+				"eta0 provider error for slot %d: %w",
+				slot,
+				err,
+			)
+			item.SetValidation(false, "", providerErr, duration)
+			return providerErr
+		}
+		eta0 = providedEta0
 	}
 
 	verify := ledger.VerifyBlock
