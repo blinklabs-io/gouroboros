@@ -146,25 +146,26 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 }
 
 // decodeRatInt decodes one item of a rational, which must be an integer or
-// a bignum (tag 2 or 3), optionally under the self-describe tag. big.Int
-// alone is too lenient: it decodes null and undefined as zero and strips an
-// unregistered tag, so the header is checked first.
+// a bignum (tag 2 or 3). big.Int alone is too lenient: it decodes null and
+// undefined as zero and strips an unregistered tag, so the header is checked
+// first. A self-describe tag never reaches here, because the decode mode
+// strips it from each item.
 func decodeRatInt(item RawMessage, what string) (*big.Int, error) {
-	header := []byte(item)
-	for len(header) >= 3 && header[0] == 0xd9 && header[1] == 0xd9 &&
-		header[2] == 0xf7 {
-		header = header[3:]
-	}
-	if len(header) == 0 {
+	if len(item) == 0 {
 		return nil, fmt.Errorf("missing %s for cbor.Rat", what)
 	}
 	// Major types 0 and 1 are the unsigned and negative integers.
-	if header[0]>>5 > 1 && header[0] != CborTypeTag|2 &&
-		header[0] != CborTypeTag|3 {
+	ok := item[0]>>5 <= 1
+	if item[0]&CborTypeMask == CborTypeTag {
+		// A tag header need not be minimal, so read the number at any width.
+		number, found := tagNumber(item)
+		ok = found && (number == 2 || number == 3)
+	}
+	if !ok {
 		return nil, fmt.Errorf(
 			"unsupported %s type for cbor.Rat: CBOR initial byte 0x%02x",
 			what,
-			header[0],
+			item[0],
 		)
 	}
 	ret := new(big.Int)
@@ -172,6 +173,26 @@ func decodeRatInt(item RawMessage, what string) (*big.Int, error) {
 		return nil, fmt.Errorf("unsupported %s for cbor.Rat: %w", what, err)
 	}
 	return ret, nil
+}
+
+// tagNumber returns the number of the tag header at the start of data.
+func tagNumber(data []byte) (uint64, bool) {
+	info := data[0] & 0x1f
+	if info < 24 {
+		return uint64(info), true
+	}
+	if info > 27 {
+		return 0, false
+	}
+	width := 1 << (info - 24)
+	if len(data) < 1+width {
+		return 0, false
+	}
+	var number uint64
+	for _, b := range data[1 : 1+width] {
+		number = number<<8 | uint64(b)
+	}
+	return number, true
 }
 
 func (r *Rat) MarshalCBOR() ([]byte, error) {

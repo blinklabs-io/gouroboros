@@ -505,16 +505,25 @@ func TestRatDecodesIndefiniteArray(t *testing.T) {
 }
 
 // TestRatDecodesIntegerItems checks the integer forms each item may take:
-// a plain integer, a bignum, and either under a self-describe tag.
+// a plain integer, a bignum, and either under a self-describe tag, whatever
+// the width of the tag header.
 func TestRatDecodesIntegerItems(t *testing.T) {
 	tests := map[string]struct {
 		cborHex string
 		want    string
 	}{
-		"negative":        {"d81e8220190100", "-1/256"},      // 30([-1, 256])
-		"bignums":         {"d81e82c24101c2420100", "1/256"}, // 30([2(h'01'), 2(h'0100')])
-		"negative bignum": {"d81e82c3410001", "-1/1"},        // 30([3(h'00'), 1])
-		"self-described":  {"d81e82d9d9f70102", "1/2"},       // 30([55799(1), 2])
+		// 30([-1, 256])
+		"negative": {"d81e8220190100", "-1/256"},
+		// 30([2(h'01'), 2(h'0100')])
+		"bignums": {"d81e82c24101c2420100", "1/256"},
+		// 30([3(h'00'), 1])
+		"negative bignum": {"d81e82c3410001", "-1/1"},
+		// 30([55799(1), 2])
+		"self-described": {"d81e82d9d9f70102", "1/2"},
+		// 30([2(h'05'), 2]) with a two-byte tag header
+		"long bignum tag": {"d81e82d802410502", "5/2"},
+		// 30([55799(1), 2]) with a five-byte tag header
+		"long self-describe tag": {"d81e82da0000d9f70102", "1/2"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
