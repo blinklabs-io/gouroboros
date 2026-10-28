@@ -30,18 +30,16 @@ type shelleyQueryVersionRange struct {
 // shelleyQueryVersionRanges follows blockQueryIsSupportedOnVersion in
 // ouroboros-consensus, translated from Shelley node-to-client versions to
 // the node-to-client versions they ride on (12 on 20, 13 on 21, 15 on 23).
-// The node closes the connection on a query its version does not carry, so
-// both sides refuse it before it reaches the wire or the callback.
+// Deprecated queries that current nodes still decode and answer are omitted
+// so they remain available on later negotiated versions.
 var shelleyQueryVersionRanges = map[int]shelleyQueryVersionRange{
-	QueryTypeShelleyProposedProtocolParamsUpdates: {last: 19},
-	QueryTypeShelleyStakeDistribution:             {last: 20},
-	QueryTypeShelleyPoolDistr:                     {last: 20},
-	QueryTypeShelleyStakePoolDefaultVote:          {first: 20},
-	QueryTypeShelleyPoolDistr2:                    {first: 21},
-	QueryTypeShelleyStakeDistribution2:            {first: 21},
-	QueryTypeShelleyMaxMajorProtocolVersion:       {first: 21},
-	QueryTypeShelleyDRepDelegations:               {first: 23},
-	QueryTypeShelleyStakePoolState:                {first: 23},
+	QueryTypeShelleyStakeDistribution:       {last: 20},
+	QueryTypeShelleyStakePoolDefaultVote:    {first: 20},
+	QueryTypeShelleyPoolDistr2:              {first: 21},
+	QueryTypeShelleyStakeDistribution2:      {first: 21},
+	QueryTypeShelleyMaxMajorProtocolVersion: {first: 21},
+	QueryTypeShelleyDRepDelegations:         {first: 23},
+	QueryTypeShelleyStakePoolState:          {first: 23},
 }
 
 // shelleyQuerySupported reports whether the node-to-client protocol version
