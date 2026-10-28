@@ -96,12 +96,18 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
-	// Check the declared item count before decoding so a header claiming a
-	// huge array is rejected without building it. An indefinite-length array
-	// has no declared count and is checked after decoding.
+	// Check the item count before decoding so an oversized array is rejected
+	// without building it. An indefinite-length array declares no count, so
+	// ListLength walks its items without retaining them.
 	content := SkipTags(cborData)
-	if count, _, indefinite := ArrayInfo(content); !indefinite &&
-		count >= 0 && count != 2 {
+	count, _, indefinite := ArrayInfo(content)
+	if indefinite {
+		var err error
+		if count, err = ListLength(content); err != nil {
+			return err
+		}
+	}
+	if count >= 0 && count != 2 {
 		return fmt.Errorf(
 			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
 			count,

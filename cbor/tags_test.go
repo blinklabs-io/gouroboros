@@ -404,22 +404,32 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 	)
 }
 
-// TestRatRejectsOversizedArrayBeforeDecoding checks the declared item count
-// of the rational's array before its items are decoded, so a header claiming
-// a million items is rejected without building them.
+// TestRatRejectsOversizedArrayBeforeDecoding checks the item count of the
+// rational's array before its items are decoded, so an array of a million
+// items is rejected without building them.
 func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 	// Each header declares array(1000000), followed by one-byte items (0).
 	// The nested case wraps the array in a second tag (55799) to check the
 	// count is read through every leading tag.
-	tests := map[string][]byte{
-		"tagged": {0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
-		"nested tags": {
+	// The indefinite case has no declared count, so its items must be
+	// counted without building them.
+	tests := map[string]struct {
+		header  []byte
+		trailer []byte
+	}{
+		"tagged": {header: []byte{0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40}},
+		"nested tags": {header: []byte{
 			0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+		}},
+		"indefinite": {
+			header:  []byte{0xd8, 0x1e, 0x9f},
+			trailer: []byte{0xff},
 		},
 	}
-	for name, header := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			data := append(header, make([]byte, 1_000_000)...)
+			data := append(tc.header, make([]byte, 1_000_000)...)
+			data = append(data, tc.trailer...)
 			var before, after runtime.MemStats
 			runtime.GC()
 			runtime.ReadMemStats(&before)
@@ -437,6 +447,17 @@ func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 			)
 		})
 	}
+}
+
+// TestRatDecodesIndefiniteArray checks that the item count taken from an
+// indefinite-length array still accepts a well-formed rational.
+func TestRatDecodesIndefiniteArray(t *testing.T) {
+	data, err := hex.DecodeString("d81e9f0102ff") // 30([_ 1, 2])
+	require.NoError(t, err)
+	var rat cbor.Rat
+	_, err = cbor.Decode(data, &rat)
+	require.NoError(t, err)
+	assert.Equal(t, "1/2", rat.String())
 }
 
 func TestSkipTags(t *testing.T) {

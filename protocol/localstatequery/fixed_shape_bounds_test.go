@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -162,6 +163,58 @@ func TestFixedShapeRepliesRejectOversizedArraysBeforeDecoding(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			requireBoundRejected(t, tt.decode())
+		})
+	}
+}
+
+// TestDistributionRepliesRejectIndefiniteRationalBeforeDecoding feeds each
+// pool's stake fraction as an indefinite-length array of a million items. An
+// indefinite array declares no count, so a decoder that builds its items
+// before checking for two allocates about 16 MB from a 1 MB reply.
+func TestDistributionRepliesRejectIndefiniteRationalBeforeDecoding(
+	t *testing.T,
+) {
+	poolID := cat([]byte{0x58, 0x1c}, make([]byte, 28))
+	vrfHash := cat([]byte{0x58, 0x20}, make([]byte, 32))
+	stakeFraction := cat(
+		[]byte{0xd8, 0x1e, 0x9f},
+		make([]byte, 1_000_000),
+		[]byte{0xff},
+	)
+	// [ { pool_id => [ stake_fraction, vrf_hash ] } ]
+	reply := cat(
+		[]byte{0x81, 0xa1},
+		poolID,
+		[]byte{0x82},
+		stakeFraction,
+		vrfHash,
+	)
+	tests := map[string]func() error{
+		"pool distribution": func() error {
+			var v PoolDistrResult
+			_, err := cbor.Decode(reply, &v)
+			return err
+		},
+		"stake distribution": func() error {
+			var v StakeDistributionResult
+			_, err := cbor.Decode(reply, &v)
+			return err
+		},
+	}
+	for name, decode := range tests {
+		t.Run(name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			err := decode()
+			runtime.ReadMemStats(&after)
+
+			require.ErrorContains(t, err, "expected exactly 2 elements")
+			require.Less(
+				t,
+				after.TotalAlloc-before.TotalAlloc,
+				uint64(4<<20),
+			)
 		})
 	}
 }
