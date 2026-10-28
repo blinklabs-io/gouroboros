@@ -94,8 +94,9 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 	if tagged.Number != cbor.CborTagRational {
 		return fmt.Errorf("expected CBOR rational tag, got %d", tagged.Number)
 	}
-	if count, _, indefinite := cbor.ArrayInfo(tagged.Content); !indefinite &&
-		count >= 0 && count != 2 {
+	if count, _, indefinite := cbor.ArrayInfo(
+		cbor.SkipTags(tagged.Content),
+	); !indefinite && count >= 0 && count != 2 {
 		return errors.New("expected rational numerator and denominator")
 	}
 	var components []cbor.RawMessage
