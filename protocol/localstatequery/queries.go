@@ -1901,6 +1901,32 @@ type GovStateResult struct {
 	DRepPulsingState cbor.RawMessage // DRep pulsing state
 }
 
+func (g *GovStateResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Proposals        growingArray[GovActionState]
+		Committee        cbor.RawMessage
+		Constitution     ConstitutionResult
+		CurrentPParams   cbor.RawMessage
+		PrevPParams      cbor.RawMessage
+		FuturePParams    cbor.RawMessage
+		DRepPulsingState cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*g = GovStateResult{
+		Proposals:        tmp.Proposals,
+		Committee:        tmp.Committee,
+		Constitution:     tmp.Constitution,
+		CurrentPParams:   tmp.CurrentPParams,
+		PrevPParams:      tmp.PrevPParams,
+		FuturePParams:    tmp.FuturePParams,
+		DRepPulsingState: tmp.DRepPulsingState,
+	}
+	return nil
+}
+
 // DecodeCommittee decodes the Committee field from its StrictMaybe CBOR encoding.
 // In Cardano, StrictMaybe is encoded as:
 //   - [0] for SNothing (no committee)
@@ -1986,7 +2012,7 @@ func (e *DRepStateEntry) UnmarshalCBOR(data []byte) error {
 		Expiry     uint64
 		Anchor     cbor.RawMessage
 		Deposit    uint64
-		Delegators []StakeCredential
+		Delegators growingArray[StakeCredential]
 	}
 	if _, err := cbor.Decode(data, &raw); err != nil {
 		return err
@@ -2237,12 +2263,12 @@ type ProposalsResult []GovActionState
 func (r *ProposalsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Proposals []GovActionState
+		Proposals growingArray[GovActionState]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	*r = tmp.Proposals
+	*r = ProposalsResult(tmp.Proposals)
 	return nil
 }
 
@@ -2269,4 +2295,24 @@ type RatifyStateResult struct {
 	Enacted    []GovActionState
 	Expired    []lcommon.GovActionId
 	Delayed    bool
+}
+
+func (r *RatifyStateResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		EnactState EnactState
+		Enacted    growingArray[GovActionState]
+		Expired    growingArray[lcommon.GovActionId]
+		Delayed    bool
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = RatifyStateResult{
+		EnactState: tmp.EnactState,
+		Enacted:    tmp.Enacted,
+		Expired:    tmp.Expired,
+		Delayed:    tmp.Delayed,
+	}
+	return nil
 }
