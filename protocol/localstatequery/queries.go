@@ -1874,6 +1874,22 @@ type Committee struct {
 	Threshold cbor.Rat
 }
 
+func (c *Committee) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Members   growingMap[StakeCredential, uint64]
+		Threshold cbor.Rat
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*c = Committee{
+		Members:   tmp.Members,
+		Threshold: tmp.Threshold,
+	}
+	return nil
+}
+
 // GovActionState represents a governance proposal and its current voting state.
 type GovActionState struct {
 	cbor.StructAsArray
@@ -1884,6 +1900,32 @@ type GovActionState struct {
 	ProposalProcedure cbor.RawMessage
 	ProposedIn        uint64
 	ExpiresAfter      uint64
+}
+
+func (s *GovActionState) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Id                lcommon.GovActionId
+		CommitteeVotes    growingMap[StakeCredential, lcommon.Vote]
+		DRepVotes         growingMap[StakeCredential, lcommon.Vote]
+		SPOVotes          growingMap[ledger.Blake2b224, lcommon.Vote]
+		ProposalProcedure cbor.RawMessage
+		ProposedIn        uint64
+		ExpiresAfter      uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*s = GovActionState{
+		Id:                tmp.Id,
+		CommitteeVotes:    tmp.CommitteeVotes,
+		DRepVotes:         tmp.DRepVotes,
+		SPOVotes:          tmp.SPOVotes,
+		ProposalProcedure: tmp.ProposalProcedure,
+		ProposedIn:        tmp.ProposedIn,
+		ExpiresAfter:      tmp.ExpiresAfter,
+	}
+	return nil
 }
 
 // GovStateResult represents the full governance state.
@@ -2284,6 +2326,32 @@ type EnactState struct {
 	Treasury      uint64
 	Withdrawals   map[StakeCredential]uint64
 	PrevActionIds cbor.RawMessage // Complex map of gov action types to optional action IDs
+}
+
+func (e *EnactState) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Committee     cbor.RawMessage
+		Constitution  ConstitutionResult
+		CurPParams    cbor.RawMessage
+		PrevPParams   cbor.RawMessage
+		Treasury      uint64
+		Withdrawals   growingMap[StakeCredential, uint64]
+		PrevActionIds cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*e = EnactState{
+		Committee:     tmp.Committee,
+		Constitution:  tmp.Constitution,
+		CurPParams:    tmp.CurPParams,
+		PrevPParams:   tmp.PrevPParams,
+		Treasury:      tmp.Treasury,
+		Withdrawals:   tmp.Withdrawals,
+		PrevActionIds: tmp.PrevActionIds,
+	}
+	return nil
 }
 
 // RatifyStateResult represents the result of the GetRatifyState query (query ID 32).
