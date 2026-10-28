@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -760,4 +761,70 @@ func TestStakePoolStateResultRejectsUnknownArity(t *testing.T) {
 	var result StakePoolStateResult
 	_, err = cbor.Decode(encoded, &result)
 	require.Error(t, err)
+}
+
+// TestEncodeCanonicalPoolIdSet covers the pool set shared by the pool
+// queries: no pools is the empty set rather than null, a set above the
+// indefinite-length threshold is still definite, and members come out sorted
+// and unique whatever order they went in.
+func TestEncodeCanonicalPoolIdSet(t *testing.T) {
+	t.Parallel()
+	pool := func(b byte) ledger.PoolId {
+		return ledger.PoolId(ledger.NewBlake2b224(
+			[]byte(strings.Repeat(string([]byte{b}), 28)),
+		))
+	}
+
+	for name, pools := range map[string][]ledger.PoolId{
+		"nil":   nil,
+		"empty": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			data, err := encodeCanonicalPoolIdSet(pools)
+			require.NoError(t, err)
+			assert.Equal(t, "d9010280", hex.EncodeToString(data))
+		})
+	}
+
+	for _, count := range []int{23, 24, 25} {
+		t.Run(fmt.Sprintf("%d pools descending", count), func(t *testing.T) {
+			pools := make([]ledger.PoolId, 0, count)
+			for b := count; b >= 1; b-- {
+				pools = append(pools, pool(byte(b)))
+			}
+			data, err := encodeCanonicalPoolIdSet(pools)
+			require.NoError(t, err)
+			require.Equal(t, []byte{0xd9, 0x01, 0x02}, data[:3])
+			require.NotEqual(t, byte(0x9f), data[3], "indefinite array")
+			var members []cbor.RawMessage
+			_, err = cbor.Decode(data[3:], &members)
+			require.NoError(t, err)
+			require.Len(t, members, count)
+			for idx := 1; idx < len(members); idx++ {
+				assert.Negative(
+					t,
+					bytes.Compare(members[idx-1], members[idx]),
+				)
+			}
+		})
+	}
+
+	t.Run("duplicates are dropped", func(t *testing.T) {
+		data, err := encodeCanonicalPoolIdSet(
+			[]ledger.PoolId{pool(3), pool(1), pool(3), pool(2), pool(1)},
+		)
+		require.NoError(t, err)
+		expected, err := encodeCanonicalPoolIdSet(
+			[]ledger.PoolId{pool(1), pool(2), pool(3)},
+		)
+		require.NoError(t, err)
+		assert.Equal(t, expected, data)
+	})
+
+	t.Run("over the bound", func(t *testing.T) {
+		_, err := encodeCanonicalPoolIdSet(
+			make([]ledger.PoolId, maxLocalStateQuerySetItems+1),
+		)
+		require.ErrorContains(t, err, "maximum is")
+	})
 }

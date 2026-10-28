@@ -131,6 +131,14 @@ func encodeStakePoolIdSet(poolIds []ledger.PoolId) ([]byte, error) {
 	if len(poolIds) == 0 {
 		return nil, nil
 	}
+	return encodeCanonicalPoolIdSet(poolIds)
+}
+
+// encodeCanonicalPoolIdSet encodes pool IDs as the canonical set the node's
+// decoder requires: tag 258 around a definite-length array of members in
+// strictly ascending order of their encoding. Duplicates are dropped and no
+// pools encodes the empty set.
+func encodeCanonicalPoolIdSet[T any](poolIds []T) ([]byte, error) {
 	if len(poolIds) > maxLocalStateQuerySetItems {
 		return nil, fmt.Errorf(
 			"pool IDs contains %d items; maximum is %d",

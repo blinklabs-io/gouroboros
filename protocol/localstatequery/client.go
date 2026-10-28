@@ -933,13 +933,14 @@ func (c *Client) GetStakePoolParams(
 	if err != nil {
 		return nil, err
 	}
+	poolSet, err := encodeCanonicalPoolIdSet(poolIds)
+	if err != nil {
+		return nil, err
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyStakePoolParams,
-		cbor.Tag{
-			Number:  cbor.CborTagSet,
-			Content: poolIds,
-		},
+		cbor.RawMessage(poolSet),
 	)
 	var result StakePoolParamsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -990,7 +991,10 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	poolFilter := poolFilterQueryParam(poolIds)
+	poolFilter, err := poolFilterQueryParam(poolIds)
+	if err != nil {
+		return nil, err
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolState,
@@ -1085,9 +1089,9 @@ func (c *Client) GetStakeSnapshots(
 	// list: an empty list selects all pools (SNothing), while a
 	// single-element list holding a tag-258 set restricts the result to
 	// those pools (SJust). See dingo issue #2917.
-	poolFilter := []any{}
-	if len(poolIds) > 0 {
-		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	poolFilter, err := poolFilterQueryParam(poolIds)
+	if err != nil {
+		return nil, err
 	}
 	query := buildShelleyQuery(
 		currentEra,
@@ -1117,7 +1121,10 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	poolFilter := poolFilterQueryParam(poolIds)
+	poolFilter, err := poolFilterQueryParam(poolIds)
+	if err != nil {
+		return nil, err
+	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyPoolDistr,
@@ -1132,12 +1139,16 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 
 // poolFilterQueryParam encodes the StrictMaybe (Set PoolId) argument used by
 // the filtered Shelley pool queries. An empty StrictMaybe requests all pools.
-func poolFilterQueryParam(poolIds []any) []any {
+func poolFilterQueryParam[T any](poolIds []T) ([]any, error) {
 	poolFilter := []any{}
 	if len(poolIds) > 0 {
-		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+		poolSet, err := encodeCanonicalPoolIdSet(poolIds)
+		if err != nil {
+			return nil, err
+		}
+		poolFilter = append(poolFilter, cbor.RawMessage(poolSet))
 	}
-	return poolFilter
+	return poolFilter, nil
 }
 
 // GetPoolDistr2 returns the ledger's pool stake distribution, which replaces
@@ -1170,9 +1181,9 @@ func (c *Client) GetPoolDistr2(
 	}
 	// The pool filter is a StrictMaybe encoded as a list, so an empty list asks
 	// about every pool rather than about none.
-	poolFilter := []any{}
-	if len(poolIds) > 0 {
-		poolFilter = append(poolFilter, cbor.NewSetType(poolIds, true))
+	poolFilter, err := poolFilterQueryParam(poolIds)
+	if err != nil {
+		return nil, err
 	}
 	query := buildShelleyQuery(
 		currentEra,
@@ -1576,18 +1587,14 @@ func (c *Client) GetSPOStakeDistr(
 			currentEra,
 		)
 	}
-	// Create a CBOR set from the pool IDs
-	if poolIds == nil {
-		poolIds = []ledger.PoolId{}
-	}
-	poolSet := cbor.Tag{
-		Number:  cbor.CborTagSet,
-		Content: poolIds,
+	poolSet, err := encodeCanonicalPoolIdSet(poolIds)
+	if err != nil {
+		return nil, err
 	}
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleySPOStakeDistr,
-		poolSet,
+		cbor.RawMessage(poolSet),
 	)
 	var result SPOStakeDistrResult
 	if err := c.runQuery(query, &result); err != nil {
