@@ -237,7 +237,7 @@ func TestDRepDelegationsResult(t *testing.T) {
 }
 
 // TestShelleyQueryVersionGates pins the node-to-client versions that carry
-// each query whose availability changed after version 19.
+// queries whose negotiated availability changes.
 func TestShelleyQueryVersionGates(t *testing.T) {
 	cases := []struct {
 		queryType int
@@ -246,11 +246,11 @@ func TestShelleyQueryVersionGates(t *testing.T) {
 	}{
 		{
 			QueryTypeShelleyProposedProtocolParamsUpdates,
-			[]uint16{19},
-			[]uint16{20, 23},
+			[]uint16{19, 20, 23},
+			nil,
 		},
 		{QueryTypeShelleyStakeDistribution, []uint16{20}, []uint16{21, 23}},
-		{QueryTypeShelleyPoolDistr, []uint16{20}, []uint16{21, 23}},
+		{QueryTypeShelleyPoolDistr, []uint16{20, 21, 23}, nil},
 		{QueryTypeShelleyStakePoolDefaultVote, []uint16{20, 23}, []uint16{19}},
 		{QueryTypeShelleyStakeDistribution2, []uint16{21, 23}, []uint16{20}},
 		{QueryTypeShelleyPoolDistr2, []uint16{21, 23}, []uint16{19, 20}},
@@ -283,16 +283,8 @@ func TestClientRefusesQueriesOutsideVersion(t *testing.T) {
 		version uint16
 		call    func(c *Client) error
 	}{
-		{"proposed_pparams_updates_v20", 20, func(c *Client) error {
-			_, err := c.GetProposedProtocolParamsUpdates()
-			return err
-		}},
 		{"stake_distribution_v21", 21, func(c *Client) error {
 			_, err := c.GetStakeDistribution()
-			return err
-		}},
-		{"pool_distr_v23", 23, func(c *Client) error {
-			_, err := c.GetPoolDistr(nil)
 			return err
 		}},
 		{"stake_pool_default_vote_v19", 19, func(c *Client) error {
@@ -333,6 +325,51 @@ func TestClientRefusesQueriesOutsideVersion(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("call passed the version gate")
 			}
+		})
+	}
+}
+
+// TestServerAcceptsDeprecatedQueriesAfterVersionBoundary checks queries whose
+// wire forms remain accepted after their replacements were introduced.
+func TestServerAcceptsDeprecatedQueriesAfterVersionBoundary(t *testing.T) {
+	callbackReached := errors.New("callback reached")
+	cases := []struct {
+		name    string
+		version uint16
+		query   any
+	}{
+		{
+			name:    "proposed protocol parameter updates at version 20",
+			version: 20,
+			query: &ShelleyProposedProtocolParamsUpdatesQuery{
+				simpleQueryBase{
+					Type: QueryTypeShelleyProposedProtocolParamsUpdates,
+				},
+			},
+		},
+		{
+			name:    "pool distribution at version 21",
+			version: 21,
+			query: &ShelleyPoolDistrQuery{
+				Type: QueryTypeShelleyPoolDistr,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newServerWithVersion(
+				ntc(tc.version),
+				func(_ CallbackContext, _ QueryWrapper) (any, error) {
+					return nil, callbackReached
+				},
+			)
+			msg := NewMsgQuery(&BlockQuery{
+				Query: &ShelleyQuery{
+					Era:   ledger.EraIdConway,
+					Query: tc.query,
+				},
+			})
+			require.ErrorIs(t, s.handleQuery(msg), callbackReached)
 		})
 	}
 }
