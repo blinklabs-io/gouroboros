@@ -393,7 +393,12 @@ func uintFromHead(data []byte) (uint64, bool) {
 	return 0, false
 }
 
-// Determine the length of a CBOR list
+// ListLength returns the item count of the CBOR list at the start of
+// cborData. A definite list is answered from its header after checking only
+// that the count does not exceed the bytes that follow it, so its items are
+// not validated. An indefinite list is counted by walking its items, which
+// rejects malformed ones. Bytes after the list are ignored in both cases.
+// Callers that rely on the items being well-formed must decode them.
 func ListLength(cborData []byte) (int, error) {
 	if len(cborData) == 0 {
 		return 0, errors.New("empty CBOR data")
@@ -404,13 +409,34 @@ func ListLength(cborData []byte) (int, error) {
 		cborData[0] <= (CborTypeArray+CborMaxUintSimple) {
 		return int(cborData[0]) - int(CborTypeArray), nil
 	}
-	// If we couldn't use the shortcut above, actually decode the list
-	var tmp []RawMessage
+	// Every item takes at least one byte, so a declared count above the
+	// bytes left cannot be honest and is refused before anything is sized
+	// from it.
+	if count, headerSize, indefinite := ArrayInfo(cborData); count >= 0 &&
+		!indefinite {
+		if count > len(cborData)-int(headerSize) {
+			return 0, fmt.Errorf(
+				"list declares %d items in %d bytes",
+				count,
+				len(cborData)-int(headerSize),
+			)
+		}
+		return count, nil
+	}
+	// An indefinite list has no count to read, so its items are walked.
+	// listItem is zero-sized, so the slice holds no per-item memory. Input
+	// that is not a list is rejected by the same decode.
+	var tmp []listItem
 	if _, err := Decode(cborData, &tmp); err != nil {
 		return 0, err
 	}
 	return len(tmp), nil
 }
+
+// listItem accepts any well-formed CBOR item without keeping it.
+type listItem struct{}
+
+func (*listItem) UnmarshalCBOR([]byte) error { return nil }
 
 // Decode CBOR list data by the leading value of each list item. It expects CBOR data and
 // a map of numbers to object pointers to decode into
