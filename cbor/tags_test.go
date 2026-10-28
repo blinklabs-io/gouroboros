@@ -167,6 +167,31 @@ func TestRatUnmarshalCBORErrors(t *testing.T) {
 			cborHex:     "d81e820100", // 30([1, 0])
 			expectError: "denominator cannot be zero",
 		},
+		{
+			name:        "null numerator",
+			cborHex:     "d81e82f601", // 30([null, 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "undefined numerator",
+			cborHex:     "d81e82f701", // 30([undefined, 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "tagged numerator",
+			cborHex:     "d81e82d8640501", // 30([100(5), 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "rational numerator",
+			cborHex:     "d81e82d81e82010202", // 30([30([1, 2]), 2])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "null denominator",
+			cborHex:     "d81e8201f6", // 30([1, null])
+			expectError: "unsupported denominator",
+		},
 	}
 
 	for _, tt := range tests {
@@ -477,6 +502,30 @@ func TestRatDecodesIndefiniteArray(t *testing.T) {
 	_, err = cbor.Decode(data, &rat)
 	require.NoError(t, err)
 	assert.Equal(t, "1/2", rat.String())
+}
+
+// TestRatDecodesIntegerItems checks the integer forms each item may take:
+// a plain integer, a bignum, and either under a self-describe tag.
+func TestRatDecodesIntegerItems(t *testing.T) {
+	tests := map[string]struct {
+		cborHex string
+		want    string
+	}{
+		"negative":        {"d81e8220190100", "-1/256"},      // 30([-1, 256])
+		"bignums":         {"d81e82c24101c2420100", "1/256"}, // 30([2(h'01'), 2(h'0100')])
+		"negative bignum": {"d81e82c3410001", "-1/1"},        // 30([3(h'00'), 1])
+		"self-described":  {"d81e82d9d9f70102", "1/2"},       // 30([55799(1), 2])
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			data, err := hex.DecodeString(tc.cborHex)
+			require.NoError(t, err)
+			var rat cbor.Rat
+			_, err = cbor.Decode(data, &rat)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, rat.String())
+		})
+	}
 }
 
 func TestSkipTags(t *testing.T) {

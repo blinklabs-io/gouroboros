@@ -127,13 +127,13 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 			len(tmpRat),
 		)
 	}
-	tmpNum := new(big.Int)
-	if _, err := Decode(tmpRat[0], tmpNum); err != nil {
-		return fmt.Errorf("unsupported numerator for cbor.Rat: %w", err)
+	tmpNum, err := decodeRatInt(tmpRat[0], "numerator")
+	if err != nil {
+		return err
 	}
-	tmpDenom := new(big.Int)
-	if _, err := Decode(tmpRat[1], tmpDenom); err != nil {
-		return fmt.Errorf("unsupported denominator for cbor.Rat: %w", err)
+	tmpDenom, err := decodeRatInt(tmpRat[1], "denominator")
+	if err != nil {
+		return err
 	}
 	// Check for zero denominator
 	if tmpDenom.Sign() == 0 {
@@ -143,6 +143,35 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	r.Rat = new(big.Rat)
 	r.SetFrac(tmpNum, tmpDenom)
 	return nil
+}
+
+// decodeRatInt decodes one item of a rational, which must be an integer or
+// a bignum (tag 2 or 3), optionally under the self-describe tag. big.Int
+// alone is too lenient: it decodes null and undefined as zero and strips an
+// unregistered tag, so the header is checked first.
+func decodeRatInt(item RawMessage, what string) (*big.Int, error) {
+	header := []byte(item)
+	for len(header) >= 3 && header[0] == 0xd9 && header[1] == 0xd9 &&
+		header[2] == 0xf7 {
+		header = header[3:]
+	}
+	if len(header) == 0 {
+		return nil, fmt.Errorf("missing %s for cbor.Rat", what)
+	}
+	// Major types 0 and 1 are the unsigned and negative integers.
+	if header[0]>>5 > 1 && header[0] != CborTypeTag|2 &&
+		header[0] != CborTypeTag|3 {
+		return nil, fmt.Errorf(
+			"unsupported %s type for cbor.Rat: CBOR initial byte 0x%02x",
+			what,
+			header[0],
+		)
+	}
+	ret := new(big.Int)
+	if _, err := Decode(item, ret); err != nil {
+		return nil, fmt.Errorf("unsupported %s for cbor.Rat: %w", what, err)
+	}
+	return ret, nil
 }
 
 func (r *Rat) MarshalCBOR() ([]byte, error) {
