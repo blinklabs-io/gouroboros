@@ -747,6 +747,68 @@ type PoolRelay struct {
 	Hostname *string `json:"hostname,omitempty"`
 }
 
+// UnmarshalJSON accepts both the public flat relay representation and the
+// tagged representation emitted by cardano-ledger for Shelley genesis files.
+func (p *PoolRelay) UnmarshalJSON(data []byte) error {
+	type flatPoolRelay PoolRelay
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, ok := fields["single host address"]; ok {
+		var relay struct {
+			Port *uint32 `json:"port"`
+			Ipv4 *net.IP `json:"IPv4"`
+			Ipv6 *net.IP `json:"IPv6"`
+		}
+		if err := json.Unmarshal(raw, &relay); err != nil {
+			return err
+		}
+		*p = PoolRelay{
+			Type: PoolRelayTypeSingleHostAddress,
+			Port: relay.Port,
+			Ipv4: relay.Ipv4,
+			Ipv6: relay.Ipv6,
+		}
+		return p.validateCBORBounds()
+	}
+	if raw, ok := fields["single host name"]; ok {
+		var relay struct {
+			Port     *uint32 `json:"port"`
+			Hostname string  `json:"dnsName"`
+		}
+		if err := json.Unmarshal(raw, &relay); err != nil {
+			return err
+		}
+		*p = PoolRelay{
+			Type:     PoolRelayTypeSingleHostName,
+			Port:     relay.Port,
+			Hostname: &relay.Hostname,
+		}
+		return p.validateCBORBounds()
+	}
+	if raw, ok := fields["multi host name"]; ok {
+		var relay struct {
+			Hostname string `json:"dnsName"`
+		}
+		if err := json.Unmarshal(raw, &relay); err != nil {
+			return err
+		}
+		*p = PoolRelay{
+			Type:     PoolRelayTypeMultiHostName,
+			Hostname: &relay.Hostname,
+		}
+		return p.validateCBORBounds()
+	}
+
+	var relay flatPoolRelay
+	if err := json.Unmarshal(data, &relay); err != nil {
+		return err
+	}
+	*p = PoolRelay(relay)
+	return p.validateCBORBounds()
+}
+
 func (p PoolRelay) validateCBORBounds() error {
 	switch p.Type {
 	case PoolRelayTypeSingleHostAddress, PoolRelayTypeSingleHostName:
@@ -1298,14 +1360,8 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		Margin        json.RawMessage `json:"margin"`
 		RewardAccount json.RawMessage `json:"rewardAccount"`
 		PoolOwners    []string        `json:"poolOwners"`
-		Relays        []struct {
-			Type     int     `json:"type"`
-			Port     *uint32 `json:"port,omitempty"`
-			Ipv4     *net.IP `json:"ipv4,omitempty"`
-			Ipv6     *net.IP `json:"ipv6,omitempty"`
-			Hostname *string `json:"hostname,omitempty"`
-		} `json:"relays"`
-		PoolMetadata *PoolMetadata `json:"poolMetadata,omitempty"`
+		Relays        []PoolRelay     `json:"relays"`
+		PoolMetadata  *PoolMetadata   `json:"poolMetadata,omitempty"`
 
 		// Shelley genesis staking.pools uses different field names than the
 		// on-chain / API representation above for the same values. Accept both
@@ -1346,17 +1402,10 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 	p.Pledge = tmp.Pledge
 	p.Cost = tmp.Cost
 	p.LeiosKey = tmp.LeiosKey
-	p.Relays = make([]PoolRelay, len(tmp.Relays))
-	for i, relay := range tmp.Relays {
-		p.Relays[i] = PoolRelay{
-			Type:     relay.Type,
-			Port:     relay.Port,
-			Ipv4:     relay.Ipv4,
-			Ipv6:     relay.Ipv6,
-			Hostname: relay.Hostname,
-		}
-	}
+	p.Relays = tmp.Relays
 	p.PoolMetadata = poolMetadata
+	p.DecodeStoreCbor.SetCbor(nil)
+	p.clearRewardAccountMetadata()
 
 	// Handle margin field
 	margin, err := ParsePoolMarginJSON(tmp.Margin)
@@ -1367,31 +1416,20 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 
 	// Handle reward account
 	if len(tmp.RewardAccount) > 0 {
-		var ra struct {
-			Credential struct {
-				KeyHash string `json:"key hash"`
-			} `json:"credential"`
+		credential, networkId, networkKnown, err := decodePoolRewardAccountJSON(
+			tmp.RewardAccount,
+		)
+		if err != nil {
+			return err
 		}
-		if err := json.Unmarshal(tmp.RewardAccount, &ra); err != nil {
-			return fmt.Errorf("failed to unmarshal reward account: %w", err)
-		}
-
-		if ra.Credential.KeyHash != "" {
-			hashBytes, err := hex.DecodeString(ra.Credential.KeyHash)
-			if err != nil {
-				return fmt.Errorf(
-					"failed to decode reward account key hash: %w",
-					err,
-				)
+		p.RewardAccount = AddrKeyHash(credential.Credential)
+		if networkKnown {
+			if err := p.SetRewardAccountCredential(
+				credential,
+				networkId,
+			); err != nil {
+				return err
 			}
-			if len(hashBytes) != AddressHashSize {
-				return fmt.Errorf(
-					"invalid key hash length: expected %d, got %d",
-					AddressHashSize,
-					len(hashBytes),
-				)
-			}
-			p.RewardAccount = AddrKeyHash(hashBytes)
 		}
 	}
 
@@ -1441,13 +1479,79 @@ func (p *PoolRegistrationCertificate) UnmarshalJSON(data []byte) error {
 		p.PoolOwners = owners
 	}
 
-	// JSON reward accounts do not carry the wire header needed to recover
-	// credential type or network identity. The decoded-CBOR cache is likewise
-	// stale after JSON replaces certificate fields.
-	p.DecodeStoreCbor.SetCbor(nil)
-	p.clearRewardAccountMetadata()
-
 	return nil
+}
+
+func decodePoolRewardAccountJSON(
+	data json.RawMessage,
+) (Credential, uint, bool, error) {
+	var hashText string
+	if err := json.Unmarshal(data, &hashText); err == nil {
+		var hash Blake2b224
+		if err := hash.UnmarshalText([]byte(hashText)); err != nil {
+			return Credential{}, 0, false, fmt.Errorf(
+				"failed to decode reward account key hash: %w",
+				err,
+			)
+		}
+		return Credential{
+			CredType:   CredentialTypeAddrKeyHash,
+			Credential: hash,
+		}, 0, false, nil
+	}
+
+	var rewardAccount struct {
+		Credential struct {
+			KeyHash       string `json:"keyHash"`
+			LegacyKeyHash string `json:"key hash"`
+			ScriptHash    string `json:"scriptHash"`
+		} `json:"credential"`
+		Network string `json:"network"`
+	}
+	if err := json.Unmarshal(data, &rewardAccount); err != nil {
+		return Credential{}, 0, false, fmt.Errorf(
+			"failed to unmarshal reward account: %w",
+			err,
+		)
+	}
+	credentialType := uint(CredentialTypeAddrKeyHash)
+	hashText = rewardAccount.Credential.KeyHash
+	if hashText == "" {
+		hashText = rewardAccount.Credential.LegacyKeyHash
+	}
+	if hashText == "" {
+		credentialType = CredentialTypeScriptHash
+		hashText = rewardAccount.Credential.ScriptHash
+	}
+	if hashText == "" {
+		return Credential{}, 0, false, errors.New(
+			"reward account credential is required",
+		)
+	}
+	var hash Blake2b224
+	if err := hash.UnmarshalText([]byte(hashText)); err != nil {
+		return Credential{}, 0, false, fmt.Errorf(
+			"failed to decode reward account hash: %w",
+			err,
+		)
+	}
+	credential := Credential{
+		CredType:   credentialType,
+		Credential: hash,
+	}
+	switch rewardAccount.Network {
+	case "":
+		return credential, 0, false, nil
+	case "Testnet":
+		return credential, AddressNetworkTestnet, true, nil
+	case "Mainnet":
+		return credential, AddressNetworkMainnet, true, nil
+	default:
+		return Credential{}, 0, false, fmt.Errorf(
+			"invalid reward account network: %s",
+			rewardAccount.Network,
+		)
+	}
 }
 
 // MarshalJSON rejects programmatically constructed margins that do not satisfy

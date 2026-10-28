@@ -970,3 +970,62 @@ func TestGenesisStaking(t *testing.T) {
 		}
 	})
 }
+
+func TestCardanoNodeDevnetGenesisPoolRoundTrip(t *testing.T) {
+	const poolID = "f583a45e4947c102091b96170ef50ef0cf8edb62666193a2163247bb"
+	const reward = "4e88cc2d27c364aaf90648a87dfb95f8ee103ba67fa1f12f5e86c42a"
+
+	// The fixture preserves the pool JSON emitted by cardano-ledger's
+	// eras/shelley/test-suite/test/Golden/ShelleyGenesis reference.
+	genesis, err := shelley.NewShelleyGenesisFromFile(
+		"testdata/cardano-node-devnet-genesis.json",
+	)
+	require.NoError(t, err)
+	pools, _, err := genesis.InitialPools()
+	require.NoError(t, err)
+	pool, ok := pools[poolID]
+	require.True(t, ok)
+	assert.Equal(t, reward, hex.EncodeToString(pool.RewardAccount[:]))
+	networkID, known := pool.RewardAccountNetworkId()
+	if !known {
+		t.Fatal("reference reward account network was discarded")
+	}
+	assert.Equal(t, uint(common.AddressNetworkTestnet), networkID)
+	require.Len(t, pool.Relays, 3)
+	assert.Equal(t, common.PoolRelayTypeSingleHostAddress, pool.Relays[0].Type)
+	if pool.Relays[0].Ipv4 == nil {
+		t.Fatal("reference single-host-address IPv4 was discarded")
+	}
+	assert.Equal(t, "0.0.0.0", pool.Relays[0].Ipv4.String())
+	require.NotNil(t, pool.Relays[0].Ipv6)
+	assert.Equal(t, "2001:db8:a::123", pool.Relays[0].Ipv6.String())
+	assert.Equal(t, common.PoolRelayTypeSingleHostName, pool.Relays[1].Type)
+	require.NotNil(
+		t,
+		pool.Relays[1].Hostname,
+		"reference single-host-name DNS name was discarded",
+	)
+	assert.Equal(t, "cool.domain.com", *pool.Relays[1].Hostname)
+	assert.Equal(t, common.PoolRelayTypeMultiHostName, pool.Relays[2].Type)
+
+	wire, err := cbor.Encode(&pool)
+	require.NoError(t, err)
+	var decoded common.PoolRegistrationCertificate
+	_, err = cbor.Decode(wire, &decoded)
+	require.NoError(t, err)
+	assert.Equal(t, pool.RewardAccount, decoded.RewardAccount)
+	require.Len(t, decoded.Relays, 3)
+	require.NotNil(t, decoded.Relays[0].Ipv4)
+	assert.Equal(t, "0.0.0.0", decoded.Relays[0].Ipv4.String())
+	require.NotNil(t, decoded.Relays[0].Ipv6)
+	assert.Equal(t, "2001:db8:a::123", decoded.Relays[0].Ipv6.String())
+	assert.Equal(t, pool.Relays[1].Hostname, decoded.Relays[1].Hostname)
+	assert.Equal(t, pool.Relays[2].Hostname, decoded.Relays[2].Hostname)
+	decodedNetworkID, decodedKnown := decoded.RewardAccountNetworkId()
+	require.True(t, decodedKnown)
+	assert.Equal(t, networkID, decodedNetworkID)
+	decoded.SetCbor(nil)
+	decodedWire, err := cbor.Encode(&decoded)
+	require.NoError(t, err)
+	assert.Equal(t, wire, decodedWire)
+}
