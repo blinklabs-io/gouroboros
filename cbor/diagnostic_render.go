@@ -23,13 +23,15 @@ import (
 )
 
 const (
-	// The default output cap is a fixed floor plus a multiple of the encoded
-	// size of the rendered node. Indentation and the fixed-width hex columns
-	// make a nested item cost far more output than input, so a cap that
-	// ignored the input would either truncate large legitimate dumps or admit
-	// hundreds of megabytes from a few kilobytes of deeply nested input.
-	diagnosticOutputBaseBytes         = 4 << 20
-	diagnosticOutputBytesPerInputByte = 256
+	// The default output cap is a fixed floor plus an allowance for each
+	// node. Indentation and the fixed-width hex columns make a nested item
+	// cost far more output than input, so headers and container framing earn
+	// the structural rate. A string's payload renders at no more than a few
+	// bytes per byte, so it earns the payload rate; at the structural rate a
+	// large string would admit nesting output elsewhere in the input.
+	diagnosticOutputBaseBytes                 = 4 << 20
+	diagnosticOutputBytesPerStructuralByte    = 256
+	diagnosticOutputBytesPerStringPayloadByte = 8
 
 	diagnosticTruncationMarker = "... (output truncated)"
 )
@@ -39,12 +41,58 @@ func (o *DiagnosticOptions) outputLimit(n *DiagnosticNode) int {
 	if o.MaxOutputBytes > 0 {
 		return o.MaxOutputBytes
 	}
-	if n.Length > (math.MaxInt-diagnosticOutputBaseBytes)/
-		diagnosticOutputBytesPerInputByte {
+	return addOutputAllowance(
+		diagnosticOutputBaseBytes,
+		n.outputAllowance(),
+	)
+}
+
+// outputAllowance returns n's share of the default output cap.
+func (n *DiagnosticNode) outputAllowance() int {
+	own := max(n.Length, 0)
+	ret := 0
+	for i := range n.Children {
+		own -= max(n.Children[i].Length, 0)
+		ret = addOutputAllowance(ret, n.Children[i].outputAllowance())
+	}
+	own = max(own, 0)
+	payload := 0
+	if len(n.Children) == 0 && !n.Indefinite &&
+		(n.Type == DiagTypeBytes || n.Type == DiagTypeText) {
+		payload = max(own-n.cborHeaderLen(), 0)
+	}
+	ret = addOutputAllowance(
+		ret,
+		scaleOutputAllowance(
+			own-payload,
+			diagnosticOutputBytesPerStructuralByte,
+		),
+	)
+	return addOutputAllowance(
+		ret,
+		scaleOutputAllowance(
+			payload,
+			diagnosticOutputBytesPerStringPayloadByte,
+		),
+	)
+}
+
+// addOutputAllowance returns a+b for non-negative a and b, saturating at
+// math.MaxInt.
+func addOutputAllowance(a, b int) int {
+	if a > math.MaxInt-b {
 		return math.MaxInt
 	}
-	return diagnosticOutputBaseBytes +
-		diagnosticOutputBytesPerInputByte*max(n.Length, 0)
+	return a + b
+}
+
+// scaleOutputAllowance returns n*rate for non-negative n and positive rate,
+// saturating at math.MaxInt.
+func scaleOutputAllowance(n, rate int) int {
+	if n > math.MaxInt/rate {
+		return math.MaxInt
+	}
+	return n * rate
 }
 
 // diagnosticWriter accumulates rendered output up to a byte cap. Each write is

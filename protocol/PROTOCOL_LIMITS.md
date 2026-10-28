@@ -485,7 +485,10 @@ formatter call; a render that reaches it stops and ends with a truncation
 marker of about 23 bytes, so the returned string can exceed the cap by that
 marker. A byte or text string that would not fit is not built at all. Zero or
 negative selects 4 MiB plus 256 bytes per encoded
-byte of the rendered node, which leaves ordinary inputs untouched. Rendering
+header or framing byte and 8 bytes per byte of string payload in the rendered
+node, which leaves ordinary inputs untouched. A string's payload renders at a
+few bytes per byte, so it does not raise the allowance for nesting elsewhere in
+the input. Rendering
 streams into one buffer, and `GetPathToOffset` extends a single path slice, so
 neither recopies nested output or path prefixes at each level.
 

@@ -68,9 +68,11 @@ type DiagnosticOptions struct {
 	// reaches it stops and ends with a short truncation marker, so the
 	// returned string can exceed the cap by that marker. A byte or text string
 	// that would not fit is not built at all. Zero or negative selects a
-	// default proportional to the encoded size of the rendered node, which
-	// leaves renders of ordinary inputs untouched but stops a small, deeply
-	// nested input from producing output quadratic in its depth.
+	// default of 4 MiB plus 256 bytes per encoded header or framing byte and
+	// 8 bytes per byte of string payload in the rendered node. That leaves
+	// renders of ordinary inputs untouched but stops a small, deeply nested
+	// input from producing output quadratic in its depth, and stops a large
+	// string from raising the allowance for nesting elsewhere.
 	MaxOutputBytes int
 	ParseLimits    DiagnosticParseLimits
 }
