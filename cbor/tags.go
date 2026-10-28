@@ -96,6 +96,24 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
+	// Check the declared item count before decoding so a header claiming a
+	// huge array is rejected without building it. An indefinite-length array
+	// has no declared count and is checked after decoding.
+	content := cborData
+	if len(content) > 0 && content[0]>>5 == CborTypeTag>>5 {
+		var tag RawTag
+		if _, err := Decode(cborData, &tag); err != nil {
+			return err
+		}
+		content = tag.Content
+	}
+	if count, _, indefinite := ArrayInfo(content); !indefinite &&
+		count >= 0 && count != 2 {
+		return fmt.Errorf(
+			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
+			count,
+		)
+	}
 	tmpRat := []any{}
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err

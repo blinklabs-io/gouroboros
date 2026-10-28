@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -401,4 +402,23 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 		wire,
 		"MarshalCBOR() should return the original decoded bytes",
 	)
+}
+
+// TestRatRejectsOversizedArrayBeforeDecoding checks the declared item count
+// of the rational's array before its items are decoded, so a header claiming
+// a million items is rejected without building them.
+func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
+	// tag 30, array(1000000), then one-byte items (0).
+	header := []byte{0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40}
+	data := append(header, make([]byte, 1_000_000)...)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	var rat cbor.Rat
+	_, err := cbor.Decode(data, &rat)
+	runtime.ReadMemStats(&after)
+
+	require.ErrorContains(t, err, "got 1000000 elements")
+	// Building the items as []any costs about 16 MB; the payload is 1 MB.
+	require.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(4<<20))
 }

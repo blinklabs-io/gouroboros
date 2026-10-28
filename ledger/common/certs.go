@@ -1165,6 +1165,14 @@ func validatePoolMarginCBOR(data []byte, requireUintComponents bool) error {
 			tag.Number,
 		)
 	}
+	if count, _, indefinite := cbor.ArrayInfo(tag.Content); !indefinite &&
+		count >= 0 && count != 2 {
+		return fmt.Errorf(
+			"%w: expected two components, got %d",
+			ErrPoolMarginOutsideUnitInterval,
+			count,
+		)
+	}
 	var components []cbor.RawMessage
 	if _, err := cbor.Decode(tag.Content, &components); err != nil {
 		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)
