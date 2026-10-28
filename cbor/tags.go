@@ -96,6 +96,17 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
+	// Check the declared item count before decoding so a header claiming a
+	// huge array is rejected without building it. An indefinite-length array
+	// has no declared count and is checked after decoding.
+	content := SkipTags(cborData)
+	if count, _, indefinite := ArrayInfo(content); !indefinite &&
+		count >= 0 && count != 2 {
+		return fmt.Errorf(
+			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
+			count,
+		)
+	}
 	tmpRat := []any{}
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
@@ -321,4 +332,33 @@ func (t *SetType[T]) UnmarshalJSON(data []byte) error {
 	t.useTag = false
 	t.SetCbor(nil)
 	return json.Unmarshal(data, &t.items)
+}
+
+// SkipTags returns data with any leading CBOR tag headers removed. It reads
+// only the headers, so it allocates nothing and does not validate the tagged
+// content. Data that does not start with a well-formed tag header is
+// returned unchanged from that point.
+func SkipTags(data []byte) []byte {
+	for len(data) > 0 && data[0]>>5 == CborTypeTag>>5 {
+		var headerLen int
+		switch info := data[0] & 0x1f; {
+		case info < 24:
+			headerLen = 1
+		case info == 24:
+			headerLen = 2
+		case info == 25:
+			headerLen = 3
+		case info == 26:
+			headerLen = 5
+		case info == 27:
+			headerLen = 9
+		default:
+			return data
+		}
+		if len(data) < headerLen {
+			return data
+		}
+		data = data[headerLen:]
+	}
+	return data
 }

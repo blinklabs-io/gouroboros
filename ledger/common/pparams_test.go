@@ -16,6 +16,7 @@ package common
 
 import (
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -192,4 +193,46 @@ func TestCloneCostModels(t *testing.T) {
 		got := CloneCostModels(map[uint][]int64{0: {}})
 		assert.NotNil(t, got[0])
 	})
+}
+
+// TestRationalCountCheckedBeforeDecoding checks that the rational validators
+// read the declared component count through every leading tag before
+// decoding, so a header declaring a million components is rejected without
+// building them.
+func TestRationalCountCheckedBeforeDecoding(t *testing.T) {
+	// Each header is tag 30 around array(1000000), the second one through an
+	// extra tag (55799), followed by one-byte items (0).
+	headers := map[string][]byte{
+		"tagged": {0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+		"nested tags": {
+			0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+		},
+	}
+	validators := map[string]func([]byte) error{
+		"ValidateNonNegativeBoundedRatCBOR": ValidateNonNegativeBoundedRatCBOR,
+		"validatePoolMarginCBOR": func(data []byte) error {
+			return validatePoolMarginCBOR(data, false)
+		},
+	}
+	for vname, validate := range validators {
+		for hname, header := range headers {
+			t.Run(vname+"/"+hname, func(t *testing.T) {
+				data := append(header, make([]byte, 1_000_000)...)
+				var before, after runtime.MemStats
+				runtime.GC()
+				runtime.ReadMemStats(&before)
+				err := validate(data)
+				runtime.ReadMemStats(&after)
+
+				assert.Error(t, err)
+				// Building the components as raw messages costs about
+				// 24 MB; the payload is 1 MB.
+				assert.Less(
+					t,
+					after.TotalAlloc-before.TotalAlloc,
+					uint64(4<<20),
+				)
+			})
+		}
+	}
 }

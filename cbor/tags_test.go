@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"math/big"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -401,4 +402,67 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 		wire,
 		"MarshalCBOR() should return the original decoded bytes",
 	)
+}
+
+// TestRatRejectsOversizedArrayBeforeDecoding checks the declared item count
+// of the rational's array before its items are decoded, so a header claiming
+// a million items is rejected without building them.
+func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
+	// Each header declares array(1000000), followed by one-byte items (0).
+	// The nested case wraps the array in a second tag (55799) to check the
+	// count is read through every leading tag.
+	tests := map[string][]byte{
+		"tagged": {0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+		"nested tags": {
+			0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+		},
+	}
+	for name, header := range tests {
+		t.Run(name, func(t *testing.T) {
+			data := append(header, make([]byte, 1_000_000)...)
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			var rat cbor.Rat
+			_, err := cbor.Decode(data, &rat)
+			runtime.ReadMemStats(&after)
+
+			require.ErrorContains(t, err, "got 1000000 elements")
+			// Building the items as []any costs about 16 MB; the payload
+			// is 1 MB.
+			require.Less(
+				t,
+				after.TotalAlloc-before.TotalAlloc,
+				uint64(4<<20),
+			)
+		})
+	}
+}
+
+func TestSkipTags(t *testing.T) {
+	tests := map[string]struct {
+		input    string
+		expected string
+	}{
+		"no tag":          {"820102", "820102"},
+		"one byte tag":    {"d81e820102", "820102"},
+		"nested tags":     {"d81ed9d9f7820102", "820102"},
+		"two byte tag":    {"d90102820102", "820102"},
+		"four byte tag":   {"da00000102820102", "820102"},
+		"eight byte tag":  {"db0000000000000102820102", "820102"},
+		"truncated tag":   {"d8", "d8"},
+		"reserved header": {"dc820102", "dc820102"},
+		"empty":           {"", ""},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			input, err := hex.DecodeString(tc.input)
+			require.NoError(t, err)
+			assert.Equal(
+				t,
+				tc.expected,
+				hex.EncodeToString(cbor.SkipTags(input)),
+			)
+		})
+	}
 }
