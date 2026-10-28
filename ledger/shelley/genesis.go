@@ -606,6 +606,25 @@ func (g *ShelleyGenesis) getNetworkId() (uint8, error) {
 	}
 }
 
+func genesisPoolRegistration(
+	poolId string,
+	pool common.PoolRegistrationCertificate,
+) (common.PoolRegistrationCertificate, error) {
+	operatorBytes, err := hex.DecodeString(poolId)
+	if err != nil {
+		return common.PoolRegistrationCertificate{},
+			errors.New("failed to decode pool ID")
+	}
+	if len(operatorBytes) != common.Blake2b224Size {
+		return common.PoolRegistrationCertificate{},
+			errors.New("invalid pool ID length")
+	}
+	pool.CertType = uint(common.CertificateTypePoolRegistration)
+	pool.Operator = common.Blake2b224(operatorBytes)
+	pool.SetCbor(nil)
+	return pool, nil
+}
+
 func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCertificate, map[string][]common.Address, error) {
 	pools := make(map[string]common.PoolRegistrationCertificate)
 	poolStake := make(map[string][]common.Address)
@@ -646,23 +665,11 @@ func (g *ShelleyGenesis) InitialPools() (map[string]common.PoolRegistrationCerti
 
 	// Process all stake pools
 	for poolId, pool := range effectivePools {
-		operatorBytes, err := hex.DecodeString(poolId)
+		registration, err := genesisPoolRegistration(poolId, pool)
 		if err != nil {
-			return nil, nil, errors.New("failed to decode pool ID")
+			return nil, nil, err
 		}
-
-		pools[poolId] = common.PoolRegistrationCertificate{
-			Operator:      common.Blake2b224(operatorBytes),
-			VrfKeyHash:    pool.VrfKeyHash,
-			LeiosKey:      pool.LeiosKey,
-			Pledge:        pool.Pledge,
-			Cost:          pool.Cost,
-			Margin:        pool.Margin,
-			RewardAccount: pool.RewardAccount,
-			PoolOwners:    pool.PoolOwners,
-			Relays:        pool.Relays,
-			PoolMetadata:  pool.PoolMetadata,
-		}
+		pools[poolId] = registration
 	}
 
 	return pools, poolStake, nil
@@ -711,23 +718,12 @@ func (g *ShelleyGenesis) PoolById(
 		}
 	}
 
-	operatorBytes, err := hex.DecodeString(poolId)
+	registration, err := genesisPoolRegistration(poolId, pool)
 	if err != nil {
-		return nil, nil, errors.New("failed to decode pool operator key")
+		return nil, nil, err
 	}
 
-	return &common.PoolRegistrationCertificate{
-		Operator:      common.Blake2b224(operatorBytes),
-		VrfKeyHash:    pool.VrfKeyHash,
-		LeiosKey:      pool.LeiosKey,
-		Pledge:        pool.Pledge,
-		Cost:          pool.Cost,
-		Margin:        pool.Margin,
-		RewardAccount: pool.RewardAccount,
-		PoolOwners:    pool.PoolOwners,
-		Relays:        pool.Relays,
-		PoolMetadata:  pool.PoolMetadata,
-	}, delegators, nil
+	return &registration, delegators, nil
 }
 
 type ShelleyGenesisProtocolParams struct {

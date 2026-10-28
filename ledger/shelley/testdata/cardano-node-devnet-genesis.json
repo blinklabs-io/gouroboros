@@ -1,0 +1,93 @@
+{
+  "activeSlotsCoeff": 0.259,
+  "epochLength": 1215,
+  "genDelegs": {
+    "38e7c5986a34f334e19b712c0aa525146dab8f0ff889b2ad16894241": {
+      "delegate": "e6960dd671ee8d73de1a83d1345b661165dcddeba99623beef2f157a",
+      "vrf": "fce31c6f3187531ee4a39aa743c24d22275f415a8895e9cd22c30c8a25cdef0d"
+    }
+  },
+  "initialFunds": {
+    "00e1bade2ab9465a24fd5eaa4b7388303917338f853a48b11a5fc9964af5ca93fb6516ebde3d150b3e2acb1909532730de33832ffb229cb20d": 12157196
+  },
+  "maxKESEvolutions": 28899,
+  "maxLovelaceSupply": 71,
+  "networkId": "Testnet",
+  "networkMagic": 4036000900,
+  "protocolParams": {
+    "a0": 0.0,
+    "decentralisationParam": 0.019,
+    "eMax": 0,
+    "extraEntropy": {
+      "tag": "NeutralNonce"
+    },
+    "keyDeposit": 0,
+    "maxBlockBodySize": 239857,
+    "maxBlockHeaderSize": 17569,
+    "maxTxSize": 2048,
+    "minFeeA": 0,
+    "minFeeB": 0,
+    "minPoolCost": 0,
+    "minUTxOValue": 0,
+    "nOpt": 100,
+    "poolDeposit": 0,
+    "protocolVersion": {
+      "major": 2,
+      "minor": 0
+    },
+    "rho": 0.0,
+    "tau": 0.0
+  },
+  "securityParam": 120842,
+  "slotLength": 8,
+  "slotsPerKESPeriod": 8541,
+  "staking": {
+    "pools": {
+      "f583a45e4947c102091b96170ef50ef0cf8edb62666193a2163247bb": {
+        "cost": 5,
+        "margin": 0.25,
+        "metadata": {
+          "hash": "31303061627b7d31303061627b7d",
+          "url": "best.pool.com"
+        },
+        "owners": [
+          "4e88cc2d27c364aaf90648a87dfb95f8ee103ba67fa1f12f5e86c42a"
+        ],
+        "pledge": 1,
+        "publicKey": "4e130c0bdeb7768edf2e8f85007fd52073e3dc1871f4c47f9dfca92e",
+        "relays": [
+          {
+            "single host address": {
+              "IPv4": "0.0.0.0",
+              "IPv6": "2001:db8:a::123",
+              "port": 1234
+            }
+          },
+          {
+            "single host name": {
+              "dnsName": "cool.domain.com",
+              "port": null
+            }
+          },
+          {
+            "multi host name": {
+              "dnsName": "cool.domain.com"
+            }
+          }
+        ],
+        "rewardAccount": {
+          "credential": {
+            "keyHash": "4e88cc2d27c364aaf90648a87dfb95f8ee103ba67fa1f12f5e86c42a"
+          },
+          "network": "Testnet"
+        },
+        "vrf": "68f9cfd33ac8f044facc664db5aa1b73c0b0f5435b85e7b520bb2f1a92f02999"
+      }
+    },
+    "stake": {
+      "83a192dec0e8da2188e520d0c536a69a747cf173a3df16a6daa94d86": "f583a45e4947c102091b96170ef50ef0cf8edb62666193a2163247bb"
+    }
+  },
+  "systemStart": "2009-02-13T23:13:09Z",
+  "updateQuorum": 16991
+}
