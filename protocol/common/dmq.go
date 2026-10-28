@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -395,43 +396,52 @@ func (r *RejectReasonData) UnmarshalCBOR(data []byte) error {
 	if r == nil {
 		return errors.New("cannot unmarshal CBOR into nil RejectReasonData")
 	}
-	// Decode as a CBOR array
-	var arr []any
-	if _, err := cbor.Decode(data, &arr); err != nil {
+	// Check the [type, message?] shape before decoding any element, so a
+	// peer-declared count cannot size an allocation.
+	items, err := cborpreflight.ArrayItems(data, 2, "RejectReasonData")
+	if err != nil {
 		return fmt.Errorf("failed to decode RejectReasonData: %w", err)
 	}
-
-	if len(arr) < 1 {
+	if len(items) < 1 {
 		return fmt.Errorf(
 			"RejectReasonData array must have at least 1 element (type), got %d",
-			len(arr),
+			len(items),
 		)
 	}
 
-	// Extract type (first element)
-	typeVal, ok := arr[0].(uint64)
-	if !ok {
-		return fmt.Errorf("RejectReasonData type must be uint, got %T", arr[0])
+	// Checking the major type (0 is an unsigned integer) keeps the decoder
+	// from accepting anything that merely converts to the Go type, such as a
+	// bignum type or a tagged message.
+	if items[0][0]&cbor.CborTypeMask != 0 {
+		return errors.New("RejectReasonData type must be uint")
+	}
+	var typeVal uint64
+	if _, err := cbor.Decode(items[0], &typeVal); err != nil {
+		return fmt.Errorf("failed to decode RejectReasonData type: %w", err)
 	}
 	if typeVal > 3 {
 		return fmt.Errorf("RejectReasonData type out of range: %d", typeVal)
 	}
-	r.Type = uint8(typeVal)
 
-	// Extract message (second element, if present)
-	r.Message = ""
-	if len(arr) > 1 && arr[1] != nil {
-		msg, ok := arr[1].(string)
-		if !ok {
+	message := ""
+	if len(items) > 1 && !isCborNullOrUndefined(items[1]) {
+		if items[1][0]&cbor.CborTypeMask != cbor.CborTypeTextString {
+			return errors.New("RejectReasonData message must be string or nil")
+		}
+		if _, err := cbor.Decode(items[1], &message); err != nil {
 			return fmt.Errorf(
-				"RejectReasonData message must be string or nil, got %T",
-				arr[1],
+				"failed to decode RejectReasonData message: %w",
+				err,
 			)
 		}
-		r.Message = msg
 	}
-
+	r.Type = uint8(typeVal)
+	r.Message = message
 	return nil
+}
+
+func isCborNullOrUndefined(data []byte) bool {
+	return len(data) == 1 && (data[0] == 0xf6 || data[0] == 0xf7)
 }
 
 // FromRejectReasonData converts RejectReasonData back to a concrete public API type.
