@@ -126,7 +126,7 @@ type metadataJSONMember struct {
 
 type metadataJSONConverter func(
 	value metadataJSONValue,
-	path string,
+	path *metadataJSONPath,
 ) (TransactionMetadatum, error)
 
 func parseCardanoCLIMetadataJSON(
@@ -138,7 +138,9 @@ func parseCardanoCLIMetadataJSON(
 		return nil, err
 	}
 	if root.kind != metadataJSONObject {
-		return nil, errors.New("metadata JSON top-level value must be an object")
+		return nil, errors.New(
+			"metadata JSON top-level value must be an object",
+		)
 	}
 	pairs := make([]MetaPair, 0, len(root.object))
 	seenLabels := make(map[uint64]struct{}, len(root.object))
@@ -151,7 +153,7 @@ func parseCardanoCLIMetadataJSON(
 			return nil, fmt.Errorf("duplicate metadata label %d", label)
 		}
 		seenLabels[label] = struct{}{}
-		value, err := convert(member.value, "$."+member.key)
+		value, err := convert(member.value, newMetadataJSONPath(member.key))
 		if err != nil {
 			return nil, fmt.Errorf("metadata label %d: %w", label, err)
 		}
@@ -329,19 +331,78 @@ func parseMetadataJSONLabel(label string) (uint64, error) {
 	return ret, nil
 }
 
+// metadataJSONPathSegment is one step of the path reported in conversion
+// errors. It is rendered only when an error is built.
+type metadataJSONPathSegment struct {
+	prefix string
+	name   string
+	idx    int
+	hasIdx bool
+}
+
+// metadataJSONPath is the stack of segments leading to the value being
+// converted. Converters push before descending and pop on return, so a
+// successful conversion never materialises the full path.
+type metadataJSONPath struct {
+	segments []metadataJSONPathSegment
+}
+
+func newMetadataJSONPath(label string) *metadataJSONPath {
+	return &metadataJSONPath{
+		segments: []metadataJSONPathSegment{{prefix: "$.", name: label}},
+	}
+}
+
+func (p *metadataJSONPath) push(seg metadataJSONPathSegment) {
+	p.segments = append(p.segments, seg)
+}
+
+func (p *metadataJSONPath) pop() {
+	p.segments = p.segments[:len(p.segments)-1]
+}
+
+func (p *metadataJSONPath) String() string {
+	var sb strings.Builder
+	for _, seg := range p.segments {
+		sb.WriteString(seg.prefix)
+		sb.WriteString(seg.name)
+		if seg.hasIdx {
+			sb.WriteByte('[')
+			sb.WriteString(strconv.Itoa(seg.idx))
+			sb.WriteByte(']')
+		}
+	}
+	return sb.String()
+}
+
+// errorf prefixes the formatted message with the current path and an optional
+// suffix naming a child member that was not pushed. The path is passed as an
+// argument rather than spliced into the format because member keys may
+// contain '%'; %w in format still wraps.
+func (p *metadataJSONPath) errorf(
+	suffix string,
+	format string,
+	args ...any,
+) error {
+	return fmt.Errorf(
+		"%s%s: "+format,
+		append([]any{p.String(), suffix}, args...)...,
+	)
+}
+
 func metadataFromJSONNoSchema(
 	value metadataJSONValue,
-	path string,
+	path *metadataJSONPath,
 ) (TransactionMetadatum, error) {
 	switch value.kind {
 	case metadataJSONNull:
-		return nil, fmt.Errorf("%s: null is not allowed in metadata JSON", path)
+		return nil, path.errorf("", "null is not allowed in metadata JSON")
 	case metadataJSONBool:
-		return nil, fmt.Errorf("%s: bool is not allowed in metadata JSON", path)
+		return nil, path.errorf("", "bool is not allowed in metadata JSON")
 	case metadataJSONNumber:
 		n, err := parseMetadataJSONInteger(value.number)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, path.errorf("", "%w", err)
 		}
 		return MetaInt{Value: n}, nil
 	case metadataJSONString:
@@ -352,10 +413,9 @@ func metadataFromJSONNoSchema(
 	case metadataJSONArray:
 		items := make([]TransactionMetadatum, 0, len(value.array))
 		for idx, item := range value.array {
-			md, err := metadataFromJSONNoSchema(
-				item,
-				fmt.Sprintf("%s[%d]", path, idx),
-			)
+			path.push(metadataJSONPathSegment{idx: idx, hasIdx: true})
+			md, err := metadataFromJSONNoSchema(item, path)
+			path.pop()
 			if err != nil {
 				return nil, err
 			}
@@ -365,10 +425,9 @@ func metadataFromJSONNoSchema(
 	case metadataJSONObject:
 		pairs := make([]MetaPair, 0, len(value.object))
 		for _, member := range value.object {
-			md, err := metadataFromJSONNoSchema(
-				member.value,
-				fmt.Sprintf("%s.%s", path, member.key),
-			)
+			path.push(metadataJSONPathSegment{prefix: ".", name: member.key})
+			md, err := metadataFromJSONNoSchema(member.value, path)
+			path.pop()
 			if err != nil {
 				return nil, err
 			}
@@ -379,58 +438,63 @@ func metadataFromJSONNoSchema(
 		}
 		return newParsedMetaMap(pairs)
 	default:
-		return nil, fmt.Errorf("%s: unsupported JSON value", path)
+		return nil, path.errorf("", "unsupported JSON value")
 	}
 }
 
 func metadataFromJSONDetailedSchema(
 	value metadataJSONValue,
-	path string,
+	path *metadataJSONPath,
 ) (TransactionMetadatum, error) {
 	if value.kind != metadataJSONObject {
-		return nil, fmt.Errorf("%s: detailed metadatum must be an object", path)
+		return nil, path.errorf("", "detailed metadatum must be an object")
 	}
 	if len(value.object) != 1 {
-		return nil, fmt.Errorf(
-			"%s: detailed metadatum must have exactly one field",
-			path,
+		return nil, path.errorf(
+			"",
+			"detailed metadatum must have exactly one field",
 		)
 	}
 	member := value.object[0]
 	switch member.key {
 	case "int":
 		if member.value.kind != metadataJSONNumber {
-			return nil, fmt.Errorf("%s.int: expected JSON number", path)
+			return nil, path.errorf(".int", "expected JSON number")
 		}
 		n, err := parseMetadataJSONInteger(member.value.number)
 		if err != nil {
-			return nil, fmt.Errorf("%s.int: %w", path, err)
+			return nil, path.errorf(".int", "%w", err)
 		}
 		return MetaInt{Value: n}, nil
 	case "bytes":
 		if member.value.kind != metadataJSONString {
-			return nil, fmt.Errorf("%s.bytes: expected JSON string", path)
+			return nil, path.errorf(".bytes", "expected JSON string")
 		}
 		bytesValue, err := hex.DecodeString(member.value.str)
 		if err != nil {
-			return nil, fmt.Errorf("%s.bytes: invalid hex: %w", path, err)
+			return nil, path.errorf(".bytes", "invalid hex: %w", err)
 		}
 		return MetaBytes{Value: bytesValue}, nil
 	case "string":
 		if member.value.kind != metadataJSONString {
-			return nil, fmt.Errorf("%s.string: expected JSON string", path)
+			return nil, path.errorf(".string", "expected JSON string")
 		}
 		return MetaText{Value: member.value.str}, nil
 	case "list":
 		if member.value.kind != metadataJSONArray {
-			return nil, fmt.Errorf("%s.list: expected JSON array", path)
+			return nil, path.errorf(".list", "expected JSON array")
 		}
 		items := make([]TransactionMetadatum, 0, len(member.value.array))
 		for idx, item := range member.value.array {
-			md, err := metadataFromJSONDetailedSchema(
-				item,
-				fmt.Sprintf("%s.list[%d]", path, idx),
+			path.push(
+				metadataJSONPathSegment{
+					prefix: ".list",
+					idx:    idx,
+					hasIdx: true,
+				},
 			)
+			md, err := metadataFromJSONDetailedSchema(item, path)
+			path.pop()
 			if err != nil {
 				return nil, err
 			}
@@ -439,13 +503,13 @@ func metadataFromJSONDetailedSchema(
 		return MetaList{Items: items}, nil
 	case "map":
 		if member.value.kind != metadataJSONArray {
-			return nil, fmt.Errorf("%s.map: expected JSON array", path)
+			return nil, path.errorf(".map", "expected JSON array")
 		}
 		return metadataMapFromJSONDetailedSchema(member.value.array, path)
 	default:
-		return nil, fmt.Errorf(
-			"%s: unknown detailed metadatum field %q",
-			path,
+		return nil, path.errorf(
+			"",
+			"unknown detailed metadatum field %q",
 			member.key,
 		)
 	}
@@ -453,66 +517,92 @@ func metadataFromJSONDetailedSchema(
 
 func metadataMapFromJSONDetailedSchema(
 	entries []metadataJSONValue,
-	path string,
+	path *metadataJSONPath,
 ) (TransactionMetadatum, error) {
 	pairs := make([]MetaPair, 0, len(entries))
 	for idx, entry := range entries {
-		pairPath := fmt.Sprintf("%s.map[%d]", path, idx)
-		if entry.kind != metadataJSONObject {
-			return nil, fmt.Errorf("%s: map entry must be an object", pairPath)
-		}
-		if len(entry.object) != 2 {
-			return nil, fmt.Errorf(
-				"%s: map entry must contain exactly k and v fields",
-				pairPath,
-			)
-		}
-		var (
-			keyJSON   *metadataJSONValue
-			valueJSON *metadataJSONValue
+		path.push(
+			metadataJSONPathSegment{prefix: ".map", idx: idx, hasIdx: true},
 		)
-		for memberIdx := range entry.object {
-			member := &entry.object[memberIdx]
-			switch member.key {
-			case "k":
-				keyJSON = &member.value
-			case "v":
-				valueJSON = &member.value
-			default:
-				return nil, fmt.Errorf(
-					"%s: unexpected map entry field %q",
-					pairPath,
-					member.key,
-				)
-			}
-		}
-		if keyJSON == nil || valueJSON == nil {
-			return nil, fmt.Errorf(
-				"%s: map entry must contain k and v fields",
-				pairPath,
-			)
-		}
-		key, err := metadataFromJSONDetailedSchema(*keyJSON, pairPath+".k")
+		pair, err := metadataPairFromJSONDetailedSchema(entry, path)
+		path.pop()
 		if err != nil {
 			return nil, err
 		}
-		value, err := metadataFromJSONDetailedSchema(*valueJSON, pairPath+".v")
-		if err != nil {
-			return nil, err
-		}
-		pairs = append(pairs, MetaPair{Key: key, Value: value})
+		pairs = append(pairs, pair)
 	}
 	return newParsedMetaMap(pairs)
+}
+
+// metadataPairFromJSONDetailedSchema converts one map entry; path already
+// ends at that entry.
+func metadataPairFromJSONDetailedSchema(
+	entry metadataJSONValue,
+	path *metadataJSONPath,
+) (MetaPair, error) {
+	if entry.kind != metadataJSONObject {
+		return MetaPair{}, path.errorf("", "map entry must be an object")
+	}
+	if len(entry.object) != 2 {
+		return MetaPair{}, path.errorf(
+			"",
+			"map entry must contain exactly k and v fields",
+		)
+	}
+	var (
+		keyJSON   *metadataJSONValue
+		valueJSON *metadataJSONValue
+	)
+	for memberIdx := range entry.object {
+		member := &entry.object[memberIdx]
+		switch member.key {
+		case "k":
+			keyJSON = &member.value
+		case "v":
+			valueJSON = &member.value
+		default:
+			return MetaPair{}, path.errorf(
+				"",
+				"unexpected map entry field %q",
+				member.key,
+			)
+		}
+	}
+	if keyJSON == nil || valueJSON == nil {
+		return MetaPair{}, path.errorf(
+			"",
+			"map entry must contain k and v fields",
+		)
+	}
+	path.push(metadataJSONPathSegment{prefix: ".k"})
+	key, err := metadataFromJSONDetailedSchema(*keyJSON, path)
+	path.pop()
+	if err != nil {
+		return MetaPair{}, err
+	}
+	path.push(metadataJSONPathSegment{prefix: ".v"})
+	value, err := metadataFromJSONDetailedSchema(*valueJSON, path)
+	path.pop()
+	if err != nil {
+		return MetaPair{}, err
+	}
+	return MetaPair{Key: key, Value: value}, nil
 }
 
 func parseMetadataJSONInteger(number json.Number) (*big.Int, error) {
 	text := number.String()
 	if strings.ContainsAny(text, ".eE") {
-		return nil, fmt.Errorf("metadata JSON number %q is not an integer", text)
+		return nil, fmt.Errorf(
+			"metadata JSON number %q is not an integer",
+			text,
+		)
 	}
 	ret, ok := new(big.Int).SetString(text, 10)
 	if !ok {
-		return nil, fmt.Errorf("metadata JSON number %q is not an integer", text)
+		return nil, fmt.Errorf(
+			"metadata JSON number %q is not an integer",
+			text,
+		)
 	}
 	return ret, nil
 }
