@@ -85,7 +85,10 @@ func TestCborItemEndRejectsInvalidStringChunksWithoutTraversal(t *testing.T) {
 // largeByteString is a CBOR byte string of n bytes, a single item that is
 // long on the wire but contributes one entry.
 func largeByteString(n int) []byte {
-	return append([]byte{0x5a, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}, make([]byte, n)...)
+	header := []byte{
+		0x5a, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n),
+	}
+	return append(header, make([]byte, n)...)
 }
 
 func allocatedBy(f func()) uint64 {
