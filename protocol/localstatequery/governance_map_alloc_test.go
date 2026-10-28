@@ -143,6 +143,16 @@ func TestGrowingMapDecodesValidMaps(t *testing.T) {
 		{name: "empty", data: []byte{0xa0}, want: map[uint64]uint64{}},
 		{name: "null", data: []byte{0xf6}, want: nil},
 		{
+			name: "self-described null",
+			data: []byte{0xd9, 0xd9, 0xf7, 0xf6},
+			want: nil,
+		},
+		{
+			name: "self-described undefined",
+			data: []byte{0xd9, 0xd9, 0xf7, 0xf7},
+			want: nil,
+		},
+		{
 			name: "definite",
 			data: []byte{0xa2, 0x01, 0x02, 0x03, 0x04},
 			want: map[uint64]uint64{1: 2, 3: 4},

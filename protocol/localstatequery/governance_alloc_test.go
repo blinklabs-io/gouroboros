@@ -145,8 +145,9 @@ func TestGovernanceResultsGrowAsEntriesDecode(t *testing.T) {
 	}
 }
 
-// Valid replies decode unchanged through the incremental decoder, including
-// an empty list, a null, and an indefinite-length array.
+// Valid replies decode through the incremental decoder as they do into a
+// plain slice, including an empty list, a null, a null under the
+// self-described tag, and an indefinite-length array.
 func TestGrowingArrayDecodesValidArrays(t *testing.T) {
 	tests := []struct {
 		name string
@@ -155,6 +156,16 @@ func TestGrowingArrayDecodesValidArrays(t *testing.T) {
 	}{
 		{name: "empty", data: []byte{0x80}, want: []uint64{}},
 		{name: "null", data: []byte{0xf6}, want: nil},
+		{
+			name: "self-described null",
+			data: []byte{0xd9, 0xd9, 0xf7, 0xf6},
+			want: nil,
+		},
+		{
+			name: "self-described undefined",
+			data: []byte{0xd9, 0xd9, 0xf7, 0xf7},
+			want: nil,
+		},
 		{
 			name: "definite",
 			data: []byte{0x82, 0x01, 0x02},
@@ -173,8 +184,13 @@ func TestGrowingArrayDecodesValidArrays(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			var plain []uint64
+			_, err := cbor.Decode(tc.data, &plain)
+			require.NoError(t, err)
 			var got growingArray[uint64]
-			require.NoError(t, got.UnmarshalCBOR(tc.data))
+			_, err = cbor.Decode(tc.data, &got)
+			require.NoError(t, err)
+			require.Equal(t, plain == nil, got == nil)
 			if tc.want == nil {
 				require.Nil(t, got)
 				return
