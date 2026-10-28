@@ -620,7 +620,7 @@ func cborMapRawEntries(raw []byte) ([][2]cbor.RawMessage, error) {
 		return nil, errors.New("truncated map entries")
 	}
 	offset := headerLength
-	pairs := make([][2]cbor.RawMessage, 0, (len(raw)-headerLength)/2)
+	pairs := make([][2]cbor.RawMessage, 0, int(count)) //nolint:gosec
 	for range count {
 		var pair [2]cbor.RawMessage
 		for index := range pair {
@@ -1223,7 +1223,9 @@ func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, e
 	if count > uint64(len(raw)-offset) { //nolint:gosec
 		return nil, errors.New("truncated array elements")
 	}
-	entries := make([]cbor.RawMessage, 0, len(raw)-offset)
+	// count is already bounded by the remaining bytes; size from it rather
+	// than from the byte length, which can be far larger than the entry count.
+	entries := make([]cbor.RawMessage, 0, int(count)) //nolint:gosec
 	for range count {
 		end, err := cborItemEnd(raw, offset)
 		if err != nil {

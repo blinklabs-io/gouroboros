@@ -16,6 +16,7 @@ package byron
 
 import (
 	"bytes"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -79,4 +80,54 @@ func TestCborItemEndRejectsInvalidStringChunksWithoutTraversal(t *testing.T) {
 			require.ErrorContains(t, err, "invalid indefinite string chunk")
 		})
 	}
+}
+
+// largeByteString is a CBOR byte string of n bytes, a single item that is
+// long on the wire but contributes one entry.
+func largeByteString(n int) []byte {
+	header := []byte{
+		0x5a, byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n),
+	}
+	return append(header, make([]byte, n)...)
+}
+
+func allocatedBy(f func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	f()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
+}
+
+// TestRawEntryCapacityDoesNotScaleWithByteLength checks that the entry slices
+// are sized from the entry count, not from the encoded length: one large item
+// must not reserve room for a million entries.
+func TestRawEntryCapacityDoesNotScaleWithByteLength(t *testing.T) {
+	const size = 1 << 20
+	item := largeByteString(size)
+
+	t.Run("array", func(t *testing.T) {
+		raw := append([]byte{0x81}, item...)
+		var entries int
+		alloc := allocatedBy(func() {
+			got, err := cborRawArrayEntries(raw, true)
+			require.NoError(t, err)
+			entries = len(got)
+		})
+		require.Equal(t, 1, entries)
+		require.Less(t, alloc, uint64(4<<20))
+	})
+
+	t.Run("map", func(t *testing.T) {
+		raw := append([]byte{0xa1, 0x00}, item...)
+		var pairs int
+		alloc := allocatedBy(func() {
+			got, err := cborMapRawEntries(raw)
+			require.NoError(t, err)
+			pairs = len(got)
+		})
+		require.Equal(t, 1, pairs)
+		require.Less(t, alloc, uint64(4<<20))
+	})
 }
