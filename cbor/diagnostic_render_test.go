@@ -464,3 +464,59 @@ func TestHexDumpSkipsContentPastCap(t *testing.T) {
 		assert.Less(t, after.TotalAlloc-before.TotalAlloc, uint64(1<<20), name)
 	}
 }
+
+// TestDiagnosticRenderDefaultCapIgnoresLeafPayload checks that a large string
+// elsewhere in the input does not raise the default cap for nested content. A
+// string's payload renders at a small fixed ratio, so counting it at the
+// nesting rate let 128 KiB of bytes admit about 32 MiB more indentation.
+func TestDiagnosticRenderDefaultCapIgnoresLeafPayload(t *testing.T) {
+	t.Parallel()
+
+	const depth = 3000
+	data := []byte{0x82, 0x5a, 0, 2, 0, 0}
+	data = append(data, make([]byte, 128<<10)...)
+	data = append(data, nestedDiagnosticInput("array", depth)...)
+	node, err := cbor.ParseDiagnostic(data)
+	require.NoError(t, err)
+	// Unbounded, the nested half alone renders about 18 MB of pretty output
+	// and 9 MB of hex.
+	for _, r := range diagnosticRenderers[1:] {
+		out := r.render(node, cbor.DiagnosticOptions{})
+		assert.True(
+			t,
+			strings.Contains(out, renderTruncationMarker) &&
+				len(out) < 8<<20,
+			"%s rendered %d bytes untruncated",
+			r.name,
+			len(out),
+		)
+	}
+}
+
+// TestDiagnosticRenderDefaultCapSparesLargeLeaf guards the other side: a
+// large string must still render whole in every format, including with its
+// bytes shown in full and the raw hex appended.
+func TestDiagnosticRenderDefaultCapSparesLargeLeaf(t *testing.T) {
+	t.Parallel()
+
+	// Each control byte quotes as four bytes, the widest escape.
+	payload := bytes.Repeat([]byte{0x01}, 1<<20)
+	text := append([]byte{0x7a, 0, 0x10, 0, 0}, payload...)
+	bstr := append([]byte{0x5a, 0, 0x10, 0, 0}, payload...)
+	opts := cbor.DiagnosticOptions{ShowHex: true, MaxByteLength: 1 << 20}
+	for name, data := range map[string][]byte{"text": text, "bytes": bstr} {
+		node, err := cbor.ParseDiagnostic(data)
+		require.NoError(t, err, name)
+		for _, r := range diagnosticRenderers {
+			out := r.render(node, opts)
+			assert.False(
+				t,
+				strings.Contains(out, renderTruncationMarker),
+				"%s/%s truncated at %d bytes",
+				name,
+				r.name,
+				len(out),
+			)
+		}
+	}
+}
