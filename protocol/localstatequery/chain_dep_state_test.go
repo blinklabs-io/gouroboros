@@ -177,6 +177,7 @@ func TestDebugChainDepStateTPraos(t *testing.T) {
 	assert.Equal(t, uint64(3), v)
 
 	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EvolvingNonce.Type)
+	assert.Equal(t, hash32(0xcc), got.EvolvingNonce.Value[:])
 	assert.Equal(t, uint(lcommon.NonceTypeNeutral), got.CandidateNonce.Type)
 	require.NotNil(t, got.EpochNonce)
 	assert.Equal(t, uint(lcommon.NonceTypeNonce), got.EpochNonce.Type)
@@ -230,6 +231,73 @@ func TestDebugChainDepStateTPraosRejectsLongSlot(t *testing.T) {
 	var got DebugChainDepStateResult
 	_, err = cbor.Decode(wire, &got)
 	require.ErrorContains(t, err, "tpraos last slot")
+}
+
+// TestDebugChainDepStateTPraosRejectsNull ensures a null in any required
+// TPraos field is an error, not a zero value.
+func TestDebugChainDepStateTPraosRejectsNull(t *testing.T) {
+	pool1 := blake224(t, poolKeyHashHex)
+	counters := map[ledger.Blake2b224]uint64{pool1: 1}
+	nonce := nonceHash(hash32(0x01))
+	state := func(
+		slot any,
+		prtcl any,
+		tickn any,
+		lab any,
+	) []any {
+		return []any{slot, []any{prtcl, tickn, lab}}
+	}
+	goodPrtcl := []any{counters, nonce, nonce}
+	goodTickn := []any{nonce, nonce}
+	cases := map[string][]any{
+		"null slot item": state([]any{nil}, goodPrtcl, goodTickn, nonce),
+		"null slot":      state(nil, goodPrtcl, goodTickn, nonce),
+		"null protocol":  state(strictSlot(1), nil, goodTickn, nonce),
+		"null counters": state(
+			strictSlot(1),
+			[]any{nil, nonce, nonce},
+			goodTickn,
+			nonce,
+		),
+		"null evolving": state(
+			strictSlot(1),
+			[]any{counters, nil, nonce},
+			goodTickn,
+			nonce,
+		),
+		"null candidate": state(
+			strictSlot(1),
+			[]any{counters, nonce, nil},
+			goodTickn,
+			nonce,
+		),
+		"null tickn": state(strictSlot(1), goodPrtcl, nil, nonce),
+		"null epoch": state(
+			strictSlot(1),
+			goodPrtcl,
+			[]any{nil, nonce},
+			nonce,
+		),
+		"null previous": state(
+			strictSlot(1),
+			goodPrtcl,
+			[]any{nonce, nil},
+			nonce,
+		),
+		"null lab":    state(strictSlot(1), goodPrtcl, goodTickn, nil),
+		"null ledger": {strictSlot(1), nil},
+	}
+	for name, inner := range cases {
+		t.Run(name, func(t *testing.T) {
+			wire, err := cbor.Encode(
+				[]any{chainDepStateVersionTPraos, inner},
+			)
+			require.NoError(t, err, "encode fixture")
+			var got DebugChainDepStateResult
+			_, err = cbor.Decode(wire, &got)
+			require.Error(t, err)
+		})
+	}
 }
 
 // chainDepStateTPraosDiskGolden is the TPraos chain-dependent state of the
@@ -334,6 +402,16 @@ func TestDebugChainDepStateReusedResultClearsPraosNonce(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, ChainDepStateProtocolTPraos, result.Protocol)
+	require.NotNil(t, result.EpochNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), result.EpochNonce.Type)
+	require.NotNil(t, result.PreviousEpochNonce)
+	assert.Equal(
+		t,
+		uint(lcommon.NonceTypeNeutral),
+		result.PreviousEpochNonce.Type,
+	)
+	require.NotNil(t, result.LabNonce)
+	assert.Equal(t, uint(lcommon.NonceTypeNeutral), result.LabNonce.Type)
 	assert.Nil(t, result.LastEpochBlockNonce)
 }
 

@@ -207,6 +207,9 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 			// StrictMaybe and ledgerState is
 			// [[opCertCounters, evolvingNonce, candidateNonce],
 			//  [epochNonce, previousEpochNonce], labNonce].
+			if err := validateTPraosState(outer.Inner); err != nil {
+				return err
+			}
 			var t struct {
 				cbor.StructAsArray
 				LastSlot    cbor.RawMessage
@@ -339,32 +342,104 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// tpraosItems splits an array into its items and requires exactly want of
+// them. A null or any other non-array is refused, because typed decoding
+// would turn it into zero values rather than an error.
+func tpraosItems(data []byte, want int, label string) ([][]byte, error) {
+	items, err := cborpreflight.ArrayItems(data, want, label)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) != want {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d",
+			label,
+			len(items),
+			want,
+		)
+	}
+	return items, nil
+}
+
+// validateTPraosState checks the shape of every required TPraos field before
+// typed decoding, which maps a CBOR null to a zero value.
+func validateTPraosState(data []byte) error {
+	fields, err := tpraosItems(data, chainDepStateFieldsTPraos, "tpraos state")
+	if err != nil {
+		return err
+	}
+	if _, err := decodeStrictMaybeSlot(fields[0]); err != nil {
+		return err
+	}
+	ledgerState, err := tpraosItems(fields[1], 3, "tpraos ledger state")
+	if err != nil {
+		return err
+	}
+	prtclState, err := tpraosItems(ledgerState[0], 3, "tpraos protocol state")
+	if err != nil {
+		return err
+	}
+	if err := requireMajorType(
+		prtclState[0],
+		cbor.CborTypeMap,
+		"tpraos operational certificate counters",
+	); err != nil {
+		return err
+	}
+	if err := cborpreflight.ValidateMap(
+		prtclState[0],
+		maxLocalStateQuerySetItems,
+		"tpraos operational certificate counters",
+		nil,
+	); err != nil {
+		return err
+	}
+	ticknState, err := tpraosItems(
+		ledgerState[1],
+		2,
+		"tpraos ticked nonce state",
+	)
+	if err != nil {
+		return err
+	}
+	nonces := [][]byte{
+		prtclState[1], prtclState[2], ticknState[0], ticknState[1],
+		ledgerState[2],
+	}
+	for _, nonce := range nonces {
+		if _, err := cborpreflight.ArrayItems(nonce, 2, "tpraos nonce"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireMajorType refuses a field whose CBOR major type is not want, so a
+// null does not decode as an empty value.
+func requireMajorType(data []byte, want uint8, label string) error {
+	data = cbor.SkipTags(data)
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != want {
+		return fmt.Errorf("%s has the wrong CBOR type", label)
+	}
+	return nil
+}
+
 // decodeStrictMaybeSlot decodes the TPraos last slot, a StrictMaybe SlotNo
 // that the ledger writes as a list of zero or one element.
 func decodeStrictMaybeSlot(data []byte) (WithOriginSlot, error) {
-	listLen, err := cbor.ListLength(data)
+	items, err := cborpreflight.ArrayItems(data, 1, "tpraos last slot")
 	if err != nil {
 		return WithOriginSlot{}, err
 	}
-	switch listLen {
-	case 0:
+	if len(items) == 0 {
 		return WithOriginSlot{}, nil
-	case 1:
-		var slot []uint64
-		if _, err := cbor.Decode(data, &slot); err != nil {
-			return WithOriginSlot{}, err
-		}
-		if len(slot) != 1 {
-			return WithOriginSlot{}, fmt.Errorf(
-				"tpraos last slot: expected 1 entry, got %d",
-				len(slot),
-			)
-		}
-		return WithOriginSlot{HasSlot: true, Slot: slot[0]}, nil
-	default:
-		return WithOriginSlot{}, fmt.Errorf(
-			"tpraos last slot: expected 0 or 1 entries, got %d",
-			listLen,
-		)
 	}
+	if err := requireMajorType(items[0], 0, "tpraos last slot"); err != nil {
+		return WithOriginSlot{}, err
+	}
+	var slot uint64
+	if _, err := cbor.Decode(items[0], &slot); err != nil {
+		return WithOriginSlot{}, err
+	}
+	return WithOriginSlot{HasSlot: true, Slot: slot}, nil
 }
