@@ -15,6 +15,8 @@
 package cbor
 
 import (
+	"bytes"
+
 	_cbor "github.com/fxamacker/cbor/v2"
 )
 
@@ -70,6 +72,47 @@ func (d *DecodeStoreCbor) SetCbor(cborData []byte) {
 // of any object that relies on it.
 func (d *DecodeStoreCbor) SetCborReference(cborData []byte) {
 	d.cborData = cborData
+}
+
+// ShareWithinParent replaces the stored CBOR with a view into parent when the
+// stored bytes are exactly the first element of the array parent encodes (a
+// one-byte definite or indefinite array head followed by the element). It
+// leaves the stored CBOR untouched otherwise. The view is capacity-limited so
+// an append cannot write into parent. Callers must treat parent as immutable
+// for the lifetime of the object, as with SetCborReference.
+func (d *DecodeStoreCbor) ShareWithinParent(parent []byte) {
+	n := len(d.cborData)
+	if n == 0 || len(parent) < 1+n {
+		return
+	}
+	if parent[0]&CborTypeMask != CborTypeArray {
+		return
+	}
+	// 0x80-0x97 are definite heads of up to 23 elements; 0x9f is indefinite.
+	if parent[0] > 0x97 && parent[0] != 0x9f {
+		return
+	}
+	view := parent[1 : 1+n : 1+n]
+	if !bytes.Equal(view, d.cborData) {
+		return
+	}
+	d.cborData = view
+}
+
+// ViewWithin returns a capacity-limited sub-slice of parent holding the same
+// bytes as b, so a decoded byte-string field can share the backing array of
+// the CBOR its owner already retains instead of keeping a separate copy. It
+// returns b unchanged when b is empty or its bytes do not occur in parent.
+// Callers must treat parent as immutable for the lifetime of the result.
+func ViewWithin(parent, b []byte) []byte {
+	if len(b) == 0 {
+		return b
+	}
+	i := bytes.Index(parent, b)
+	if i < 0 {
+		return b
+	}
+	return parent[i : i+len(b) : i+len(b)]
 }
 
 // Cbor returns the original CBOR for the object

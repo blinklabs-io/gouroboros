@@ -327,7 +327,25 @@ func (h *ShelleyBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	}
 	*h = ShelleyBlockHeader(tmp)
 	h.SetCbor(cborData)
+	h.shareWithinCbor()
 	return nil
+}
+
+// shareWithinCbor makes the body's stored CBOR and the decoded byte-string
+// fields views into the header's stored CBOR, so a decoded header retains its
+// bytes once. The fields must not be modified in place.
+func (h *ShelleyBlockHeader) shareWithinCbor() {
+	parent := h.Cbor()
+	h.Body.ShareWithinParent(parent)
+	b := &h.Body
+	b.VrfKey = cbor.ViewWithin(parent, b.VrfKey)
+	b.NonceVrf.Output = cbor.ViewWithin(parent, b.NonceVrf.Output)
+	b.NonceVrf.Proof = cbor.ViewWithin(parent, b.NonceVrf.Proof)
+	b.LeaderVrf.Output = cbor.ViewWithin(parent, b.LeaderVrf.Output)
+	b.LeaderVrf.Proof = cbor.ViewWithin(parent, b.LeaderVrf.Proof)
+	b.OpCertHotVkey = cbor.ViewWithin(parent, b.OpCertHotVkey)
+	b.OpCertSignature = cbor.ViewWithin(parent, b.OpCertSignature)
+	h.Signature = cbor.ViewWithin(parent, h.Signature)
 }
 
 func (h *ShelleyBlockHeader) Hash() common.Blake2b256 {

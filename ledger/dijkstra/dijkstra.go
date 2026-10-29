@@ -578,6 +578,7 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	h.Signature = signature
 	h.LeiosHeaderExtension = bodyElems[babbageHeaderBodyFieldCount:]
 	h.SetCbor(cborData)
+	h.ShareWithinCbor()
 	return nil
 }
 
