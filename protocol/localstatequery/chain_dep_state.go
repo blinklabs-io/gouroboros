@@ -76,14 +76,19 @@ const (
 //	Praos2 (Leios):     [1, [lastSlot, opCertCounters, evolvingNonce,
 //	                        candidateNonce, epochNonce, previousEpochNonce,
 //	                        labNonce, lastEpochBlockNonce, announcement]]
-//	TPraos (Shelley..Alonzo): [1, [lastSlot,
-//	                        [opCertCounters, evolvingNonce, candidateNonce]]]
+//	TPraos (Shelley..Alonzo): [1, [lastSlot, [
+//	                        [opCertCounters, evolvingNonce, candidateNonce],
+//	                        [epochNonce, previousEpochNonce],
+//	                        labNonce]]]
 //
 // Praos2 and TPraos write the same version number, so the layout is told
-// apart by the number of fields in the state.
+// apart by the number of fields in the state. The Praos and Praos2 last slot
+// is a WithOrigin (Origin is [0], At s is [1, s]); the TPraos one is a
+// StrictMaybe (Origin is [], At s is [s]).
 //
-// OpCertCounters and the two shared nonces are present for both protocols; the
-// remaining nonce fields are Praos-only and are nil when Protocol is TPraos.
+// OpCertCounters, the evolving and candidate nonces, EpochNonce,
+// PreviousEpochNonce and LabNonce are present for every protocol.
+// LastEpochBlockNonce is Praos-only and is nil when Protocol is TPraos.
 type DebugChainDepStateResult struct {
 	// Protocol is the consensus protocol the state was serialised for.
 	Protocol ChainDepStateProtocol
@@ -95,14 +100,16 @@ type DebugChainDepStateResult struct {
 	// accepted for it. This is the authoritative counter the node enforces: a
 	// new block whose opcert issue number is lower is rejected.
 	OpCertCounters map[ledger.Blake2b224]uint64
-	// EvolvingNonce and CandidateNonce are present for both protocols.
+	// EvolvingNonce and CandidateNonce are present for every protocol.
 	EvolvingNonce  lcommon.Nonce
 	CandidateNonce lcommon.Nonce
-	// EpochNonce, PreviousEpochNonce, LabNonce and LastEpochBlockNonce are
-	// Praos-only (Babbage era and later); they are nil for TPraos results.
-	EpochNonce          *lcommon.Nonce
-	PreviousEpochNonce  *lcommon.Nonce
-	LabNonce            *lcommon.Nonce
+	// EpochNonce, PreviousEpochNonce and LabNonce are present for every
+	// protocol.
+	EpochNonce         *lcommon.Nonce
+	PreviousEpochNonce *lcommon.Nonce
+	LabNonce           *lcommon.Nonce
+	// LastEpochBlockNonce is Praos-only (Babbage era and later); it is nil
+	// for TPraos results.
 	LastEpochBlockNonce *lcommon.Nonce
 	// Announcement is the endorser block announcement the last applied
 	// header carried, if any. It is only present for Praos2 results, and is
@@ -196,33 +203,51 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		}
 		switch listLen {
 		case chainDepStateFieldsTPraos:
-			// TPraos: [lastSlot, PrtclState], where PrtclState is
-			// [opCertCounters, evolvingNonce, candidateNonce].
+			// TPraos: [lastSlot, ledgerState], where lastSlot is a
+			// StrictMaybe and ledgerState is
+			// [[opCertCounters, evolvingNonce, candidateNonce],
+			//  [epochNonce, previousEpochNonce], labNonce].
 			var t struct {
 				cbor.StructAsArray
-				LastSlot   WithOriginSlot
-				PrtclState struct {
+				LastSlot    cbor.RawMessage
+				LedgerState struct {
 					cbor.StructAsArray
-					OpCertCounters map[ledger.Blake2b224]uint64
-					EvolvingNonce  lcommon.Nonce
-					CandidateNonce lcommon.Nonce
+					PrtclState struct {
+						cbor.StructAsArray
+						OpCertCounters map[ledger.Blake2b224]uint64
+						EvolvingNonce  lcommon.Nonce
+						CandidateNonce lcommon.Nonce
+					}
+					TicknState struct {
+						cbor.StructAsArray
+						EpochNonce         lcommon.Nonce
+						PreviousEpochNonce lcommon.Nonce
+					}
+					LabNonce lcommon.Nonce
 				}
 			}
 			if _, err := cbor.Decode(outer.Inner, &t); err != nil {
 				return err
 			}
+			lastSlot, err := decodeStrictMaybeSlot(t.LastSlot)
+			if err != nil {
+				return err
+			}
+			ledgerState := &t.LedgerState
 			r.Protocol = ChainDepStateProtocolTPraos
-			r.LastSlot = t.LastSlot
-			r.OpCertCounters = t.PrtclState.OpCertCounters
-			r.EvolvingNonce = t.PrtclState.EvolvingNonce
-			r.CandidateNonce = t.PrtclState.CandidateNonce
-			// EpochNonce and the other Praos-only nonces do not exist in
-			// TPraos. Clear them explicitly so decoding into a reused
-			// result cannot leave stale Praos values from a previous
-			// decode.
-			r.EpochNonce = nil
-			r.PreviousEpochNonce = nil
-			r.LabNonce = nil
+			r.LastSlot = lastSlot
+			r.OpCertCounters = ledgerState.PrtclState.OpCertCounters
+			r.EvolvingNonce = ledgerState.PrtclState.EvolvingNonce
+			r.CandidateNonce = ledgerState.PrtclState.CandidateNonce
+			epochNonce := ledgerState.TicknState.EpochNonce
+			previousEpochNonce := ledgerState.TicknState.PreviousEpochNonce
+			labNonce := ledgerState.LabNonce
+			r.EpochNonce = &epochNonce
+			r.PreviousEpochNonce = &previousEpochNonce
+			r.LabNonce = &labNonce
+			// LastEpochBlockNonce does not exist in TPraos. Clear it so
+			// decoding into a reused result cannot leave a stale Praos
+			// value from a previous decode.
 			r.LastEpochBlockNonce = nil
 			r.Announcement = nil
 		case chainDepStateFieldsPraos2:
@@ -312,4 +337,34 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		r.OpCertCounters = map[ledger.Blake2b224]uint64{}
 	}
 	return nil
+}
+
+// decodeStrictMaybeSlot decodes the TPraos last slot, a StrictMaybe SlotNo
+// that the ledger writes as a list of zero or one element.
+func decodeStrictMaybeSlot(data []byte) (WithOriginSlot, error) {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
+		return WithOriginSlot{}, err
+	}
+	switch listLen {
+	case 0:
+		return WithOriginSlot{}, nil
+	case 1:
+		var slot []uint64
+		if _, err := cbor.Decode(data, &slot); err != nil {
+			return WithOriginSlot{}, err
+		}
+		if len(slot) != 1 {
+			return WithOriginSlot{}, fmt.Errorf(
+				"tpraos last slot: expected 1 entry, got %d",
+				len(slot),
+			)
+		}
+		return WithOriginSlot{HasSlot: true, Slot: slot[0]}, nil
+	default:
+		return WithOriginSlot{}, fmt.Errorf(
+			"tpraos last slot: expected 0 or 1 entries, got %d",
+			listLen,
+		)
+	}
 }
