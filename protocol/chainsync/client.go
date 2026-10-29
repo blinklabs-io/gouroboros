@@ -338,6 +338,9 @@ func (c *Client) Start() {
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
 				c.syncPipelinedRequestNext = 0
+				// Requests sent on the stopped instance are never answered.
+				c.outstandingRequestNext = 0
+				c.requestNextDrained = nil
 			}
 
 			proto := c.ProtocolInstance()
@@ -843,7 +846,10 @@ func (c *Client) findIntersect(
 // configured callbacks as usual, so no blocks are lost. Only once the
 // protocol is back in StIdle is MsgFindIntersect sent, and on success a new
 // sync loop starts from the returned intersection point. Callbacks keep
-// running during the drain, so a callback must not call Reintersect.
+// running during the drain, so a callback must not call Reintersect. A
+// request answered with MsgAwaitReply completes only when the server sends
+// the next block, so at the chain tip Reintersect blocks until then; in
+// node-to-client mode nothing else bounds that wait.
 //
 // If a callback returns ErrStopSyncProcess while draining, Reintersect
 // returns ErrStopSyncProcess without sending MsgFindIntersect. If the server
@@ -857,41 +863,47 @@ func (c *Client) findIntersect(
 func (c *Client) Reintersect(
 	points []pcommon.Point,
 ) (pcommon.Point, Tip, error) {
-	// Stop the loop before taking busyMutex: a loop blocked on busyMutex
-	// would otherwise never see the stop request.
-	c.lifecycleMutex.Lock()
-	loopStop, loopDone := c.syncLoopStop, c.syncLoopDone
-	c.lifecycleMutex.Unlock()
-	if loopStop != nil {
-		select {
-		case <-loopStop:
-		default:
-			close(loopStop)
-		}
-	}
-	c.busyMutex.Lock()
 	proto, readyChan, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
-		c.busyMutex.Unlock()
 		return pcommon.Point{}, Tip{}, err
 	}
-	defer func() {
-		c.busyMutex.Unlock()
-		endOperation()
-	}()
+	defer endOperation()
 	c.lifecycleMutex.Lock()
 	fenceCtx := c.awaitReplyCtx
 	stopsBefore := c.syncStopRequests
 	c.lifecycleMutex.Unlock()
-	if loopDone != nil {
-		select {
-		case <-loopDone:
-		case <-doneChan:
-			return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-		case <-fenceCtx.Done():
-			return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
+	// Wait for the loop to exit without holding busyMutex: a loop that has
+	// taken a ready signal blocks on busyMutex before it rechecks its stop
+	// channel. Another caller may start a new loop before busyMutex is
+	// taken, so repeat until the loop seen under busyMutex has exited.
+	for {
+		c.lifecycleMutex.Lock()
+		loopStop, loopDone := c.syncLoopStop, c.syncLoopDone
+		c.lifecycleMutex.Unlock()
+		if loopStop != nil {
+			select {
+			case <-loopStop:
+			default:
+				close(loopStop)
+			}
+			select {
+			case <-loopDone:
+			case <-doneChan:
+				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
+			case <-fenceCtx.Done():
+				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
+			}
 		}
+		c.busyMutex.Lock()
+		c.lifecycleMutex.Lock()
+		current := c.syncLoopStop
+		c.lifecycleMutex.Unlock()
+		if current == loopStop {
+			break
+		}
+		c.busyMutex.Unlock()
 	}
+	defer c.busyMutex.Unlock()
 
 	// Wait for every unanswered MsgRequestNext.
 	c.lifecycleMutex.Lock()
