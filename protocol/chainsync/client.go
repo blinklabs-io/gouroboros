@@ -430,7 +430,9 @@ func (c *Client) Stop() error {
 		}
 		c.lifecycleMutex.Unlock()
 
-		return c.stopRunning(proto, stoppingDone, operationsDrained)
+		return c.stopRunning(
+			context.Background(), proto, stoppingDone, operationsDrained, nil,
+		)
 	default:
 		c.lifecycleState = clientStateStopped
 		c.lifecycleMutex.Unlock()
@@ -438,11 +440,25 @@ func (c *Client) Stop() error {
 	}
 }
 
+// stopOptions adjusts stopRunning for StopAfterDrain, which already holds
+// busyMutex and an operation slot and bounds the Done send by its own context.
+type stopOptions struct {
+	busyHeld     bool
+	ownOperation func()
+}
+
 func (c *Client) stopRunning(
+	ctx context.Context,
 	proto *protocol.Protocol,
 	stoppingDone chan struct{},
 	operationsDrained <-chan struct{},
+	opts *stopOptions,
 ) error {
+	if opts != nil && opts.busyHeld {
+		return c.finishStop(
+			ctx, proto, stoppingDone, operationsDrained, true, opts,
+		)
+	}
 	busyLockTimeout := 5 * time.Second
 	if c.testStopBusyLockTimeout > 0 {
 		busyLockTimeout = c.testStopBusyLockTimeout
@@ -460,6 +476,19 @@ func (c *Client) stopRunning(
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	return c.finishStop(
+		ctx, proto, stoppingDone, operationsDrained, busyLocked, opts,
+	)
+}
+
+func (c *Client) finishStop(
+	ctx context.Context,
+	proto *protocol.Protocol,
+	stoppingDone chan struct{},
+	operationsDrained <-chan struct{},
+	busyLocked bool,
+	opts *stopOptions,
+) error {
 	proto.Logger().
 		Debug("stopping client protocol",
 			"component", "network",
@@ -471,11 +500,12 @@ func (c *Client) stopRunning(
 	// Check if protocol is already done before sending Done message
 	if !proto.IsDone() {
 		msg := NewMsgDone()
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
-			250*time.Millisecond,
-		)
-		sendErr = proto.SendMessageContextAndWait(ctx, msg)
+		timeout := 250 * time.Millisecond
+		if opts != nil {
+			timeout = 5 * time.Second
+		}
+		sendCtx, cancel := context.WithTimeout(ctx, timeout)
+		sendErr = proto.SendMessageContextAndWait(sendCtx, msg)
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
@@ -483,6 +513,10 @@ func (c *Client) stopRunning(
 	}
 	if busyLocked {
 		c.busyMutex.Unlock()
+	}
+	if opts != nil && opts.ownOperation != nil {
+		// finishStop waits for operations below, so release this one first.
+		opts.ownOperation()
 	}
 
 	// Close readyForNextBlockChan to signal syncLoop to exit
@@ -872,56 +906,12 @@ func (c *Client) Reintersect(
 	fenceCtx := c.awaitReplyCtx
 	stopsBefore := c.syncStopRequests
 	c.lifecycleMutex.Unlock()
-	// Wait for the loop to exit without holding busyMutex: a loop that has
-	// taken a ready signal blocks on busyMutex before it rechecks its stop
-	// channel. Another caller may start a new loop before busyMutex is
-	// taken, so repeat until the loop seen under busyMutex has exited.
-	for {
-		c.lifecycleMutex.Lock()
-		loopStop, loopDone := c.syncLoopStop, c.syncLoopDone
-		c.lifecycleMutex.Unlock()
-		if loopStop != nil {
-			select {
-			case <-loopStop:
-			default:
-				close(loopStop)
-			}
-			select {
-			case <-loopDone:
-			case <-doneChan:
-				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-			case <-fenceCtx.Done():
-				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-			}
-		}
-		c.busyMutex.Lock()
-		c.lifecycleMutex.Lock()
-		current := c.syncLoopStop
-		c.lifecycleMutex.Unlock()
-		if current == loopStop {
-			break
-		}
-		c.busyMutex.Unlock()
+	if err := c.quiesceSync(
+		context.Background(), doneChan, fenceCtx,
+	); err != nil {
+		return pcommon.Point{}, Tip{}, err
 	}
 	defer c.busyMutex.Unlock()
-
-	// Wait for every unanswered MsgRequestNext.
-	c.lifecycleMutex.Lock()
-	var drained chan struct{}
-	if c.outstandingRequestNext > 0 {
-		drained = make(chan struct{})
-		c.requestNextDrained = drained
-	}
-	c.lifecycleMutex.Unlock()
-	if drained != nil {
-		select {
-		case <-drained:
-		case <-doneChan:
-			return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-		case <-fenceCtx.Done():
-			return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-		}
-	}
 
 	// The old loop is gone, so the ready signals for the drained replies are
 	// stale. Replies enqueue their signal before they are retired, so none
@@ -954,6 +944,146 @@ func (c *Client) Reintersect(
 		return pcommon.Point{}, Tip{}, err
 	}
 	return result.point, result.tip, nil
+}
+
+// quiesceSync stops the sync loop, then waits until every MsgRequestNext
+// already sent has been answered. On a nil return busyMutex is held, the
+// protocol is in StIdle and the caller must unlock it; on error busyMutex is
+// not held. ctx bounds the waits, and protocol.ErrProtocolShuttingDown is
+// returned if the protocol stops or the client's fence is cancelled.
+func (c *Client) quiesceSync(
+	ctx context.Context,
+	doneChan <-chan struct{},
+	fenceCtx context.Context,
+) error {
+	// Wait for the loop to exit without holding busyMutex: a loop that has
+	// taken a ready signal blocks on busyMutex before it rechecks its stop
+	// channel. Another caller may start a new loop before busyMutex is
+	// taken, so repeat until the loop seen under busyMutex has exited.
+	for {
+		c.lifecycleMutex.Lock()
+		loopStop, loopDone := c.syncLoopStop, c.syncLoopDone
+		c.lifecycleMutex.Unlock()
+		if loopStop != nil {
+			select {
+			case <-loopStop:
+			default:
+				close(loopStop)
+			}
+			select {
+			case <-loopDone:
+			case <-doneChan:
+				return protocol.ErrProtocolShuttingDown
+			case <-fenceCtx.Done():
+				return protocol.ErrProtocolShuttingDown
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		c.busyMutex.Lock()
+		c.lifecycleMutex.Lock()
+		current := c.syncLoopStop
+		c.lifecycleMutex.Unlock()
+		if current == loopStop {
+			break
+		}
+		c.busyMutex.Unlock()
+	}
+
+	// Wait for every unanswered MsgRequestNext.
+	c.lifecycleMutex.Lock()
+	var drained chan struct{}
+	if c.outstandingRequestNext > 0 {
+		drained = make(chan struct{})
+		c.requestNextDrained = drained
+	}
+	c.lifecycleMutex.Unlock()
+	if drained != nil {
+		select {
+		case <-drained:
+		case <-doneChan:
+			c.busyMutex.Unlock()
+			return protocol.ErrProtocolShuttingDown
+		case <-fenceCtx.Done():
+			c.busyMutex.Unlock()
+			return protocol.ErrProtocolShuttingDown
+		case <-ctx.Done():
+			c.lifecycleMutex.Lock()
+			if c.requestNextDrained == drained {
+				c.requestNextDrained = nil
+			}
+			c.lifecycleMutex.Unlock()
+			c.busyMutex.Unlock()
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
+// StopAfterDrain stops the sync and sends MsgDone without abandoning the
+// protocol in a state where the server still owes a reply. Stop can only send
+// MsgDone while the client has agency (StIdle); StopAfterDrain first stops
+// issuing MsgRequestNext and waits until every MsgRequestNext already sent
+// has been answered, delivering each reply to the configured callbacks. A
+// request answered with MsgAwaitReply completes only when the server sends
+// the next block, so at the chain tip this can take until the next block;
+// the wait is bounded only by ctx (and, in node-to-node mode, the protocol's
+// MustReply timer). It then sends MsgDone from StIdle and performs the same
+// local teardown as Stop, after which Start followed by Sync on the same
+// muxer is a legal restart. Callbacks keep running during the drain, so a
+// callback must not call StopAfterDrain. A callback returning
+// ErrStopSyncProcess does not prevent the stop.
+//
+// If ctx expires or is cancelled while waiting, StopAfterDrain returns
+// ctx.Err() without sending MsgDone. The client stays running with its sync
+// loop stopped and the server still owing replies, so the protocol cannot be
+// restarted on this connection: the caller should close the connection.
+// Calling StopAfterDrain again resumes the wait. If Stop is called, or the
+// connection is lost, while waiting, it returns protocol.ErrProtocolShuttingDown.
+// A client that is not running returns nil. As with Stop, a failure to
+// deliver MsgDone is returned after the local teardown has completed.
+func (c *Client) StopAfterDrain(ctx context.Context) error {
+	proto, _, doneChan, endOperation, err := c.beginOperation()
+	if err != nil {
+		if errors.Is(err, protocol.ErrProtocolShuttingDown) {
+			c.lifecycleMutex.Lock()
+			state := c.lifecycleState
+			c.lifecycleMutex.Unlock()
+			if state == clientStateNew || state == clientStateStopped {
+				return nil
+			}
+		}
+		return err
+	}
+	c.lifecycleMutex.Lock()
+	fenceCtx := c.awaitReplyCtx
+	c.lifecycleMutex.Unlock()
+	if err := c.quiesceSync(ctx, doneChan, fenceCtx); err != nil {
+		endOperation()
+		return err
+	}
+
+	// busyMutex is held, so nothing can send until the Done message is out.
+	c.lifecycleMutex.Lock()
+	if c.lifecycleState != clientStateRunning ||
+		c.ProtocolInstance() != proto {
+		c.lifecycleMutex.Unlock()
+		c.busyMutex.Unlock()
+		endOperation()
+		return protocol.ErrProtocolShuttingDown
+	}
+	c.lifecycleState = clientStateStopping
+	c.awaitReplyCancel()
+	stoppingDone := make(chan struct{})
+	c.stoppingDone = stoppingDone
+	operationsDrained := make(chan struct{})
+	c.operationsDrained = operationsDrained
+	c.lifecycleMutex.Unlock()
+
+	return c.stopRunning(
+		ctx, proto, stoppingDone, operationsDrained,
+		&stopOptions{busyHeld: true, ownOperation: endOperation},
+	)
 }
 
 func (c *Client) sendInitialRequestAndStartSyncLoop() error {
