@@ -45,9 +45,7 @@ type Harness struct {
 	Client     *muxer.Muxer
 	Server     *muxer.Muxer
 	protocolId uint16
-	clientSend chan *muxer.Segment
 	clientRecv chan *muxer.Segment
-	sentinelTx chan *muxer.Segment
 	sentinelRx chan *muxer.Segment
 	hold       *holdHandler
 }
@@ -69,15 +67,11 @@ func New(t *testing.T, protocolId uint16) *Harness {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
 	})
-	h.clientSend, h.clientRecv, _ = h.Client.RegisterProtocol(
+	_, h.clientRecv, _ = h.Client.RegisterProtocol(
 		protocolId,
 		muxer.ProtocolRoleInitiator,
 	)
-	require.NotNil(t, h.clientSend)
-	h.sentinelTx, _, _ = h.Client.RegisterProtocol(
-		sentinelProtocolId,
-		muxer.ProtocolRoleInitiator,
-	)
+	require.NotNil(t, h.clientRecv)
 	_, h.sentinelRx, _ = h.Server.RegisterProtocol(
 		sentinelProtocolId,
 		muxer.ProtocolRoleResponder,
@@ -113,18 +107,22 @@ func (h *Harness) Release() {
 	}
 }
 
-// Send encodes msg and sends it to the server as the client.
+// Send encodes msg and writes it to the server as the client. It writes the
+// segment itself rather than queueing it on a registered protocol: each
+// protocol's queue is drained by its own goroutine, so queued segments of
+// different protocols reach the wire in no fixed order, and Settle could
+// return before this segment was written.
 func (h *Harness) Send(msg any) {
 	h.t.Helper()
 	data, err := cbor.Encode(msg)
 	require.NoError(h.t, err)
-	seg := muxer.NewSegment(h.protocolId, data, false)
+	h.write(muxer.NewSegment(h.protocolId, data, false))
+}
+
+func (h *Harness) write(seg *muxer.Segment) {
+	h.t.Helper()
 	require.NotNil(h.t, seg)
-	select {
-	case h.clientSend <- seg:
-	case <-time.After(Timeout):
-		h.t.Fatal("timed out queueing client message")
-	}
+	require.NoError(h.t, h.Client.Send(seg))
 }
 
 // WaitHeld blocks until the server's Done handler has reached the hold.
@@ -142,12 +140,7 @@ func (h *Harness) WaitHeld() {
 // for it: the muxer routes segments in wire order.
 func (h *Harness) Settle() {
 	h.t.Helper()
-	seg := muxer.NewSegment(sentinelProtocolId, []byte{0x80}, false)
-	select {
-	case h.sentinelTx <- seg:
-	case <-time.After(Timeout):
-		h.t.Fatal("timed out queueing sentinel")
-	}
+	h.write(muxer.NewSegment(sentinelProtocolId, []byte{0x80}, false))
 	select {
 	case <-h.sentinelRx:
 	case <-time.After(Timeout):
