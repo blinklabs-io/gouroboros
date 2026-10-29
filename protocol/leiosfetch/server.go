@@ -270,7 +270,7 @@ func (s *Server) handleDone() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.Stop()
+	s.StopForRestart()
 	s.initProtocol()
 	s.Start()
 }

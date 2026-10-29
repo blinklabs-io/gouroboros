@@ -487,7 +487,7 @@ func (s *Server) handleDone() error {
 		}
 	}
 	// Restart protocol
-	p.Stop()
+	p.StopForRestart()
 	s.initProtocol()
 	s.Start()
 	return nil

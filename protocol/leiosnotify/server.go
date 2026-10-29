@@ -270,7 +270,7 @@ func (s *Server) handleQuit() error {
 		return err
 	}
 	// Restart protocol
-	s.Stop()
+	s.StopForRestart()
 	s.initProtocol()
 	s.Start()
 	return nil
