@@ -661,10 +661,6 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	for _, failure := range tmpData {
-		tmpFailure := []cbor.RawMessage{}
-		if _, err := cbor.Decode(failure, &tmpFailure); err != nil {
-			return err
-		}
 		failureType, err := cbor.DecodeIdFromList(failure)
 		if err != nil {
 			return err
@@ -672,15 +668,15 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 		var newErr error
 		switch {
 		case e.era == EraIdDijkstra:
-			newErr, err = decodeDijkstraMempoolFailure(
-				failure,
-				tmpFailure,
-				failureType,
-			)
+			newErr, err = decodeDijkstraMempoolFailure(failure, failureType)
 			if err != nil {
 				return err
 			}
 		case isLedgerUtxowFailure(e.era, failureType):
+			tmpFailure, err := decodeFailureFields(failure, "ApplyTxError")
+			if err != nil {
+				return err
+			}
 			if len(tmpFailure) < 2 {
 				return fmt.Errorf(
 					"ApplyTxError UtxowFailure: expected at least 2 elements, got %d",
@@ -718,7 +714,6 @@ func (e *ApplyTxError) UnmarshalCBOR(data []byte) error {
 // Only MEMPOOL LedgerFailure (1) -> LEDGER UtxowFailure (1) reaches UTXOW.
 func decodeDijkstraMempoolFailure(
 	raw cbor.RawMessage,
-	fields []cbor.RawMessage,
 	tag int,
 ) (error, error) {
 	unknown := &UnknownApplyTxFailureError{
@@ -727,13 +722,20 @@ func decodeDijkstraMempoolFailure(
 	if tag != 1 {
 		return unknown, nil
 	}
+	fields, err := decodeFailureFields(raw, "dijkstra MEMPOOL LedgerFailure")
+	if err != nil {
+		return nil, err
+	}
 	if len(fields) != 2 {
 		return nil, errors.New(
 			"dijkstra MEMPOOL LedgerFailure: expected 2 elements",
 		)
 	}
-	var ledgerFields []cbor.RawMessage
-	if _, err := cbor.Decode(fields[1], &ledgerFields); err != nil {
+	ledgerFields, err := decodeFailureFields(
+		fields[1],
+		"dijkstra LEDGER failure",
+	)
+	if err != nil {
 		return nil, err
 	}
 	ledgerTag, err := cbor.DecodeIdFromList(fields[1])
@@ -791,8 +793,8 @@ type UtxowFailure struct {
 }
 
 func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
-	tmpFailure := []cbor.RawMessage{}
-	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+	tmpFailure, err := decodeFailureFields(data, "UtxowFailure")
+	if err != nil {
 		return err
 	}
 	if len(tmpFailure) < 1 {
@@ -2118,8 +2120,8 @@ func (e *ShelleyUtxowFailure) unmarshalCBORWithEra(
 	data []byte,
 	era uint8,
 ) error {
-	tmpFailure := []cbor.RawMessage{}
-	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+	tmpFailure, err := decodeFailureFields(data, "ShelleyUtxowFailure")
+	if err != nil {
 		return err
 	}
 	if len(tmpFailure) < 1 {
@@ -2207,8 +2209,8 @@ func (e *AlonzoUtxowFailure) unmarshalCBORWithEra(
 	data []byte,
 	era uint8,
 ) error {
-	tmpFailure := []cbor.RawMessage{}
-	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+	tmpFailure, err := decodeFailureFields(data, "AlonzoUtxowFailure")
+	if err != nil {
 		return err
 	}
 	if len(tmpFailure) < 2 {
@@ -2270,8 +2272,8 @@ func (e *BabbageUtxoFailure) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *BabbageUtxoFailure) unmarshalPayload(data []byte, era uint8) error {
-	tmpFailure := []cbor.RawMessage{}
-	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+	tmpFailure, err := decodeFailureFields(data, "BabbageUtxoFailure")
+	if err != nil {
 		return err
 	}
 	if len(tmpFailure) < 2 {
@@ -2480,8 +2482,8 @@ func (e *ConwayUtxowFailure) Error() string {
 }
 
 func (e *ConwayUtxowFailure) UnmarshalCBOR(data []byte) error {
-	tmpFailure := []cbor.RawMessage{}
-	if _, err := cbor.Decode(data, &tmpFailure); err != nil {
+	tmpFailure, err := decodeFailureFields(data, "ConwayUtxowFailure")
+	if err != nil {
 		return err
 	}
 	if len(tmpFailure) < 1 {

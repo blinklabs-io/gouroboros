@@ -14,7 +14,11 @@
 
 package ledger
 
-import "github.com/blinklabs-io/gouroboros/cbor"
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
 
 // maxRejectionItems bounds the total number of CBOR data items in one
 // transaction rejection reason. The decoder's per-collection limit does not
@@ -28,4 +32,33 @@ const maxRejectionItems = 131072
 // more than maxRejectionItems data items or nests too deeply.
 func checkRejectionBudget(data []byte) error {
 	return cbor.CheckItemBudget(data, maxRejectionItems)
+}
+
+// maxFailureFields bounds the entries of one predicate failure constructor,
+// which encodes as a flat list of its tag and a handful of fields. Real
+// constructors carry fewer than ten.
+const maxFailureFields = 16
+
+// decodeFailureFields decodes data as the field list of one predicate failure
+// constructor. The declared length is checked from the header before a slice
+// is sized from it, so a peer cannot size an allocation by declaring many
+// fields in a fixed-shape constructor.
+func decodeFailureFields(data []byte, label string) ([]cbor.RawMessage, error) {
+	count, err := cbor.ListLength(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	if count > maxFailureFields {
+		return nil, fmt.Errorf(
+			"%s: %d fields exceeds the maximum of %d",
+			label,
+			count,
+			maxFailureFields,
+		)
+	}
+	fields := make([]cbor.RawMessage, 0, count)
+	if _, err := cbor.Decode(data, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
 }
