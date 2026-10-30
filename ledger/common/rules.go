@@ -1708,6 +1708,22 @@ func ValidateSupplementalDatumsWithAvailableScripts(
 	ls LedgerState,
 	available map[ScriptHash]Script,
 ) error {
+	return ValidateSupplementalDatumsWithExtraBodies(tx, ls, available, nil)
+}
+
+// ValidateSupplementalDatumsWithExtraBodies checks tx's witness datums like
+// ValidateSupplementalDatumsWithAvailableScripts, and also accepts the datum
+// hashes of every extra body's outputs, collateral return and resolved
+// reference inputs. This is the Babbage supplemental set of each extra body,
+// which cardano-ledger's getDijkstraSupplementalDataHashes adds for the
+// sub-transactions of a top-level transaction. Spending inputs of extra
+// bodies do not justify a datum.
+func ValidateSupplementalDatumsWithExtraBodies(
+	tx Transaction,
+	ls LedgerState,
+	available map[ScriptHash]Script,
+	extra []Transaction,
+) error {
 	witnesses := tx.Witnesses()
 	if witnesses == nil || len(witnesses.PlutusData()) == 0 {
 		return nil
@@ -1740,20 +1756,28 @@ func ValidateSupplementalDatumsWithAvailableScripts(
 			}
 		}
 	}
-	for _, output := range tx.Outputs() {
-		addDatumHash(output)
-	}
-	for _, input := range tx.ReferenceInputs() {
-		if ls == nil {
-			break
+	addBabbageSupplementalHashes := func(body Transaction) {
+		for _, output := range body.Outputs() {
+			addDatumHash(output)
 		}
-		utxo, err := ResolveInputUtxo(ls, input)
-		if err != nil || utxo.Output == nil {
-			continue
+		for _, input := range body.ReferenceInputs() {
+			if ls == nil {
+				break
+			}
+			utxo, err := ResolveInputUtxo(ls, input)
+			if err != nil || utxo.Output == nil {
+				continue
+			}
+			addDatumHash(utxo.Output)
 		}
-		addDatumHash(utxo.Output)
+		addDatumHash(body.CollateralReturn())
 	}
-	addDatumHash(tx.CollateralReturn())
+	addBabbageSupplementalHashes(tx)
+	for _, body := range extra {
+		if body != nil {
+			addBabbageSupplementalHashes(body)
+		}
+	}
 
 	var supplemental []Blake2b256
 	for _, datum := range witnesses.PlutusData() {
