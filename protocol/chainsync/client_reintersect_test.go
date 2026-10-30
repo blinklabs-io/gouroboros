@@ -48,6 +48,9 @@ type reintersectHarness struct {
 	findPoint  pcommon.Point
 	notFound   atomic.Bool
 	stopSync   atomic.Bool
+	// holdFind makes the server withhold its FindIntersect reply until the
+	// test releases the gate.
+	holdFind atomic.Bool
 
 	mu     sync.Mutex
 	events []string
@@ -126,6 +129,13 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 			) (pcommon.Point, Tip, error) {
 				h.log("find")
 				h.finds <- points
+				if h.holdFind.Load() {
+					select {
+					case <-h.gate:
+					case <-h.stop:
+						return pcommon.Point{}, tip, ErrIntersectNotFound
+					}
+				}
 				if h.notFound.Load() {
 					return pcommon.Point{}, tip, ErrIntersectNotFound
 				}
