@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
-	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -170,7 +169,6 @@ type Config struct {
 type TxAndEraId struct {
 	EraId uint
 	Tx    []byte
-	txObj ledger.Transaction
 }
 
 // Callback context
