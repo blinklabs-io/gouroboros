@@ -154,7 +154,7 @@ func (s *Server) handleDone() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	s.Stop()
+	s.StopForRestart()
 	s.initProtocol()
 	s.Start()
 }

@@ -157,7 +157,7 @@ func (s *Server) handleDone(proto *protocol.Protocol) {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	proto.Stop()
+	proto.StopForRestart()
 	s.initProtocol()
 	s.Start()
 }

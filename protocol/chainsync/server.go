@@ -302,7 +302,7 @@ func (s *Server) handleDone() {
 			)
 	}
 	// Restart protocol
-	s.Stop()
+	s.StopForRestart()
 	s.initProtocol()
 	s.Start()
 }

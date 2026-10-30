@@ -215,7 +215,7 @@ func (s *Server) handleClientDone() {
 			)
 	}
 	// Restart protocol
-	s.Stop()
+	s.StopForRestart()
 	s.initProtocol()
 	s.Start()
 }
