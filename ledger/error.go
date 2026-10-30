@@ -731,13 +731,6 @@ func decodeDijkstraMempoolFailure(
 			"dijkstra MEMPOOL LedgerFailure: expected 2 elements",
 		)
 	}
-	ledgerFields, err := decodeFailureFields(
-		fields[1],
-		"dijkstra LEDGER failure",
-	)
-	if err != nil {
-		return nil, err
-	}
 	ledgerTag, err := cbor.DecodeIdFromList(fields[1])
 	if err != nil {
 		return nil, err
@@ -745,6 +738,13 @@ func decodeDijkstraMempoolFailure(
 	if ledgerTag != 1 {
 		// Preserve the complete MEMPOOL envelope for unhandled LEDGER tags.
 		return unknown, nil
+	}
+	ledgerFields, err := decodeFailureFields(
+		fields[1],
+		"dijkstra LEDGER failure",
+	)
+	if err != nil {
+		return nil, err
 	}
 	if len(ledgerFields) != 2 {
 		return nil, errors.New(
@@ -793,10 +793,18 @@ type UtxowFailure struct {
 }
 
 func (e *UtxowFailure) UnmarshalCBOR(data []byte) error {
-	tmpFailure, err := decodeFailureFields(data, "UtxowFailure")
+	tmpFailure, count, err := decodeFailureHead(data, "UtxowFailure")
 	if err != nil {
 		return err
 	}
+	err = e.unmarshalFields(data, tmpFailure)
+	return checkFailureFieldLimit("UtxowFailure", count, e.Err, err)
+}
+
+func (e *UtxowFailure) unmarshalFields(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+) error {
 	if len(tmpFailure) < 1 {
 		return errors.New("UtxowFailure: expected at least 1 element")
 	}
@@ -2120,10 +2128,19 @@ func (e *ShelleyUtxowFailure) unmarshalCBORWithEra(
 	data []byte,
 	era uint8,
 ) error {
-	tmpFailure, err := decodeFailureFields(data, "ShelleyUtxowFailure")
+	tmpFailure, count, err := decodeFailureHead(data, "ShelleyUtxowFailure")
 	if err != nil {
 		return err
 	}
+	err = e.unmarshalFields(data, tmpFailure, era)
+	return checkFailureFieldLimit("ShelleyUtxowFailure", count, e.Err, err)
+}
+
+func (e *ShelleyUtxowFailure) unmarshalFields(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+	era uint8,
+) error {
 	if len(tmpFailure) < 1 {
 		return errors.New("ShelleyUtxowFailure: expected at least 1 element")
 	}
@@ -2209,10 +2226,19 @@ func (e *AlonzoUtxowFailure) unmarshalCBORWithEra(
 	data []byte,
 	era uint8,
 ) error {
-	tmpFailure, err := decodeFailureFields(data, "AlonzoUtxowFailure")
+	tmpFailure, count, err := decodeFailureHead(data, "AlonzoUtxowFailure")
 	if err != nil {
 		return err
 	}
+	err = e.unmarshalFields(data, tmpFailure, era)
+	return checkFailureFieldLimit("AlonzoUtxowFailure", count, e.Err, err)
+}
+
+func (e *AlonzoUtxowFailure) unmarshalFields(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+	era uint8,
+) error {
 	if len(tmpFailure) < 2 {
 		return errors.New("AlonzoUtxowFailure: expected at least 2 elements")
 	}
@@ -2272,10 +2298,19 @@ func (e *BabbageUtxoFailure) UnmarshalCBOR(data []byte) error {
 }
 
 func (e *BabbageUtxoFailure) unmarshalPayload(data []byte, era uint8) error {
-	tmpFailure, err := decodeFailureFields(data, "BabbageUtxoFailure")
+	tmpFailure, count, err := decodeFailureHead(data, "BabbageUtxoFailure")
 	if err != nil {
 		return err
 	}
+	err = e.unmarshalFields(data, tmpFailure, era)
+	return checkFailureFieldLimit("BabbageUtxoFailure", count, e.Err, err)
+}
+
+func (e *BabbageUtxoFailure) unmarshalFields(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+	era uint8,
+) error {
 	if len(tmpFailure) < 2 {
 		return errors.New("BabbageUtxoFailure: expected at least 2 elements")
 	}
@@ -2482,10 +2517,18 @@ func (e *ConwayUtxowFailure) Error() string {
 }
 
 func (e *ConwayUtxowFailure) UnmarshalCBOR(data []byte) error {
-	tmpFailure, err := decodeFailureFields(data, "ConwayUtxowFailure")
+	tmpFailure, count, err := decodeFailureHead(data, "ConwayUtxowFailure")
 	if err != nil {
 		return err
 	}
+	err = e.unmarshalFields(data, tmpFailure)
+	return checkFailureFieldLimit("ConwayUtxowFailure", count, e.Err, err)
+}
+
+func (e *ConwayUtxowFailure) unmarshalFields(
+	data []byte,
+	tmpFailure []cbor.RawMessage,
+) error {
 	if len(tmpFailure) < 1 {
 		return errors.New("ConwayUtxowFailure: expected at least 1 element")
 	}

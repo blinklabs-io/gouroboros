@@ -16,6 +16,7 @@ package ledger
 
 import (
 	"bytes"
+	"fmt"
 	"runtime"
 	"testing"
 
@@ -69,15 +70,15 @@ func TestFailureFieldsRejectedBeforeAllocation(t *testing.T) {
 			return (&ApplyTxError{era: era}).UnmarshalCBOR(d)
 		}
 	}
-	// Each case is a decoder that sizes a slice from a fixed-shape
-	// failure list, fed that list at its own level.
+	// Each case is a decoder that sizes a slice from a recognized,
+	// fixed-shape failure list, fed that list at its own level.
 	cases := map[string]struct {
 		decode  func([]byte) error
 		payload []byte
 	}{
 		"utxow shelley": {utxowErr(EraIdShelley), failureWithFields(0, count)},
 		"utxow alonzo":  {utxowErr(EraIdAlonzo), failureWithFields(0, count)},
-		"utxow babbage": {utxowErr(EraIdBabbage), failureWithFields(0, count)},
+		"utxow babbage": {utxowErr(EraIdBabbage), failureWithFields(1, count)},
 		"utxow conway":  {utxowErr(EraIdConway), failureWithFields(0, count)},
 		"utxow dijkstra": {
 			utxowErr(EraIdDijkstra),
@@ -99,7 +100,7 @@ func TestFailureFieldsRejectedBeforeAllocation(t *testing.T) {
 			func(d []byte) error {
 				return (&BabbageUtxoFailure{}).UnmarshalCBOR(d)
 			},
-			failureWithFields(0, count),
+			failureWithFields(1, count),
 		},
 		"conway utxow failure": {
 			func(d []byte) error {
@@ -229,4 +230,138 @@ func TestApplyTxErrorUnknownFailureNotSizedFromFieldCount(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, apply.Failures, 1)
 	assert.Less(t, allocated, uint64(failureFieldsAllocLimit))
+}
+
+func TestFailureFieldsOversizedUnknownConstructorPreserved(t *testing.T) {
+	// Not t.Parallel: reads the process-wide allocation counter.
+	// Tag 23 is unrecognized by every decoder below. An unrecognized
+	// constructor has no known shape to bound, so it is preserved raw
+	// whatever its field count, without sizing a slice from that count.
+	const unknownTag = 23
+	utxow := func(era uint8) func([]byte) (error, error) {
+		return func(d []byte) (error, error) {
+			f := &UtxowFailure{era: era}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		}
+	}
+	cases := map[string]func([]byte) (error, error){
+		"utxow shelley":  utxow(EraIdShelley),
+		"utxow alonzo":   utxow(EraIdAlonzo),
+		"utxow babbage":  utxow(EraIdBabbage),
+		"utxow conway":   utxow(EraIdConway),
+		"utxow dijkstra": utxow(EraIdDijkstra),
+		"utxow unknown era": func(d []byte) (error, error) {
+			f := &UtxowFailure{era: 0x7f}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		},
+		"shelley utxow failure": func(d []byte) (error, error) {
+			f := &ShelleyUtxowFailure{}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		},
+		"alonzo utxow failure": func(d []byte) (error, error) {
+			f := &AlonzoUtxowFailure{}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		},
+		"babbage utxo failure": func(d []byte) (error, error) {
+			f := &BabbageUtxoFailure{}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		},
+		"conway utxow failure": func(d []byte) (error, error) {
+			f := &ConwayUtxowFailure{}
+			err := f.UnmarshalCBOR(d)
+			return f.Err, err
+		},
+	}
+	for name, decode := range cases {
+		for _, count := range []int{maxFailureFields + 1, 131000} {
+			t.Run(fmt.Sprintf("%s/%d", name, count), func(t *testing.T) {
+				data := failureWithFields(unknownTag, count)
+				var got, err error
+				allocated := allocatedBy(func() { got, err = decode(data) })
+				require.NoError(t, err)
+				assert.Less(t, allocated, uint64(failureFieldsAllocLimit))
+				var raw []byte
+				switch u := got.(type) {
+				case *UnknownUtxowFailureError:
+					require.Equal(t, unknownTag, u.FailureType)
+					raw = u.Cbor
+				case *UnknownUtxoFailureError:
+					require.Equal(t, unknownTag, u.FailureType)
+					raw = u.Cbor
+				default:
+					t.Fatalf("got %T, want an unknown failure", got)
+				}
+				require.Equal(t, data, raw)
+			})
+		}
+	}
+}
+
+func TestDijkstraUnknownLedgerFailureOversizedPreserved(t *testing.T) {
+	// Not t.Parallel: reads the process-wide allocation counter.
+	for _, tc := range []struct {
+		tag   byte
+		count int
+	}{
+		{5, maxFailureFields + 1},
+		{5, 131000},
+		{23, maxFailureFields + 1},
+		{23, 131000},
+	} {
+		count := tc.count
+		mempool := append(
+			[]byte{0x82, 0x01},
+			failureWithFields(tc.tag, count)...,
+		)
+		apply := &ApplyTxError{era: EraIdDijkstra}
+		var err error
+		allocated := allocatedBy(func() {
+			err = apply.UnmarshalCBOR(append([]byte{0x81}, mempool...))
+		})
+		require.NoError(t, err, "tag %d count %d", tc.tag, count)
+		assert.Less(t, allocated, uint64(failureFieldsAllocLimit))
+		require.Len(t, apply.Failures, 1)
+		unknown, ok := apply.Failures[0].(*UnknownApplyTxFailureError)
+		require.True(t, ok, "got %T", apply.Failures[0])
+		require.Equal(t, 1, unknown.FailureType)
+		require.Equal(t, mempool, []byte(unknown.Cbor))
+	}
+}
+
+func TestTxSubmitErrorOversizedKnownFailureFallsBackToGeneric(t *testing.T) {
+	t.Parallel()
+	// Conway LEDGER tag 1 is UtxowFailure, a recognized two-entry shape.
+	data := applyTxErrorWith(
+		EraIdConway,
+		failureWithFields(1, maxFailureFields+1),
+	)
+	_, err := NewShelleyTxValidationErrorFromCbor(data)
+	require.ErrorContains(t, err, "fields exceeds the maximum")
+	got, err := NewTxSubmitErrorFromCbor(data)
+	require.NoError(t, err)
+	generic, ok := got.(*GenericError)
+	require.True(t, ok, "got %T", got)
+	require.Equal(t, data, generic.Cbor)
+}
+
+func TestFailureFieldsOversizedKnownWrapperOfUnknownRejected(t *testing.T) {
+	t.Parallel()
+	// Alonzo UTXOW tag 0 wraps a Shelley UTXOW failure; the wrapped
+	// constructor (tag 23) is unrecognized, but the wrapper is not.
+	inBounds := &UtxowFailure{era: EraIdAlonzo}
+	require.NoError(t, inBounds.UnmarshalCBOR([]byte{0x82, 0x00, 0x81, 23}))
+	wrapper, ok := inBounds.Err.(*ShelleyUtxowFailure)
+	require.True(t, ok, "got %T", inBounds.Err)
+	require.IsType(t, &UnknownUtxowFailureError{}, wrapper.Err)
+	data := append(
+		[]byte{0x80 + maxFailureFields + 1, 0x00, 0x81, 23},
+		make([]byte, maxFailureFields-1)...,
+	)
+	err := (&UtxowFailure{era: EraIdAlonzo}).UnmarshalCBOR(data)
+	require.ErrorContains(t, err, "fields exceeds the maximum")
 }

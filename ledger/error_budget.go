@@ -39,26 +39,92 @@ func checkRejectionBudget(data []byte) error {
 // constructors carry fewer than ten.
 const maxFailureFields = 16
 
-// decodeFailureFields decodes data as the field list of one predicate failure
-// constructor. The declared length is checked from the header before a slice
-// is sized from it, so a peer cannot size an allocation by declaring many
-// fields in a fixed-shape constructor.
+// decodeFailureFields decodes data as the field list of a predicate failure
+// constructor whose tag is already known to be recognized. The declared length
+// is checked from the header before a slice is sized from it, so a peer cannot
+// size an allocation by declaring many fields in a fixed-shape constructor.
 func decodeFailureFields(data []byte, label string) ([]cbor.RawMessage, error) {
-	count, err := cbor.ListLength(data)
+	fields, count, err := decodeFailureHead(data, label)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", label, err)
-	}
-	if count > maxFailureFields {
-		return nil, fmt.Errorf(
-			"%s: %d fields exceeds the maximum of %d",
-			label,
-			count,
-			maxFailureFields,
-		)
-	}
-	fields := make([]cbor.RawMessage, 0, count)
-	if _, err := cbor.Decode(data, &fields); err != nil {
 		return nil, err
 	}
+	if count > maxFailureFields {
+		return nil, failureFieldLimitError(label, count)
+	}
 	return fields, nil
+}
+
+// decodeFailureHead decodes data as the field list of one predicate failure
+// constructor whose tag the caller has yet to dispatch on, and returns the
+// list's length. Over maxFailureFields entries only the tag and first field
+// are returned, which is all any decoder reads, so nothing is sized from the
+// declared length. The caller must settle that case with
+// checkFailureFieldLimit, which keeps an unrecognized constructor raw as
+// before and refuses a recognized one.
+func decodeFailureHead(
+	data []byte,
+	label string,
+) ([]cbor.RawMessage, int, error) {
+	count, err := cbor.ListLength(data)
+	if err != nil {
+		return nil, 0, fmt.Errorf("%s: %w", label, err)
+	}
+	if count <= maxFailureFields {
+		fields := make([]cbor.RawMessage, 0, count)
+		if _, err := cbor.Decode(data, &fields); err != nil {
+			return nil, 0, err
+		}
+		return fields, count, nil
+	}
+	// The full decode above also proves the entries well-formed; the walk
+	// does that here without materializing them.
+	if err := checkRejectionBudget(data); err != nil {
+		return nil, 0, fmt.Errorf("%s: %w", label, err)
+	}
+	_, headerSize, _ := cbor.ArrayInfo(data)
+	rest := data[headerSize:]
+	fields := make([]cbor.RawMessage, 0, 2)
+	for len(fields) < 2 {
+		var field cbor.RawMessage
+		n, err := cbor.Decode(rest, &field)
+		if err != nil {
+			return nil, 0, fmt.Errorf("%s: %w", label, err)
+		}
+		fields = append(fields, field)
+		rest = rest[n:]
+	}
+	return fields, count, nil
+}
+
+// checkFailureFieldLimit settles a constructor decoded from decodeFailureHead.
+// Over maxFailureFields entries, only an unrecognized constructor, preserved
+// raw in decoded, is accepted: a recognized one has a fixed shape that the
+// list does not match.
+func checkFailureFieldLimit(
+	label string,
+	count int,
+	decoded error,
+	err error,
+) error {
+	if count <= maxFailureFields {
+		return err
+	}
+	if err == nil {
+		// The constructor itself must be unrecognized; a recognized wrapper
+		// whose cause is unrecognized still has a fixed shape.
+		switch decoded.(type) { //nolint:errorlint // see above
+		case *UnknownUtxowFailureError, *UnknownUtxoFailureError:
+			return nil
+		}
+	}
+	return failureFieldLimitError(label, count)
+}
+
+func failureFieldLimitError(label string, count int) error {
+	return fmt.Errorf(
+		"%s: %d fields exceeds the maximum of %d",
+		label,
+		count,
+		maxFailureFields,
+	)
 }
