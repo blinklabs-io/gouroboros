@@ -468,7 +468,23 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	}
 	*h = BabbageBlockHeader(tmp)
 	h.SetCbor(cborData)
+	h.ShareWithinCbor()
 	return nil
+}
+
+// ShareWithinCbor makes the body's stored CBOR and the decoded byte-string
+// fields views into the header's stored CBOR, so a decoded header retains its
+// bytes once. The fields must not be modified in place.
+func (h *BabbageBlockHeader) ShareWithinCbor() {
+	parent := h.Cbor()
+	h.Body.ShareWithinParent(parent)
+	b := &h.Body
+	b.VrfKey = cbor.ViewWithin(parent, b.VrfKey)
+	b.VrfResult.Output = cbor.ViewWithin(parent, b.VrfResult.Output)
+	b.VrfResult.Proof = cbor.ViewWithin(parent, b.VrfResult.Proof)
+	b.OpCert.HotVkey = cbor.ViewWithin(parent, b.OpCert.HotVkey)
+	b.OpCert.Signature = cbor.ViewWithin(parent, b.OpCert.Signature)
+	h.Signature = cbor.ViewWithin(parent, h.Signature)
 }
 
 func (h *BabbageBlockHeader) Hash() common.Blake2b256 {
