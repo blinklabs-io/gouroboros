@@ -96,18 +96,28 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
-	// Check the declared item count before decoding so a header claiming a
-	// huge array is rejected without building it. An indefinite-length array
-	// has no declared count and is checked after decoding.
+	// Check the item count before decoding so an oversized array is rejected
+	// without building it. An indefinite-length array declares no count, so
+	// ListLength walks its items without retaining them.
 	content := SkipTags(cborData)
-	if count, _, indefinite := ArrayInfo(content); !indefinite &&
-		count >= 0 && count != 2 {
+	count, _, indefinite := ArrayInfo(content)
+	if indefinite {
+		var err error
+		if count, err = ListLength(content); err != nil {
+			return err
+		}
+	}
+	if count >= 0 && count != 2 {
 		return fmt.Errorf(
 			"invalid cbor.Rat: expected exactly 2 elements [numerator, denominator], got %d elements",
 			count,
 		)
 	}
-	tmpRat := []any{}
+	// The items stay raw and are decoded straight into big.Int, which takes
+	// an integer or a bignum and rejects anything else from its header.
+	// Decoding them as any would build an item that is an array before its
+	// type is checked.
+	tmpRat := []RawMessage{}
 	if _, err := Decode(cborData, &tmpRat); err != nil {
 		return err
 	}
@@ -117,29 +127,13 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 			len(tmpRat),
 		)
 	}
-	// Convert numerator to big.Int
-	tmpNum := new(big.Int)
-	switch v := tmpRat[0].(type) {
-	case int64:
-		tmpNum.SetInt64(v)
-	case uint64:
-		tmpNum.SetUint64(v)
-	case big.Int:
-		tmpNum.Set(&v)
-	default:
-		return fmt.Errorf("unsupported numerator type for cbor.Rat: %T", v)
+	tmpNum, err := decodeRatInt(tmpRat[0], "numerator")
+	if err != nil {
+		return err
 	}
-	// Convert denominator to big.Int
-	tmpDenom := new(big.Int)
-	switch v := tmpRat[1].(type) {
-	case int64:
-		tmpDenom.SetInt64(v)
-	case uint64:
-		tmpDenom.SetUint64(v)
-	case big.Int:
-		tmpDenom.Set(&v)
-	default:
-		return fmt.Errorf("unsupported denominator type for cbor.Rat: %T", v)
+	tmpDenom, err := decodeRatInt(tmpRat[1], "denominator")
+	if err != nil {
+		return err
 	}
 	// Check for zero denominator
 	if tmpDenom.Sign() == 0 {
@@ -149,6 +143,56 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	r.Rat = new(big.Rat)
 	r.SetFrac(tmpNum, tmpDenom)
 	return nil
+}
+
+// decodeRatInt decodes one item of a rational, which must be an integer or
+// a bignum (tag 2 or 3). big.Int alone is too lenient: it decodes null and
+// undefined as zero and strips an unregistered tag, so the header is checked
+// first. A self-describe tag never reaches here, because the decode mode
+// strips it from each item.
+func decodeRatInt(item RawMessage, what string) (*big.Int, error) {
+	if len(item) == 0 {
+		return nil, fmt.Errorf("missing %s for cbor.Rat", what)
+	}
+	// Major types 0 and 1 are the unsigned and negative integers.
+	ok := item[0]>>5 <= 1
+	if item[0]&CborTypeMask == CborTypeTag {
+		// A tag header need not be minimal, so read the number at any width.
+		number, found := tagNumber(item)
+		ok = found && (number == 2 || number == 3)
+	}
+	if !ok {
+		return nil, fmt.Errorf(
+			"unsupported %s type for cbor.Rat: CBOR initial byte 0x%02x",
+			what,
+			item[0],
+		)
+	}
+	ret := new(big.Int)
+	if _, err := Decode(item, ret); err != nil {
+		return nil, fmt.Errorf("unsupported %s for cbor.Rat: %w", what, err)
+	}
+	return ret, nil
+}
+
+// tagNumber returns the number of the tag header at the start of data.
+func tagNumber(data []byte) (uint64, bool) {
+	info := data[0] & 0x1f
+	if info < 24 {
+		return uint64(info), true
+	}
+	if info > 27 {
+		return 0, false
+	}
+	width := 1 << (info - 24)
+	if len(data) < 1+width {
+		return 0, false
+	}
+	var number uint64
+	for _, b := range data[1 : 1+width] {
+		number = number<<8 | uint64(b)
+	}
+	return number, true
 }
 
 func (r *Rat) MarshalCBOR() ([]byte, error) {

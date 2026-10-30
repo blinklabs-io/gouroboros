@@ -167,6 +167,31 @@ func TestRatUnmarshalCBORErrors(t *testing.T) {
 			cborHex:     "d81e820100", // 30([1, 0])
 			expectError: "denominator cannot be zero",
 		},
+		{
+			name:        "null numerator",
+			cborHex:     "d81e82f601", // 30([null, 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "undefined numerator",
+			cborHex:     "d81e82f701", // 30([undefined, 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "tagged numerator",
+			cborHex:     "d81e82d8640501", // 30([100(5), 1])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "rational numerator",
+			cborHex:     "d81e82d81e82010202", // 30([30([1, 2]), 2])
+			expectError: "unsupported numerator",
+		},
+		{
+			name:        "null denominator",
+			cborHex:     "d81e8201f6", // 30([1, null])
+			expectError: "unsupported denominator",
+		},
 	}
 
 	for _, tt := range tests {
@@ -404,22 +429,51 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 	)
 }
 
-// TestRatRejectsOversizedArrayBeforeDecoding checks the declared item count
-// of the rational's array before its items are decoded, so a header claiming
-// a million items is rejected without building them.
+// TestRatRejectsOversizedArrayBeforeDecoding checks the shape of the
+// rational's array and of its two items before they are decoded, so an array
+// of a million items is rejected without building it, whether it is the
+// rational itself or one of its items.
 func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 	// Each header declares array(1000000), followed by one-byte items (0).
 	// The nested case wraps the array in a second tag (55799) to check the
-	// count is read through every leading tag.
-	tests := map[string][]byte{
-		"tagged": {0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+	// count is read through every leading tag. The indefinite cases declare
+	// no count. The numerator cases have the right count of two but put the
+	// million items in the numerator, which must be an integer.
+	tests := map[string]struct {
+		header  []byte
+		trailer []byte
+		wantErr string
+	}{
+		"tagged": {
+			header:  []byte{0xd8, 0x1e, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+			wantErr: "got 1000000 elements",
+		},
 		"nested tags": {
-			0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+			header: []byte{
+				0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
+			},
+			wantErr: "got 1000000 elements",
+		},
+		"indefinite": {
+			header:  []byte{0xd8, 0x1e, 0x9f},
+			trailer: []byte{0xff},
+			wantErr: "got 1000000 elements",
+		},
+		"array numerator": {
+			header:  []byte{0xd8, 0x1e, 0x82, 0x9a, 0x00, 0x0f, 0x42, 0x40},
+			trailer: []byte{0x01},
+			wantErr: "numerator",
+		},
+		"indefinite array numerator": {
+			header:  []byte{0xd8, 0x1e, 0x82, 0x9f},
+			trailer: []byte{0xff, 0x01},
+			wantErr: "numerator",
 		},
 	}
-	for name, header := range tests {
+	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			data := append(header, make([]byte, 1_000_000)...)
+			data := append(tc.header, make([]byte, 1_000_000)...)
+			data = append(data, tc.trailer...)
 			var before, after runtime.MemStats
 			runtime.GC()
 			runtime.ReadMemStats(&before)
@@ -427,7 +481,7 @@ func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 			_, err := cbor.Decode(data, &rat)
 			runtime.ReadMemStats(&after)
 
-			require.ErrorContains(t, err, "got 1000000 elements")
+			require.ErrorContains(t, err, tc.wantErr)
 			// Building the items as []any costs about 16 MB; the payload
 			// is 1 MB.
 			require.Less(
@@ -435,6 +489,50 @@ func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 				after.TotalAlloc-before.TotalAlloc,
 				uint64(4<<20),
 			)
+		})
+	}
+}
+
+// TestRatDecodesIndefiniteArray checks that the item count taken from an
+// indefinite-length array still accepts a well-formed rational.
+func TestRatDecodesIndefiniteArray(t *testing.T) {
+	data, err := hex.DecodeString("d81e9f0102ff") // 30([_ 1, 2])
+	require.NoError(t, err)
+	var rat cbor.Rat
+	_, err = cbor.Decode(data, &rat)
+	require.NoError(t, err)
+	assert.Equal(t, "1/2", rat.String())
+}
+
+// TestRatDecodesIntegerItems checks the integer forms each item may take:
+// a plain integer, a bignum, and either under a self-describe tag, whatever
+// the width of the tag header.
+func TestRatDecodesIntegerItems(t *testing.T) {
+	tests := map[string]struct {
+		cborHex string
+		want    string
+	}{
+		// 30([-1, 256])
+		"negative": {"d81e8220190100", "-1/256"},
+		// 30([2(h'01'), 2(h'0100')])
+		"bignums": {"d81e82c24101c2420100", "1/256"},
+		// 30([3(h'00'), 1])
+		"negative bignum": {"d81e82c3410001", "-1/1"},
+		// 30([55799(1), 2])
+		"self-described": {"d81e82d9d9f70102", "1/2"},
+		// 30([2(h'05'), 2]) with a two-byte tag header
+		"long bignum tag": {"d81e82d802410502", "5/2"},
+		// 30([55799(1), 2]) with a five-byte tag header
+		"long self-describe tag": {"d81e82da0000d9f70102", "1/2"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			data, err := hex.DecodeString(tc.cborHex)
+			require.NoError(t, err)
+			var rat cbor.Rat
+			_, err = cbor.Decode(data, &rat)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, rat.String())
 		})
 	}
 }
