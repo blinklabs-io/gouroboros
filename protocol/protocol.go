@@ -24,6 +24,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -78,6 +79,7 @@ type Protocol struct {
 	config               ProtocolConfig
 	doneChan             chan struct{}
 	stopChan             chan struct{}
+	readDoneChan         chan struct{}
 	muxerSendChan        chan *muxer.Segment
 	muxerRecvChan        chan *muxer.Segment
 	muxerDoneChan        chan bool
@@ -147,6 +149,16 @@ type Protocol struct {
 	// transitions deferred in queuedStateTransitions. Production code never
 	// sets this.
 	batchRecheckHook func()
+
+	// restarting is set before stopChan closes when the protocol is being
+	// replaced by a new instance of the same role, see StopForRestart.
+	restarting atomic.Bool
+	// handoverIngress is data the previous instance of this role had read
+	// from the muxer but not processed. It is set before the protocol starts.
+	handoverIngress []byte
+	// carriedIngress is the same kind of data this instance leaves for its
+	// successor. readLoop writes it before it closes readDoneChan.
+	carriedIngress []byte
 }
 
 type inboundMessage struct {
@@ -297,6 +309,7 @@ func New(config ProtocolConfig) *Protocol {
 		currentState: config.InitialState,
 		doneChan:     make(chan struct{}),
 		stopChan:     make(chan struct{}),
+		readDoneChan: make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
 		sendDoneChan: make(chan struct{}),
 	}
@@ -335,6 +348,12 @@ func (p *Protocol) ensureRegistered() {
 		p.registered = true
 		p.muxerRole = muxerProtocolRole
 		p.applyIngressLimitLocked()
+		if p.config.Role == ProtocolRoleServer {
+			p.handoverIngress = p.config.Muxer.TakeCarriedIngress(
+				p.config.ProtocolId,
+				muxerProtocolRole,
+			)
+		}
 	})
 }
 
@@ -444,12 +463,28 @@ func (p *Protocol) Start() {
 
 // Stop shuts down the mini-protocol
 func (p *Protocol) Stop() {
+	p.stop(false)
+}
+
+// StopForRestart shuts down the mini-protocol like Stop, for a server that
+// replaces it with a new instance after the client sent MsgDone. Stop
+// unregisters the role from the muxer, so a message the client sends before
+// the new instance registers is dropped. StopForRestart instead keeps the
+// role registered with its queued ingress, and passes the data this instance
+// had read but not processed to the next instance of the role, so the
+// client's first message of the new run is delivered to it.
+func (p *Protocol) StopForRestart() {
+	p.stop(true)
+}
+
+func (p *Protocol) stop(restart bool) {
 	p.onceStop.Do(func() {
 		p.lifecycleMu.Lock()
 		p.stopped = true
 		started := p.started
 		p.lifecycleMu.Unlock()
 
+		p.restarting.Store(restart)
 		close(p.stopChan)
 		if !started {
 			p.closeDone()
@@ -462,6 +497,20 @@ func (p *Protocol) Stop() {
 		}
 		if p.config.Muxer == nil {
 			return
+		}
+		if restart {
+			// The data read loop leaves behind is only complete once it
+			// has stopped reading. It stops on stopChan, which is closed.
+			if started {
+				<-p.readDoneChan
+			}
+			if p.config.Muxer.SuspendProtocol(
+				p.config.ProtocolId,
+				muxerProtocolRole,
+				p.carriedIngress,
+			) {
+				return
+			}
 		}
 		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
@@ -1702,6 +1751,24 @@ func (p *Protocol) stateHasNoAgency(state State) bool {
 	return ok && entry.Agency == AgencyNone
 }
 
+// messageEndsProtocol reports whether every transition a message of msgType
+// can take from state leads to a state with no agency. It reads only the
+// transition table: a transition's MatchFunc may have side effects and belongs
+// to the state loop.
+func (p *Protocol) messageEndsProtocol(state State, msgType uint8) bool {
+	found := false
+	for _, transition := range p.config.StateMap[state].Transitions {
+		if transition.MsgType != msgType {
+			continue
+		}
+		if !p.stateHasNoAgency(transition.NewState) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
 // appendSegment bounds readBuffer before it grows. The per-protocol cap
 // decides "too big" and is therefore checked first: the connection-wide
 // allowance is the largest registered cap, so reserving first would report
@@ -1764,8 +1831,23 @@ func consumeReadBuffer(
 
 func (p *Protocol) readLoop() {
 	defer p.recoverLoop("read loop")
+	defer func() {
+		// Absent on a Protocol not built by New, which nothing restarts.
+		if p.readDoneChan != nil {
+			close(p.readDoneChan)
+		}
+	}()
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
+	// carryOnExit is set when this loop stops reading because the role is
+	// about to restart. Data it has read but not processed then belongs to
+	// the next instance, see StopForRestart.
+	carryOnExit := false
+	defer func() {
+		if (carryOnExit || p.restarting.Load()) && readBuffer.Len() > 0 {
+			p.carriedIngress = bytes.Clone(readBuffer.Bytes())
+		}
+	}()
 	scanner := messageScanner{}
 	peerAgencyChecked := false
 	var messageState State
@@ -1815,6 +1897,15 @@ func (p *Protocol) readLoop() {
 			case <-time.After(time.Millisecond):
 			}
 		}
+	}
+	if len(p.handoverIngress) > 0 {
+		handover := p.handoverIngress
+		p.handoverIngress = nil
+		if err := p.appendSegment(readBuffer, handover, &reserved); err != nil {
+			p.SendError(err)
+			return
+		}
+		leftoverData = true
 	}
 	for {
 		// Don't grab the next segment from the muxer if we still have data in the buffer
@@ -2005,6 +2096,13 @@ func (p *Protocol) readLoop() {
 			return
 		}
 		if terminalMessage {
+			if p.config.Role == ProtocolRoleServer {
+				// A server restarts after the client ends the protocol, and
+				// what follows is the client's next run. Leave it, this
+				// message included, for the next instance.
+				carryOnExit = true
+				return
+			}
 			// Drain trailing messages after termination without dispatching them.
 			consumeMessage(scanResult.messageLength)
 			continue
@@ -2054,6 +2152,14 @@ func (p *Protocol) readLoop() {
 		if p.config.MessageReceivedFunc != nil {
 			p.config.MessageReceivedFunc(msg)
 		}
+		// Prefer stopping over queueing, so a message read while the
+		// protocol is being replaced stays in the buffer for the next
+		// instance instead of reaching this one's receive queue.
+		select {
+		case <-p.stopChan:
+			return
+		default:
+		}
 		// Add message to receive queue (blocking with shutdown checks)
 		select {
 		case p.recvQueueChan <- inboundMessage{
@@ -2067,6 +2173,15 @@ func (p *Protocol) readLoop() {
 			return
 		}
 		consumeMessage(scanResult.messageLength)
+		if p.config.Role == ProtocolRoleServer {
+			// The message just queued ends the protocol for this instance.
+			// The client may already have sent its next run behind it, so
+			// stop reading and leave that for the next instance.
+			if p.messageEndsProtocol(messageState, msg.Type()) {
+				carryOnExit = true
+				return
+			}
+		}
 	}
 }
 

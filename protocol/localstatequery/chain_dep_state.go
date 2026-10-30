@@ -76,14 +76,19 @@ const (
 //	Praos2 (Leios):     [1, [lastSlot, opCertCounters, evolvingNonce,
 //	                        candidateNonce, epochNonce, previousEpochNonce,
 //	                        labNonce, lastEpochBlockNonce, announcement]]
-//	TPraos (Shelley..Alonzo): [1, [lastSlot,
-//	                        [opCertCounters, evolvingNonce, candidateNonce]]]
+//	TPraos (Shelley..Alonzo): [1, [lastSlot, [
+//	                        [opCertCounters, evolvingNonce, candidateNonce],
+//	                        [epochNonce, previousEpochNonce],
+//	                        labNonce]]]
 //
 // Praos2 and TPraos write the same version number, so the layout is told
-// apart by the number of fields in the state.
+// apart by the number of fields in the state. The Praos and Praos2 last slot
+// is a WithOrigin (Origin is [0], At s is [1, s]); the TPraos one is a
+// StrictMaybe (Origin is [], At s is [s]).
 //
-// OpCertCounters and the two shared nonces are present for both protocols; the
-// remaining nonce fields are Praos-only and are nil when Protocol is TPraos.
+// OpCertCounters, the evolving and candidate nonces, EpochNonce,
+// PreviousEpochNonce and LabNonce are present for every protocol.
+// LastEpochBlockNonce is Praos-only and is nil when Protocol is TPraos.
 type DebugChainDepStateResult struct {
 	// Protocol is the consensus protocol the state was serialised for.
 	Protocol ChainDepStateProtocol
@@ -95,14 +100,16 @@ type DebugChainDepStateResult struct {
 	// accepted for it. This is the authoritative counter the node enforces: a
 	// new block whose opcert issue number is lower is rejected.
 	OpCertCounters map[ledger.Blake2b224]uint64
-	// EvolvingNonce and CandidateNonce are present for both protocols.
+	// EvolvingNonce and CandidateNonce are present for every protocol.
 	EvolvingNonce  lcommon.Nonce
 	CandidateNonce lcommon.Nonce
-	// EpochNonce, PreviousEpochNonce, LabNonce and LastEpochBlockNonce are
-	// Praos-only (Babbage era and later); they are nil for TPraos results.
-	EpochNonce          *lcommon.Nonce
-	PreviousEpochNonce  *lcommon.Nonce
-	LabNonce            *lcommon.Nonce
+	// EpochNonce, PreviousEpochNonce and LabNonce are present for every
+	// protocol.
+	EpochNonce         *lcommon.Nonce
+	PreviousEpochNonce *lcommon.Nonce
+	LabNonce           *lcommon.Nonce
+	// LastEpochBlockNonce is Praos-only (Babbage era and later); it is nil
+	// for TPraos results.
 	LastEpochBlockNonce *lcommon.Nonce
 	// Announcement is the endorser block announcement the last applied
 	// header carried, if any. It is only present for Praos2 results, and is
@@ -196,33 +203,54 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		}
 		switch listLen {
 		case chainDepStateFieldsTPraos:
-			// TPraos: [lastSlot, PrtclState], where PrtclState is
-			// [opCertCounters, evolvingNonce, candidateNonce].
+			// TPraos: [lastSlot, ledgerState], where lastSlot is a
+			// StrictMaybe and ledgerState is
+			// [[opCertCounters, evolvingNonce, candidateNonce],
+			//  [epochNonce, previousEpochNonce], labNonce].
+			if err := validateTPraosState(outer.Inner); err != nil {
+				return err
+			}
 			var t struct {
 				cbor.StructAsArray
-				LastSlot   WithOriginSlot
-				PrtclState struct {
+				LastSlot    cbor.RawMessage
+				LedgerState struct {
 					cbor.StructAsArray
-					OpCertCounters map[ledger.Blake2b224]uint64
-					EvolvingNonce  lcommon.Nonce
-					CandidateNonce lcommon.Nonce
+					PrtclState struct {
+						cbor.StructAsArray
+						OpCertCounters map[ledger.Blake2b224]uint64
+						EvolvingNonce  lcommon.Nonce
+						CandidateNonce lcommon.Nonce
+					}
+					TicknState struct {
+						cbor.StructAsArray
+						EpochNonce         lcommon.Nonce
+						PreviousEpochNonce lcommon.Nonce
+					}
+					LabNonce lcommon.Nonce
 				}
 			}
 			if _, err := cbor.Decode(outer.Inner, &t); err != nil {
 				return err
 			}
+			lastSlot, err := decodeStrictMaybeSlot(t.LastSlot)
+			if err != nil {
+				return err
+			}
+			ledgerState := &t.LedgerState
 			r.Protocol = ChainDepStateProtocolTPraos
-			r.LastSlot = t.LastSlot
-			r.OpCertCounters = t.PrtclState.OpCertCounters
-			r.EvolvingNonce = t.PrtclState.EvolvingNonce
-			r.CandidateNonce = t.PrtclState.CandidateNonce
-			// EpochNonce and the other Praos-only nonces do not exist in
-			// TPraos. Clear them explicitly so decoding into a reused
-			// result cannot leave stale Praos values from a previous
-			// decode.
-			r.EpochNonce = nil
-			r.PreviousEpochNonce = nil
-			r.LabNonce = nil
+			r.LastSlot = lastSlot
+			r.OpCertCounters = ledgerState.PrtclState.OpCertCounters
+			r.EvolvingNonce = ledgerState.PrtclState.EvolvingNonce
+			r.CandidateNonce = ledgerState.PrtclState.CandidateNonce
+			epochNonce := ledgerState.TicknState.EpochNonce
+			previousEpochNonce := ledgerState.TicknState.PreviousEpochNonce
+			labNonce := ledgerState.LabNonce
+			r.EpochNonce = &epochNonce
+			r.PreviousEpochNonce = &previousEpochNonce
+			r.LabNonce = &labNonce
+			// LastEpochBlockNonce does not exist in TPraos. Clear it so
+			// decoding into a reused result cannot leave a stale Praos
+			// value from a previous decode.
 			r.LastEpochBlockNonce = nil
 			r.Announcement = nil
 		case chainDepStateFieldsPraos2:
@@ -312,4 +340,106 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 		r.OpCertCounters = map[ledger.Blake2b224]uint64{}
 	}
 	return nil
+}
+
+// tpraosItems splits an array into its items and requires exactly want of
+// them. A null or any other non-array is refused, because typed decoding
+// would turn it into zero values rather than an error.
+func tpraosItems(data []byte, want int, label string) ([][]byte, error) {
+	items, err := cborpreflight.ArrayItems(data, want, label)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) != want {
+		return nil, fmt.Errorf(
+			"%s has %d fields, expected %d",
+			label,
+			len(items),
+			want,
+		)
+	}
+	return items, nil
+}
+
+// validateTPraosState checks the shape of every required TPraos field before
+// typed decoding, which maps a CBOR null to a zero value.
+func validateTPraosState(data []byte) error {
+	fields, err := tpraosItems(data, chainDepStateFieldsTPraos, "tpraos state")
+	if err != nil {
+		return err
+	}
+	if _, err := decodeStrictMaybeSlot(fields[0]); err != nil {
+		return err
+	}
+	ledgerState, err := tpraosItems(fields[1], 3, "tpraos ledger state")
+	if err != nil {
+		return err
+	}
+	prtclState, err := tpraosItems(ledgerState[0], 3, "tpraos protocol state")
+	if err != nil {
+		return err
+	}
+	if err := requireMajorType(
+		prtclState[0],
+		cbor.CborTypeMap,
+		"tpraos operational certificate counters",
+	); err != nil {
+		return err
+	}
+	if err := cborpreflight.ValidateMap(
+		prtclState[0],
+		maxLocalStateQuerySetItems,
+		"tpraos operational certificate counters",
+		nil,
+	); err != nil {
+		return err
+	}
+	ticknState, err := tpraosItems(
+		ledgerState[1],
+		2,
+		"tpraos ticked nonce state",
+	)
+	if err != nil {
+		return err
+	}
+	nonces := [][]byte{
+		prtclState[1], prtclState[2], ticknState[0], ticknState[1],
+		ledgerState[2],
+	}
+	for _, nonce := range nonces {
+		if _, err := cborpreflight.ArrayItems(nonce, 2, "tpraos nonce"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// requireMajorType refuses a field whose CBOR major type is not want, so a
+// null does not decode as an empty value.
+func requireMajorType(data []byte, want uint8, label string) error {
+	data = cbor.SkipTags(data)
+	if len(data) == 0 || data[0]&cbor.CborTypeMask != want {
+		return fmt.Errorf("%s has the wrong CBOR type", label)
+	}
+	return nil
+}
+
+// decodeStrictMaybeSlot decodes the TPraos last slot, a StrictMaybe SlotNo
+// that the ledger writes as a list of zero or one element.
+func decodeStrictMaybeSlot(data []byte) (WithOriginSlot, error) {
+	items, err := cborpreflight.ArrayItems(data, 1, "tpraos last slot")
+	if err != nil {
+		return WithOriginSlot{}, err
+	}
+	if len(items) == 0 {
+		return WithOriginSlot{}, nil
+	}
+	if err := requireMajorType(items[0], 0, "tpraos last slot"); err != nil {
+		return WithOriginSlot{}, err
+	}
+	var slot uint64
+	if _, err := cbor.Decode(items[0], &slot); err != nil {
+		return WithOriginSlot{}, err
+	}
+	return WithOriginSlot{HasSlot: true, Slot: slot}, nil
 }

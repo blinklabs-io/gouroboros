@@ -747,8 +747,8 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 // [Client.GetOpCertCounters].
 //
 // The result also carries the last-applied slot and the evolving/candidate
-// nonces (plus the Praos-only epoch nonces), so it can be combined with the
-// slots-per-KES-period value from [Client.GetGenesisConfig] to derive
+// nonces and the epoch, previous epoch and lab nonces, so it can be combined
+// with the slots-per-KES-period value from [Client.GetGenesisConfig] to derive
 // KES-period-info for a pool's operational certificate.
 //
 // The decoder handles both the Praos (Babbage era and later, including Conway)

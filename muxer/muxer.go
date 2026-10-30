@@ -593,6 +593,13 @@ type segmentChannel struct {
 	// in order.
 	depthReports []int
 	closed       bool
+	// suspended is set while the role's protocol is being restarted: the
+	// queue stays registered and keeps accepting ingress for the next
+	// instance. carry holds bytes the previous instance had already read but
+	// not processed, which precede everything still queued. Both are guarded
+	// by mu.
+	suspended bool
+	carry     []byte
 	// reportMu serializes reporting depthReports, which happens outside mu.
 	reportMu sync.Mutex
 	// callbackMu serializes callback admission with shutdown. Once stopping
@@ -930,6 +937,34 @@ func (s *segmentSender) stop() {
 	})
 }
 
+// suspend marks the channel as awaiting a new protocol instance.
+func (sc *segmentChannel) suspend(carry []byte) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	sc.suspended = true
+	sc.carry = carry
+}
+
+// resume reports whether the channel was suspended and is still open, and
+// clears the suspension.
+func (sc *segmentChannel) resume() bool {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if !sc.suspended || sc.closed {
+		return false
+	}
+	sc.suspended = false
+	return true
+}
+
+func (sc *segmentChannel) takeCarry() []byte {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	carry := sc.carry
+	sc.carry = nil
+	return carry
+}
+
 func (s *segmentChannel) stop() {
 	// Wake forward() out of both a blocked send on ch and a Wait() for more
 	// queue, then let it exit before closing ch - it is the only other
@@ -1117,33 +1152,36 @@ func (m *Muxer) RegisterProtocol(
 	if m.registerHook != nil {
 		m.registerHook()
 	}
-	// Generate channels
 	senderChan := make(chan *Segment, 10)
-	receiverChan := newSegmentChannel(
-		protocolId,
-		protocolRole,
-		m.getMetrics,
-		m.doneChan,
-		m.ingress,
-	)
-	receiver := receiverChan.ch
 	sender := &segmentSender{ch: senderChan, done: make(chan struct{})}
-	m.waitGroup.Go(receiverChan.forward)
-	// Record channels in protocol sender/receiver maps
 	m.protocolReceiversMutex.Lock()
 	// Shutdown is checked again under the lock readLoop's exit sweep takes.
 	// doneChan is always closed before that sweep runs, so a receiver
 	// inserted after this check is one the sweep will stop, and a receiver
 	// that would miss the sweep is never inserted. Checking only above
 	// leaves a window where the receiver's forward goroutine is never
-	// stopped and the muxer never finishes shutting down.
+	// stopped and the muxer never finishes shutting down. The receiver is
+	// created after this check for the same reason.
 	select {
 	case <-m.doneChan:
 		m.protocolReceiversMutex.Unlock()
-		receiverChan.stop()
 		return nil, nil, nil
 	default:
 	}
+	// A suspended role keeps its receiver, so ingress that arrived while
+	// its protocol was restarting is delivered to the new instance.
+	receiverChan := m.protocolReceivers[protocolId][protocolRole]
+	if receiverChan == nil || !receiverChan.resume() {
+		receiverChan = newSegmentChannel(
+			protocolId,
+			protocolRole,
+			m.getMetrics,
+			m.doneChan,
+			m.ingress,
+		)
+		m.waitGroup.Go(receiverChan.forward)
+	}
+	receiver := receiverChan.ch
 	if _, ok := m.protocolSenders[protocolId]; !ok {
 		m.protocolSenders[protocolId] = make(map[ProtocolRole]*segmentSender)
 	}
@@ -1236,6 +1274,60 @@ func (m *Muxer) UnregisterProtocol(
 	if recvChan != nil {
 		recvChan.stop()
 	}
+}
+
+// SuspendProtocol stops the sender of a protocol role that is about to be
+// registered again, and keeps its receiver registered. Unlike
+// UnregisterProtocol it leaves no tombstone and keeps the ingress queued for
+// the role, so a message the peer sends while the protocol restarts reaches
+// the next RegisterProtocol of the same role instead of being dropped.
+//
+// carry is data the stopped protocol had read from the receiver but not
+// processed. It precedes the queued ingress and is returned to the next
+// registration by TakeCarriedIngress. The caller must have stopped reading
+// the receiver before calling. SuspendProtocol returns false, and does
+// nothing, when the role is not registered.
+func (m *Muxer) SuspendProtocol(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	carry []byte,
+) bool {
+	m.protocolReceiversMutex.Lock()
+	receiver := m.protocolReceivers[protocolId][protocolRole]
+	if receiver == nil {
+		m.protocolReceiversMutex.Unlock()
+		return false
+	}
+	receiver.suspend(carry)
+	var sender *segmentSender
+	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
+		sender = protocolRoles[protocolRole]
+		delete(protocolRoles, protocolRole)
+		if len(protocolRoles) == 0 {
+			delete(m.protocolSenders, protocolId)
+		}
+	}
+	m.protocolReceiversMutex.Unlock()
+	if sender != nil {
+		sender.stop()
+	}
+	return true
+}
+
+// TakeCarriedIngress returns, and clears, the data a previous protocol
+// instance passed to SuspendProtocol for this role. It is nil when there is
+// none.
+func (m *Muxer) TakeCarriedIngress(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+) []byte {
+	m.protocolReceiversMutex.Lock()
+	receiver := m.protocolReceivers[protocolId][protocolRole]
+	m.protocolReceiversMutex.Unlock()
+	if receiver == nil {
+		return nil
+	}
+	return receiver.takeCarry()
 }
 
 // fenceRegistrations returns once every RegisterProtocol that began before
