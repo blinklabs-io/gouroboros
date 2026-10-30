@@ -256,3 +256,42 @@ func TestStopAfterDrainWhenNotRunning(t *testing.T) {
 	require.NoError(t, h.client.Stop())
 	require.NoError(t, h.client.StopAfterDrain(context.Background()))
 }
+
+// A Reintersect waiting at the chain tip holds busyMutex for as long as the
+// server withholds its replies. StopAfterDrain must still return when its
+// context ends, rather than block behind that drain.
+func TestStopAfterDrainContextBoundsWaitBehindReintersect(t *testing.T) {
+	t.Parallel()
+	h := newStopDrainHarness(t)
+	h.startPipelined()
+
+	reintersected := h.reintersectAsync([]pcommon.Point{h.findPoint})
+	h.requireQuiet(reintersected, 100*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 100*time.Millisecond,
+	)
+	defer cancel()
+	stopped := h.stopAfterDrainAsync(ctx)
+	select {
+	case err := <-stopped:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(time.Second):
+		t.Fatal("StopAfterDrain ignored its context behind Reintersect")
+	}
+	select {
+	case <-h.serverDone:
+		t.Fatal("MsgDone sent after the context expired")
+	default:
+	}
+
+	// The first drain is unaffected and completes once the replies arrive.
+	h.release(3)
+	for want := uint64(2); want <= 4; want++ {
+		require.Equal(t, want, recv(t, h.rollbacks, "drained rollback"))
+	}
+	recv(t, h.finds, "FindIntersect")
+	res := recv(t, reintersected, "Reintersect result")
+	require.NoError(t, res.err)
+	require.Equal(t, h.findPoint, res.point)
+}

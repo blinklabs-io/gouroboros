@@ -980,7 +980,9 @@ func (c *Client) quiesceSync(
 				return ctx.Err()
 			}
 		}
-		c.busyMutex.Lock()
+		if err := c.lockBusy(ctx, doneChan, fenceCtx); err != nil {
+			return err
+		}
 		c.lifecycleMutex.Lock()
 		current := c.syncLoopStop
 		c.lifecycleMutex.Unlock()
@@ -1018,6 +1020,36 @@ func (c *Client) quiesceSync(
 		}
 	}
 	return nil
+}
+
+// lockBusy acquires busyMutex unless ctx ends, the protocol stops or the
+// client's fence is cancelled first. A blocking Lock cannot be abandoned, and
+// the holder may be a Reintersect drain that waits indefinitely at the chain
+// tip, so the lock is polled to keep the caller's bounds in force.
+func (c *Client) lockBusy(
+	ctx context.Context,
+	doneChan <-chan struct{},
+	fenceCtx context.Context,
+) error {
+	if c.busyMutex.TryLock() {
+		return nil
+	}
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-doneChan:
+			return protocol.ErrProtocolShuttingDown
+		case <-fenceCtx.Done():
+			return protocol.ErrProtocolShuttingDown
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if c.busyMutex.TryLock() {
+				return nil
+			}
+		}
+	}
 }
 
 // StopAfterDrain stops the sync and sends MsgDone without abandoning the
