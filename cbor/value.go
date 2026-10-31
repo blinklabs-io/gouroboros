@@ -28,6 +28,7 @@ import (
 	"math/big"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -272,24 +273,19 @@ func (v *Value) Value() any {
 }
 
 func (v Value) MarshalJSON() ([]byte, error) {
-	var tmpJson string
+	cborHex := hex.EncodeToString([]byte(v.cborData))
+	buf := make([]byte, 0, len(cborHex)+64)
+	buf = append(buf, `{"cbor":"`...)
+	buf = append(buf, cborHex...)
+	buf = append(buf, '"')
 	if v.value != nil {
-		astJson, err := generateAstJson(v.value)
-		if err != nil {
+		buf = append(buf, `,"json":`...)
+		var err error
+		if buf, err = appendAstJson(buf, v.value); err != nil {
 			return nil, err
 		}
-		tmpJson = fmt.Sprintf(
-			`{"cbor":"%s","json":%s}`,
-			hex.EncodeToString([]byte(v.cborData)),
-			astJson,
-		)
-	} else {
-		tmpJson = fmt.Sprintf(
-			`{"cbor":"%s"}`,
-			hex.EncodeToString([]byte(v.cborData)),
-		)
 	}
-	return []byte(tmpJson), nil
+	return append(buf, '}'), nil
 }
 
 func (v *Value) processMap(
@@ -676,102 +672,195 @@ func isUnhashableMapKeyPanic(r any) bool {
 	return strings.Contains(runtimeErr.Error(), "hash of unhashable type")
 }
 
-func generateAstJson(obj any) ([]byte, error) {
-	tmpJsonObj := map[string]any{}
+// appendAstJson appends the Cardano-style AST JSON rendering of obj to buf.
+// Children are written straight into the caller's buffer so total work is
+// proportional to the output size rather than to depth times output size.
+func appendAstJson(buf []byte, obj any) ([]byte, error) {
 	switch v := obj.(type) {
 	case []byte:
-		tmpJsonObj["bytes"] = hex.EncodeToString(v)
+		return appendAstJsonBytes(buf, v), nil
 	case ByteString:
-		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
+		return appendAstJsonBytes(buf, v.Bytes()), nil
 	case WrappedCbor:
-		tmpJsonObj["bytes"] = hex.EncodeToString(v.Bytes())
+		return appendAstJsonBytes(buf, v.Bytes()), nil
 	case []any:
-		return generateAstJsonList(v)
+		return appendAstJsonList(buf, v)
 	case Set:
-		return generateAstJsonList(v)
+		return appendAstJsonList(buf, v)
 	case map[any]any:
-		return generateAstJsonMap(v)
+		return appendAstJsonMap(buf, v)
 	case Map:
-		return generateAstJsonMap(v)
+		return appendAstJsonMap(buf, v)
 	case ConstructorDecoder:
-		return json.Marshal(obj)
+		return v.appendAstJson(buf)
 	case big.Int:
-		tmpJson := fmt.Sprintf(
-			`{"int":%s}`,
-			v.String(),
-		)
-		return []byte(tmpJson), nil
+		buf = append(buf, `{"int":`...)
+		buf = v.Append(buf, 10)
+		return append(buf, '}'), nil
 	case *big.Int:
 		if v == nil {
-			tmpJson := `{"int":0}`
-			return []byte(tmpJson), nil
+			return append(buf, `{"int":0}`...), nil
 		}
-		tmpJson := fmt.Sprintf(`{"int":%s}`, v.String())
-		return []byte(tmpJson), nil
+		buf = append(buf, `{"int":`...)
+		buf = v.Append(buf, 10)
+		return append(buf, '}'), nil
 	case Rat:
-		return generateAstJson(
-			[]any{
-				v.Num(),
-				v.Denom(),
+		return appendAstJsonList(buf, []any{v.Num(), v.Denom()})
+	case int:
+		return appendAstJsonInt(buf, int64(v)), nil
+	case int64:
+		return appendAstJsonInt(buf, v), nil
+	case uint:
+		return appendAstJsonUint(buf, uint64(v)), nil
+	case uint64:
+		return appendAstJsonUint(buf, v), nil
+	case bool:
+		buf = append(buf, `{"bool":`...)
+		buf = strconv.AppendBool(buf, v)
+		return append(buf, '}'), nil
+	case string:
+		// json.Marshal supplies the string escaping, including the
+		// HTML-safe escapes, that the rendered output has always carried.
+		quoted, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, `{"string":`...)
+		buf = append(buf, quoted...)
+		return append(buf, '}'), nil
+	default:
+		return nil, fmt.Errorf(
+			"unknown data type (%T) for value: %#v",
+			obj,
+			obj,
+		)
+	}
+}
+
+func appendAstJsonBytes(buf []byte, v []byte) []byte {
+	buf = append(buf, `{"bytes":"`...)
+	buf = hex.AppendEncode(buf, v)
+	return append(buf, `"}`...)
+}
+
+func appendAstJsonInt(buf []byte, v int64) []byte {
+	buf = append(buf, `{"int":`...)
+	buf = strconv.AppendInt(buf, v, 10)
+	return append(buf, '}')
+}
+
+func appendAstJsonUint(buf []byte, v uint64) []byte {
+	buf = append(buf, `{"int":`...)
+	buf = strconv.AppendUint(buf, v, 10)
+	return append(buf, '}')
+}
+
+func appendAstJsonList[T []any | Set](buf []byte, v T) ([]byte, error) {
+	buf = append(buf, `{"list":[`...)
+	for idx, val := range v {
+		if idx > 0 {
+			buf = append(buf, ',')
+		}
+		var err error
+		if buf, err = appendAstJson(buf, val); err != nil {
+			return nil, err
+		}
+	}
+	return append(buf, `]}`...), nil
+}
+
+type astJsonMapEntry struct {
+	key, val   any
+	keyStart   int
+	keyEnd     int
+	valueStart int
+	valueEnd   int
+}
+
+func appendAstJsonMap[T map[any]any | Map](buf []byte, v T) ([]byte, error) {
+	// Entries are ordered by their rendered key alone. Keys are complete
+	// JSON objects and none is a strict prefix of another, so for distinct
+	// keys this is the same order as sorting whole `{"k":K,"v":V}` entries.
+	// Only keys are rendered into scratch (and copied once); values are
+	// rendered straight into buf in final order and never moved. Keys are
+	// bounded when decoded, so the key copy does not grow with nesting.
+	entries := make([]astJsonMapEntry, 0, len(v))
+	var keyScratch []byte
+	for key, val := range v {
+		start := len(keyScratch)
+		var err error
+		if keyScratch, err = appendAstJson(keyScratch, key); err != nil {
+			return nil, err
+		}
+		entries = append(
+			entries,
+			astJsonMapEntry{
+				key:      key,
+				val:      val,
+				keyStart: start,
+				keyEnd:   len(keyScratch),
 			},
 		)
-	case int, uint, uint64, int64:
-		tmpJsonObj["int"] = v
-	case bool:
-		tmpJsonObj["bool"] = v
-	case string:
-		tmpJsonObj["string"] = v
-	default:
-		return nil, fmt.Errorf("unknown data type (%T) for value: %#v", obj, obj)
 	}
-	return json.Marshal(&tmpJsonObj)
-}
-
-func generateAstJsonList[T []any | Set](v T) ([]byte, error) {
-	var sb strings.Builder
-	sb.WriteString(`{"list":[`)
-	for idx, val := range v {
-		tmpVal, err := generateAstJson(val)
-		if err != nil {
-			return nil, err
-		}
-		sb.WriteString(string(tmpVal))
-		if idx != (len(v) - 1) {
-			sb.WriteString(`,`)
-		}
+	keyBytes := func(e astJsonMapEntry) []byte {
+		return keyScratch[e.keyStart:e.keyEnd]
 	}
-	sb.WriteString(`]}`)
-	return []byte(sb.String()), nil
-}
-
-func generateAstJsonMap[T map[any]any | Map](v T) ([]byte, error) {
-	tmpItems := []string{}
-	for key, val := range v {
-		keyAstJson, err := generateAstJson(key)
-		if err != nil {
-			return nil, err
+	slices.SortFunc(entries, func(a, b astJsonMapEntry) int {
+		return bytes.Compare(keyBytes(a), keyBytes(b))
+	})
+	buf = append(buf, `{"map":[`...)
+	for i := 0; i < len(entries); {
+		// Distinct Go keys can render identically (int 1 and uint64 1).
+		// Value decoding rejects such duplicate keys, so a tie group only
+		// arises from a hand-built Map; its values are rendered aside and
+		// ordered by their bytes, as the whole-entry order would.
+		j := i + 1
+		for j < len(entries) &&
+			bytes.Equal(keyBytes(entries[i]), keyBytes(entries[j])) {
+			j++
 		}
-		valAstJson, err := generateAstJson(val)
-		if err != nil {
-			return nil, err
+		var err error
+		if j-i == 1 {
+			buf = append(buf, `{"k":`...)
+			buf = append(buf, keyBytes(entries[i])...)
+			buf = append(buf, `,"v":`...)
+			if buf, err = appendAstJson(buf, entries[i].val); err != nil {
+				return nil, err
+			}
+			buf = append(buf, `},`...)
+			i = j
+			continue
 		}
-		tmpJsonMap := map[string]json.RawMessage{
-			"k": keyAstJson,
-			"v": valAstJson,
+		var valScratch []byte
+		for k := i; k < j; k++ {
+			entries[k].valueStart = len(valScratch)
+			valScratch, err = appendAstJson(valScratch, entries[k].val)
+			if err != nil {
+				return nil, err
+			}
+			entries[k].valueEnd = len(valScratch)
 		}
-		tmpJson, err := json.Marshal(tmpJsonMap)
-		if err != nil {
-			return nil, err
+		group := entries[i:j]
+		slices.SortFunc(group, func(a, b astJsonMapEntry) int {
+			return bytes.Compare(
+				valScratch[a.valueStart:a.valueEnd],
+				valScratch[b.valueStart:b.valueEnd],
+			)
+		})
+		for _, e := range group {
+			buf = append(buf, `{"k":`...)
+			buf = append(buf, keyBytes(e)...)
+			buf = append(buf, `,"v":`...)
+			buf = append(buf, valScratch[e.valueStart:e.valueEnd]...)
+			buf = append(buf, `},`...)
 		}
-		tmpItems = append(tmpItems, string(tmpJson))
+		i = j
 	}
-	// We naively sort the rendered map items to give consistent ordering
-	sort.Strings(tmpItems)
-	tmpJson := fmt.Sprintf(
-		`{"map":[%s]}`,
-		strings.Join(tmpItems, ","),
-	)
-	return []byte(tmpJson), nil
+	if len(entries) > 0 {
+		// Drop the comma after the last entry.
+		buf = buf[:len(buf)-1]
+	}
+	return append(buf, `]}`...), nil
 }
 
 type LazyValue struct {
