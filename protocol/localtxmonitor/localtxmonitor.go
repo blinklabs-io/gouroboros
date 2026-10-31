@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
-	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -170,7 +169,6 @@ type Config struct {
 type TxAndEraId struct {
 	EraId uint
 	Tx    []byte
-	txObj ledger.Transaction
 }
 
 // Callback context
@@ -181,6 +179,12 @@ type CallbackContext struct {
 }
 
 // Callback function types
+
+// GetMempoolFunc returns the mempool snapshot for an Acquire: the slot
+// number, the capacity in bytes, and the transactions. The server keeps
+// the returned Tx slices without copying them, relaying them for NextTx and
+// parsing them for HasTx while the snapshot is held, so the callback must
+// not modify them after returning.
 type GetMempoolFunc func(CallbackContext) (uint64, uint32, []TxAndEraId, error)
 
 // New returns a new LocalTxMonitor object
