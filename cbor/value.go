@@ -831,7 +831,7 @@ func appendAstJsonMap[T map[any]any | Map](buf []byte, v T) ([]byte, error) {
 			i = j
 			continue
 		}
-		var valScratch []byte
+		valScratch := []byte{}
 		for k := i; k < j; k++ {
 			entries[k].valueStart = len(valScratch)
 			valScratch, err = appendAstJson(valScratch, entries[k].val)
