@@ -179,8 +179,16 @@ func (s *Server) handleRelease() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	s.releaseMempool()
+}
+
+// releaseMempool drops the snapshot along with its cached IDs. A client that
+// polls re-acquires without releasing, so it keeps the cache; one that
+// releases may stay idle and should not hold a copy of the mempool.
+func (s *Server) releaseMempool() {
 	s.mempoolCapacity = 0
 	s.mempoolTxs = nil
+	s.txHashes = nil
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {

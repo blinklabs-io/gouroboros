@@ -159,6 +159,22 @@ func TestServerAcquireKeepsIdsOfRemainingTransactions(t *testing.T) {
 	require.True(t, found)
 }
 
+func TestServerReleaseDropsCachedIds(t *testing.T) {
+	txCbor, txId := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
+	server := newTestMempoolServer(t, &txs)
+	_, err := server.acquireMempool()
+	require.NoError(t, err)
+	found, err := server.hasTx(NewMsgHasTxForEra(ledger.TxTypeByron, txId))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.NotEmpty(t, server.txHashes)
+
+	server.releaseMempool()
+	require.Empty(t, server.mempoolTxs)
+	require.Empty(t, server.txHashes)
+}
+
 func TestServerHasTxReportsUnparseableTransaction(t *testing.T) {
 	txs := []TxAndEraId{{EraId: ledger.TxTypeConway, Tx: []byte{0x80}}}
 	server := newTestMempoolServer(t, &txs)
