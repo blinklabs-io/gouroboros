@@ -385,8 +385,9 @@ func dijkstraBatchValidRangeV4(
 ) (data.PlutusData, error) {
 	var lowerSlot, upperSlot *uint64
 	for _, level := range batch {
-		if dijkstraValidityLowerBoundPresentV4(level.tx.body) {
-			slot := level.tx.ValidityIntervalStart()
+		if slot, present := common.TransactionValidityIntervalLowerBound(
+			level.tx.body,
+		); present {
 			if lowerSlot == nil || slot > *lowerSlot {
 				lowerSlot = &slot
 			}

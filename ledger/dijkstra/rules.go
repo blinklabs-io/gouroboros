@@ -1477,6 +1477,10 @@ func (t dijkstraConwayFeatureTransaction) ValidityIntervalUpperBound() (uint64, 
 	return common.TransactionValidityIntervalUpperBound(t.body)
 }
 
+func (t dijkstraConwayFeatureTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return common.TransactionValidityIntervalLowerBound(t.body)
+}
+
 func (t dijkstraConwayFeatureTransaction) ValidityIntervalStart() uint64 {
 	return t.body.ValidityIntervalStart()
 }
@@ -4947,10 +4951,12 @@ func UtxoValidateNativeScripts(
 			level.tx,
 			level.view,
 		) {
-			if !nativeScript.EvaluateWithGuards(
+			if !nativeScript.EvaluateWithGuardsAndBounds(
 				env.Slot,
 				env.ValidityStart,
 				env.ValidityEnd,
+				env.ValidityStartPresent,
+				env.ValidityEndPresent,
 				env.KeyHashes,
 				guardCredentials,
 			) {

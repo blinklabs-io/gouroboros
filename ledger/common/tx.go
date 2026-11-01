@@ -101,6 +101,55 @@ type TransactionWithValidityIntervalUpperBound interface {
 	ValidityIntervalUpperBound() (uint64, bool)
 }
 
+// TransactionWithValidityIntervalLowerBound is implemented by transactions
+// and transaction bodies that can distinguish an absent lower validity bound
+// from an explicitly encoded bound of zero.
+type TransactionWithValidityIntervalLowerBound interface {
+	ValidityIntervalLowerBound() (uint64, bool)
+}
+
+// TransactionValidityIntervalLowerBound returns the lower validity bound and
+// whether transaction-body key 8 is present. A decoded explicit zero remains
+// distinguishable from an absent bound.
+func TransactionValidityIntervalLowerBound(
+	tx TransactionBody,
+) (uint64, bool) {
+	if txWithLowerBound, ok := tx.(TransactionWithValidityIntervalLowerBound); ok {
+		return txWithLowerBound.ValidityIntervalLowerBound()
+	}
+	lowerBound := tx.ValidityIntervalStart()
+	if lowerBound != 0 {
+		return lowerBound, true
+	}
+	if txWithPresence, ok := tx.(interface {
+		ValidityIntervalLowerBoundPresent() bool
+	}); ok && txWithPresence.ValidityIntervalLowerBoundPresent() {
+		return lowerBound, true
+	}
+	return lowerBound, transactionBodyFieldPresent(tx.Cbor(), 8)
+}
+
+func transactionBodyFieldPresent(cborData []byte, field uint) bool {
+	if len(cborData) == 0 {
+		return false
+	}
+	var bodyFields map[uint]cbor.RawMessage
+	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err == nil {
+		_, present := bodyFields[field]
+		return present
+	}
+	var txFields []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &txFields); err != nil ||
+		len(txFields) == 0 {
+		return false
+	}
+	if _, err := cbor.DecodeLedgerMap(txFields[0], &bodyFields); err != nil {
+		return false
+	}
+	_, present := bodyFields[field]
+	return present
+}
+
 // TransactionValidityIntervalUpperBound returns the upper validity bound and
 // whether it is present. Implementations that do not expose presence retain the
 // legacy behavior where a non-zero TTL is treated as present.
@@ -298,6 +347,7 @@ type Utxo struct {
 type TransactionBodyBase struct {
 	cbor.DecodeStoreCbor
 	hash                              Blake2b256Cache
+	validityIntervalLowerBoundPresent bool
 	validityIntervalUpperBoundPresent bool
 	currentTreasuryValuePresent       bool
 	networkIdPresent                  bool
@@ -305,6 +355,7 @@ type TransactionBodyBase struct {
 }
 
 type transactionBodyFieldPresence struct {
+	validityIntervalLowerBound bool
 	validityIntervalUpperBound bool
 	currentTreasuryValue       bool
 	networkId                  bool
@@ -407,15 +458,34 @@ func decodeTransactionBodyFieldPresence(
 		return transactionBodyFieldPresence{}, err
 	}
 	_, upperBoundPresent := bodyFields[3]
+	_, lowerBoundPresent := bodyFields[8]
 	_, currentTreasuryValuePresent := bodyFields[21]
 	_, networkIdPresent := bodyFields[15]
 	_, totalCollateralPresent := bodyFields[17]
 	return transactionBodyFieldPresence{
+		validityIntervalLowerBound: lowerBoundPresent,
 		validityIntervalUpperBound: upperBoundPresent,
 		currentTreasuryValue:       currentTreasuryValuePresent,
 		networkId:                  networkIdPresent,
 		totalCollateral:            totalCollateralPresent,
 	}, nil
+}
+
+// SetValidityIntervalLowerBoundPresence records whether transaction-body key
+// 8 is present. Calling it for a programmatically constructed body invalidates
+// any stored CBOR.
+func (b *TransactionBodyBase) SetValidityIntervalLowerBoundPresence(
+	present bool,
+) {
+	b.validityIntervalLowerBoundPresent = present
+	b.SetCbor(nil)
+}
+
+// ValidityIntervalLowerBoundPresent reports whether transaction-body key 8 is
+// present.
+func (b *TransactionBodyBase) ValidityIntervalLowerBoundPresent() bool {
+	return b.validityIntervalLowerBoundPresent ||
+		transactionBodyFieldPresent(b.Cbor(), 8)
 }
 
 // SetValidityIntervalUpperBoundPresence records whether transaction-body key 3
@@ -476,15 +546,13 @@ func (b *TransactionBodyBase) DecodeValidityIntervalUpperBoundPresence(
 	cborData []byte,
 	upperBound uint64,
 ) error {
-	if upperBound != 0 {
-		b.validityIntervalUpperBoundPresent = true
-		return nil
-	}
 	presence, err := decodeTransactionBodyFieldPresence(cborData)
 	if err != nil {
 		return err
 	}
-	b.validityIntervalUpperBoundPresent = presence.validityIntervalUpperBound
+	b.validityIntervalUpperBoundPresent =
+		upperBound != 0 || presence.validityIntervalUpperBound
+	b.validityIntervalLowerBoundPresent = presence.validityIntervalLowerBound
 	return nil
 }
 
@@ -506,6 +574,7 @@ func (b *TransactionBodyBase) DecodeTransactionBodyFieldPresence(
 	if !b.validityIntervalUpperBoundPresent {
 		b.validityIntervalUpperBoundPresent = presence.validityIntervalUpperBound
 	}
+	b.validityIntervalLowerBoundPresent = presence.validityIntervalLowerBound
 	if !b.currentTreasuryValuePresent {
 		b.currentTreasuryValuePresent = presence.currentTreasuryValue
 	}
@@ -526,6 +595,8 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 		return nil, err
 	}
 	upperBound, present := TransactionValidityIntervalUpperBound(body)
+	lowerBound, lowerBoundPresent := TransactionValidityIntervalLowerBound(body)
+	preserveLowerBoundZero := lowerBoundPresent && lowerBound == 0
 	preserveUpperBoundZero := present && upperBound == 0
 	treasuryValue := body.CurrentTreasuryValue()
 	preserveTreasuryZero := TransactionCurrentTreasuryValuePresent(body) &&
@@ -590,6 +661,13 @@ func EncodeTransactionBodyWithValidityIntervalUpperBound(
 			return nil, err
 		}
 		bodyFields[3] = encodedUpperBound
+	}
+	if preserveLowerBoundZero {
+		encodedLowerBound, err := cbor.Encode(lowerBound)
+		if err != nil {
+			return nil, err
+		}
+		bodyFields[8] = encodedLowerBound
 	}
 	if preserveTreasuryZero {
 		encodedTreasuryValue, err := cbor.Encode(uint64(0))

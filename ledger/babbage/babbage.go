@@ -661,6 +661,11 @@ func (b *BabbageTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *BabbageTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	return b.TxValidityIntervalStart,
+		b.TxValidityIntervalStart != 0 || b.ValidityIntervalLowerBoundPresent()
+}
+
 // TransactionNetworkId returns the optional transaction network identifier. A non-zero
 // value is necessarily present; zero is present only when the decoder saw
 // transaction-body key 15 (or the caller marked it present explicitly).
@@ -1380,6 +1385,10 @@ func (t BabbageTransaction) TTL() uint64 {
 
 func (t BabbageTransaction) ValidityIntervalUpperBound() (uint64, bool) {
 	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t BabbageTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return t.Body.ValidityIntervalLowerBound()
 }
 
 func (t BabbageTransaction) ValidityIntervalStart() uint64 {

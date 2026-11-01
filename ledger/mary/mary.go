@@ -303,6 +303,13 @@ func (b *MaryTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *MaryTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	if b.TxValidityIntervalStart == nil {
+		return 0, b.ValidityIntervalLowerBoundPresent()
+	}
+	return *b.TxValidityIntervalStart, true
+}
+
 func (b *MaryTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
@@ -481,6 +488,10 @@ func (t MaryTransaction) TTL() uint64 {
 
 func (t MaryTransaction) ValidityIntervalUpperBound() (uint64, bool) {
 	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t MaryTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return t.Body.ValidityIntervalLowerBound()
 }
 
 func (t MaryTransaction) ValidityIntervalStart() uint64 {

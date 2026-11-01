@@ -16,6 +16,7 @@ package script_test
 
 import (
 	"bytes"
+	"math"
 	"slices"
 	"testing"
 
@@ -152,18 +153,17 @@ func TestNewNativeScriptEnv(t *testing.T) {
 		env := script.NewNativeScriptEnv(nil, 7)
 		require.Equal(t, uint64(7), env.Slot)
 		require.Equal(t, uint64(0), env.ValidityStart)
-		require.Equal(t, ^uint64(0), env.ValidityEnd)
+		require.False(t, env.ValidityStartPresent)
+		require.Equal(t, uint64(math.MaxUint64), env.ValidityEnd)
+		require.False(t, env.ValidityEndPresent)
 		require.Empty(t, env.KeyHashes)
 	})
 
 	t.Run("no upper bound", func(t *testing.T) {
 		tx := mockledger.NewTransactionBuilder()
-		require.Equal(
-			t,
-			^uint64(0),
-			script.NewNativeScriptEnv(tx, 0).ValidityEnd,
-			"an absent upper bound must not read as slot zero",
-		)
+		env := script.NewNativeScriptEnv(tx, 0)
+		require.Equal(t, uint64(math.MaxUint64), env.ValidityEnd)
+		require.False(t, env.ValidityEndPresent)
 	})
 
 	t.Run("witness key hashes", func(t *testing.T) {
@@ -177,6 +177,7 @@ func TestNewNativeScriptEnv(t *testing.T) {
 		tx.WithTTL(42)
 		env := script.NewNativeScriptEnv(tx, 0)
 		require.Equal(t, uint64(42), env.ValidityEnd)
+		require.True(t, env.ValidityEndPresent)
 		require.True(t, env.KeyHashes[common.Blake2b224Hash(vkey)])
 		require.True(
 			t,

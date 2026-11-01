@@ -1462,6 +1462,11 @@ func (b *DijkstraTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *DijkstraTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	return b.TxValidityIntervalStart,
+		b.TxValidityIntervalStart != 0 || b.ValidityIntervalLowerBoundPresent()
+}
+
 func (b *DijkstraTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
@@ -1803,6 +1808,11 @@ func (b *DijkstraSubTransactionBody) ValidityIntervalUpperBound() (uint64, bool)
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *DijkstraSubTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	return b.TxValidityIntervalStart,
+		b.TxValidityIntervalStart != 0 || b.ValidityIntervalLowerBoundPresent()
+}
+
 func (b *DijkstraSubTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
@@ -2136,6 +2146,10 @@ func (t DijkstraTransaction) TTL() uint64 {
 
 func (t DijkstraTransaction) ValidityIntervalUpperBound() (uint64, bool) {
 	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t DijkstraTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return t.Body.ValidityIntervalLowerBound()
 }
 
 func (t DijkstraTransaction) ValidityIntervalStart() uint64 {
