@@ -1340,10 +1340,12 @@ func UtxoValidateNativeScripts(
 	}
 	env := script.NewNativeScriptEnv(tx, slot)
 	for _, nativeScript := range script.NativeScriptsToEvaluate(tx, view) {
-		if !nativeScript.Evaluate(
+		if !nativeScript.EvaluateWithBounds(
 			env.Slot,
 			env.ValidityStart,
 			env.ValidityEnd,
+			env.ValidityStartPresent,
+			env.ValidityEndPresent,
 			env.KeyHashes,
 		) {
 			return allegra.NativeScriptFailedError{

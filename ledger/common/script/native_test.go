@@ -16,9 +16,12 @@ package script_test
 
 import (
 	"bytes"
+	"math"
 	"slices"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -152,18 +155,42 @@ func TestNewNativeScriptEnv(t *testing.T) {
 		env := script.NewNativeScriptEnv(nil, 7)
 		require.Equal(t, uint64(7), env.Slot)
 		require.Equal(t, uint64(0), env.ValidityStart)
-		require.Equal(t, ^uint64(0), env.ValidityEnd)
+		require.False(t, env.ValidityStartPresent)
+		require.Equal(t, uint64(math.MaxUint64), env.ValidityEnd)
+		require.False(t, env.ValidityEndPresent)
 		require.Empty(t, env.KeyHashes)
 	})
 
 	t.Run("no upper bound", func(t *testing.T) {
 		tx := mockledger.NewTransactionBuilder()
-		require.Equal(
-			t,
-			^uint64(0),
-			script.NewNativeScriptEnv(tx, 0).ValidityEnd,
-			"an absent upper bound must not read as slot zero",
+		env := script.NewNativeScriptEnv(tx, 0)
+		require.Equal(t, uint64(math.MaxUint64), env.ValidityEnd)
+		require.False(t, env.ValidityEndPresent)
+	})
+
+	t.Run("explicit zero lower bound", func(t *testing.T) {
+		// Body {0: [], 1: [], 2: 0, 8: 0}: key 8 present with value zero.
+		var tx allegra.AllegraTransaction
+		_, err := cbor.Decode(
+			[]byte{0xa4, 0x00, 0x80, 0x01, 0x80, 0x02, 0x00, 0x08, 0x00},
+			&tx.Body,
 		)
+		require.NoError(t, err)
+		env := script.NewNativeScriptEnv(&tx, 0)
+		require.Equal(t, uint64(0), env.ValidityStart)
+		require.True(t, env.ValidityStartPresent)
+	})
+
+	t.Run("absent lower bound", func(t *testing.T) {
+		var tx allegra.AllegraTransaction
+		_, err := cbor.Decode(
+			[]byte{0xa3, 0x00, 0x80, 0x01, 0x80, 0x02, 0x00},
+			&tx.Body,
+		)
+		require.NoError(t, err)
+		env := script.NewNativeScriptEnv(&tx, 0)
+		require.Equal(t, uint64(0), env.ValidityStart)
+		require.False(t, env.ValidityStartPresent)
 	})
 
 	t.Run("witness key hashes", func(t *testing.T) {
@@ -177,6 +204,7 @@ func TestNewNativeScriptEnv(t *testing.T) {
 		tx.WithTTL(42)
 		env := script.NewNativeScriptEnv(tx, 0)
 		require.Equal(t, uint64(42), env.ValidityEnd)
+		require.True(t, env.ValidityEndPresent)
 		require.True(t, env.KeyHashes[common.Blake2b224Hash(vkey)])
 		require.True(
 			t,

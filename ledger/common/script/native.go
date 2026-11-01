@@ -17,6 +17,7 @@ package script
 import (
 	"bytes"
 	"errors"
+	"math"
 	"slices"
 
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -26,30 +27,34 @@ import (
 // reads: the slot the transaction is validated at, its validity interval, and
 // the key hashes it witnesses.
 type NativeScriptEnv struct {
-	Slot          uint64
-	ValidityStart uint64
-	ValidityEnd   uint64
-	KeyHashes     map[lcommon.Blake2b224]bool
+	Slot                 uint64
+	ValidityStart        uint64
+	ValidityEnd          uint64
+	ValidityStartPresent bool
+	ValidityEndPresent   bool
+	KeyHashes            map[lcommon.Blake2b224]bool
 }
 
-// NewNativeScriptEnv derives the evaluation environment from the transaction.
-// An absent validity upper bound becomes the maximum slot, so an
-// InvalidHereafter-free script is not rejected for lack of a bound.
+// NewNativeScriptEnv derives the evaluation environment from the transaction,
+// including whether each optional validity bound was present.
 func NewNativeScriptEnv(
 	tx lcommon.Transaction,
 	slot uint64,
 ) NativeScriptEnv {
 	env := NativeScriptEnv{
 		Slot:        slot,
+		ValidityEnd: math.MaxUint64,
 		KeyHashes:   make(map[lcommon.Blake2b224]bool),
-		ValidityEnd: ^uint64(0),
 	}
 	if tx == nil {
 		return env
 	}
-	env.ValidityStart = tx.ValidityIntervalStart()
-	if end, ok := lcommon.TransactionValidityIntervalUpperBound(tx); ok {
-		env.ValidityEnd = end
+	env.ValidityStart, env.ValidityStartPresent = lcommon.TransactionValidityIntervalLowerBound(
+		tx,
+	)
+	if validityEnd, present := lcommon.TransactionValidityIntervalUpperBound(tx); present {
+		env.ValidityEnd = validityEnd
+		env.ValidityEndPresent = true
 	}
 	if witnesses := tx.Witnesses(); witnesses != nil {
 		for _, vkw := range witnesses.Vkey() {

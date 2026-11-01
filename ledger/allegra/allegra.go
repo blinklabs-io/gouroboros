@@ -296,6 +296,11 @@ func (b *AllegraTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *AllegraTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	return b.TxValidityIntervalStart,
+		b.TxValidityIntervalStart != 0 || b.ValidityIntervalLowerBoundPresent()
+}
+
 func (b *AllegraTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
@@ -453,6 +458,10 @@ func (t AllegraTransaction) TTL() uint64 {
 
 func (t AllegraTransaction) ValidityIntervalUpperBound() (uint64, bool) {
 	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t AllegraTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return t.Body.ValidityIntervalLowerBound()
 }
 
 func (t AllegraTransaction) ValidityIntervalStart() uint64 {

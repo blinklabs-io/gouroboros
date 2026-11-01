@@ -34,6 +34,7 @@ type validityUpperBoundBody interface {
 	UnmarshalCBOR([]byte) error
 	MarshalCBOR() ([]byte, error)
 	SetCbor([]byte)
+	SetValidityIntervalLowerBoundPresence(bool)
 	SetValidityIntervalUpperBound(uint64)
 	ClearValidityIntervalUpperBound()
 }
@@ -208,6 +209,88 @@ func TestValidityIntervalUpperBoundConstructedZeroRoundTrip(t *testing.T) {
 			_, err = cbor.Decode(encoded, &fields)
 			require.NoError(t, err)
 			require.NotContains(t, fields, uint(3))
+		})
+	}
+}
+
+func TestValidityIntervalLowerBoundDecodedPresence(t *testing.T) {
+	for _, test := range validityUpperBoundTestCases() {
+		t.Run(test.name, func(t *testing.T) {
+			body := test.newBody()
+			intervalCbor := []byte{0xa1, 0x08, 0x00}
+			if test.name == "Conway" || test.name == "Dijkstra" ||
+				test.name == "Dijkstra sub-transaction" {
+				intervalCbor = withRequiredEraBodyFields(
+					t,
+					intervalCbor,
+					test.name == "Dijkstra sub-transaction",
+				)
+			}
+			require.NoError(t, body.UnmarshalCBOR(intervalCbor))
+			requireValidityLowerBound(t, body, 0, true)
+			if test.newTx != nil {
+				requireValidityLowerBound(t, test.newTx(body), 0, true)
+			}
+
+			body.SetCbor(nil)
+			requireValidityLowerBound(t, body, 0, true)
+
+			absentCbor := []byte{0xa0}
+			if test.name == "Conway" || test.name == "Dijkstra" ||
+				test.name == "Dijkstra sub-transaction" {
+				absentCbor = withRequiredEraBodyFields(
+					t,
+					absentCbor,
+					test.name == "Dijkstra sub-transaction",
+				)
+			}
+			require.NoError(t, body.UnmarshalCBOR(absentCbor))
+			requireValidityLowerBound(t, body, 0, false)
+		})
+	}
+}
+
+func TestValidityIntervalLowerBoundConstructedZeroRoundTrip(t *testing.T) {
+	for _, test := range validityUpperBoundTestCases() {
+		t.Run(test.name, func(t *testing.T) {
+			body := test.newBody()
+			requireValidityLowerBound(t, body, 0, false)
+
+			setExplicitZeroValidityIntervalLowerBound(body)
+			requireValidityLowerBound(t, body, 0, true)
+			if test.newTx != nil {
+				tx := test.newTx(body)
+				requireValidityLowerBound(t, tx, 0, true)
+				txMarshaler := tx.(interface {
+					MarshalCBOR() ([]byte, error)
+				})
+				encodedTx, err := txMarshaler.MarshalCBOR()
+				require.NoError(t, err)
+				var txFields []cbor.RawMessage
+				_, err = cbor.Decode(encodedTx, &txFields)
+				require.NoError(t, err)
+				require.NotEmpty(t, txFields)
+				var txBodyFields map[uint]cbor.RawMessage
+				_, err = cbor.Decode(txFields[0], &txBodyFields)
+				require.NoError(t, err)
+				require.Contains(t, txBodyFields, uint(8))
+			}
+
+			encoded, err := body.MarshalCBOR()
+			require.NoError(t, err)
+			var fields map[uint]cbor.RawMessage
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.Contains(t, fields, uint(8))
+
+			clearValidityIntervalLowerBound(body)
+			requireValidityLowerBound(t, body, 0, false)
+			encoded, err = body.MarshalCBOR()
+			require.NoError(t, err)
+			fields = nil
+			_, err = cbor.Decode(encoded, &fields)
+			require.NoError(t, err)
+			require.NotContains(t, fields, uint(8))
 		})
 	}
 }
@@ -457,6 +540,21 @@ func setValidityIntervalUpperBound(
 	body.SetValidityIntervalUpperBound(*upperBound)
 }
 
+func setExplicitZeroValidityIntervalLowerBound(body validityUpperBoundBody) {
+	if maryBody, ok := body.(*mary.MaryTransactionBody); ok {
+		zero := uint64(0)
+		maryBody.TxValidityIntervalStart = &zero
+	}
+	body.SetValidityIntervalLowerBoundPresence(true)
+}
+
+func clearValidityIntervalLowerBound(body validityUpperBoundBody) {
+	if maryBody, ok := body.(*mary.MaryTransactionBody); ok {
+		maryBody.TxValidityIntervalStart = nil
+	}
+	body.SetValidityIntervalLowerBoundPresence(false)
+}
+
 func uint64Pointer(value uint64) *uint64 {
 	return &value
 }
@@ -470,5 +568,17 @@ func requireValidityUpperBound(
 	t.Helper()
 	upperBound, present := common.TransactionValidityIntervalUpperBound(tx)
 	require.Equal(t, wantUpperBound, upperBound)
+	require.Equal(t, wantPresent, present)
+}
+
+func requireValidityLowerBound(
+	t *testing.T,
+	tx common.TransactionBody,
+	wantLowerBound uint64,
+	wantPresent bool,
+) {
+	t.Helper()
+	lowerBound, present := common.TransactionValidityIntervalLowerBound(tx)
+	require.Equal(t, wantLowerBound, lowerBound)
 	require.Equal(t, wantPresent, present)
 }

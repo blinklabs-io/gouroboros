@@ -23,7 +23,6 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/plutigo/data"
 )
@@ -827,11 +826,13 @@ func validityRangeInfo(
 ) (TimeRange, error) {
 	var ret TimeRange
 	ret.strictUpperBound = strictValidityUpperBound
-	startSlot := tx.ValidityIntervalStart()
+	startSlot, lowerBoundPresent := lcommon.TransactionValidityIntervalLowerBound(
+		tx,
+	)
 	endSlot, upperBoundPresent := lcommon.TransactionValidityIntervalUpperBound(
 		tx,
 	)
-	ret.lowerBoundPresent = validityLowerBoundPresent(tx)
+	ret.lowerBoundPresent = lowerBoundPresent
 	ret.upperBoundPresent = upperBoundPresent
 	if ret.lowerBoundPresent {
 		startTime, err := slotState.SlotToTime(startSlot)
@@ -848,25 +849,6 @@ func validityRangeInfo(
 		ret.upperBound = uint64(endTime.UnixMilli()) // nolint:gosec
 	}
 	return ret, nil
-}
-
-func validityLowerBoundPresent(tx lcommon.Transaction) bool {
-	startPresent := tx.ValidityIntervalStart() > 0
-	txCbor := tx.Cbor()
-	if len(txCbor) == 0 {
-		return startPresent
-	}
-	var txFields []cbor.RawMessage
-	if _, err := cbor.Decode(txCbor, &txFields); err != nil ||
-		len(txFields) == 0 {
-		return startPresent
-	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.Decode(txFields[0], &bodyFields); err != nil {
-		return startPresent
-	}
-	_, startPresent = bodyFields[8]
-	return startPresent
 }
 
 func withdrawalsInfo(
