@@ -107,6 +107,21 @@ func TestConstructedExplicitZeroLowerBoundPresence(t *testing.T) {
 	require.False(t, invalid)
 }
 
+func TestDecodedLowerBoundPresenceDoesNotRescanCbor(t *testing.T) {
+	var tx allegra.AllegraTransaction
+	_, err := cbor.Decode(mustDecodeHex(t, "a3008001800200"), &tx.Body)
+	require.NoError(t, err)
+
+	allocs := testing.AllocsPerRun(10, func() {
+		if _, present := common.TransactionValidityIntervalLowerBound(
+			&tx,
+		); present {
+			t.Fatal("absent lower bound reported present")
+		}
+	})
+	require.Zero(t, allocs)
+}
+
 func mustDecodeHex(t *testing.T, value string) []byte {
 	t.Helper()
 	decoded, err := hex.DecodeString(value)
