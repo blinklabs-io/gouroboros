@@ -49,7 +49,7 @@ func dijkstraHeaderWithBodyFields(
 	return out
 }
 
-func TestDijkstraBlockHeaderRequiresExactlyTwelveBodyFields(t *testing.T) {
+func TestDijkstraBlockHeaderRequiresTenOrTwelveBodyFields(t *testing.T) {
 	t.Parallel()
 	hash32 := make([]byte, 32)
 	announcement := []any{hash32, uint64(0xffffffff)}
@@ -77,8 +77,21 @@ func TestDijkstraBlockHeaderRequiresExactlyTwelveBodyFields(t *testing.T) {
 		})
 	}
 
+	// The plain 10-field Praos header body: cardano-node 11.2.0 runs Praos,
+	// not the Leios overlay, in the Dijkstra era on DijkstraNet.
+	t.Run("valid 10 fields", func(t *testing.T) {
+		t.Parallel()
+		raw := dijkstraHeaderWithBodyFields(t)
+		var h DijkstraBlockHeader
+		_, err := cbor.Decode(raw, &h)
+		require.NoError(t, err)
+		require.Nil(t, h.LeiosHeaderExtension)
+		out, err := h.MarshalCBOR()
+		require.NoError(t, err)
+		require.Equal(t, raw, out)
+	})
+
 	invalid := map[string][]any{
-		"10 fields":             {},
 		"11 fields bool":        {true},
 		"11 fields legacy pair": {announcement},
 		"13 fields":             {true, nil, nil},

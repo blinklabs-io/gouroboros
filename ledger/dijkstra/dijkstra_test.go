@@ -1096,18 +1096,16 @@ func TestDijkstraBlockHeaderDecodesLeiosExtension(t *testing.T) {
 	require.Equal(t, common.Blake2b256Hash(raw), header.Hash())
 }
 
-// TestDijkstraBlockHeaderRejectsLegacyBabbageBody verifies that the plain
-// 10-field Babbage-shaped header body and the superseded 11-field capture are
-// no longer accepted as Dijkstra headers.
-func TestDijkstraBlockHeaderRejectsLegacyBabbageBody(t *testing.T) {
+// TestDijkstraBlockHeaderRejectsElevenFieldBody verifies that the superseded
+// 11-field capture is not accepted as a Dijkstra header. The 10-field Praos
+// body is accepted; TestDijkstraBlockHeaderRequiresTenOrTwelveBodyFields and
+// TestDijkstraBlockHeaderDecodesDijkstraNetTenFieldBody cover it.
+func TestDijkstraBlockHeaderRejectsElevenFieldBody(t *testing.T) {
 	var header DijkstraBlockHeader
-	_, err := cbor.Decode(dijkstraHeaderWithBodyFields(t), &header)
-	require.ErrorContains(t, err, "expected exactly 12 fields, got 10")
-
 	full, err := hex.DecodeString(leiosExtendedHeaderHex)
 	require.NoError(t, err)
 	_, err = cbor.Decode(full, &header)
-	require.ErrorContains(t, err, "expected exactly 12 fields, got 11")
+	require.ErrorContains(t, err, "expected 10 or 12 fields, got 11")
 }
 
 func TestDijkstraBlockBodyHashIncludesLeiosAndPerasCertSlots(t *testing.T) {
