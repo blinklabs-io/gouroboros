@@ -197,7 +197,7 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	t.Parallel()
 
 	cache := newProgramCache(3 * programEstimateFloor)
-	small := &syn.Program[syn.DeBruijn]{}
+	small := &syn.Program[syn.DeBruijn]{Term: &syn.Error{}}
 	smallDecodes := 0
 	decodeSmall := func() (*syn.Program[syn.DeBruijn], error) {
 		smallDecodes++

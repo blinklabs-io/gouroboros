@@ -86,18 +86,18 @@ func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
 	return innerScript, nil
 }
 
-// decodePlutusProgram returns the decoded and execution-validated program
-// for innerScript. Programs are cached and shared across callers, so the
-// result must be treated as read-only.
-func decodePlutusProgram(
+// decodePreparedPlutusProgram is decodePlutusProgram for evaluation: it
+// returns the cached program prepared by cek.PrepareDecodedProgram, so
+// cek.RunPreparedScriptContext can skip plutigo's per-run structure walk.
+func decodePreparedPlutusProgram(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
 	evalContext *cek.EvalContext,
-) (*syn.Program[syn.DeBruijn], error) {
+) (*cek.PreparedProgram, error) {
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
-	return defaultProgramCache.decode(
+	return defaultProgramCache.decodePrepared(
 		innerScript,
 		ledgerLanguage,
 		evalContext.ProtoMajor,
@@ -306,7 +306,7 @@ func (s PlutusV1Script) EvaluateContext(
 	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), false)
@@ -314,7 +314,7 @@ func (s PlutusV1Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV1,
 		evalContext,
@@ -329,12 +329,12 @@ func (s PlutusV1Script) EvaluateContext(
 		trustedArguments = append(trustedArguments, datum)
 	}
 	trustedArguments = append(trustedArguments, redeemer, scriptContext)
-	consumedBudget, _, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV1,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
@@ -410,7 +410,7 @@ func (s PlutusV2Script) EvaluateContext(
 	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), false)
@@ -418,7 +418,7 @@ func (s PlutusV2Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV2,
 		evalContext,
@@ -433,12 +433,12 @@ func (s PlutusV2Script) EvaluateContext(
 		trustedArguments = append(trustedArguments, datum)
 	}
 	trustedArguments = append(trustedArguments, redeemer, scriptContext)
-	consumedBudget, _, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV2,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
@@ -495,7 +495,7 @@ func (s PlutusV3Script) EvaluateContext(
 	}
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), true)
@@ -503,7 +503,7 @@ func (s PlutusV3Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV3,
 		evalContext,
@@ -513,12 +513,12 @@ func (s PlutusV3Script) EvaluateContext(
 	}
 	// Execute the program with its ledger context as a trusted argument so it
 	// does not count against the structural limit on the UPLC program itself.
-	consumedBudget, isUnit, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		scriptContext,
 	)
 	if runErr == nil && !isUnit {
@@ -578,13 +578,13 @@ func (s PlutusV4Script) EvaluateContext(
 	}
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	innerScript, err := decodePlutusScript([]byte(s), true)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV4,
 		evalContext,
@@ -592,12 +592,12 @@ func (s PlutusV4Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	consumedBudget, isUnit, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		scriptContext,
 	)
 	if runErr == nil && !isUnit {
