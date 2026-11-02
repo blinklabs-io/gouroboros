@@ -523,13 +523,16 @@ type DijkstraBlockHeader struct {
 	// .size 4] / nil). Both are validated at decode time. The elements are
 	// retained verbatim so the header round-trips and hashes identically to the
 	// bytes received on the wire; use LeiosCertified and LeiosAnnouncement for
-	// typed access. Headers built in-process may leave it nil.
+	// typed access. It is nil for the 10-field header body (DijkstraNet), and
+	// MarshalCBOR encodes a nil extension as that 10-field body.
 	LeiosHeaderExtension []cbor.RawMessage
 }
 
-// UnmarshalCBOR decodes a Dijkstra block header. The header body must have
-// exactly 12 fields; 10-field Babbage-shaped bodies, 11-field bodies and
-// bodies with trailing extensions are rejected.
+// UnmarshalCBOR decodes a Dijkstra block header. The header body has either
+// the 10 Babbage fields (the shape cardano-node 11.2.0 produces on
+// DijkstraNet, where the Praos header is unchanged) or exactly 12 fields (the
+// ouroboros-leios prototype's Leios header extension). 11-field bodies and
+// bodies with other trailing extensions are rejected.
 func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	var top []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &top); err != nil {
@@ -545,17 +548,21 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(top[0], &bodyElems); err != nil {
 		return err
 	}
-	if len(bodyElems) != dijkstraHeaderBodyFieldCount {
+	switch len(bodyElems) {
+	case babbageHeaderBodyFieldCount:
+	case dijkstraHeaderBodyFieldCount:
+		if err := validateLeiosHeaderExtension(
+			bodyElems[babbageHeaderBodyFieldCount:],
+		); err != nil {
+			return err
+		}
+	default:
 		return fmt.Errorf(
-			"unexpected Dijkstra block header body: expected exactly %d fields, got %d",
+			"unexpected Dijkstra block header body: expected %d or %d fields, got %d",
+			babbageHeaderBodyFieldCount,
 			dijkstraHeaderBodyFieldCount,
 			len(bodyElems),
 		)
-	}
-	if err := validateLeiosHeaderExtension(
-		bodyElems[babbageHeaderBodyFieldCount:],
-	); err != nil {
-		return err
 	}
 	babbageBodyCbor, err := cbor.Encode(bodyElems[:babbageHeaderBodyFieldCount])
 	if err != nil {
@@ -576,7 +583,10 @@ func (h *DijkstraBlockHeader) UnmarshalCBOR(cborData []byte) error {
 	}
 	h.Body = body
 	h.Signature = signature
-	h.LeiosHeaderExtension = bodyElems[babbageHeaderBodyFieldCount:]
+	h.LeiosHeaderExtension = nil
+	if len(bodyElems) == dijkstraHeaderBodyFieldCount {
+		h.LeiosHeaderExtension = bodyElems[babbageHeaderBodyFieldCount:]
+	}
 	h.SetCbor(cborData)
 	h.ShareWithinCbor()
 	return nil
@@ -640,8 +650,10 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	if cborData := h.Cbor(); cborData != nil {
 		return cborData, nil
 	}
-	// Headers constructed in-process encode the current 12-field body, with
-	// leios_certified=false and a null announcement unless the extension is set.
+	// Headers constructed in-process mirror UnmarshalCBOR: a nil (or empty)
+	// LeiosHeaderExtension encodes the 10-field Praos header body that
+	// cardano-node 11.2.0 produces on DijkstraNet, and a set extension
+	// encodes the 12-field Leios prototype body.
 	babbageCbor, err := cbor.Encode(&h.BabbageBlockHeader)
 	if err != nil {
 		return nil, err
@@ -669,8 +681,9 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 	}
 	ext := h.LeiosHeaderExtension
 	if len(ext) == 0 {
-		ext = []cbor.RawMessage{{0xf4}, {0xf6}}
-	} else if err := validateLeiosHeaderExtension(ext); err != nil {
+		return babbageCbor, nil
+	}
+	if err := validateLeiosHeaderExtension(ext); err != nil {
 		// Never encode a header that UnmarshalCBOR would reject.
 		return nil, err
 	}
