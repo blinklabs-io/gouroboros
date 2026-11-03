@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
+	"runtime/metrics"
 	"sync"
 	"testing"
 	"time"
@@ -410,6 +411,7 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 		lang.LanguageVersionV3,
 		evalContext,
 	)
+	gcBefore := gcCycles()
 	// first leaves exactly short remaining; short cannot cover the script.
 	first := ExUnits{Memory: 2*used.Memory - 1, Steps: 2*used.Steps - 1}
 	short := ExUnits{Memory: used.Memory - 1, Steps: used.Steps - 1}
@@ -432,17 +434,27 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 	// The pool keeps its Machines through this pattern. A pool that replaced
 	// the Machine for every short redeemer would construct at least 50. The
 	// race detector makes sync.Pool drop Puts at random, so the count is only
-	// meaningful without it.
+	// meaningful without it. Without it, sync.Pool drops an idle Machine only
+	// after two GC cycles, so each GC that ran during the loop can account for
+	// at most one extra construction.
 	if raceEnabled {
 		return
 	}
+	gcDuring := int64(gcCycles() - gcBefore) // #nosec G115 -- cycle deltas are small
 	constructed := machineConstructionCount(
 		lang.LanguageVersionV3,
 		evalContext,
 	) - constructedBefore
-	require.Less(t, constructed, int64(10),
+	require.Less(t, constructed, 10+gcDuring,
 		"a declared budget equal to the previous remaining budget must not"+
-			" force a fresh Machine")
+			" force a fresh Machine (%d GC cycles during the loop)", gcDuring)
+}
+
+// gcCycles reports the number of completed GC cycles in the process.
+func gcCycles() uint64 {
+	sample := []metrics.Sample{{Name: "/gc/cycles/total:gc-cycles"}}
+	metrics.Read(sample)
+	return sample[0].Value.Uint64()
 }
 
 // callerBuiltTestEvalContext builds a PlutusV3 *cek.EvalContext directly with
