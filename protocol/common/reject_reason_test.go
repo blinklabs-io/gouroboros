@@ -125,3 +125,40 @@ func TestRejectReasonDataDecodeShapes(t *testing.T) {
 		})
 	}
 }
+
+// TestRejectReasonDataEncodesLikeDmqNode pins the encodings a CIP-0137 peer
+// decodes: already-received and expired are a one-element array, while the
+// invalid and other reasons carry their message.
+func TestRejectReasonDataEncodesLikeDmqNode(t *testing.T) {
+	cases := []struct {
+		name   string
+		reason RejectReason
+		want   []byte
+	}{
+		{
+			"invalid",
+			InvalidReason{Message: "no"},
+			[]byte{0x82, 0x00, 0x62, 'n', 'o'},
+		},
+		{"already received", AlreadyReceivedReason{}, []byte{0x81, 0x01}},
+		{"expired", ExpiredReason{}, []byte{0x81, 0x02}},
+		{
+			"other",
+			OtherReason{Message: "no"},
+			[]byte{0x82, 0x03, 0x62, 'n', 'o'},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := ToRejectReasonData(tc.reason)
+			require.NoError(t, err)
+			got, err := cbor.Encode(data)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+
+			var decoded RejectReasonData
+			require.NoError(t, decoded.UnmarshalCBOR(got))
+			require.Equal(t, data, decoded)
+		})
+	}
+}

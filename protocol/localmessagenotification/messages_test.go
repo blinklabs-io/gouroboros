@@ -69,7 +69,7 @@ func TestReplyMessageCountPreflightAcceptsConfiguredLimit(t *testing.T) {
 		data,
 		len(messages)-1,
 	)
-	require.ErrorContains(t, err, "maximum")
+	require.ErrorContains(t, err, "more than")
 }
 
 func TestReplyMessagePreflightRejectsDeepItem(t *testing.T) {
@@ -218,7 +218,7 @@ func TestNewMsgReplyMessagesNonBlockingNilRoundTrip(t *testing.T) {
 	msg := NewMsgReplyMessagesNonBlocking(nil, false)
 	data, err := cbor.Encode(msg)
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x83, 0x01, 0x80, 0xf4}, data)
+	require.Equal(t, []byte{0x83, 0x01, 0x9f, 0xff, 0xf4}, data)
 	parsed, err := NewMsgFromCbor(
 		uint(MessageTypeReplyMessagesNonBlocking),
 		data,
@@ -292,7 +292,7 @@ func TestNewMsgReplyMessagesBlockingNilRoundTrip(t *testing.T) {
 	msg := NewMsgReplyMessagesBlocking(nil)
 	data, err := cbor.Encode(msg)
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x82, 0x02, 0x80}, data)
+	require.Equal(t, []byte{0x82, 0x02, 0x9f, 0xff}, data)
 	parsed, err := NewMsgFromCbor(
 		uint(MessageTypeReplyMessagesBlocking),
 		data,
@@ -391,9 +391,9 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 		limitErr string
 	}{
 		{name: "reference batch", count: 1000, valid: true},
-		{name: "above reference batch", count: 1001, limitErr: "maximum is 1000"},
+		{name: "above reference batch", count: 1001, limitErr: "more than 1000"},
 		{name: "configured limit", maxReply: 1, count: 1, valid: true},
-		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "maximum is 1"},
+		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "more than 1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			connA, connB := net.Pipe()
@@ -495,4 +495,26 @@ func TestReplyMessageCollectionUsesConfiguredLimit(t *testing.T) {
 		wire,
 		2,
 	))
+}
+
+// TestReplyMessagesEncodeAsIndefiniteLists pins the list form a CIP-0137 peer
+// decodes: its codec rejects a definite-length list of messages.
+func TestReplyMessagesEncodeAsIndefiniteLists(t *testing.T) {
+	msg := clientTestMessage(t, "first", 200)
+	item, err := cbor.Encode(&msg)
+	require.NoError(t, err)
+
+	nonBlocking, err := cbor.Encode(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{msg}, true),
+	)
+	require.NoError(t, err)
+	want := append([]byte{0x83, 0x01, 0x9f}, item...)
+	require.Equal(t, append(want, 0xff, 0xf5), nonBlocking)
+
+	blocking, err := cbor.Encode(
+		NewMsgReplyMessagesBlocking([]pcommon.DmqMessage{msg}),
+	)
+	require.NoError(t, err)
+	want = append([]byte{0x82, 0x02, 0x9f}, item...)
+	require.Equal(t, append(want, 0xff), blocking)
 }
