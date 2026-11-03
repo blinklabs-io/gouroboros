@@ -202,7 +202,9 @@ func dijkstraPOSIXTimeRangeV4(
 	level dijkstraScriptLevel,
 ) (data.PlutusData, error) {
 	var lower *big.Int
-	if dijkstraValidityLowerBoundPresentV4(level.tx.body) {
+	if _, present := common.TransactionValidityIntervalLowerBound(
+		level.tx.body,
+	); present {
 		value, err := level.slotState.SlotToTime(
 			level.tx.ValidityIntervalStart(),
 		)
@@ -220,19 +222,6 @@ func dijkstraPOSIXTimeRangeV4(
 		upper = big.NewInt(value.UnixMilli())
 	}
 	return dijkstraPOSIXTimeRangeDataV4(lower, upper), nil
-}
-
-func dijkstraValidityLowerBoundPresentV4(body common.TransactionBody) bool {
-	present := body.ValidityIntervalStart() > 0
-	if len(body.Cbor()) == 0 {
-		return present
-	}
-	var fields map[uint]cbor.RawMessage
-	if _, err := cbor.Decode(body.Cbor(), &fields); err != nil {
-		return present
-	}
-	_, present = fields[8]
-	return present
 }
 
 func dijkstraPOSIXTimeRangeDataV4(

@@ -961,6 +961,11 @@ func (b *ConwayTransactionBody) ValidityIntervalUpperBound() (uint64, bool) {
 	return b.Ttl, b.Ttl != 0 || b.ValidityIntervalUpperBoundPresent()
 }
 
+func (b *ConwayTransactionBody) ValidityIntervalLowerBound() (uint64, bool) {
+	return b.TxValidityIntervalStart,
+		b.TxValidityIntervalStart != 0 || b.ValidityIntervalLowerBoundPresent()
+}
+
 func (b *ConwayTransactionBody) SetValidityIntervalUpperBound(
 	upperBound uint64,
 ) {
@@ -1208,6 +1213,10 @@ func (t ConwayTransaction) TTL() uint64 {
 
 func (t ConwayTransaction) ValidityIntervalUpperBound() (uint64, bool) {
 	return t.Body.ValidityIntervalUpperBound()
+}
+
+func (t ConwayTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return t.Body.ValidityIntervalLowerBound()
 }
 
 func (t ConwayTransaction) ValidityIntervalStart() uint64 {

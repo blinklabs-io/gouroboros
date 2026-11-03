@@ -283,30 +283,22 @@ func releaseMachine(
 	machinePoolFor(version, evalContext).pool.Put(machine)
 }
 
-// runPooledMachineContext runs program on a Machine checked out for (version,
-// evalContext) with the given budget and returns the unit-result flag and
-// budget consumption, which are computed even when Run fails. Trusted data
-// arguments must be finite, valid values decoded from or built from ledger
-// state; without arguments, the whole program tree is validated.
-//
-// The Machine is released only after Run has returned and its ExBudget has
-// been read, never from a defer: a Run that panics leaves the Machine out of
-// its pool rather than handing a Machine interrupted mid-evaluation to the
-// next caller, and releasing before the ExBudget read would let a concurrent
-// checkout overwrite it.
-func runPooledMachineContext(
+// runPooledPreparedContext is runPooledMachineContext for a prepared program:
+// cek.RunPreparedScriptContext evaluates it exactly like RunScriptContext but
+// skips the structure walk of the program, which was checked when it was
+// prepared.
+func runPooledPreparedContext(
 	ctx context.Context,
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 	budget cek.ExBudget,
-	program syn.Term[syn.DeBruijn],
+	program *cek.PreparedProgram,
 	trustedDataArguments ...data.PlutusData,
 ) (cek.ExBudget, bool, error) {
 	machine := checkoutMachineWithBudget(version, evalContext, budget)
-	// RunScriptContext never discharges the final value, as the reference
-	// ledger does not: validation must not depend on plutigo's discharge bound.
-	isUnit, runErr := machine.RunScriptContext(
+	isUnit, runErr := cek.RunPreparedScriptContext(
 		ctx,
+		machine,
 		program,
 		trustedDataArguments...,
 	)

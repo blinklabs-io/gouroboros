@@ -1477,6 +1477,10 @@ func (t dijkstraConwayFeatureTransaction) ValidityIntervalUpperBound() (uint64, 
 	return common.TransactionValidityIntervalUpperBound(t.body)
 }
 
+func (t dijkstraConwayFeatureTransaction) ValidityIntervalLowerBound() (uint64, bool) {
+	return common.TransactionValidityIntervalLowerBound(t.body)
+}
+
 func (t dijkstraConwayFeatureTransaction) ValidityIntervalStart() uint64 {
 	return t.body.ValidityIntervalStart()
 }
@@ -4245,7 +4249,7 @@ func UtxoValidateSupplementalDatums(
 	if err != nil {
 		return err
 	}
-	for _, level := range levels {
+	for idx, level := range levels {
 		if err := common.ValidateRequiredSpendingDatumsWithAvailableScripts(
 			level.tx,
 			ls,
@@ -4253,15 +4257,37 @@ func UtxoValidateSupplementalDatums(
 		); err != nil {
 			return err
 		}
-		if err := common.ValidateSupplementalDatumsWithAvailableScripts(
+		// cardano-ledger getDijkstraSupplementalDataHashes: a top-level tx
+		// may also carry datums justified by any sub-transaction body
+		// (outputs and reference inputs), except in Plutus legacy mode,
+		// where Dijkstra Utxow strips the sub-transactions before the datum
+		// check. Sub-transactions keep their own body only.
+		var extra []common.Transaction
+		if idx == len(levels)-1 && !dijkstraPlutusLegacyMode(level) {
+			for _, sub := range levels[:idx] {
+				extra = append(extra, sub.tx)
+			}
+		}
+		if err := common.ValidateSupplementalDatumsWithExtraBodies(
 			level.tx,
 			ls,
 			level.view.Available,
+			extra,
 		); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// dijkstraPlutusLegacyMode mirrors cardano-ledger's dsattPlutusLegacyMode:
+// the top-level body's own needed scripts include a Plutus V1, V2 or V3
+// script. Scripts needed only by sub-transactions do not count.
+func dijkstraPlutusLegacyMode(top dijkstraScriptLevel) bool {
+	return top.view.NeedsAny(func(candidate common.Script) bool {
+		version, ok := common.PlutusScriptVersion(candidate)
+		return ok && version <= 2
+	})
 }
 
 func redeemerCount(tx common.Transaction) int {
@@ -4925,10 +4951,12 @@ func UtxoValidateNativeScripts(
 			level.tx,
 			level.view,
 		) {
-			if !nativeScript.EvaluateWithGuards(
+			if !nativeScript.EvaluateWithGuardsAndBounds(
 				env.Slot,
 				env.ValidityStart,
 				env.ValidityEnd,
+				env.ValidityStartPresent,
+				env.ValidityEndPresent,
 				env.KeyHashes,
 				guardCredentials,
 			) {

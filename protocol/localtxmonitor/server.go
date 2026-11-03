@@ -15,12 +15,13 @@
 package localtxmonitor
 
 import (
-	"encoding/hex"
+	"bytes"
 	"errors"
 	"fmt"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -32,6 +33,17 @@ type Server struct {
 	mempoolCapacity  uint32
 	mempoolTxs       []TxAndEraId
 	mempoolNextTxIdx int
+	// txHashes holds the IDs computed by HasTx, by era and transaction CBOR.
+	// Entries survive an Acquire while their transaction is still in the
+	// snapshot, so a client polling Acquire and HasTx parses each
+	// transaction once rather than the whole mempool on every poll.
+	txHashes   map[uint]map[string]*txHashEntry
+	snapshotId uint64
+}
+
+type txHashEntry struct {
+	hash       lcommon.Blake2b256
+	snapshotId uint64
 }
 
 // NewServer returns a new Server object
@@ -103,37 +115,50 @@ func (s *Server) handleAcquire() error {
 			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
 		)
 	}
-	// Call the user callback function to get mempool information
-	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
-		s.callbackContext,
-	)
+	mempoolSlotNumber, err := s.acquireMempool()
 	if err != nil {
 		return err
-	}
-	s.mempoolCapacity = mempoolCapacity
-	s.mempoolNextTxIdx = 0
-	s.mempoolTxs = make([]TxAndEraId, 0, len(mempoolTxs))
-	for _, mempoolTx := range mempoolTxs {
-		newTx := TxAndEraId{
-			EraId: mempoolTx.EraId,
-			Tx:    mempoolTx.Tx[:],
-		}
-		// Pre-parse TX for convenience
-		tmpTxObj, err := ledger.NewTransactionFromCbor(
-			mempoolTx.EraId,
-			mempoolTx.Tx,
-		)
-		if err != nil {
-			return err
-		}
-		newTx.txObj = tmpTxObj
-		s.mempoolTxs = append(s.mempoolTxs, newTx)
 	}
 	newMsg := NewMsgAcquired(mempoolSlotNumber)
 	if err := s.SendMessage(newMsg); err != nil {
 		return err
 	}
 	return nil
+}
+
+// acquireMempool takes a new snapshot from the GetMempool callback. The
+// transactions are not parsed here: only HasTx needs their IDs, and it
+// computes them on demand.
+func (s *Server) acquireMempool() (uint64, error) {
+	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
+		s.callbackContext,
+	)
+	if err != nil {
+		return 0, err
+	}
+	s.mempoolCapacity = mempoolCapacity
+	s.mempoolNextTxIdx = 0
+	s.mempoolTxs = make([]TxAndEraId, len(mempoolTxs))
+	copy(s.mempoolTxs, mempoolTxs)
+	// Keep the IDs of transactions still in the snapshot and drop the rest,
+	// so the cache never outgrows the current mempool.
+	s.snapshotId++
+	for _, tx := range s.mempoolTxs {
+		if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
+			entry.snapshotId = s.snapshotId
+		}
+	}
+	for eraId, eraHashes := range s.txHashes {
+		for key, entry := range eraHashes {
+			if entry.snapshotId != s.snapshotId {
+				delete(eraHashes, key)
+			}
+		}
+		if len(eraHashes) == 0 {
+			delete(s.txHashes, eraId)
+		}
+	}
+	return mempoolSlotNumber, nil
 }
 
 func (s *Server) handleDone() {
@@ -154,8 +179,16 @@ func (s *Server) handleRelease() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	s.releaseMempool()
+}
+
+// releaseMempool drops the snapshot along with its cached IDs. A client that
+// polls re-acquires without releasing, so it keeps the cache; one that
+// releases may stay idle and should not hold a copy of the mempool.
+func (s *Server) releaseMempool() {
 	s.mempoolCapacity = 0
 	s.mempoolTxs = nil
+	s.txHashes = nil
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
@@ -167,7 +200,10 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	msgHasTx := msg.(*MsgHasTx)
-	hasTx := s.hasTx(msgHasTx)
+	hasTx, err := s.hasTx(msgHasTx)
+	if err != nil {
+		return err
+	}
 	newMsg := NewMsgReplyHasTx(hasTx)
 	if err := s.SendMessage(newMsg); err != nil {
 		return err
@@ -175,17 +211,52 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 	return nil
 }
 
-func (s *Server) hasTx(msg *MsgHasTx) bool {
-	txId := hex.EncodeToString(msg.TxId)
-	for _, tx := range s.mempoolTxs {
+func (s *Server) hasTx(msg *MsgHasTx) (bool, error) {
+	for idx, tx := range s.mempoolTxs {
 		if tx.EraId != uint(msg.EraId) {
 			continue
 		}
-		if tx.txObj.Hash().String() == txId {
-			return true
+		hash, err := s.txHash(tx)
+		if err != nil {
+			return false, fmt.Errorf(
+				"%s: parse mempool transaction %d (era %d): %w",
+				ProtocolName,
+				idx,
+				tx.EraId,
+				err,
+			)
+		}
+		if bytes.Equal(hash[:], msg.TxId) {
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
+}
+
+// txHash returns the ID of a snapshot transaction, parsing it only the first
+// time it is seen.
+func (s *Server) txHash(tx TxAndEraId) (lcommon.Blake2b256, error) {
+	if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
+		return entry.hash, nil
+	}
+	txObj, err := ledger.NewTransactionFromCbor(tx.EraId, tx.Tx)
+	if err != nil {
+		return lcommon.Blake2b256{}, err
+	}
+	hash := txObj.Hash()
+	if s.txHashes == nil {
+		s.txHashes = make(map[uint]map[string]*txHashEntry)
+	}
+	eraHashes := s.txHashes[tx.EraId]
+	if eraHashes == nil {
+		eraHashes = make(map[string]*txHashEntry)
+		s.txHashes[tx.EraId] = eraHashes
+	}
+	eraHashes[string(tx.Tx)] = &txHashEntry{
+		hash:       hash,
+		snapshotId: s.snapshotId,
+	}
+	return hash, nil
 }
 
 func (s *Server) handleNextTx() error {

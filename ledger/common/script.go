@@ -86,18 +86,18 @@ func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
 	return innerScript, nil
 }
 
-// decodePlutusProgram returns the decoded and execution-validated program
-// for innerScript. Programs are cached and shared across callers, so the
-// result must be treated as read-only.
-func decodePlutusProgram(
+// decodePreparedPlutusProgram is decodePlutusProgram for evaluation: it
+// returns the cached program prepared by cek.PrepareDecodedProgram, so
+// cek.RunPreparedScriptContext can skip plutigo's per-run structure walk.
+func decodePreparedPlutusProgram(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
 	evalContext *cek.EvalContext,
-) (*syn.Program[syn.DeBruijn], error) {
+) (*cek.PreparedProgram, error) {
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
-	return defaultProgramCache.decode(
+	return defaultProgramCache.decodePrepared(
 		innerScript,
 		ledgerLanguage,
 		evalContext.ProtoMajor,
@@ -306,7 +306,7 @@ func (s PlutusV1Script) EvaluateContext(
 	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), false)
@@ -314,7 +314,7 @@ func (s PlutusV1Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV1,
 		evalContext,
@@ -329,12 +329,12 @@ func (s PlutusV1Script) EvaluateContext(
 		trustedArguments = append(trustedArguments, datum)
 	}
 	trustedArguments = append(trustedArguments, redeemer, scriptContext)
-	consumedBudget, _, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV1,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
@@ -410,7 +410,7 @@ func (s PlutusV2Script) EvaluateContext(
 	redeemer = data.Normalize(redeemer)
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), false)
@@ -418,7 +418,7 @@ func (s PlutusV2Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV2,
 		evalContext,
@@ -433,12 +433,12 @@ func (s PlutusV2Script) EvaluateContext(
 		trustedArguments = append(trustedArguments, datum)
 	}
 	trustedArguments = append(trustedArguments, redeemer, scriptContext)
-	consumedBudget, _, runErr := runPooledMachineContext(
+	consumedBudget, _, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV2,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		trustedArguments...,
 	)
 	usedExUnits.Memory = consumedBudget.Mem
@@ -495,7 +495,7 @@ func (s PlutusV3Script) EvaluateContext(
 	}
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	// Decode raw script as bytestring to get actual script bytes
 	innerScript, err := decodePlutusScript([]byte(s), true)
@@ -503,7 +503,7 @@ func (s PlutusV3Script) EvaluateContext(
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
 	// Decode program
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV3,
 		evalContext,
@@ -513,12 +513,12 @@ func (s PlutusV3Script) EvaluateContext(
 	}
 	// Execute the program with its ledger context as a trusted argument so it
 	// does not count against the structural limit on the UPLC program itself.
-	consumedBudget, isUnit, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV3,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		scriptContext,
 	)
 	if runErr == nil && !isUnit {
@@ -578,13 +578,13 @@ func (s PlutusV4Script) EvaluateContext(
 	}
 	var usedExUnits ExUnits
 	var err error
-	var program *syn.Program[syn.DeBruijn]
+	var program *cek.PreparedProgram
 	machineBudget := exBudgetFromUnits(budget)
 	innerScript, err := decodePlutusScript([]byte(s), true)
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode cbor: %w", err)
 	}
-	program, err = decodePlutusProgram(
+	program, err = decodePreparedPlutusProgram(
 		innerScript,
 		lang.LanguageVersionV4,
 		evalContext,
@@ -592,12 +592,12 @@ func (s PlutusV4Script) EvaluateContext(
 	if err != nil {
 		return usedExUnits, fmt.Errorf("decode script: %w", err)
 	}
-	consumedBudget, isUnit, runErr := runPooledMachineContext(
+	consumedBudget, isUnit, runErr := runPooledPreparedContext(
 		ctx,
 		cek.LanguageVersionV4,
 		evalContext,
 		machineBudget,
-		program.Term,
+		program,
 		scriptContext,
 	)
 	if runErr == nil && !isUnit {
@@ -1154,17 +1154,18 @@ func FirstInvalidNativeScriptIn(
 		}
 	}
 
-	validityStart := tx.ValidityIntervalStart()
+	validityStart, validityStartPresent := TransactionValidityIntervalLowerBound(
+		tx,
+	)
 	validityEnd, validityEndPresent := TransactionValidityIntervalUpperBound(tx)
-	if !validityEndPresent {
-		validityEnd = ^uint64(0)
-	}
 
 	for _, nativeScript := range nativeScripts {
-		if !nativeScript.Evaluate(
+		if !nativeScript.EvaluateWithBounds(
 			slot,
 			validityStart,
 			validityEnd,
+			validityStartPresent,
+			validityEndPresent,
 			keyHashes,
 		) {
 			return nativeScript.Hash(), true
@@ -1263,9 +1264,28 @@ func (n NativeScript) Evaluate(
 	keyHashes map[Blake2b224]bool,
 ) bool {
 	return n.evaluate(nativeScriptEvalContext{
-		validityStart: validityStart,
-		validityEnd:   validityEnd,
-		keyHashes:     keyHashes,
+		validityStart:        validityStart,
+		validityEnd:          validityEnd,
+		validityStartPresent: true,
+		validityEndPresent:   true,
+		keyHashes:            keyHashes,
+	})
+}
+
+// EvaluateWithBounds evaluates a native script while preserving whether each
+// transaction validity bound was present on the wire.
+func (n NativeScript) EvaluateWithBounds(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	validityStartPresent, validityEndPresent bool,
+	keyHashes map[Blake2b224]bool,
+) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart:        validityStart,
+		validityEnd:          validityEnd,
+		validityStartPresent: validityStartPresent,
+		validityEndPresent:   validityEndPresent,
+		keyHashes:            keyHashes,
 	})
 }
 
@@ -1276,18 +1296,41 @@ func (n NativeScript) EvaluateWithGuards(
 	guardCredentials []Credential,
 ) bool {
 	return n.evaluate(nativeScriptEvalContext{
-		validityStart:    validityStart,
-		validityEnd:      validityEnd,
-		keyHashes:        keyHashes,
-		guardCredentials: newCredentialSet(guardCredentials),
+		validityStart:        validityStart,
+		validityEnd:          validityEnd,
+		validityStartPresent: true,
+		validityEndPresent:   true,
+		keyHashes:            keyHashes,
+		guardCredentials:     newCredentialSet(guardCredentials),
+	})
+}
+
+// EvaluateWithGuardsAndBounds evaluates a guarded native script while
+// preserving whether each transaction validity bound was present on the wire.
+func (n NativeScript) EvaluateWithGuardsAndBounds(
+	slot uint64,
+	validityStart, validityEnd uint64,
+	validityStartPresent, validityEndPresent bool,
+	keyHashes map[Blake2b224]bool,
+	guardCredentials []Credential,
+) bool {
+	return n.evaluate(nativeScriptEvalContext{
+		validityStart:        validityStart,
+		validityEnd:          validityEnd,
+		validityStartPresent: validityStartPresent,
+		validityEndPresent:   validityEndPresent,
+		keyHashes:            keyHashes,
+		guardCredentials:     newCredentialSet(guardCredentials),
 	})
 }
 
 type nativeScriptEvalContext struct {
-	validityStart    uint64
-	validityEnd      uint64
-	keyHashes        map[Blake2b224]bool
-	guardCredentials map[credentialKey]bool
+	validityStart        uint64
+	validityEnd          uint64
+	validityStartPresent bool
+	validityEndPresent   bool
+	keyHashes            map[Blake2b224]bool
+	guardCredentials     map[credentialKey]bool
 }
 
 type credentialKey struct {
@@ -1357,13 +1400,13 @@ func (n NativeScript) evaluate(ctx nativeScriptEvalContext) bool {
 		// Transaction is only valid at or after this slot
 		// For native scripts, we check against the transaction's validity interval
 		// The tx must start at or after the script's slot requirement
-		return ctx.validityStart >= s.Slot
+		return ctx.validityStartPresent && ctx.validityStart >= s.Slot
 
 	case *NativeScriptInvalidHereafter:
 		// Transaction is only valid before this slot
 		// The tx must end at or before the script's slot requirement
 		// TTL = X means tx valid at slots [start, X), which is entirely within [0, X)
-		return ctx.validityEnd <= s.Slot
+		return ctx.validityEndPresent && ctx.validityEnd <= s.Slot
 
 	case *NativeScriptRequireGuard:
 		if ctx.guardCredentials == nil {

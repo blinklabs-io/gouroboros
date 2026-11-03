@@ -21,6 +21,7 @@ import (
 	"reflect"
 	"sync"
 
+	"github.com/blinklabs-io/plutigo/cek"
 	"github.com/blinklabs-io/plutigo/data"
 	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/blinklabs-io/plutigo/syn"
@@ -320,8 +321,12 @@ type programCacheKey struct {
 type programCacheEntry struct {
 	key     programCacheKey
 	program *syn.Program[syn.DeBruijn]
-	err     error
-	size    int64
+	// prepared is program checked once by cek.PrepareDecodedProgram, so
+	// evaluations skip plutigo's per-run structure walk. It shares
+	// program's term, which the cache already never writes through.
+	prepared *cek.PreparedProgram
+	err      error
+	size     int64
 }
 
 // programCache is a byte-bounded LRU of decoded programs. A cached program is
@@ -384,28 +389,48 @@ func (c *programCache) put(entry *programCacheEntry) *programCacheEntry {
 	return entry
 }
 
-// decode returns the decoded program for innerScript, decoding it with
-// decodeFn on a miss.
-func (c *programCache) decode(
+// decodePrepared returns the prepared program for innerScript, decoding and
+// preparing it with decodeFn on a miss.
+func (c *programCache) decodePrepared(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
 	protoMajor uint,
 	decodeFn func() (*syn.Program[syn.DeBruijn], error),
-) (*syn.Program[syn.DeBruijn], error) {
+) (*cek.PreparedProgram, error) {
+	entry := c.lookup(innerScript, ledgerLanguage, protoMajor, decodeFn)
+	return entry.prepared, entry.err
+}
+
+func (c *programCache) lookup(
+	innerScript []byte,
+	ledgerLanguage lang.LanguageVersion,
+	protoMajor uint,
+	decodeFn func() (*syn.Program[syn.DeBruijn], error),
+) *programCacheEntry {
 	key := programCacheKey{
 		sum:            sha256.Sum256(innerScript),
 		ledgerLanguage: ledgerLanguage,
 		protoMajor:     protoMajor,
 	}
 	if hit, ok := c.get(key); ok {
-		return hit.program, hit.err
+		return hit
 	}
 	program, err := decodeFn()
-	stored := c.put(&programCacheEntry{
-		key:     key,
-		program: program,
-		err:     err,
-		size:    programEntrySize(program),
+	var prepared *cek.PreparedProgram
+	if err == nil {
+		prepared, err = cek.PrepareDecodedProgram(program, syn.ProgramContext{
+			LedgerLanguage: ledgerLanguage,
+			ProtocolMajor:  protoMajor,
+		})
+		if err != nil {
+			program = nil
+		}
+	}
+	return c.put(&programCacheEntry{
+		key:      key,
+		program:  program,
+		prepared: prepared,
+		err:      err,
+		size:     programEntrySize(program),
 	})
-	return stored.program, stored.err
 }

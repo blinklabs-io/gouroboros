@@ -16,7 +16,7 @@ package cbor
 
 import (
 	"fmt"
-	"strings"
+	"strconv"
 )
 
 // alternativeToTag converts a constructor/alternative number to its CBOR tag number.
@@ -140,24 +140,26 @@ func (cd ConstructorDecoder) ParsedFields() ([]any, error) {
 // MarshalJSON produces Cardano-style AST JSON:
 // {"constructor":N,"fields":[...]}
 func (cd ConstructorDecoder) MarshalJSON() ([]byte, error) {
+	return cd.appendAstJson(nil)
+}
+
+func (cd ConstructorDecoder) appendAstJson(buf []byte) ([]byte, error) {
 	fields, err := cd.ParsedFields()
 	if err != nil {
 		return nil, err
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, `{"constructor":%d,"fields":[`, cd.tag)
+	buf = append(buf, `{"constructor":`...)
+	buf = strconv.AppendUint(buf, uint64(cd.tag), 10)
+	buf = append(buf, `,"fields":[`...)
 	for idx, val := range fields {
-		tmpVal, err := generateAstJson(val)
-		if err != nil {
+		if idx > 0 {
+			buf = append(buf, ',')
+		}
+		if buf, err = appendAstJson(buf, val); err != nil {
 			return nil, err
 		}
-		sb.WriteString(string(tmpVal))
-		if idx != len(fields)-1 {
-			sb.WriteString(`,`)
-		}
 	}
-	sb.WriteString(`]}`)
-	return []byte(sb.String()), nil
+	return append(buf, `]}`...), nil
 }
 
 // UnmarshalCBOR decodes a CBOR constructor/alternative tag.
