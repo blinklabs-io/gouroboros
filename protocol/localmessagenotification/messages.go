@@ -235,6 +235,41 @@ func validateReplyShape(data []byte) error {
 	return nil
 }
 
+// MarshalCBOR encodes the reply with its messages as an indefinite-length
+// list, the only form a CIP-0137 peer decodes. A decoded reply returns the
+// bytes it was decoded from.
+func (m *MsgReplyMessagesNonBlocking) MarshalCBOR() ([]byte, error) {
+	if data := m.Cbor(); data != nil {
+		return data, nil
+	}
+	return cbor.Encode([]any{
+		m.MessageType,
+		replyMessageList(m.Messages),
+		m.HasMore,
+	})
+}
+
+// MarshalCBOR encodes the reply with its messages as an indefinite-length
+// list, the only form a CIP-0137 peer decodes. A decoded reply returns the
+// bytes it was decoded from.
+func (m *MsgReplyMessagesBlocking) MarshalCBOR() ([]byte, error) {
+	if data := m.Cbor(); data != nil {
+		return data, nil
+	}
+	return cbor.Encode([]any{
+		m.MessageType,
+		replyMessageList(m.Messages),
+	})
+}
+
+func replyMessageList(messages []pcommon.DmqMessage) cbor.IndefLengthList {
+	list := make(cbor.IndefLengthList, len(messages))
+	for i := range messages {
+		list[i] = messages[i]
+	}
+	return list
+}
+
 // Type returns the message type
 func (m *MsgRequestMessages) Type() uint8 {
 	return MessageTypeRequestMessages

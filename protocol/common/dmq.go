@@ -383,12 +383,16 @@ func ToRejectReasonData(rr RejectReason) (RejectReasonData, error) {
 	}
 }
 
-// MarshalCBOR encodes RejectReasonData as an array [type, message?] for deterministic wire format.
+// MarshalCBOR encodes RejectReasonData as [type, message] for the invalid and
+// other reasons and as [type] alone for already-received and expired, which
+// carry no message. A CIP-0137 peer decodes those two only without one.
 func (r RejectReasonData) MarshalCBOR() ([]byte, error) {
-	// Encode as array [type, message]
-	// If message is empty, it still appears in the array (empty string) to keep structure consistent
-	data := []any{r.Type, r.Message}
-	return cbor.Encode(data)
+	switch r.Type {
+	case 1, 2:
+		return cbor.Encode([]any{r.Type})
+	default:
+		return cbor.Encode([]any{r.Type, r.Message})
+	}
 }
 
 // UnmarshalCBOR decodes a CBOR array [type, message?] back into RejectReasonData.

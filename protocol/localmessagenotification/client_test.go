@@ -457,7 +457,7 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 	require.NoError(t, err)
 	select {
 	case err := <-clientErrors:
-		require.ErrorContains(t, err, "maximum")
+		require.ErrorContains(t, err, "more than")
 	case <-time.After(time.Second):
 		t.Fatal("over-limit reply did not fail through the protocol decoder")
 	}
