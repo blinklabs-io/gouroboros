@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
+	"runtime/metrics"
 	"sync"
 	"testing"
 	"time"
@@ -386,11 +387,12 @@ func TestMachinePoolChecksOutFreshMachineWhenPoolEmpty(t *testing.T) {
 }
 
 // TestMachinePoolEnforcesBudgetEqualToPreviousRemaining pins a reuse hazard in
-// plutigo's Run: on a Machine that has already run, an ExBudget equal to the
-// previous Run's remaining budget is read as "unchanged" and replaced with the
-// previous Run's starting budget. A pooled Machine must therefore never run a
-// redeemer whose declared budget equals the remaining budget the Machine was
-// released with, or that redeemer executes against another redeemer's budget.
+// plutigo's Run: on a Machine that has already run, an ExBudget field equal to
+// the previous Run's remaining budget is read as "unchanged" and replaced with
+// the previous Run's starting budget unless the caller set it with
+// SetExBudget. A pooled Machine must never run a redeemer whose declared
+// budget equals the remaining budget the Machine was released with against
+// another redeemer's budget.
 func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 	t.Parallel()
 
@@ -405,6 +407,11 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 	require.Positive(t, used.Memory)
 	require.Positive(t, used.Steps)
 
+	constructedBefore := machineConstructionCount(
+		lang.LanguageVersionV3,
+		evalContext,
+	)
+	gcBefore := gcCycles()
 	// first leaves exactly short remaining; short cannot cover the script.
 	first := ExUnits{Memory: 2*used.Memory - 1, Steps: 2*used.Steps - 1}
 	short := ExUnits{Memory: used.Memory - 1, Steps: used.Steps - 1}
@@ -424,6 +431,30 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 			"iteration %d: budget %+v below the script's cost %+v must fail",
 			i, short, used)
 	}
+	// The pool keeps its Machines through this pattern. A pool that replaced
+	// the Machine for every short redeemer would construct at least 50. The
+	// race detector makes sync.Pool drop Puts at random, so the count is only
+	// meaningful without it. Without it, sync.Pool drops an idle Machine only
+	// after two GC cycles, so each GC that ran during the loop can account for
+	// at most one extra construction.
+	if raceEnabled {
+		return
+	}
+	gcDuring := int64(gcCycles() - gcBefore) // #nosec G115 -- cycle deltas are small
+	constructed := machineConstructionCount(
+		lang.LanguageVersionV3,
+		evalContext,
+	) - constructedBefore
+	require.Less(t, constructed, 10+gcDuring,
+		"a declared budget equal to the previous remaining budget must not"+
+			" force a fresh Machine (%d GC cycles during the loop)", gcDuring)
+}
+
+// gcCycles reports the number of completed GC cycles in the process.
+func gcCycles() uint64 {
+	sample := []metrics.Sample{{Name: "/gc/cycles/total:gc-cycles"}}
+	metrics.Read(sample)
+	return sample[0].Value.Uint64()
 }
 
 // callerBuiltTestEvalContext builds a PlutusV3 *cek.EvalContext directly with

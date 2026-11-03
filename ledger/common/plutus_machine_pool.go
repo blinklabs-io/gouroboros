@@ -247,24 +247,20 @@ func checkoutMachineReused(
 // checkoutMachineWithBudget checks out a Machine as checkoutMachineReused does
 // and sets its ExBudget to budget, ready for one Run.
 //
-// A Machine that has already run treats an ExBudget equal to its previous
-// Run's remaining budget as unchanged and restores the previous Run's starting
-// budget instead (plutigo cek.Machine.runContext). A pooled Machine is
-// released holding exactly that remaining budget, so when the next redeemer
-// declares the same value it would run against the previous redeemer's
-// budget. Such a Machine is replaced with a fresh one, which has never run and
-// so always honours the budget it is given.
+// A Machine that has already run treats an ExBudget field equal to its
+// previous Run's remaining budget as unchanged and restores the previous Run's
+// starting budget instead (plutigo cek.Machine.runContext). A pooled Machine is
+// released holding exactly that remaining budget, and a caller that passes the
+// remaining budget of one redeemer to the next declares that same value.
+// cek.Machine.SetExBudget marks the budget as set by the caller, so the Run
+// honours it and the pooled Machine, with its arenas, is kept.
 func checkoutMachineWithBudget(
 	version lang.LanguageVersion,
 	evalContext *cek.EvalContext,
 	budget cek.ExBudget,
 ) *cek.Machine[syn.DeBruijn] {
-	machine, reused := checkoutMachineReused(version, evalContext)
-	if reused && machine.ExBudget == budget {
-		machine = cek.NewMachine[syn.DeBruijn](version, 200, evalContext)
-		machinePoolFor(version, evalContext).constructed.Add(1)
-	}
-	machine.ExBudget = budget
+	machine, _ := checkoutMachineReused(version, evalContext)
+	machine.SetExBudget(budget)
 	return machine
 }
 
