@@ -15,9 +15,9 @@
 package common
 
 // Test-only helpers: production evaluation uses the prepared-program path
-// (decodePreparedPlutusProgram and runPooledPreparedContext). These expose the
-// cached decoded program and the plain RunScriptContext runner, so tests can
-// inspect cached programs and run caller-built terms.
+// (decodePreparedPlutusProgram and runPooledPreparedContext). These decode a
+// program the way that path does and expose the plain RunScriptContext
+// runner, so tests can inspect programs and run caller-built terms.
 
 import (
 	"context"
@@ -30,8 +30,8 @@ import (
 )
 
 // decodePlutusProgram returns the decoded and execution-validated program
-// for innerScript. Programs are cached and shared across callers, so the
-// result must be treated as read-only.
+// for innerScript, applying the checks decodePreparedPlutusProgram applies.
+// It is not cached.
 func decodePlutusProgram(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
@@ -40,18 +40,21 @@ func decodePlutusProgram(
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
-	return defaultProgramCache.decode(
-		innerScript,
-		ledgerLanguage,
-		evalContext.ProtoMajor,
-		func() (*syn.Program[syn.DeBruijn], error) {
-			return decodePlutusProgramUncached(
-				innerScript,
-				ledgerLanguage,
-				evalContext,
-			)
-		},
-	)
+	programContext := syn.ProgramContext{
+		LedgerLanguage: ledgerLanguage,
+		ProtocolMajor:  evalContext.ProtoMajor,
+	}
+	program, err := syn.DecodeDeBruijnWithContext(innerScript, programContext)
+	if err != nil {
+		return nil, err
+	}
+	if err := syn.ValidateTermVersionForExecution(
+		program.Version,
+		programContext,
+	); err != nil {
+		return nil, err
+	}
+	return program, nil
 }
 
 // runPooledMachineContext runs program on a Machine checked out for (version,
@@ -84,16 +87,4 @@ func runPooledMachineContext(
 	consumed := budget.Sub(&machine.ExBudget)
 	releaseMachine(version, evalContext, machine)
 	return consumed, isUnit, runErr
-}
-
-// decode returns the decoded program for innerScript, decoding it with
-// decodeFn on a miss.
-func (c *programCache) decode(
-	innerScript []byte,
-	ledgerLanguage lang.LanguageVersion,
-	protoMajor uint,
-	decodeFn func() (*syn.Program[syn.DeBruijn], error),
-) (*syn.Program[syn.DeBruijn], error) {
-	entry := c.lookup(innerScript, ledgerLanguage, protoMajor, decodeFn)
-	return entry.program, entry.err
 }
