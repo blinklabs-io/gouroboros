@@ -41,9 +41,10 @@ const (
 
 // Babbage functions
 var (
-	NewBabbageBlockFromCbor             = babbage.NewBabbageBlockFromCbor
-	NewBabbageBlockHeaderFromCbor       = babbage.NewBabbageBlockHeaderFromCbor
-	NewBabbageTransactionFromCbor       = babbage.NewBabbageTransactionFromCbor
-	NewBabbageTransactionBodyFromCbor   = babbage.NewBabbageTransactionBodyFromCbor
-	NewBabbageTransactionOutputFromCbor = babbage.NewBabbageTransactionOutputFromCbor
+	NewBabbageBlockFromCbor                    = babbage.NewBabbageBlockFromCbor
+	NewBabbageBlockHeaderFromCbor              = babbage.NewBabbageBlockHeaderFromCbor
+	NewBabbageTransactionFromCbor              = babbage.NewBabbageTransactionFromCbor
+	NewBabbageTransactionBodyFromCbor          = babbage.NewBabbageTransactionBodyFromCbor
+	NewBabbageTransactionOutputFromCbor        = babbage.NewBabbageTransactionOutputFromCbor
+	NewBabbageTransactionOutputFromCborLenient = babbage.NewBabbageTransactionOutputFromCborLenient
 )
