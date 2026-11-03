@@ -50,6 +50,7 @@ func TestVerifyPossessionProofDijkstraNetDomain(t *testing.T) {
 	)
 	var configErr *common.ValidationError
 	require.ErrorAs(t, err, &configErr)
+	require.NotNil(t, configErr)
 	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
 	require.NotErrorIs(t, err, ErrInvalidProof)
 	key.PossessionProof = makeLeiosTestKey(t, big.NewInt(8)).PossessionProof

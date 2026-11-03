@@ -274,6 +274,7 @@ func TestUtxoValidatePoolCertificatesUnknownBlsProofDomain(t *testing.T) {
 			)
 			var configErr *common.ValidationError
 			require.ErrorAs(t, err, &configErr)
+			require.NotNil(t, configErr)
 			require.Equal(
 				t,
 				common.ValidationErrorTypeConfiguration,
