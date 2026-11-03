@@ -152,6 +152,9 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - [X] Every key-hash reward credential present in withdrawals requires a
         DRep vote delegation at PV10/PV11, including zero amounts
     - [X] Dijkstra
+      - Pool BLS proofs use the IETF proof domain by default. Networks that
+        require the older signature domain can select it through
+        `common.DijkstraBlsProofDomainState`; validation checks only that domain.
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs

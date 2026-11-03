@@ -183,6 +183,33 @@ func VerifyDijkstraCertificate(
 // a valid minimal-signature-size signature, by the key itself, over the key's
 // compressed encoding under the proof-of-possession DST.
 func VerifyPossessionProof(key common.LeiosKey) error {
+	return VerifyPossessionProofForDomain(
+		key,
+		common.DijkstraBlsProofDomainPop,
+	)
+}
+
+// VerifyPossessionProofForDomain verifies a pool key under exactly the chosen
+// proof domain. The legacy signature domain is for networks whose reference
+// ledger requires it; it is never tried as a fallback for an invalid proof.
+func VerifyPossessionProofForDomain(
+	key common.LeiosKey,
+	domain common.DijkstraBlsProofDomain,
+) error {
+	var dst string
+	switch domain {
+	case common.DijkstraBlsProofDomainPop:
+		dst = leiosProofDST
+	case common.DijkstraBlsProofDomainLegacySig:
+		dst = leiosSignatureDST
+	default:
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"unsupported Dijkstra BLS proof domain",
+			map[string]any{"domain": domain},
+			nil,
+		)
+	}
 	pub, err := decodePublicKey(key.PublicKey)
 	if err != nil {
 		return fmt.Errorf("%w: public key: %w", ErrInvalidProof, err)
@@ -191,7 +218,7 @@ func VerifyPossessionProof(key common.LeiosKey) error {
 		pub,
 		key.PublicKey,
 		key.PossessionProof,
-		leiosProofDST,
+		dst,
 	); err != nil {
 		if errors.Is(err, ErrInvalidSignature) {
 			// The single-key pairing check failed; the aggregate-signature
@@ -216,7 +243,9 @@ func decodePublicKey(encoded []byte) (*bls12381.G2Affine, error) {
 		return nil, err
 	}
 	if pub.IsInfinity() || !pub.IsInSubGroup() {
-		return nil, errors.New("public key is infinity or outside the G2 subgroup")
+		return nil, errors.New(
+			"public key is infinity or outside the G2 subgroup",
+		)
 	}
 	return &pub, nil
 }
