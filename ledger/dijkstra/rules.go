@@ -1099,7 +1099,7 @@ func UtxoValidatePoolCertificates(
 		if err := conway.UtxoValidatePoolCertificates(tx, slot, ls, pp); err != nil {
 			return err
 		}
-		return validateDijkstraPoolBlsKeys(tx)
+		return validateDijkstraPoolBlsKeys(tx, ls)
 	}
 	if !tx.IsValid() {
 		return nil
@@ -1115,7 +1115,7 @@ func UtxoValidatePoolCertificates(
 		); err != nil {
 			return err
 		}
-		if err := validateDijkstraPoolBlsKeys(level); err != nil {
+		if err := validateDijkstraPoolBlsKeys(level, state); err != nil {
 			return err
 		}
 		if err := state.ApplyPoolCertificates(level.Certificates()); err != nil {
@@ -1125,7 +1125,10 @@ func UtxoValidatePoolCertificates(
 	return nil
 }
 
-func validateDijkstraPoolBlsKeys(tx common.Transaction) error {
+func validateDijkstraPoolBlsKeys(
+	tx common.Transaction,
+	ls common.LedgerState,
+) error {
 	// Only a phase-2-valid transaction reaches the POOL rule.
 	if !tx.IsValid() {
 		return nil
@@ -1135,9 +1138,15 @@ func validateDijkstraPoolBlsKeys(tx common.Transaction) error {
 		if !ok || registration.LeiosKey == nil {
 			continue
 		}
-		if err := leios.VerifyPossessionProof(
+		if err := leios.VerifyPossessionProofForDomain(
 			*registration.LeiosKey,
+			common.DijkstraBlsProofDomainFor(ls),
 		); err != nil {
+			var configErr *common.ValidationError
+			if errors.As(err, &configErr) &&
+				configErr.Type == common.ValidationErrorTypeConfiguration {
+				return err
+			}
 			return &BlsKeyInvalidProofOfPossessionError{
 				PoolId: registration.Operator,
 				Key:    *registration.LeiosKey,
