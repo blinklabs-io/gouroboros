@@ -62,8 +62,12 @@ func TestValidateMetadataContentRejectsOversizedLeafWhenDeep(t *testing.T) {
 		"bytes": common.MetaBytes{Value: make([]byte, 65)},
 	}
 	for name, leaf := range cases {
-		if err := shelley.ValidateMetadataContent(nestedMetadatum(1025, leaf)); err == nil {
+		err := shelley.ValidateMetadataContent(nestedMetadatum(1025, leaf))
+		if err == nil {
 			t.Fatalf("oversized %s leaf at depth 1025 accepted", name)
+		}
+		if !strings.Contains(err.Error(), "64 byte limit") {
+			t.Fatalf("oversized %s leaf at depth 1025: unexpected error: %v", name, err)
 		}
 	}
 }
