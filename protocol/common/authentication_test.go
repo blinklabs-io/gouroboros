@@ -76,7 +76,8 @@ func TestMessageAuthenticatorCreation(t *testing.T) {
 func TestMessageAuthenticatorRequiresStakeAuthority(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
 		CurrentSlot:           testCurrentSlot,
-		PoolOpCertIssueNumber: testPoolOpCertIssueNumber})
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+	})
 	assert.Nil(t, auth)
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, ErrAuthenticatorMisconfigured)

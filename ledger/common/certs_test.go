@@ -130,8 +130,8 @@ func TestUpdateDrepCertificateRejectsUndefinedAnchor(t *testing.T) {
 
 // TestDrepString tests CIP-0129 bech32 encoding for DRep identifiers.
 func TestDrepString(t *testing.T) {
-	var zeroHash = make([]byte, 28)
-	var sequentialHash = make([]byte, 28)
+	zeroHash := make([]byte, 28)
+	sequentialHash := make([]byte, 28)
 	for i := range sequentialHash {
 		sequentialHash[i] = byte(i)
 	}

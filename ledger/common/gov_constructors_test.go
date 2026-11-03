@@ -282,8 +282,10 @@ func TestUpdateCommitteeGovActionValidateQuorumUnitInterval(t *testing.T) {
 		action := UpdateCommitteeGovAction{Quorum: cbor.Rat{Rat: quorum}}
 		require.Error(t, action.Validate())
 		encoded, err := cbor.Encode([]any{
-			uint(GovActionTypeUpdateCommittee), nil, []Credential{},
-			map[*Credential]uint64{}, cbor.Rat{Rat: quorum},
+			uint(GovActionTypeUpdateCommittee), nil,
+			[]Credential{},
+			map[*Credential]uint64{},
+			cbor.Rat{Rat: quorum},
 		})
 		require.NoError(t, err)
 		var decoded UpdateCommitteeGovAction

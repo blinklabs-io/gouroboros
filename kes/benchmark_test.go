@@ -21,8 +21,10 @@ import (
 
 // Test seed (exactly 32 bytes) - matches canonical test vectors from input-output-hk/kes
 // Note: "lenght" typo is intentional
-var benchSeed = []byte("test string of 32 byte of lenght")
-var benchMessage = []byte("test message for benchmark")
+var (
+	benchSeed    = []byte("test string of 32 byte of lenght")
+	benchMessage = []byte("test message for benchmark")
+)
 
 // BenchmarkKeyGen benchmarks KES key generation at various depths
 func BenchmarkKeyGen(b *testing.B) {

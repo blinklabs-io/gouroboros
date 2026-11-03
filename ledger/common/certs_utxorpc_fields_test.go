@@ -72,8 +72,10 @@ func TestStakeVoteRegistrationUtxorpcPoolIdentity(t *testing.T) {
 }
 
 func TestRegistrationDelegationUtxorpcDeposits(t *testing.T) {
-	stake := Credential{CredType: CredentialTypeAddrKeyHash,
-		Credential: Blake2b224{0x11}}
+	stake := Credential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: Blake2b224{0x11},
+	}
 	for _, amount := range []int64{0, 2_000_000, math.MaxInt64} {
 		t.Run(fmt.Sprint(amount), func(t *testing.T) {
 			certs := []Certificate{

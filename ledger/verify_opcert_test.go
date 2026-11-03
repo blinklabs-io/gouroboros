@@ -540,7 +540,6 @@ func TestOpCertWithTestnetParameters(t *testing.T) {
 		slotsPerKesPeriod,
 		maxKesEvolutions,
 	)
-
 	if err != nil {
 		t.Errorf("validation failed: %v", err)
 	}
@@ -556,7 +555,6 @@ func TestOpCertWithTestnetParameters(t *testing.T) {
 		slotsPerKesPeriod,
 		maxKesEvolutions,
 	)
-
 	if err != nil {
 		t.Errorf("validation at max-1 evolution failed: %v", err)
 	}

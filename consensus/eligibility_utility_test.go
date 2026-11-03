@@ -39,6 +39,7 @@ func TestLeaderEligibilityUtilityVRFOutputToInt(t *testing.T) {
 		t.Errorf("expected 2^504, got %s", bigInt.String())
 	}
 }
+
 func TestLeaderEligibilityUtilityVRFOutputConversionRoundTrip(t *testing.T) {
 	// Create a known big integer
 	original := new(big.Int)
@@ -60,6 +61,7 @@ func TestLeaderEligibilityUtilityVRFOutputConversionRoundTrip(t *testing.T) {
 		)
 	}
 }
+
 func TestLeaderEligibilityUtilityVRFOutputOrder(t *testing.T) {
 	// Verify that big-endian byte order is used
 	output1 := make([]byte, 64)
@@ -76,6 +78,7 @@ func TestLeaderEligibilityUtilityVRFOutputOrder(t *testing.T) {
 		t.Error("VRF output should be interpreted as big-endian")
 	}
 }
+
 func TestLeaderEligibilityUtilityVrfLeaderValueReturns32Bytes(t *testing.T) {
 	// Test with various VRF output sizes
 	testCases := []struct {
@@ -107,6 +110,7 @@ func TestLeaderEligibilityUtilityVrfLeaderValueReturns32Bytes(t *testing.T) {
 		})
 	}
 }
+
 func TestLeaderEligibilityUtilityVrfLeaderValueAppliesLPrefix(t *testing.T) {
 	// The VRF leader value is computed as:
 	// BLAKE2b-256(0x4C || vrfOutput)
@@ -133,6 +137,7 @@ func TestLeaderEligibilityUtilityVrfLeaderValueAppliesLPrefix(t *testing.T) {
 		)
 	}
 }
+
 func TestLeaderEligibilityUtilityVrfLeaderValueKnownVector(t *testing.T) {
 	// Test vector: 64 bytes of zeros (typical VRF output size)
 	zeroInput := make([]byte, 64)
@@ -161,6 +166,7 @@ func TestLeaderEligibilityUtilityVrfLeaderValueKnownVector(t *testing.T) {
 		t.Error("VrfLeaderValue should be deterministic")
 	}
 }
+
 func TestLeaderEligibilityUtilityVrfLeaderValueDifferentInputs(t *testing.T) {
 	input1 := make([]byte, 64)
 	input2 := make([]byte, 64)
@@ -175,6 +181,7 @@ func TestLeaderEligibilityUtilityVrfLeaderValueDifferentInputs(t *testing.T) {
 		)
 	}
 }
+
 func TestLeaderEligibilityUtilityVrfLeaderValueEmptyInput(t *testing.T) {
 	// Empty input should still work - BLAKE2b-256(0x4C)
 	result := VrfLeaderValue(nil)

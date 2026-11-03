@@ -522,7 +522,8 @@ func TestConwayTransactionUtxorpcProjectsWideGovernanceRationals(
 								[]any{"https://example.com", filled(32, 0x04)},
 							}},
 						},
-						map[uint]any{}, successful, nil,
+						map[uint]any{},
+						successful, nil,
 					})
 					tx, err := conway.NewConwayTransactionFromCbor(raw)
 					require.NoError(t, err)

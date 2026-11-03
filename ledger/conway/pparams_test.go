@@ -720,6 +720,7 @@ func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
 		}
 	}
 }
+
 func TestUtxorpc(t *testing.T) {
 	// Define test cases
 	testDefs := []struct {
@@ -1538,6 +1539,7 @@ func TestConwayTransaction_Utxorpc(t *testing.T) {
 		t.Error("Expected non-empty transaction hash")
 	}
 }
+
 func TestConwayProtocolParameters_CborRoundTrip(t *testing.T) {
 	// Test CBOR round-trip for Conway protocol parameters (CIP-0009)
 	params := &conway.ConwayProtocolParameters{

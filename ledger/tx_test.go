@@ -77,7 +77,6 @@ func TestDetermineTransactionType(t *testing.T) {
 				testDef.expectedTxType)
 		}
 	}
-
 }
 
 func TestMaryTransactionCborRoundTrip(t *testing.T) {

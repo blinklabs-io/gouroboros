@@ -340,7 +340,7 @@ var decodeByIdTests = []decodeByIdTestDefinition{
 func TestDecodeById(t *testing.T) {
 	for _, test := range decodeByIdTests {
 		// We define this inside the loop to make sure to get fresh objects each time
-		var decodeByIdObjectMap = map[int]any{
+		decodeByIdObjectMap := map[int]any{
 			1: &decodeByIdObjectA{},
 			2: &decodeByIdObjectB{},
 			3: &decodeByIdObjectC{},

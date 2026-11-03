@@ -77,7 +77,9 @@ func testByronHeaderCbor(t *testing.T) []byte {
 func initializeByronTestHeader(header *byron.ByronMainBlockHeader) {
 	header.BodyProof = []any{
 		[]any{uint64(0), make([]byte, 32), make([]byte, 32)},
-		[]any{}, []any{}, []any{},
+		[]any{},
+		[]any{},
+		[]any{},
 	}
 	header.ConsensusData.PubKey = make([]byte, byron.VerificationKeySize)
 	header.ExtraData.Attributes = map[any]any{}
@@ -2291,7 +2293,6 @@ func TestValidateBodyHashRejectsMalformedSscPayload(t *testing.T) {
 	err = ValidateBodyHash(block)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, byron.ErrBodyProofMismatch)
-
 }
 
 // Test genesis config similar to mainnet for NewByronConfigFromGenesis test

@@ -43,40 +43,60 @@ func TestValueMarshalJSONAstOutput(t *testing.T) {
 	}{
 		{"uint", "0a", `{"int":10}`},
 		{"negative", "20", `{"int":-1}`},
-		{"bignum", "c249010000000000000000",
-			`{"int":18446744073709551616}`},
+		{
+			"bignum", "c249010000000000000000",
+			`{"int":18446744073709551616}`,
+		},
 		{"bytes", "42dead", `{"bytes":"dead"}`},
 		{"empty bytes", "40", `{"bytes":""}`},
 		{"string", "63616263", `{"string":"abc"}`},
-		{"escapable string", "693c613e26e280a8225c",
-			`{"string":"` + "\\u003ca\\u003e\\u0026\\u2028" + `\"\\"}`},
+		{
+			"escapable string", "693c613e26e280a8225c",
+			`{"string":"` + "\\u003ca\\u003e\\u0026\\u2028" + `\"\\"}`,
+		},
 		{"bool", "f5", `{"bool":true}`},
-		{"list", "8301820203f4",
+		{
+			"list", "8301820203f4",
 			`{"list":[{"int":1},{"list":[{"int":2},{"int":3}]},` +
-				`{"bool":false}]}`},
+				`{"bool":false}]}`,
+		},
 		{"empty list", "80", `{"list":[]}`},
-		{"set", "d9010282010a",
-			`{"list":[{"int":1},{"int":10}]}`},
+		{
+			"set", "d9010282010a",
+			`{"list":[{"int":1},{"int":10}]}`,
+		},
 		{"empty map", "a0", `{"map":[]}`},
-		{"map keys sorted by rendering", "a3" + "02" + "01" + "01" + "02" +
-			"4161" + "03",
+		{
+			"map keys sorted by rendering", "a3" + "02" + "01" + "01" + "02" +
+				"4161" + "03",
 			`{"map":[{"k":{"bytes":"61"},"v":{"int":3}},` +
 				`{"k":{"int":1},"v":{"int":2}},` +
-				`{"k":{"int":2},"v":{"int":1}}]}`},
-		{"keys that are digit prefixes", "a301010a02186403",
+				`{"k":{"int":2},"v":{"int":1}}]}`,
+		},
+		{
+			"keys that are digit prefixes", "a301010a02186403",
 			`{"map":[{"k":{"int":100},"v":{"int":3}},` +
 				`{"k":{"int":10},"v":{"int":2}},` +
-				`{"k":{"int":1},"v":{"int":1}}]}`},
-		{"nested maps", "a101a102a1034161",
+				`{"k":{"int":1},"v":{"int":1}}]}`,
+		},
+		{
+			"nested maps", "a101a102a1034161",
 			`{"map":[{"k":{"int":1},"v":{"map":[{"k":{"int":2},` +
-				`"v":{"map":[{"k":{"int":3},"v":{"bytes":"61"}}]}}]}}]}`},
-		{"rat", "d81e820103",
-			`{"list":[{"int":1},{"int":3}]}`},
-		{"constructor", "d8798201426162",
-			`{"constructor":0,"fields":[{"int":1},{"bytes":"6162"}]}`},
-		{"nested constructor", "d87a81d87981a1010a",
+				`"v":{"map":[{"k":{"int":3},"v":{"bytes":"61"}}]}}]}}]}`,
+		},
+		{
+			"rat", "d81e820103",
+			`{"list":[{"int":1},{"int":3}]}`,
+		},
+		{
+			"constructor", "d8798201426162",
+			`{"constructor":0,"fields":[{"int":1},{"bytes":"6162"}]}`,
+		},
+		{
+			"nested constructor", "d87a81d87981a1010a",
 			`{"constructor":1,"fields":[{"constructor":0,"fields":` +
-				`[{"map":[{"k":{"int":1},"v":{"int":10}}]}]}]}`},
+				`[{"map":[{"k":{"int":1},"v":{"int":10}}]}]}]}`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

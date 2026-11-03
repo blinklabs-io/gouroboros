@@ -76,14 +76,22 @@ func TestMetadataJSONSuccessPathWorkIsLinearInDepth(t *testing.T) {
 		// detailed map level three.
 		small int
 	}{
-		{"no schema array", ParseCardanoCLIMetadataJSONNoSchema,
-			pathNoSchemaArrayJSON, 120},
-		{"no schema object", ParseCardanoCLIMetadataJSONNoSchema,
-			pathNoSchemaObjectJSON, 120},
-		{"detailed list", ParseCardanoCLIMetadataJSONDetailedSchema,
-			pathDetailedListJSON, 60},
-		{"detailed map", ParseCardanoCLIMetadataJSONDetailedSchema,
-			pathDetailedMapJSON, 40},
+		{
+			"no schema array", ParseCardanoCLIMetadataJSONNoSchema,
+			pathNoSchemaArrayJSON, 120,
+		},
+		{
+			"no schema object", ParseCardanoCLIMetadataJSONNoSchema,
+			pathNoSchemaObjectJSON, 120,
+		},
+		{
+			"detailed list", ParseCardanoCLIMetadataJSONDetailedSchema,
+			pathDetailedListJSON, 60,
+		},
+		{
+			"detailed map", ParseCardanoCLIMetadataJSONDetailedSchema,
+			pathDetailedMapJSON, 40,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

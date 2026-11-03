@@ -60,7 +60,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &allegra.AllegraTransaction{
-					Body: *(body.(*allegra.AllegraTransactionBody)),
+					Body: *body.(*allegra.AllegraTransactionBody),
 				}
 			},
 		},
@@ -71,7 +71,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &mary.MaryTransaction{
-					Body: *(body.(*mary.MaryTransactionBody)),
+					Body: *body.(*mary.MaryTransactionBody),
 				}
 			},
 		},
@@ -82,7 +82,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &alonzo.AlonzoTransaction{
-					Body: *(body.(*alonzo.AlonzoTransactionBody)),
+					Body: *body.(*alonzo.AlonzoTransactionBody),
 				}
 			},
 		},
@@ -93,7 +93,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &babbage.BabbageTransaction{
-					Body: *(body.(*babbage.BabbageTransactionBody)),
+					Body: *body.(*babbage.BabbageTransactionBody),
 				}
 			},
 		},
@@ -104,7 +104,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &conway.ConwayTransaction{
-					Body: *(body.(*conway.ConwayTransactionBody)),
+					Body: *body.(*conway.ConwayTransactionBody),
 				}
 			},
 		},
@@ -115,7 +115,7 @@ func validityUpperBoundTestCases() []validityUpperBoundTestCase {
 			},
 			newTx: func(body validityUpperBoundBody) common.TransactionBody {
 				return &dijkstra.DijkstraTransaction{
-					Body: *(body.(*dijkstra.DijkstraTransactionBody)),
+					Body: *body.(*dijkstra.DijkstraTransactionBody),
 				}
 			},
 		},

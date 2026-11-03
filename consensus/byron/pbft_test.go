@@ -84,13 +84,12 @@ func setSignedGenesisDelegations(
 			protocolMagicCbor...,
 		)
 		signed = append(signed, certPayloadCbor...)
-		genesis.HeavyDelegation[issuerHashHex] =
-			ledgerbyron.ByronGenesisHeavyDelegation{
-				Cert:       hex.EncodeToString(ed25519.Sign(issuer.privateKey, signed)),
-				DelegatePk: delegateKeyBase64,
-				IssuerPk:   issuerKeyBase64,
-				Omega:      omegas[i],
-			}
+		genesis.HeavyDelegation[issuerHashHex] = ledgerbyron.ByronGenesisHeavyDelegation{
+			Cert:       hex.EncodeToString(ed25519.Sign(issuer.privateKey, signed)),
+			DelegatePk: delegateKeyBase64,
+			IssuerPk:   issuerKeyBase64,
+			Omega:      omegas[i],
+		}
 	}
 }
 
@@ -148,8 +147,7 @@ func TestValidatePBFTHeaderChargesIssuerResolvedByDelegate(t *testing.T) {
 		config.GenesisKeyHashes,
 		resolvedIssuer.Bytes(),
 	)
-	config.GenesisDelegations[certificateIssuer.GenesisKeyHash] =
-		certificateIssuer.GenesisKeyHash
+	config.GenesisDelegations[certificateIssuer.GenesisKeyHash] = certificateIssuer.GenesisKeyHash
 	config.GenesisDelegations[resolvedIssuer] = certificateIssuer.DelegateKeyHash
 
 	issuer, err := ValidatePBFTHeader(header, config)

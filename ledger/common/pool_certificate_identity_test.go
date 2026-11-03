@@ -32,11 +32,16 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 	makeCert := func(owners any, header byte) []any {
 		reward := make([]byte, 29)
 		reward[0] = header
-		return []any{3, make([]byte, 28), make([]byte, 32), 1, 1,
+		return []any{
+			3, make([]byte, 28), make([]byte, 32), 1, 1,
 			cbor.Tag{
 				Number:  30,
 				Content: []uint{1, 2},
-			}, reward, owners, []any{}, nil}
+			},
+			reward, owners,
+			[]any{},
+			nil,
+		}
 	}
 	equivalentMargin := makeCert([][]byte{ownerA, ownerB}, 0xe0)
 	equivalentMargin[5] = cbor.Tag{Number: 30, Content: []uint{2, 4}}
