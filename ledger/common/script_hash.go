@@ -46,7 +46,9 @@ var scriptHashMemo = struct {
 // scriptHash returns blake2b-224 of the language tag followed by raw, the
 // hash that identifies a script.
 func scriptHash(tag byte, raw []byte) ScriptHash {
-	if len(raw) < scriptHashMemoMinSize {
+	// A script larger than the whole memo is hashed without being kept, so
+	// the memo never holds more than scriptHashMemoMaxBytes.
+	if len(raw) < scriptHashMemoMinSize || len(raw) > scriptHashMemoMaxBytes {
 		return computeScriptHash(tag, raw)
 	}
 	scriptHashMemo.RLock()

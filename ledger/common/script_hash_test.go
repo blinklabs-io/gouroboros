@@ -105,3 +105,18 @@ func BenchmarkPlutusV3ScriptHash(b *testing.B) {
 		}
 	})
 }
+
+func TestScriptHashMemoSkipsScriptsLargerThanTheMemo(t *testing.T) {
+	raw := scriptBytes(scriptHashMemoMaxBytes+1, 7)
+	want := ScriptHash(Blake2b224Hash(append([]byte{ScriptRefTypePlutusV3}, raw...)))
+	if got := PlutusV3Script(raw).Hash(); got != want {
+		t.Fatalf("hash %x, want %x", got, want)
+	}
+	scriptHashMemo.RLock()
+	held := scriptHashMemo.bytes
+	_, kept := scriptHashMemo.hashes[ScriptRefTypePlutusV3][string(raw)]
+	scriptHashMemo.RUnlock()
+	if kept || held > scriptHashMemoMaxBytes {
+		t.Fatalf("memo kept the oversized script (kept %v, %d bytes held)", kept, held)
+	}
+}
