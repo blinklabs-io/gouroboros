@@ -76,8 +76,8 @@ var testDefs = []struct {
 	{
 		cborHex: "82C24A04B9E028911409DC866DC24C1B9404A39BD8000000000000",
 		expectedObject: []any{
-			*(new(big.Int).SetBytes(test.DecodeHexString("04B9E028911409DC866D"))),
-			*(new(big.Int).SetBytes(test.DecodeHexString("1B9404A39BD8000000000000"))),
+			*new(big.Int).SetBytes(test.DecodeHexString("04B9E028911409DC866D")),
+			*new(big.Int).SetBytes(test.DecodeHexString("1B9404A39BD8000000000000")),
 		},
 		expectedAstJson: `{"list":[{"int":22318265904693663008365},{"int":8535038193994223137511702528}]}`,
 	},

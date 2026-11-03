@@ -334,7 +334,6 @@ func TestRealConwayTransactionWithPlutusV3(t *testing.T) {
 	t.Logf(
 		"Successfully decoded and validated Conway auxiliary data with Plutus V3 support",
 	)
-
 }
 
 // Test decoding metadata with complex nested structures

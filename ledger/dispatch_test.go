@@ -257,14 +257,17 @@ func TestNestedBabbageSpecificUtxoFailures(t *testing.T) {
 		payload any
 		check   func(*testing.T, error)
 	}{
-		{"collateral", []any{uint(2), int64(-100), uint64(500)},
+		{
+			"collateral",
+			[]any{uint(2), int64(-100), uint64(500)},
 			func(t *testing.T, err error) {
 				v, ok := err.(*IncorrectTotalCollateralField)
 				require.True(t, ok)
 				require.Equal(t, uint8(2), v.Type)
 				require.Equal(t, int64(-100), v.BalanceComputed)
 				require.Equal(t, uint64(500), v.TotalCollateral)
-			}},
+			},
+		},
 		{"output", []any{uint(3), []any{[]any{
 			[]any{address, uint64(1000000)}, uint64(2000000),
 		}}}, func(t *testing.T, err error) {
@@ -288,9 +291,13 @@ func TestNestedBabbageSpecificUtxoFailures(t *testing.T) {
 			for _, inherited := range []bool{false, true} {
 				var wrapper any = []any{BabbageUtxowUtxoFailure, tc.payload}
 				if inherited {
-					wrapper = []any{BabbageUtxowAlonzoInBabbage,
-						[]any{AlonzoUtxowShelleyInAlonzo,
-							[]any{ShelleyUtxowUtxoFailure, tc.payload}}}
+					wrapper = []any{
+						BabbageUtxowAlonzoInBabbage,
+						[]any{
+							AlonzoUtxowShelleyInAlonzo,
+							[]any{ShelleyUtxowUtxoFailure, tc.payload},
+						},
+					}
 				}
 				wire, err := cbor.Encode(wrapper)
 				require.NoError(t, err)
@@ -371,12 +378,21 @@ func TestNestedUnknownUtxowFailureRetainsEnclosingEra(t *testing.T) {
 		payload []any
 		unknown []byte
 	}{
-		{"Alonzo Shelley wrapper", EraIdAlonzo,
-			[]any{0, []any{250}}, []byte{0x81, 0x18, 0xfa}},
-		{"Babbage Alonzo wrapper", EraIdBabbage,
-			[]any{1, []any{250, []any{}}}, []byte{0x82, 0x18, 0xfa, 0x80}},
-		{"Babbage Shelley wrapper", EraIdBabbage,
-			[]any{1, []any{0, []any{250}}}, []byte{0x81, 0x18, 0xfa}},
+		{
+			"Alonzo Shelley wrapper", EraIdAlonzo,
+			[]any{0, []any{250}},
+			[]byte{0x81, 0x18, 0xfa},
+		},
+		{
+			"Babbage Alonzo wrapper", EraIdBabbage,
+			[]any{1, []any{250, []any{}}},
+			[]byte{0x82, 0x18, 0xfa, 0x80},
+		},
+		{
+			"Babbage Shelley wrapper", EraIdBabbage,
+			[]any{1, []any{0, []any{250}}},
+			[]byte{0x81, 0x18, 0xfa},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			wire, err := cbor.Encode([]any{[]any{

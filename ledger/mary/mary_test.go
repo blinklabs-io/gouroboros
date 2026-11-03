@@ -44,7 +44,7 @@ func createMaryTransactionOutputValueAssets(
 }
 
 func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
-	var tests = []struct {
+	tests := []struct {
 		CborHex string
 		Object  any
 	}{

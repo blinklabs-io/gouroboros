@@ -38,7 +38,6 @@ func TestBlockMetadataSetRejectsUnknownTaggedAuxiliaryField(t *testing.T) {
 }
 
 func Test_Metadata_RoundTrip_AllegraSample(t *testing.T) {
-
 	raw, err := hex.DecodeString(allegraBlockHex)
 	if err != nil {
 		t.Fatalf("bad hex: %v", err)

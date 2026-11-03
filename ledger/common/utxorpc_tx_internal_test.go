@@ -112,7 +112,6 @@ func TestMetadatumToUtxorpc(t *testing.T) {
 	items := pair.Value.GetArray().Items
 	require.Equal(t, int64(-7), items[0].GetInt())
 	require.Equal(t, []byte{9}, items[1].GetBytes())
-
 }
 
 func TestGovActionToUtxorpc(t *testing.T) {

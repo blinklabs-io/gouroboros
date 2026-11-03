@@ -788,14 +788,18 @@ func TestBlockRangeResponsesBoundTransactionCollections(t *testing.T) {
 		{
 			name:    "definite_next",
 			msgType: MessageTypeNextBlockAndTxsInRange,
-			wire: []byte{0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
-				0x83, 0x80, 0x80, 0x80},
+			wire: []byte{
+				0x83, MessageTypeNextBlockAndTxsInRange, 0xf6,
+				0x83, 0x80, 0x80, 0x80,
+			},
 		},
 		{
 			name:    "indefinite_last",
 			msgType: MessageTypeLastBlockAndTxsInRange,
-			wire: []byte{0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
-				0x9f, 0x80, 0x80, 0x80, 0xff},
+			wire: []byte{
+				0x83, MessageTypeLastBlockAndTxsInRange, 0xf6,
+				0x9f, 0x80, 0x80, 0x80, 0xff,
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

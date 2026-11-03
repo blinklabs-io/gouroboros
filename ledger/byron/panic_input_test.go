@@ -17,7 +17,6 @@ package byron_test
 import (
 	"encoding/hex"
 	"math"
-
 	"strings"
 	"testing"
 

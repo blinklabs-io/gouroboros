@@ -1528,7 +1528,6 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 				err,
 				testErrType,
 			)
-
 		},
 	)
 	// Exact fee
@@ -1775,7 +1774,7 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 	var testInputAmount uint64 = 555666777
 	var testFee uint64 = 123456
 	var testStakeDeposit uint64 = 2_000_000
-	var testDepositAmount = testStakeDeposit
+	testDepositAmount := testStakeDeposit
 	testOutputExactAmount := testInputAmount - testFee
 	testOutputUnderAmount := testOutputExactAmount - 999
 	testOutputOverAmount := testOutputExactAmount + 999
@@ -2232,10 +2231,10 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 }
 
 func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
-	var testOutputValueGood = mary.MaryTransactionOutputValue{
+	testOutputValueGood := mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 	}
-	var tmpBadAssets = map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
+	tmpBadAssets := map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{}
 	// Build too-large asset set
 	// We create 45 random policy IDs and asset names in order to exceed the max value size (4000 bytes)
 	for range 45 {
@@ -2254,7 +2253,7 @@ func TestUtxoValidateOutputTooBigUtxo(t *testing.T) {
 	tmpBadMultiAsset := common.NewMultiAsset(
 		tmpBadAssets,
 	)
-	var testOutputValueBad = mary.MaryTransactionOutputValue{
+	testOutputValueBad := mary.MaryTransactionOutputValue{
 		Amount: 1234567,
 		Assets: &tmpBadMultiAsset,
 	}
@@ -5661,7 +5660,6 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 			t.Fatalf("got ActionType %d, want %d (TreasuryWithdrawal)", bdErr.ActionType, common.GovActionTypeTreasuryWithdrawal)
 		}
 	})
-
 }
 
 // Voter committee lookups report the same CommitteeMemberLookupError shape as

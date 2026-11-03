@@ -352,8 +352,10 @@ var testPlutusV3ScriptHex = "587f01010032323232323225333002323232323253" +
 // PlutusV1 and V2 use the same test script as V3 for benchmarking purposes
 // The script is CBOR-wrapped UPLC bytecode. The structure is:
 // [CBOR bytestring tag] [length] [UPLC flat-encoded program]
-var testPlutusV1ScriptHex = testPlutusV3ScriptHex
-var testPlutusV2ScriptHex = testPlutusV3ScriptHex
+var (
+	testPlutusV1ScriptHex = testPlutusV3ScriptHex
+	testPlutusV2ScriptHex = testPlutusV3ScriptHex
+)
 
 // BenchmarkPlutusScriptDeserialize benchmarks Plutus script deserialization
 // using plutigo

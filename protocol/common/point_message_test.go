@@ -34,22 +34,30 @@ func TestPointMessageDecodersPreserveValidFormsAndRejectMalformed(t *testing.T) 
 		decode func(uint, []byte) (protocol.Message, error)
 		body   func(any) []any
 	}{
-		{"chainsync_ntn", chainsync.MessageTypeFindIntersect,
+		{
+			"chainsync_ntn", chainsync.MessageTypeFindIntersect,
 			func(kind uint, data []byte) (protocol.Message, error) {
 				return chainsync.NewMsgFromCbor(protocol.ProtocolModeNodeToNode, kind, data)
 			},
-			func(p any) []any { return []any{uint64(4), []any{p}} }},
-		{"chainsync_ntc", chainsync.MessageTypeFindIntersect,
+			func(p any) []any { return []any{uint64(4), []any{p}} },
+		},
+		{
+			"chainsync_ntc", chainsync.MessageTypeFindIntersect,
 			func(kind uint, data []byte) (protocol.Message, error) {
 				return chainsync.NewMsgFromCbor(protocol.ProtocolModeNodeToClient, kind, data)
 			},
-			func(p any) []any { return []any{uint64(4), []any{p}} }},
-		{"blockfetch", blockfetch.MessageTypeRequestRange,
+			func(p any) []any { return []any{uint64(4), []any{p}} },
+		},
+		{
+			"blockfetch", blockfetch.MessageTypeRequestRange,
 			blockfetch.NewMsgFromCbor,
-			func(p any) []any { return []any{uint64(0), p, p} }},
-		{"localstatequery", localstatequery.MessageTypeAcquire,
+			func(p any) []any { return []any{uint64(0), p, p} },
+		},
+		{
+			"localstatequery", localstatequery.MessageTypeAcquire,
 			localstatequery.NewMsgFromCbor,
-			func(p any) []any { return []any{uint64(0), p} }},
+			func(p any) []any { return []any{uint64(0), p} },
+		},
 	}
 	for _, decoder := range decoders {
 		t.Run(decoder.name, func(t *testing.T) {

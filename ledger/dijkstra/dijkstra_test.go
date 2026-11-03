@@ -2421,7 +2421,6 @@ func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(t *testi
 	var marginRoundTrip DijkstraProtocolParameters
 	require.NoError(t, marginRoundTrip.UnmarshalCBOR(encoded))
 	require.Zero(t, marginRoundTrip.PerasQuorumThresholdSafetyMargin.Rat.Sign())
-
 }
 
 func TestDijkstraGenesisDefaultsMissingPerasIntervals(t *testing.T) {

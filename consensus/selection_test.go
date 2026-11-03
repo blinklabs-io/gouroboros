@@ -1194,8 +1194,12 @@ func assertSelectionIsOrderIndependent(
 ) {
 	t.Helper()
 	orders := [][]ChainTip{
-		{a, b, c}, {a, c, b}, {b, a, c},
-		{b, c, a}, {c, a, b}, {c, b, a},
+		{a, b, c},
+		{a, c, b},
+		{b, a, c},
+		{b, c, a},
+		{c, a, b},
+		{c, b, a},
 	}
 	want := selector.PreferredWithDensity(orders[0], fork, tipBlockNumber)
 	for _, order := range orders[1:] {

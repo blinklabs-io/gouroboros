@@ -170,7 +170,8 @@ func TestGovAnchorURLBoundAtEveryDecodeSite(t *testing.T) {
 	proposalCBOR, err := cbor.Encode([]any{
 		uint64(0),
 		append([]byte{0x60}, make([]byte, 28)...),
-		[]any{uint(6)}, anchor,
+		[]any{uint(6)},
+		anchor,
 	})
 	require.NoError(t, err)
 	var proposal conway.ConwayProposalProcedure

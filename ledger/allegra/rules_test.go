@@ -258,7 +258,6 @@ func TestUtxoValidateFeeTooSmallUtxo(t *testing.T) {
 				err,
 				testErrType,
 			)
-
 		},
 	)
 	// Exact fee

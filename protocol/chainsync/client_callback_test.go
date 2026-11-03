@@ -838,7 +838,6 @@ func TestPeerRollForwardRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 			)
 			require.Zero(t, p.PendingCount())
 			require.Empty(t, p.DrainResults())
-
 		})
 	}
 }
