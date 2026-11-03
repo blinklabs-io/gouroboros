@@ -89,15 +89,15 @@ func TestDecodePlutusProgramReusesProgramForSameKey(t *testing.T) {
 	require.NoError(t, err)
 	evalContext := programCacheTestEvalContext(t, lang.LanguageVersionV3, 10)
 
-	first, err := decodePlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	first, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
 	require.NoError(t, err)
-	second, err := decodePlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	second, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
 	require.NoError(t, err)
 	require.Same(t, first, second,
 		"an identical script, language and protocol major must reuse the"+
 			" decoded program")
 
-	otherLanguage, err := decodePlutusProgram(
+	otherLanguage, err := decodePreparedPlutusProgram(
 		inner,
 		lang.LanguageVersionV2,
 		programCacheTestEvalContext(t, lang.LanguageVersionV2, 10),
@@ -106,7 +106,7 @@ func TestDecodePlutusProgramReusesProgramForSameKey(t *testing.T) {
 	require.NotSame(t, first, otherLanguage,
 		"a program must never be shared across ledger languages")
 
-	otherMajor, err := decodePlutusProgram(
+	otherMajor, err := decodePreparedPlutusProgram(
 		inner,
 		lang.LanguageVersionV3,
 		programCacheTestEvalContext(t, lang.LanguageVersionV3, 11),
@@ -130,12 +130,12 @@ func TestDecodePlutusProgramCachedFailureIsKeyedByProtocolMajor(t *testing.T) {
 	oldCtx := programCacheTestEvalContext(t, lang.LanguageVersionV2, 10)
 	newCtx := programCacheTestEvalContext(t, lang.LanguageVersionV2, 11)
 
-	_, firstErr := decodePlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
+	_, firstErr := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
 	require.Error(t, firstErr)
-	_, secondErr := decodePlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
+	_, secondErr := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
 	require.EqualError(t, secondErr, firstErr.Error())
 
-	program, err := decodePlutusProgram(inner, lang.LanguageVersionV2, newCtx)
+	program, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, newCtx)
 	require.NoError(t, err)
 	require.NotNil(t, program)
 }
@@ -153,7 +153,7 @@ func TestProgramCacheEvictsByBytes(t *testing.T) {
 		require.NoError(t, err)
 		scripts[i] = inner
 	}
-	probe, err := decodePlutusProgramUncached(
+	probe, err := preparePlutusProgramUncached(
 		scripts[0], lang.LanguageVersionV3, evalContext,
 	)
 	require.NoError(t, err)
@@ -161,14 +161,14 @@ func TestProgramCacheEvictsByBytes(t *testing.T) {
 
 	cache := newProgramCache(2*entrySize + entrySize/2)
 	decodes := 0
-	decode := func(script []byte) *syn.Program[syn.DeBruijn] {
-		program, err := cache.decode(
+	decode := func(script []byte) *cek.PreparedProgram {
+		program, err := cache.decodePrepared(
 			script,
 			lang.LanguageVersionV3,
 			10,
-			func() (*syn.Program[syn.DeBruijn], error) {
+			func() (*cek.PreparedProgram, error) {
 				decodes++
-				return decodePlutusProgramUncached(
+				return preparePlutusProgramUncached(
 					script, lang.LanguageVersionV3, evalContext,
 				)
 			},
@@ -196,35 +196,46 @@ func TestProgramCacheEvictsByBytes(t *testing.T) {
 func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	t.Parallel()
 
-	cache := newProgramCache(3 * programEstimateFloor)
-	small := &syn.Program[syn.DeBruijn]{Term: &syn.Error{}}
+	prepare := func(term syn.Term[syn.DeBruijn]) *cek.PreparedProgram {
+		flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{
+			Version: lang.LanguageVersion{1, 1, 0},
+			Term:    term,
+		})
+		require.NoError(t, err)
+		prepared, err := cek.PrepareProgram(flat, syn.ProgramContext{
+			LedgerLanguage: lang.LanguageVersionV3,
+			ProtocolMajor:  10,
+		})
+		require.NoError(t, err)
+		return prepared
+	}
+	small := prepare(&syn.Error{})
+	cache := newProgramCache(3 * programEntrySize(small))
 	smallDecodes := 0
-	decodeSmall := func() (*syn.Program[syn.DeBruijn], error) {
+	decodeSmall := func() (*cek.PreparedProgram, error) {
 		smallDecodes++
 		return small, nil
 	}
-	_, err := cache.decode([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	_, err := cache.decodePrepared([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
 	require.NoError(t, err)
 
 	hugeTerm := make([]syn.Term[syn.DeBruijn], 0, 4096)
 	for range 4096 {
-		hugeTerm = append(hugeTerm, &syn.Error{})
+		hugeTerm = append(hugeTerm, &syn.Delay[syn.DeBruijn]{Term: &syn.Error{}})
 	}
-	huge := &syn.Program[syn.DeBruijn]{
-		Term: &syn.Constr[syn.DeBruijn]{Fields: hugeTerm},
-	}
+	huge := prepare(&syn.Constr[syn.DeBruijn]{Fields: hugeTerm})
 	require.Greater(t, programEntrySize(huge), cache.maxBytes)
 	for range 2 {
-		got, err := cache.decode(
+		got, err := cache.decodePrepared(
 			[]byte{2}, lang.LanguageVersionV3, 10,
-			func() (*syn.Program[syn.DeBruijn], error) { return huge, nil },
+			func() (*cek.PreparedProgram, error) { return huge, nil },
 		)
 		require.NoError(t, err)
 		require.Same(t, huge, got)
 	}
 	require.Len(t, cache.entries, 1, "oversized entry must not be admitted")
 
-	_, err = cache.decode([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	_, err = cache.decodePrepared([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
 	require.NoError(t, err)
 	require.Equal(t, 1, smallDecodes, "existing entry must survive")
 }
@@ -238,9 +249,9 @@ func TestProgramCacheCachesDecodeFailures(t *testing.T) {
 	decodes := 0
 	boom := errors.New("decode failed")
 	for range 3 {
-		program, err := cache.decode(
+		program, err := cache.decodePrepared(
 			[]byte{9}, lang.LanguageVersionV3, 10,
-			func() (*syn.Program[syn.DeBruijn], error) {
+			func() (*cek.PreparedProgram, error) {
 				decodes++
 				return nil, boom
 			},
@@ -381,13 +392,13 @@ func TestProgramCacheChargeCoversRetainedHeap(t *testing.T) {
 			inner, err := decodePlutusScript(wrapped, true)
 			require.NoError(t, err)
 
-			keep := make([]*syn.Program[syn.DeBruijn], 0, copies)
+			keep := make([]*cek.PreparedProgram, 0, copies)
 			runtime.GC()
 			runtime.GC()
 			var before, after runtime.MemStats
 			runtime.ReadMemStats(&before)
 			for range copies {
-				program, err := decodePlutusProgramUncached(
+				program, err := preparePlutusProgramUncached(
 					inner, lang.LanguageVersionV3, evalContext,
 				)
 				require.NoError(t, err)
@@ -409,7 +420,7 @@ func TestProgramCacheChargeCoversRetainedHeap(t *testing.T) {
 
 // TestEvaluateReusingCachedProgramIsUnchanged evaluates one script many times
 // from many goroutines against the shared cached program. Results must equal
-// the first evaluation, and the program's encoding must be unchanged
+// the first evaluation and the cached program must still be the same one
 // afterwards. Run under -race to catch writes through the shared term graph.
 func TestEvaluateReusingCachedProgramIsUnchanged(t *testing.T) {
 	t.Parallel()
@@ -425,9 +436,7 @@ func TestEvaluateReusingCachedProgramIsUnchanged(t *testing.T) {
 
 	want, err := script.Evaluate(scriptContext, budget, evalContext)
 	require.NoError(t, err)
-	program, err := decodePlutusProgram(inner, lang.LanguageVersionV3, evalContext)
-	require.NoError(t, err)
-	encodedBefore, err := syn.Encode(program)
+	program, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
 	require.NoError(t, err)
 
 	const workers = 8
@@ -456,17 +465,15 @@ func TestEvaluateReusingCachedProgramIsUnchanged(t *testing.T) {
 		t.Error(err)
 	}
 
-	after, err := decodePlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	after, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
 	require.NoError(t, err)
 	require.Same(t, program, after)
-	encodedAfter, err := syn.Encode(after)
-	require.NoError(t, err)
-	require.Equal(t, encodedBefore, encodedAfter)
 }
 
 // BenchmarkPlutusProgramDecode isolates the CBOR unwrap and UPLC decode from
-// CEK execution: "uncached" always decodes, "cached" goes through
-// decodePlutusProgram, and "evaluate" is the full Evaluate path.
+// CEK execution: "uncached" always decodes and prepares, "cached" goes
+// through decodePreparedPlutusProgram, and "evaluate" is the full Evaluate
+// path.
 func BenchmarkPlutusProgramDecode(b *testing.B) {
 	wrapped := programCacheTestScript(b, lang.LanguageVersion{1, 0, 0}, 910004)
 	evalContext := programCacheTestEvalContext(b, lang.LanguageVersionV3, 10)
@@ -478,7 +485,7 @@ func BenchmarkPlutusProgramDecode(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if _, err := decodePlutusProgramUncached(
+			if _, err := preparePlutusProgramUncached(
 				inner,
 				lang.LanguageVersionV3,
 				evalContext,
@@ -494,7 +501,7 @@ func BenchmarkPlutusProgramDecode(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			if _, err := decodePlutusProgram(
+			if _, err := decodePreparedPlutusProgram(
 				inner,
 				lang.LanguageVersionV3,
 				evalContext,
