@@ -610,20 +610,17 @@ func MinCoinTxOut(
 	return minCoinTxOut, nil
 }
 
-const maxMetadataDepth = 64
-
 // ValidateMetadataContent checks that metadata contains valid data according to Cardano rules.
+// Like validMetadatum in cardano-ledger, it places no bound on nesting depth;
+// depth is bounded only by the decoder.
 func ValidateMetadataContent(metadata common.TransactionMetadatum) error {
 	if metadata == nil {
 		return nil
 	}
-	return validateMetadatumContent(metadata, 0)
+	return validateMetadatumContent(metadata)
 }
 
-func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
-	if depth >= maxMetadataDepth {
-		return errors.New("metadata nesting depth exceeds maximum")
-	}
+func validateMetadatumContent(md common.TransactionMetadatum) error {
 	switch m := md.(type) {
 	case common.MetaText:
 		if !utf8.ValidString(m.Value) {
@@ -644,16 +641,16 @@ func validateMetadatumContent(md common.TransactionMetadatum, depth int) error {
 		}
 	case common.MetaList:
 		for _, item := range m.Items {
-			if err := validateMetadatumContent(item, depth+1); err != nil {
+			if err := validateMetadatumContent(item); err != nil {
 				return err
 			}
 		}
 	case common.MetaMap:
 		for _, pair := range m.Pairs {
-			if err := validateMetadatumContent(pair.Key, depth+1); err != nil {
+			if err := validateMetadatumContent(pair.Key); err != nil {
 				return err
 			}
-			if err := validateMetadatumContent(pair.Value, depth+1); err != nil {
+			if err := validateMetadatumContent(pair.Value); err != nil {
 				return err
 			}
 		}
