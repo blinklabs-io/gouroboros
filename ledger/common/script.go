@@ -246,12 +246,7 @@ func exBudgetFromUnits(units ExUnits) cek.ExBudget {
 func (PlutusV1Script) isScript() {}
 
 func (s PlutusV1Script) Hash() ScriptHash {
-	return ScriptHash(Blake2b224Hash(
-		slices.Concat(
-			[]byte{ScriptRefTypePlutusV1},
-			[]byte(s),
-		),
-	))
+	return scriptHash(ScriptRefTypePlutusV1, s)
 }
 
 func (s PlutusV1Script) RawScriptBytes() []byte {
@@ -350,12 +345,7 @@ type PlutusV2Script []byte
 func (PlutusV2Script) isScript() {}
 
 func (s PlutusV2Script) Hash() ScriptHash {
-	return ScriptHash(Blake2b224Hash(
-		slices.Concat(
-			[]byte{ScriptRefTypePlutusV2},
-			[]byte(s),
-		),
-	))
+	return scriptHash(ScriptRefTypePlutusV2, s)
 }
 
 func (s PlutusV2Script) RawScriptBytes() []byte {
@@ -454,12 +444,7 @@ type PlutusV3Script []byte
 func (PlutusV3Script) isScript() {}
 
 func (s PlutusV3Script) Hash() ScriptHash {
-	return ScriptHash(Blake2b224Hash(
-		slices.Concat(
-			[]byte{ScriptRefTypePlutusV3},
-			[]byte(s),
-		),
-	))
+	return scriptHash(ScriptRefTypePlutusV3, s)
 }
 
 func (s PlutusV3Script) RawScriptBytes() []byte {
@@ -537,12 +522,7 @@ type PlutusV4Script []byte
 func (PlutusV4Script) isScript() {}
 
 func (s PlutusV4Script) Hash() ScriptHash {
-	return ScriptHash(Blake2b224Hash(
-		slices.Concat(
-			[]byte{ScriptRefTypePlutusV4},
-			[]byte(s),
-		),
-	))
+	return scriptHash(ScriptRefTypePlutusV4, s)
 }
 
 func (s PlutusV4Script) RawScriptBytes() []byte {
