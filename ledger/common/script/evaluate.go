@@ -224,7 +224,7 @@ func EvaluatePlutusScripts(
 			redeemer := Redeemer{
 				Tag:     redeemerKey.Tag,
 				Index:   redeemerKey.Index,
-				Data:    data.Normalize(redeemerValue.Data.Data),
+				Data:    data.NormalizeShared(redeemerValue.Data.Data),
 				ExUnits: redeemerValue.ExUnits,
 			}
 			ctx := NewScriptContextV3(txInfoV3Cached, redeemer, purpose)
@@ -274,7 +274,7 @@ func EvaluatePlutusScripts(
 			if err != nil {
 				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.NormalizeShared(redeemerValue.Data.Data), ctxData, units, evalContext)
 		case common.PlutusV1Script:
 			if maxPlutusVersion < 1 {
 				return nil, common.PlutusScriptValidationUnsupportedError{Era: era}
@@ -311,7 +311,7 @@ func EvaluatePlutusScripts(
 			if err != nil {
 				return nil, fmt.Errorf("build evaluation context: %w", err)
 			}
-			usedUnits, execErr = s.Evaluate(datum, data.Normalize(redeemerValue.Data.Data), ctxData, units, evalContext)
+			usedUnits, execErr = s.Evaluate(datum, data.NormalizeShared(redeemerValue.Data.Data), ctxData, units, evalContext)
 		default:
 			continue
 		}

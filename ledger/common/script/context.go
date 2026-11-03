@@ -100,7 +100,7 @@ func NewScriptContextV3(
 	// example -- then diverges from the rest of the network. The redeemers
 	// map inside TxInfo is normalized where it is built; this covers the
 	// copy the V3 context carries alongside it.
-	redeemer.Data = data.Normalize(redeemer.Data)
+	redeemer.Data = data.NormalizeShared(redeemer.Data)
 	return ScriptContextV3{
 		TxInfo:     txInfo,
 		Redeemer:   redeemer,
@@ -898,7 +898,7 @@ func dataInfo(
 				// script always observes the encoding the Plutus encoder writes, never
 				// the definite/indefinite-length choice this transaction was built
 				// with. serialiseData exposes the difference.
-				Value: data.Normalize(datum.Data),
+				Value: data.NormalizeShared(datum.Data),
 			},
 		)
 	}
@@ -953,7 +953,7 @@ func redeemersInfo(
 				Value: Redeemer{
 					Tag:     key.Tag,
 					Index:   key.Index,
-					Data:    data.Normalize(redeemerValue.Data.Data),
+					Data:    data.NormalizeShared(redeemerValue.Data.Data),
 					ExUnits: redeemerValue.ExUnits,
 				},
 			},

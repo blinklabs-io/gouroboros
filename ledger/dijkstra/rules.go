@@ -3539,7 +3539,7 @@ func validateGuardingPlutusScripts(
 			var datum data.PlutusData
 			usedUnits, execErr = s.Evaluate(
 				datum,
-				data.Normalize(redeemerValue.Data.Data),
+				data.NormalizeShared(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
 				units,
 				evalContext,
@@ -3572,7 +3572,7 @@ func validateGuardingPlutusScripts(
 			var datum data.PlutusData
 			usedUnits, execErr = s.Evaluate(
 				datum,
-				data.Normalize(redeemerValue.Data.Data),
+				data.NormalizeShared(redeemerValue.Data.Data),
 				ctx.ToPlutusData(),
 				units,
 				evalContext,
@@ -3621,7 +3621,7 @@ func guardingRedeemer(
 	return script.Redeemer{
 		Tag:     redeemerKey.Tag,
 		Index:   redeemerKey.Index,
-		Data:    data.Normalize(redeemerValue.Data.Data),
+		Data:    data.NormalizeShared(redeemerValue.Data.Data),
 		ExUnits: redeemerValue.ExUnits,
 	}
 }

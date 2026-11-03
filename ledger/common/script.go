@@ -297,8 +297,8 @@ func (s PlutusV1Script) EvaluateContext(
 	// compares SerialiseData output diverges from the rest of the network.
 	// V3 takes no datum or redeemer argument -- its redeemer travels inside the
 	// script context, which NewScriptContextV3 normalizes.
-	datum = data.Normalize(datum)
-	redeemer = data.Normalize(redeemer)
+	datum = data.NormalizeShared(datum)
+	redeemer = data.NormalizeShared(redeemer)
 	var usedExUnits ExUnits
 	var err error
 	var program *cek.PreparedProgram
@@ -396,8 +396,8 @@ func (s PlutusV2Script) EvaluateContext(
 	// compares SerialiseData output diverges from the rest of the network.
 	// V3 takes no datum or redeemer argument -- its redeemer travels inside the
 	// script context, which NewScriptContextV3 normalizes.
-	datum = data.Normalize(datum)
-	redeemer = data.Normalize(redeemer)
+	datum = data.NormalizeShared(datum)
+	redeemer = data.NormalizeShared(redeemer)
 	var usedExUnits ExUnits
 	var err error
 	var program *cek.PreparedProgram
