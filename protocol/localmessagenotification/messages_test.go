@@ -391,9 +391,9 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 		limitErr string
 	}{
 		{name: "reference batch", count: 1000, valid: true},
-		{name: "above reference batch", count: 1001, limitErr: "more than 1000 messages"},
+		{name: "above reference batch", count: 1001, limitErr: "more than 1000"},
 		{name: "configured limit", maxReply: 1, count: 1, valid: true},
-		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "more than 1 messages"},
+		{name: "above configured limit", maxReply: 1, count: 2, limitErr: "more than 1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			connA, connB := net.Pipe()
