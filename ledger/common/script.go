@@ -86,9 +86,10 @@ func decodePlutusScript(script []byte, rejectTrailing bool) ([]byte, error) {
 	return innerScript, nil
 }
 
-// decodePreparedPlutusProgram is decodePlutusProgram for evaluation: it
-// returns the cached program prepared by cek.PrepareDecodedProgram, so
+// decodePreparedPlutusProgram returns the cached program for innerScript,
+// decoded, validated and prepared by cek.PrepareProgram, so
 // cek.RunPreparedScriptContext can skip plutigo's per-run structure walk.
+// Cached programs are shared across callers and goroutines.
 func decodePreparedPlutusProgram(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
@@ -101,8 +102,8 @@ func decodePreparedPlutusProgram(
 		innerScript,
 		ledgerLanguage,
 		evalContext.ProtoMajor,
-		func() (*syn.Program[syn.DeBruijn], error) {
-			return decodePlutusProgramUncached(
+		func() (*cek.PreparedProgram, error) {
+			return preparePlutusProgramUncached(
 				innerScript,
 				ledgerLanguage,
 				evalContext,
@@ -111,11 +112,11 @@ func decodePreparedPlutusProgram(
 	)
 }
 
-func decodePlutusProgramUncached(
+func preparePlutusProgramUncached(
 	innerScript []byte,
 	ledgerLanguage lang.LanguageVersion,
 	evalContext *cek.EvalContext,
-) (*syn.Program[syn.DeBruijn], error) {
+) (*cek.PreparedProgram, error) {
 	if evalContext == nil {
 		return nil, errors.New("evaluation context is required")
 	}
@@ -123,7 +124,7 @@ func decodePlutusProgramUncached(
 		LedgerLanguage: ledgerLanguage,
 		ProtocolMajor:  evalContext.ProtoMajor,
 	}
-	program, err := syn.DecodeDeBruijnWithContext(innerScript, programContext)
+	prepared, err := cek.PrepareProgram(innerScript, programContext)
 	if err != nil {
 		return nil, err
 	}
@@ -131,19 +132,18 @@ func decodePlutusProgramUncached(
 	// Rossem" gate: UPLC 1.1.0 requires protocol major >= 11 for
 	// PlutusV1/PlutusV2) is a phase-2, execution-time check in real
 	// cardano-ledger (mkTermToEvaluate), not a decode-time well-formedness
-	// check. decodePlutusProgram is only reached immediately before a
-	// program is actually run through the CEK machine, so this is the
-	// correct place to enforce it -- unlike the shared decode/well-formedness
-	// path used for a transaction's own stored-but-unexecuted reference
-	// scripts, which must never apply this gate. See
-	// syn.ValidateTermVersionForExecution.
+	// check. This is only reached immediately before a program is actually
+	// run through the CEK machine, so this is the correct place to enforce
+	// it -- unlike the shared decode/well-formedness path used for a
+	// transaction's own stored-but-unexecuted reference scripts, which must
+	// never apply this gate. See syn.ValidateTermVersionForExecution.
 	if err := syn.ValidateTermVersionForExecution(
-		program.Version,
+		prepared.Version(),
 		programContext,
 	); err != nil {
 		return nil, err
 	}
-	return program, nil
+	return prepared, nil
 }
 
 func (s *ScriptRef) UnmarshalCBOR(data []byte) error {
