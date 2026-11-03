@@ -30,13 +30,22 @@ const testLeiosProofDST = "BLS_POP_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_"
 
 func testLeiosPoolKey(t *testing.T, secret int64) common.LeiosKey {
 	t.Helper()
+	return testLeiosPoolKeyForDomain(t, secret, testLeiosProofDST)
+}
+
+func testLeiosPoolKeyForDomain(
+	t *testing.T,
+	secret int64,
+	dst string,
+) common.LeiosKey {
+	t.Helper()
 	scalar := big.NewInt(secret)
 	var public bls12381.G2Affine
 	public.ScalarMultiplicationBase(scalar)
 	encodedPublic := public.Bytes()
 	hash, err := bls12381.HashToG1(
 		encodedPublic[:],
-		[]byte(testLeiosProofDST),
+		[]byte(dst),
 	)
 	require.NoError(t, err)
 	var proof bls12381.G1Affine
@@ -98,7 +107,9 @@ func (futurePoolLedgerState) IsFutureVrfKeyInUse(
 func TestUtxoValidatePoolCertificatesBlsProofOfPossession(t *testing.T) {
 	t.Parallel()
 	ls := futurePoolLedgerState{
-		LedgerState: mockledger.NewLedgerStateBuilder().WithNetworkId(0).Build(),
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithNetworkId(0).
+			Build(),
 	}
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = 12
@@ -132,4 +143,144 @@ func TestUtxoValidatePoolCertificatesBlsProofOfPossession(t *testing.T) {
 	invalidTx := testPoolRegistrationTx(t, &invalid, false)
 	invalidTx.TxIsValid = false
 	require.NoError(t, UtxoValidatePoolCertificates(invalidTx, 0, ls, pp))
+}
+
+type poolProofDomainState struct {
+	common.LedgerState
+	domain common.DijkstraBlsProofDomain
+}
+
+func (s poolProofDomainState) DijkstraBlsProofDomain() common.DijkstraBlsProofDomain {
+	return s.domain
+}
+
+func (s poolProofDomainState) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
+}
+
+func TestUtxoValidatePoolCertificatesSelectsBlsProofDomain(t *testing.T) {
+	t.Parallel()
+	base := futurePoolLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithNetworkId(0).
+			Build(),
+	}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = 12
+	pp.MinPoolCost = 340_000_000
+	standard := testLeiosPoolKey(t, 11)
+	legacy := testLeiosPoolKeyForDomain(
+		t,
+		11,
+		"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_",
+	)
+	other := testLeiosPoolKeyForDomain(
+		t,
+		12,
+		"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_",
+	)
+	mismatched := common.LeiosKey{
+		PublicKey:       legacy.PublicKey,
+		PossessionProof: other.PossessionProof,
+	}
+	for _, tc := range []struct {
+		name     string
+		state    common.LedgerState
+		accepted *common.LeiosKey
+		rejected *common.LeiosKey
+	}{
+		{"default", base, &standard, &legacy},
+		{"explicit_pop", poolProofDomainState{base, common.DijkstraBlsProofDomainPop}, &standard, &legacy},
+		{"legacy_sig", poolProofDomainState{base, common.DijkstraBlsProofDomainLegacySig}, &legacy, &standard},
+		{"outer_pop", poolProofDomainState{common.NewBlockLedgerState(poolProofDomainState{base, common.DijkstraBlsProofDomainLegacySig}), common.DijkstraBlsProofDomainPop}, &standard, &legacy},
+		{"outer_legacy", poolProofDomainState{common.NewBlockLedgerState(poolProofDomainState{base, common.DijkstraBlsProofDomainPop}), common.DijkstraBlsProofDomainLegacySig}, &legacy, &standard},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, sub := range []bool{false, true} {
+				for _, state := range []common.LedgerState{tc.state, common.NewBlockLedgerState(tc.state), common.NewBlockLedgerState(common.NewBlockLedgerState(tc.state))} {
+					for _, key := range []*common.LeiosKey{nil, tc.accepted} {
+						for _, tx := range testPoolProofTransactions(t, key, sub) {
+							require.NoError(
+								t,
+								common.VerifyTransaction(
+									tx,
+									0,
+									state,
+									pp,
+									[]common.UtxoValidationRuleFunc{
+										UtxoValidatePoolCertificates,
+									},
+								),
+							)
+						}
+					}
+					for _, key := range []*common.LeiosKey{tc.rejected, &mismatched} {
+						for _, tx := range testPoolProofTransactions(t, key, sub) {
+							err := common.VerifyTransaction(
+								tx,
+								0,
+								state,
+								pp,
+								[]common.UtxoValidationRuleFunc{
+									UtxoValidatePoolCertificates,
+								},
+							)
+							var proofErr *BlsKeyInvalidProofOfPossessionError
+							require.ErrorAs(t, err, &proofErr)
+							require.ErrorIs(t, err, leios.ErrInvalidProof)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
+func testPoolProofTransactions(
+	t *testing.T,
+	key *common.LeiosKey,
+	sub bool,
+) []common.Transaction {
+	t.Helper()
+	tx := testPoolRegistrationTx(t, key, sub)
+	if sub {
+		return []common.Transaction{tx}
+	}
+	ordinary := mockledger.NewTransactionBuilder().
+		WithCertificates(tx.Certificates()...)
+	return []common.Transaction{tx, ordinary}
+}
+
+func TestUtxoValidatePoolCertificatesUnknownBlsProofDomain(t *testing.T) {
+	t.Parallel()
+	state := poolProofDomainState{
+		futurePoolLedgerState{
+			mockledger.NewLedgerStateBuilder().WithNetworkId(0).Build(),
+		},
+		common.DijkstraBlsProofDomain(255),
+	}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = 12
+	pp.MinPoolCost = 340_000_000
+	key := testLeiosPoolKey(t, 11)
+	for _, sub := range []bool{false, true} {
+		for _, tx := range testPoolProofTransactions(t, &key, sub) {
+			err := UtxoValidatePoolCertificates(
+				tx,
+				0,
+				common.NewBlockLedgerState(state),
+				pp,
+			)
+			var configErr *common.ValidationError
+			require.ErrorAs(t, err, &configErr)
+			require.Equal(
+				t,
+				common.ValidationErrorTypeConfiguration,
+				configErr.Type,
+			)
+			var proofErr *BlsKeyInvalidProofOfPossessionError
+			require.NotErrorAs(t, err, &proofErr)
+		}
+	}
 }
