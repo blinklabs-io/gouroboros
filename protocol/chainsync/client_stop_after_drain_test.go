@@ -295,3 +295,56 @@ func TestStopAfterDrainContextBoundsWaitBehindReintersect(t *testing.T) {
 	require.NoError(t, res.err)
 	require.Equal(t, h.findPoint, res.point)
 }
+
+// Reintersect and StopAfterDrain can both find the same sync loop running.
+// Only one of them may close its stop channel; a second close panics.
+func TestStopAfterDrainOverlappingReintersectClosesLoopStopOnce(
+	t *testing.T,
+) {
+	t.Parallel()
+	h := newStopDrainHarness(t)
+	h.startPipelined()
+
+	arrived := make(chan struct{}, 8)
+	proceed := make(chan struct{})
+	h.client.lifecycleMutex.Lock()
+	h.client.testQuiesceBeforeLoopStopClose = func() {
+		arrived <- struct{}{}
+		<-proceed
+	}
+	h.client.lifecycleMutex.Unlock()
+
+	reintersected := h.reintersectAsync([]pcommon.Point{h.findPoint})
+	stopped := h.stopAfterDrainAsync(context.Background())
+	recv(t, arrived, "first caller about to close the loop stop channel")
+	select {
+	case <-arrived:
+		// Both callers decided to close the same channel; releasing them
+		// panics with close of closed channel.
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(proceed)
+
+	// Answer every request from here on so that whichever caller holds
+	// busyMutex can finish its drain.
+	answered := make(chan struct{})
+	defer close(answered)
+	go func() {
+		for {
+			select {
+			case <-h.requests:
+				h.gate <- struct{}{}
+			case <-h.rollbacks:
+			case <-answered:
+				return
+			}
+		}
+	}()
+	h.release(3)
+
+	res := recv(t, reintersected, "Reintersect result")
+	if res.err != nil {
+		require.ErrorIs(t, res.err, protocol.ErrProtocolShuttingDown)
+	}
+	require.NoError(t, recv(t, stopped, "StopAfterDrain result"))
+}

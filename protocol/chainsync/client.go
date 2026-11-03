@@ -83,6 +83,7 @@ type Client struct {
 	testSyncLoopBeforeRequestNext   func()
 	testSyncLoopAfterRequestNext    func()
 	testAwaitReplyBeforeFence       func()
+	testQuiesceBeforeLoopStopClose  func()
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -961,15 +962,22 @@ func (c *Client) quiesceSync(
 	// channel. Another caller may start a new loop before busyMutex is
 	// taken, so repeat until the loop seen under busyMutex has exited.
 	for {
+		// Concurrent callers can find the same loop running, so the
+		// check-and-close must happen under lifecycleMutex or both close it.
 		c.lifecycleMutex.Lock()
 		loopStop, loopDone := c.syncLoopStop, c.syncLoopDone
-		c.lifecycleMutex.Unlock()
 		if loopStop != nil {
 			select {
 			case <-loopStop:
 			default:
+				if c.testQuiesceBeforeLoopStopClose != nil {
+					c.testQuiesceBeforeLoopStopClose()
+				}
 				close(loopStop)
 			}
+		}
+		c.lifecycleMutex.Unlock()
+		if loopStop != nil {
 			select {
 			case <-loopDone:
 			case <-doneChan:
