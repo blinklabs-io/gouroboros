@@ -141,7 +141,7 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	Y := (&edwards25519.Point{}).ScalarBaseMult(xScalar)
 
 	// Step 3: Hash to curve using Elligator2
-	H, err := hashToCurveElligator2(Y, alpha)
+	H, hBytes, err := hashToCurveElligator2(Y, alpha)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,7 +152,7 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	// Step 5: Generate nonce k from SHA512(SHA512(sk)[32:64] || H_bytes) mod ORDER
 	var nonceInput [64]byte
 	copy(nonceInput[:32], skHash[32:64])
-	copy(nonceInput[32:], H.Bytes())
+	copy(nonceInput[32:], hBytes)
 
 	defer cryptoutil.Wipe(nonceInput[:])
 
@@ -170,7 +170,8 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 	V := (&edwards25519.Point{}).ScalarMult(kScalar, H)
 
 	// Step 7: Hash points to get challenge c
-	cScalar := hashPoints(H, Gamma, U, V)
+	encoded := encodePoints(Gamma, U, V)
+	cScalar := hashPoints(hBytes, encoded[0][:], encoded[1][:], encoded[2][:])
 	cBytes := cScalar.Bytes()
 
 	// Step 8: Compute s = (k + c * x) mod ORDER
@@ -181,15 +182,12 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 
 	// Step 9: Encode proof: Gamma_bytes (32) || c_bytes (16) || s_bytes (32) = 80 bytes
 	var proof [ProofSize]byte
-	copy(proof[0:32], Gamma.Bytes())
+	copy(proof[0:32], encoded[0][:])
 	copy(proof[32:48], cBytes[:16]) // c is only 16 bytes in the proof
 	copy(proof[48:80], sBytes)
 
 	// Step 10: Get output using proof to hash
-	output, err := ProofToHash(proof[:])
-	if err != nil {
-		return nil, nil, err
-	}
+	output := gammaToHash(Gamma)
 
 	// Return slices for API compatibility
 	proofSlice := make([]byte, ProofSize)
@@ -211,15 +209,14 @@ func VerifyAndHash(publicKey []byte, proof []byte, msg []byte) ([]byte, error) {
 		return nil, errors.New("public key is a small order point")
 	}
 	// vrf_verify
-	ok, err := verify(Y, proof, msg)
+	output, ok, err := verify(Y, proof, msg)
 	if err != nil {
 		return nil, err
 	}
 	if !ok {
 		return nil, ErrProofVerificationFailed
 	}
-	// proof to hash
-	return ProofToHash(proof)
+	return output, nil
 }
 
 // Verify verifies a VRF proof and compares the output to expected.
@@ -339,80 +336,95 @@ func MkSeedTPraos(slot int64, eta0 []byte, seedConstant []byte) ([]byte, error) 
 
 // ProofToHash extracts the hash output from a VRF proof.
 func ProofToHash(pi []byte) ([]byte, error) {
-	var hashInput [34]byte
 	var cArr, sArr [32]byte
 	Gamma, err := decodeProofArrays(pi, &cArr, &sArr)
 	if err != nil {
 		return nil, err
 	}
-	// beta_string = Hash(suite_string || three_string || point_to_string(cofactor * Gamma))
-	hashInput[0] = Suite
-	hashInput[1] = 0x03
-	Gamma.MultByCofactor(Gamma)
-	copy(hashInput[2:], Gamma.Bytes())
-	result := sha512.Sum512(hashInput[:])
-	return result[:], nil
+	return gammaToHash(Gamma), nil
 }
 
-// verify performs the core VRF verification
-func verify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
-	var U, V *edwards25519.Point
-	var tmp1, tmp2 *edwards25519.Point
+// gammaToHash returns beta_string = Hash(suite_string || three_string ||
+// point_to_string(cofactor * Gamma)).
+func gammaToHash(Gamma *edwards25519.Point) []byte {
+	cofactorGamma := (&edwards25519.Point{}).MultByCofactor(Gamma)
+	return cofactorGammaToHash(cofactorGamma.Bytes())
+}
+
+// cofactorGammaToHash is gammaToHash given the encoding of cofactor * Gamma.
+func cofactorGammaToHash(cofactorGamma []byte) []byte {
+	var hashInput [34]byte
+	hashInput[0] = Suite
+	hashInput[1] = 0x03
+	copy(hashInput[2:], cofactorGamma)
+	result := sha512.Sum512(hashInput[:])
+	return result[:]
+}
+
+// verify performs the core VRF verification and returns the proof's output
+// hash along with the outcome.
+//
+// Every input is public, so the scalar multiplications use the variable-time
+// algorithms: U = s*B - c*Y is one double-scalar multiplication with the base
+// point, and V = s*H - c*Gamma one two-term multi-scalar multiplication. They
+// compute the same points as separate constant-time multiplications would.
+func verify(
+	Y *edwards25519.Point,
+	pi []byte,
+	alpha []byte,
+) ([]byte, bool, error) {
 	var cScalarArr, sScalarArr [32]byte
 
 	Gamma, err := decodeProofArrays(pi, &cScalarArr, &sScalarArr)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
-	H, err := hashToCurveElligator2(Y, alpha)
+	H, hBytes, err := hashToCurveElligator2(Y, alpha)
 	if err != nil {
-		return false, err
+		return nil, false, err
 	}
 
-	// calculate U = s*B - c*Y
-	tmp1 = &edwards25519.Point{}
 	// SetUniformBytes needs 64 bytes while cScalarArr is only 32 bytes long (with 16 bytes of data).
 	var cScalarBytes [64]byte
 	copy(cScalarBytes[:], cScalarArr[:])
 	c := edwards25519.NewScalar()
 	// SetUniformBytes always succeeds with 64 bytes; it reduces mod L
 	_, _ = c.SetUniformBytes(cScalarBytes[:])
-	tmp1.ScalarMult(c, Y)
-	tmp2 = (&edwards25519.Point{}).Set(tmp1)
+	negC := edwards25519.NewScalar().Negate(c)
 	// SEC-9: Use SetCanonicalBytes to reject non-canonical s >= L (proof malleability)
 	s := edwards25519.NewScalar()
 	if _, err := s.SetCanonicalBytes(sScalarArr[:]); err != nil {
-		return false, fmt.Errorf("non-canonical s scalar in VRF proof: %w", err)
+		return nil, false, fmt.Errorf("non-canonical s scalar in VRF proof: %w", err)
 	}
-	tmp1.ScalarBaseMult(s)
-	U = &edwards25519.Point{}
-	U.Subtract(tmp1, tmp2)
 
-	// calculate V = s*H - c*Gamma
-	tmp1 = &edwards25519.Point{}
-	tmp1.ScalarMult(s, H)
-	tmp2 = &edwards25519.Point{}
-	tmp2.ScalarMult(c, Gamma)
-	V = &edwards25519.Point{}
-	V.Subtract(tmp1, tmp2)
+	// U = s*B - c*Y
+	U := (&edwards25519.Point{}).VarTimeDoubleScalarBaseMult(negC, Y, s)
+	// V = s*H - c*Gamma
+	V := (&edwards25519.Point{}).VarTimeMultiScalarMult(
+		[]*edwards25519.Scalar{s, negC},
+		[]*edwards25519.Point{H, Gamma},
+	)
 
-	cprime := hashPoints(H, Gamma, U, V)
+	cofactorGamma := (&edwards25519.Point{}).MultByCofactor(Gamma)
+	encoded := encodePoints(Gamma, U, V, cofactorGamma)
+	cprime := hashPoints(hBytes, encoded[0][:], encoded[1][:], encoded[2][:])
 
 	cmp := subtle.ConstantTimeCompare(cScalarArr[:], cprime.Bytes())
-	return cmp == 1, nil
+	return cofactorGammaToHash(encoded[3][:]), cmp == 1, nil
 }
 
-// hashPoints hashes four curve points for the VRF challenge
-func hashPoints(P1, P2, P3, P4 *edwards25519.Point) *edwards25519.Scalar {
+// hashPoints hashes the encodings of four curve points for the VRF
+// challenge.
+func hashPoints(P1, P2, P3, P4 []byte) *edwards25519.Scalar {
 	var result [32]byte
 	var str [2 + (32 * 4)]byte
 
 	str[0] = Suite
 	str[1] = 0x02
-	copy(str[2+(32*0):], P1.Bytes())
-	copy(str[2+(32*1):], P2.Bytes())
-	copy(str[2+(32*2):], P3.Bytes())
-	copy(str[2+(32*3):], P4.Bytes())
+	copy(str[2+(32*0):], P1)
+	copy(str[2+(32*1):], P2)
+	copy(str[2+(32*2):], P3)
+	copy(str[2+(32*3):], P4)
 	sum := sha512.Sum512(str[:])
 	copy(result[:], sum[:16])
 	r := edwards25519.NewScalar()
@@ -420,6 +432,48 @@ func hashPoints(P1, P2, P3, P4 *edwards25519.Point) *edwards25519.Scalar {
 		panic(err)
 	}
 	return r
+}
+
+// encodePoints returns the canonical encodings of points, the bytes
+// (*edwards25519.Point).Bytes returns, with one field inversion for all of
+// them rather than one each (Montgomery's batch inversion).
+func encodePoints(points ...*edwards25519.Point) [][32]byte {
+	zs := make([]field.Element, len(points))
+	xs := make([]field.Element, len(points))
+	ys := make([]field.Element, len(points))
+	// prefix[i] is the product of the Z coordinates of points[:i+1].
+	prefix := make([]field.Element, len(points))
+	for i, p := range points {
+		X, Y, Z, _ := p.ExtendedCoordinates()
+		xs[i].Set(X)
+		ys[i].Set(Y)
+		zs[i].Set(Z)
+		if i == 0 {
+			prefix[i].Set(Z)
+		} else {
+			prefix[i].Multiply(&prefix[i-1], Z)
+		}
+	}
+	var inv field.Element
+	inv.Invert(&prefix[len(points)-1])
+	out := make([][32]byte, len(points))
+	for i := len(points) - 1; i >= 0; i-- {
+		// inv is the inverse of prefix[i]; Z_i^-1 = inv * prefix[i-1].
+		var zInv field.Element
+		if i == 0 {
+			zInv.Set(&inv)
+		} else {
+			zInv.Multiply(&inv, &prefix[i-1])
+			inv.Multiply(&inv, &zs[i])
+		}
+		var x, y field.Element
+		x.Multiply(&xs[i], &zInv)
+		y.Multiply(&ys[i], &zInv)
+		copy(out[i][:], y.Bytes())
+		// #nosec G115 -- IsNegative returns 0 or 1
+		out[i][31] |= byte(x.IsNegative() << 7)
+	}
+	return out
 }
 
 // decodeProofArrays decodes a VRF proof into its components using pre-allocated arrays.
@@ -444,11 +498,12 @@ func decodeProofArrays(
 	return gamma, nil
 }
 
-// hashToCurveElligator2 hashes to the curve using Elligator2
+// hashToCurveElligator2 hashes to the curve using Elligator2 and returns the
+// point with its canonical encoding.
 func hashToCurveElligator2(
 	Y *edwards25519.Point,
 	alpha []byte,
-) (*edwards25519.Point, error) {
+) (*edwards25519.Point, []byte, error) {
 	hs := sha512.New()
 
 	hs.Write([]byte{Suite})
@@ -462,22 +517,13 @@ func hashToCurveElligator2(
 	}
 	rString[31] &= 0x7f // clear sign bit
 
-	hBytes, err := ge25519FromUniform(rString)
-	if err != nil {
-		return nil, err
-	}
-	result := &edwards25519.Point{}
-	if _, err := result.SetBytes(hBytes[:]); err != nil {
-		return nil, fmt.Errorf(
-			"invalid point encoding from Elligator2: %w",
-			err,
-		)
-	}
-	return result, nil
+	return ge25519FromUniform(rString)
 }
 
-// ge25519FromUniform maps uniform bytes to a curve point
-func ge25519FromUniform(r []byte) ([]byte, error) {
+// ge25519FromUniform maps uniform bytes to a curve point.
+// It returns the point together with its canonical encoding, so a caller that
+// needs the point does not decode the encoding again.
+func ge25519FromUniform(r []byte) (*edwards25519.Point, []byte, error) {
 	s := make([]byte, 32)
 	var e, negx, rr2, x, x2, x3 *field.Element
 	var p3 *edwards25519.Point
@@ -545,14 +591,14 @@ func ge25519FromUniform(r []byte) ([]byte, error) {
 	p3 = &edwards25519.Point{}
 	_, err := p3.SetBytes(s)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// multiply by the cofactor
 	p3.MultByCofactor(p3)
 
 	s = p3.Bytes()
-	return s, nil
+	return p3, s, nil
 }
 
 // chi25519 computes the Legendre symbol for field elements
