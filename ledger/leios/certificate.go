@@ -52,14 +52,40 @@ var negG2Generator = func() bls12381.G2Affine {
 	return negated
 }()
 
-// VerifyDijkstraCertificate validates committee state, signer stake, key
-// possession proofs, and the aggregate signature in a Dijkstra certificate.
+// VerifyDijkstraCertificate validates a certificate whose committee keys were
+// registered under the IETF proof-of-possession domain. See
+// VerifyDijkstraCertificateForDomain.
 func VerifyDijkstraCertificate(
 	signers, signature []byte,
 	committeeSize uint16,
 	quorumStakeThreshold *big.Rat,
 	context common.DijkstraLeiosCertificateContext,
 ) error {
+	return VerifyDijkstraCertificateForDomain(
+		signers,
+		signature,
+		committeeSize,
+		quorumStakeThreshold,
+		context,
+		common.DijkstraBlsProofDomainPop,
+	)
+}
+
+// VerifyDijkstraCertificateForDomain validates committee state, signer stake,
+// key possession proofs, and the aggregate signature in a Dijkstra
+// certificate. Committee seat keys are pool keys, so their proofs are checked
+// under the same domain the network's POOL rule used at registration.
+func VerifyDijkstraCertificateForDomain(
+	signers, signature []byte,
+	committeeSize uint16,
+	quorumStakeThreshold *big.Rat,
+	context common.DijkstraLeiosCertificateContext,
+	domain common.DijkstraBlsProofDomain,
+) error {
+	proofDST, err := proofDomainDST(domain)
+	if err != nil {
+		return err
+	}
 	if uint64(len(context.Committee)) != uint64(committeeSize) {
 		return fmt.Errorf(
 			"%w: got %d seats, want %d",
@@ -110,7 +136,7 @@ func VerifyDijkstraCertificate(
 		if seat.Key == nil {
 			return fmt.Errorf("%w: seat %d", ErrKeylessSigner, i)
 		}
-		pub, stage, err := verifiedPossessionKey(seat.Key, leiosProofDST)
+		pub, stage, err := verifiedPossessionKey(seat.Key, proofDST)
 		if err != nil {
 			if stage == keyCheckDecode {
 				return fmt.Errorf(
@@ -195,19 +221,9 @@ func VerifyPossessionProofForDomain(
 	key common.LeiosKey,
 	domain common.DijkstraBlsProofDomain,
 ) error {
-	var dst string
-	switch domain {
-	case common.DijkstraBlsProofDomainPop:
-		dst = leiosProofDST
-	case common.DijkstraBlsProofDomainLegacySig:
-		dst = leiosSignatureDST
-	default:
-		return common.NewValidationError(
-			common.ValidationErrorTypeConfiguration,
-			"unsupported Dijkstra BLS proof domain",
-			map[string]any{"domain": domain},
-			nil,
-		)
+	dst, err := proofDomainDST(domain)
+	if err != nil {
+		return err
 	}
 	_, stage, err := verifiedPossessionKey(&key, dst)
 	if err != nil && stage == keyCheckDecode {
@@ -222,6 +238,22 @@ func VerifyPossessionProofForDomain(
 		return fmt.Errorf("%w: %w", ErrInvalidProof, err)
 	}
 	return nil
+}
+
+func proofDomainDST(domain common.DijkstraBlsProofDomain) (string, error) {
+	switch domain {
+	case common.DijkstraBlsProofDomainPop:
+		return leiosProofDST, nil
+	case common.DijkstraBlsProofDomainLegacySig:
+		return leiosSignatureDST, nil
+	default:
+		return "", common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"unsupported Dijkstra BLS proof domain",
+			map[string]any{"domain": domain},
+			nil,
+		)
+	}
 }
 
 func decodePublicKey(encoded []byte) (*bls12381.G2Affine, error) {

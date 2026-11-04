@@ -348,12 +348,13 @@ func validateDijkstraBlockCertificates(
 			err,
 		)
 	}
-	if err := leios.VerifyDijkstraCertificate(
+	if err := leios.VerifyDijkstraCertificateForDomain(
 		dijkstraBlock.BlockBody.LeiosCertificate.Signers,
 		dijkstraBlock.BlockBody.LeiosCertificate.AggregatedSignature,
 		pparams.LeiosCommitteeSize,
 		pparams.LeiosQuorumStakeThreshold.Rat,
 		context,
+		common.DijkstraBlsProofDomainFor(ledgerState),
 	); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
