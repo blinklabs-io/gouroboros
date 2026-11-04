@@ -1147,3 +1147,44 @@ func TestDijkstraPlutusWellFormednessAdmission(t *testing.T) {
 		})
 	}
 }
+
+// TestPlutusWellFormednessMemoIsPerProtocolVersion checks the well-formedness
+// memo: a script accepted under one protocol version must still be checked,
+// and rejected, under a version that does not admit it, and a rejected script
+// must be rejected every time.
+func TestPlutusWellFormednessMemoIsPerProtocolVersion(t *testing.T) {
+	script := common.PlutusV3Script(encodePlutusContextTestScript(
+		t,
+		lang.LanguageVersion{1, 1, 0},
+		1,
+		&syn.Builtin{DefaultFunction: builtin.OrByteString},
+	))
+	params := func(major uint) *conway.ConwayProtocolParameters {
+		return &conway.ConwayProtocolParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: major,
+			},
+		}
+	}
+	witnessTx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet().WithPlutusV3Scripts(script),
+	)
+	referenceTx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+		plutusContextReferenceOutput(t, common.ScriptRefTypePlutusV3, script),
+	)
+	for _, tx := range []common.Transaction{witnessTx, referenceTx} {
+		for range 2 {
+			require.NoError(t, conway.UtxoValidateMalformedReferenceScripts(
+				tx, 0, nil, params(10),
+			))
+		}
+		for range 2 {
+			require.Error(t, conway.UtxoValidateMalformedReferenceScripts(
+				tx, 0, nil, params(9),
+			))
+		}
+	}
+}
