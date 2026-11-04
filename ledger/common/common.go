@@ -558,9 +558,8 @@ func ledgerMapHeaderSize(n int) int {
 	if n > 23 {
 		return 2
 	}
-	return cborHeaderSize(
-		uint64(n),
-	) //nolint:gosec // a length is never negative
+	//nolint:gosec // a length is never negative
+	return cborHeaderSize(uint64(n))
 }
 
 // cborHeaderSize is the length of a CBOR head carrying argument n.
@@ -2308,29 +2307,23 @@ func extractDijkstraSubTransactionOffsets(
 				)
 			}
 			subLoc := &loc.SubTransactions[subIdx]
-			subBodyOffset := subPos + uint32(
-				int(subHeaderSize)+bodyRel,
-			) // #nosec G115
+			//nolint:gosec // sub-transaction offsets are within the block
+			subBodyOffset := subPos + uint32(int(subHeaderSize)+bodyRel)
+			//nolint:gosec // sub-transaction lengths are within the block
 			subLoc.Body = ByteRange{
 				Offset: subBodyOffset,
 				Length: uint32(len(subBody)),
-			} // #nosec G115
+			}
+			//nolint:gosec // sub-transaction offsets are within the block
 			subLoc.Witness = ByteRange{
-				Offset: subPos + uint32(
-					int(subHeaderSize)+witnessRel,
-				), // #nosec G115
-				Length: uint32(
-					len(subWitness),
-				), // #nosec G115
+				Offset: subPos + uint32(int(subHeaderSize)+witnessRel),
+				Length: uint32(len(subWitness)),
 			}
 			if len(subAux) != 1 || subAux[0] != 0xf6 {
+				//nolint:gosec // sub-transaction offsets are within the block
 				subLoc.Metadata = ByteRange{
-					Offset: subPos + uint32(
-						int(subHeaderSize)+auxRel,
-					), // #nosec G115
-					Length: uint32(
-						len(subAux),
-					), // #nosec G115
+					Offset: subPos + uint32(int(subHeaderSize)+auxRel),
+					Length: uint32(len(subAux)),
 				}
 			}
 			extractOutputOffsets(subBody, subBodyOffset, subLoc)
@@ -2501,11 +2494,10 @@ func ExtractTransactionOffsets(
 	witnessPos := witnessesOffset + witnessArrayHeader
 	for i, rawWitness := range witnessesRaw {
 		if i < len(result.Transactions) {
+			//nolint:gosec // Cardano block segments are <<4GiB
 			result.Transactions[i].Witness = ByteRange{
 				Offset: witnessPos,
-				Length: uint32(
-					len(rawWitness),
-				), // #nosec G115 -- Cardano block segments are <<4GiB
+				Length: uint32(len(rawWitness)),
 			}
 
 			// Extract datum, redeemer, and script offsets from witness set
@@ -2815,13 +2807,10 @@ func extractDatumOffsets(
 		var hash Blake2b256
 		copy(hash[:], computed[:])
 
+		//nolint:gosec // Cardano block segments are <<4GiB
 		result[hash] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(
-				datumOffset,
-			), // #nosec G115 -- Cardano block segments are <<4GiB
-			Length: uint32(
-				len(datumBytes),
-			), // #nosec G115 -- Cardano block segments are <<4GiB
+			Offset: baseOffset + headerSize + uint32(datumOffset),
+			Length: uint32(len(datumBytes)),
 		}
 	}
 }
@@ -2886,13 +2875,10 @@ func extractRedeemerMapOffsets(
 			return
 		}
 
+		//nolint:gosec // tag is a small enum, index is bounded by tx size
 		key := RedeemerKey{
-			Tag: RedeemerTag(
-				keyPair[0],
-			), // #nosec G115 -- redeemer tag is a small enum value
-			Index: uint32(
-				keyPair[1],
-			), // #nosec G115 -- redeemer index bounded by transaction size
+			Tag:   RedeemerTag(keyPair[0]),
+			Index: uint32(keyPair[1]),
 		}
 
 		// Get value position and bytes: value is [data, exunits]
@@ -2918,15 +2904,11 @@ func extractRedeemerMapOffsets(
 			continue
 		}
 
+		//nolint:gosec // offsets are within the block
 		result[key] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(
-				valueOffset,
-			) + valueHeaderSize + uint32(
-				dataOffset,
-			), // #nosec G115
-			Length: uint32(
-				dataLen,
-			), // #nosec G115
+			Offset: baseOffset + headerSize + uint32(valueOffset) +
+				valueHeaderSize + uint32(dataOffset),
+			Length: uint32(dataLen),
 		}
 	}
 }
@@ -2999,15 +2981,11 @@ func extractRedeemerArrayOffsets(
 			continue
 		}
 
+		//nolint:gosec // offsets are within the block
 		result[key] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(
-				elemOffset,
-			) + innerHeaderSize + uint32(
-				dataOffset,
-			), // #nosec G115
-			Length: uint32(
-				dataLen,
-			), // #nosec G115
+			Offset: baseOffset + headerSize + uint32(elemOffset) +
+				innerHeaderSize + uint32(dataOffset),
+			Length: uint32(dataLen),
 		}
 	}
 }
@@ -3102,16 +3080,14 @@ func extractScriptArrayOffsets(
 			slices.Concat([]byte{scriptType}, scriptBytes),
 		)
 
+		//nolint:gosec // Cardano block segments are <<4GiB
 		result[hashKey] = ByteRange{
 			Offset: baseOffset + pos,
-			Length: uint32(
-				len(scriptBytes),
-			), // #nosec G115 -- Cardano block segments are <<4GiB
+			Length: uint32(len(scriptBytes)),
 		}
 
-		pos += uint32(
-			len(scriptBytes),
-		) // #nosec G115 -- Cardano block segments are <<4GiB
+		//nolint:gosec // Cardano block segments are <<4GiB
+		pos += uint32(len(scriptBytes))
 	}
 }
 

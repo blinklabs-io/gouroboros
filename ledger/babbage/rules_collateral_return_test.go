@@ -184,7 +184,12 @@ func TestBabbageTotalCollateralPresenceDistinguishesExplicitZero(t *testing.T) {
 		},
 	}
 	state := mockledger.NewLedgerStateBuilder().
-		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: 5_000_000}}}).
+		WithUtxos([]common.Utxo{{
+			Id: input,
+			Output: shelley.ShelleyTransactionOutput{
+				OutputAmount: 5_000_000,
+			},
+		}}).
 		Build()
 	require.Error(
 		t,

@@ -622,15 +622,11 @@ func addressCBORArgument(raw []byte, additional byte) (uint64, int, error) {
 	case additional == 25 && len(raw) >= 3:
 		return uint64(raw[1])<<8 | uint64(raw[2]), 3, nil
 	case additional == 26 && len(raw) >= 5:
-		return uint64(
-			raw[1],
-		)<<24 | uint64(
-			raw[2],
-		)<<16 | uint64(
-			raw[3],
-		)<<8 | uint64(
-			raw[4],
-		), 5, nil
+		var value uint64
+		for _, b := range raw[1:5] {
+			value = value<<8 | uint64(b)
+		}
+		return value, 5, nil
 	case additional == 27 && len(raw) >= 9:
 		var value uint64
 		for _, b := range raw[1:9] {
@@ -1479,9 +1475,8 @@ func (a AddressPayloadPointer) encode() []byte {
 		val /= 128
 		for val > 0 {
 			i--
-			tmp[i] = byte(
-				(val & 0x7F) | 0x80,
-			) //nolint:gosec // masked to 7 bits, always fits byte
+			//nolint:gosec // masked to 7 bits, always fits byte
+			tmp[i] = byte((val & 0x7F) | 0x80)
 			val /= 128
 		}
 		return copy(dst, tmp[i:])

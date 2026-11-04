@@ -1302,14 +1302,10 @@ func collectTransactionScriptRequirements(
 	}
 	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
 		ret.required[hash] = struct{}{}
+		//nolint:gosec // transaction collections are bounded
 		ret.purposes = append(ret.purposes, scriptRequirement{
-			hash: hash,
-			redeemer: RedeemerKey{
-				Tag: tag,
-				Index: uint32(
-					index,
-				), // #nosec G115 -- transaction collections are bounded
-			},
+			hash:     hash,
+			redeemer: RedeemerKey{Tag: tag, Index: uint32(index)},
 		})
 	}
 	addWitnessSet := func(wits TransactionWitnessSet) error {
@@ -2170,10 +2166,8 @@ func EncodeLangViews(
 	result := make([]byte, 0, totalSize)
 	// Encode map length (definite-length map)
 	if len(views) < 24 {
-		result = append(
-			result,
-			0xa0+byte(len(views)),
-		) //nolint:gosec // len < 24
+		//nolint:gosec // len < 24
+		result = append(result, 0xa0+byte(len(views)))
 	} else {
 		result = append(result, 0xb8, byte(len(views))) //nolint:gosec // len < 256
 	}

@@ -314,8 +314,9 @@ func requireByronTextString(raw []byte, name string) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	// headerLen was bounds-checked by byronCBORArgument; len is MaxInt-bounded.
+	//nolint:gosec // len(raw)-headerLen is non-negative
 	if length > uint64(len(raw)-headerLen) ||
-		uint64(len(raw)-headerLen) != length { //nolint:gosec
+		uint64(len(raw)-headerLen) != length {
 		return fmt.Errorf("%s has truncated text or trailing CBOR data", name)
 	}
 	var value string
@@ -370,8 +371,9 @@ func decodeByronByteString(raw []byte, canonical bool) ([]byte, error) {
 		return nil, errors.New("non-shortest string length")
 	}
 	// headerLen was bounds-checked by byronCBORArgument; len is MaxInt-bounded.
+	//nolint:gosec // len(raw)-headerLen is non-negative
 	if length > uint64(len(raw)-headerLen) ||
-		uint64(len(raw)-headerLen) != length { //nolint:gosec
+		uint64(len(raw)-headerLen) != length {
 		return nil, errors.New("truncated string or trailing CBOR data")
 	}
 	return raw[headerLen:], nil

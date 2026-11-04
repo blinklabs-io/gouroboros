@@ -1385,7 +1385,8 @@ func TestCIP0019_PointerAddressEdgeCases(t *testing.T) {
 			}
 
 			header := byte(
-				(AddressTypeKeyPointer << 4) | (AddressNetworkMainnet & AddressHeaderNetworkMask),
+				(AddressTypeKeyPointer << 4) |
+					(AddressNetworkMainnet & AddressHeaderNetworkMask),
 			)
 			data := []byte{header}
 			data = append(data, paymentHash...)

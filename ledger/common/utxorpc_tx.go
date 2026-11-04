@@ -818,13 +818,10 @@ func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 		r.Num().
 			Int64() <=
 			math.MaxInt32 && r.Denom().Uint64() <= math.MaxUint32 {
+		//nolint:gosec // bounded above
 		return &utxorpc.RationalNumber{
-			Numerator: int32(
-				r.Num().Int64(),
-			), // #nosec G115 -- bounded above
-			Denominator: uint32(
-				r.Denom().Uint64(),
-			), // #nosec G115 -- bounded above
+			Numerator:   int32(r.Num().Int64()),
+			Denominator: uint32(r.Denom().Uint64()),
 		}, nil
 	}
 
@@ -877,13 +874,10 @@ func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 	if sign < 0 {
 		numerator.Neg(numerator)
 	}
+	//nolint:gosec // bounded above
 	return &utxorpc.RationalNumber{
-		Numerator: int32(
-			numerator.Int64(),
-		), // #nosec G115 -- bounded above
-		Denominator: uint32(
-			denominator.Uint64(),
-		), // #nosec G115 -- bounded above
+		Numerator:   int32(numerator.Int64()),
+		Denominator: uint32(denominator.Uint64()),
 	}, nil
 }
 

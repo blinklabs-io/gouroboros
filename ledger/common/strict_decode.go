@@ -222,9 +222,8 @@ func decodeByteStringArray(
 			)
 		}
 		remaining -= byteHeaderLength
-		if length > uint64(
-			remaining,
-		) { // #nosec G115 -- remaining is non-negative and bounded by data above.
+		//nolint:gosec // remaining is non-negative and bounded by data above.
+		if length > uint64(remaining) {
 			return fields, fmt.Errorf(
 				"decode %s field %d: byte string exceeds data",
 				name,
@@ -334,9 +333,8 @@ func validateFixedLengthByteString(
 	if err != nil {
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
-	if length != uint64(
-		expected,
-	) { // #nosec G115 -- expected is non-negative after the guard above.
+	//nolint:gosec // expected is non-negative after the guard above.
+	if length != uint64(expected) {
 		return fmt.Errorf(
 			"invalid %s length: expected %d bytes, got %d",
 			name,
@@ -363,9 +361,8 @@ func validateDefiniteTextString(cborData []byte, name string) error {
 		return fmt.Errorf("decode %s: text string header exceeds data", name)
 	}
 	payloadLength := len(cborData) - headerLength
-	if length != uint64(
-		payloadLength,
-	) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+	//nolint:gosec // payloadLength is non-negative after the bound check above.
+	if length != uint64(payloadLength) {
 		return fmt.Errorf(
 			"decode %s: text string length does not match data",
 			name,
@@ -389,9 +386,8 @@ func validateDefiniteByteString(cborData []byte, name string) error {
 		return fmt.Errorf("decode %s: byte string header exceeds data", name)
 	}
 	payloadLength := len(cborData) - headerLength
-	if length != uint64(
-		payloadLength,
-	) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+	//nolint:gosec // payloadLength is non-negative after the bound check above.
+	if length != uint64(payloadLength) {
 		return fmt.Errorf(
 			"decode %s: byte string length does not match data",
 			name,
