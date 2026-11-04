@@ -135,6 +135,31 @@ func NewTxScriptView(
 	tx lcommon.Transaction,
 	ls lcommon.LedgerState,
 ) (TxScriptView, error) {
+	// Only the scoped state itself is trusted: an adapter above it may
+	// resolve UTxOs differently, and a view built through it must not be
+	// shared with rules that see the scoped state directly.
+	memo, ok := ls.(lcommon.TransactionScopedMemoizer)
+	if ok && tx != nil && lcommon.IsTransactionScopedLedgerState(ls) {
+		value, err := memo.TransactionScopedMemo(
+			tx,
+			txScriptViewMemoKey{},
+			func() (any, error) { return newTxScriptView(tx, ls) },
+		)
+		view, _ := value.(TxScriptView)
+		return view, err
+	}
+	return newTxScriptView(tx, ls)
+}
+
+// txScriptViewMemoKey is NewTxScriptView's TransactionScopedMemo key. Rules
+// build the view independently, several times per transaction, and share it
+// read-only.
+type txScriptViewMemoKey struct{}
+
+func newTxScriptView(
+	tx lcommon.Transaction,
+	ls lcommon.LedgerState,
+) (TxScriptView, error) {
 	var view TxScriptView
 	if tx == nil {
 		return view, nil

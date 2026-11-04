@@ -143,6 +143,112 @@ type cachedLedgerState struct {
 	// signatures is the caller's pre-verified witness signature result, read
 	// by UtxoValidateSignatures. It is nil for plain VerifyTransaction calls.
 	signatures *PreverifiedSignatures
+	// memo holds values derived from one transaction and this state, which
+	// several rules would otherwise each derive again. See
+	// TransactionScopedMemo.
+	memoMu sync.Mutex
+	memo   []*transactionScopedMemoEntry
+}
+
+// transactionScopedMemoEntry holds tx itself, not its address, so the
+// transaction stays reachable for as long as the memo does and a later
+// allocation can never be mistaken for it. done is closed once value and err
+// are set, so concurrent callers for the same entry wait for one build.
+type transactionScopedMemoEntry struct {
+	key   any
+	tx    Transaction
+	value any
+	err   error
+	done  chan struct{}
+}
+
+// TransactionScopedMemoizer is implemented by the ledger state that
+// validation rules receive while one transaction is validated. Values derived
+// from the transaction and the ledger state can be computed once there and
+// shared by the rules, because neither changes for the duration of that
+// validation.
+type TransactionScopedMemoizer interface {
+	// TransactionScopedMemo returns the value and error build produced for
+	// key and tx, calling build the first time. A transaction is identified
+	// by object, so a distinct transaction value, such as a Dijkstra
+	// sub-transaction, never shares an entry. A transaction that is not a
+	// pointer is never memoized.
+	TransactionScopedMemo(
+		tx Transaction,
+		key any,
+		build func() (any, error),
+	) (any, error)
+}
+
+// NewTransactionScopedLedgerState returns ledgerState wrapped as the
+// transaction-scoped state VerifyTransaction gives its rules: UTxO lookups and
+// TransactionScopedMemo values are shared for as long as it is used. Use one
+// for exactly one transaction validation, during which the ledger state it
+// wraps must not change. A nil state, or one that is already scoped, is
+// returned unchanged.
+func NewTransactionScopedLedgerState(ledgerState LedgerState) LedgerState {
+	return newTransactionScopedLedgerState(ledgerState, nil)
+}
+
+func newTransactionScopedLedgerState(
+	ledgerState LedgerState,
+	signatures *PreverifiedSignatures,
+) LedgerState {
+	if ledgerState == nil ||
+		(reflect.ValueOf(ledgerState).Kind() == reflect.Pointer &&
+			reflect.ValueOf(ledgerState).IsNil()) {
+		return ledgerState
+	}
+	if cached, ok := ledgerState.(*cachedLedgerState); ok &&
+		cached.signatures == signatures {
+		return cached
+	}
+	return &cachedLedgerState{
+		LedgerState: ledgerState,
+		lookups:     make(map[utxoCacheKey]cachedUtxoLookup),
+		signatures:  signatures,
+	}
+}
+
+// IsTransactionScopedLedgerState reports whether ledgerState is the state
+// NewTransactionScopedLedgerState returns. An adapter that merely forwards
+// TransactionScopedMemoizer is not, because it may resolve UTxOs differently
+// from the state it forwards to.
+func IsTransactionScopedLedgerState(ledgerState LedgerState) bool {
+	_, ok := ledgerState.(*cachedLedgerState)
+	return ok
+}
+
+// TransactionScopedMemo implements TransactionScopedMemoizer. build runs
+// with the memo unlocked, so it may itself use the memo under another key.
+// Concurrent callers for one transaction and key share a single build. A key
+// that is not comparable is never memoized.
+func (c *cachedLedgerState) TransactionScopedMemo(
+	tx Transaction,
+	key any,
+	build func() (any, error),
+) (any, error) {
+	txValue := reflect.ValueOf(tx)
+	if tx == nil || txValue.Kind() != reflect.Pointer || txValue.IsNil() ||
+		(key != nil && !reflect.ValueOf(key).Comparable()) {
+		return build()
+	}
+	c.memoMu.Lock()
+	for _, entry := range c.memo {
+		if entry.tx == tx && entry.key == key {
+			c.memoMu.Unlock()
+			<-entry.done
+			return entry.value, entry.err
+		}
+	}
+	entry := &transactionScopedMemoEntry{
+		key: key, tx: tx, done: make(chan struct{}),
+	}
+	c.memo = append(c.memo, entry)
+	c.memoMu.Unlock()
+	defer close(entry.done)
+	entry.value, entry.err = build()
+	return entry.value, entry.err
 }
 
 // LedgerStateUnwrapper exposes the provider beneath a validation-time
@@ -416,15 +522,7 @@ func VerifyTransactionWithSignatures(
 	validationRules []UtxoValidationRuleFunc,
 	signatures *PreverifiedSignatures,
 ) error {
-	if ledgerState != nil &&
-		(reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
-			!reflect.ValueOf(ledgerState).IsNil()) {
-		ledgerState = &cachedLedgerState{
-			LedgerState: ledgerState,
-			lookups:     make(map[utxoCacheKey]cachedUtxoLookup),
-			signatures:  signatures,
-		}
-	}
+	ledgerState = newTransactionScopedLedgerState(ledgerState, signatures)
 	for i, rule := range validationRules {
 		if err := rule(tx, slot, ledgerState, protocolParams); err != nil {
 			details := map[string]any{"rule_index": i, "slot": slot}
