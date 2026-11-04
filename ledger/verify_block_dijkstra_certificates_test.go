@@ -212,3 +212,46 @@ func TestValidateDijkstraBlockCertificatesUsesLedgerProofDomain(t *testing.T) {
 	))
 	require.Error(t, validateDijkstraBlockCertificates(block, params, state))
 }
+
+func TestValidateDijkstraBlockCertificatesInvalidDomainIsConfigurationError(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	blockHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	state := dijkstraLeiosDomainState{
+		dijkstraLeiosTestState: dijkstraLeiosTestState{
+			context: common.DijkstraLeiosCertificateContext{
+				AnnouncingBlockHash: blockHash,
+				TotalActiveStake:    1,
+				Committee: []common.DijkstraLeiosCommitteeMember{{
+					Stake: 1,
+					Key:   &common.LeiosKey{},
+				}},
+			},
+		},
+		domain: common.DijkstraBlsProofDomain(0xff),
+	}
+	block := &dijkstra.DijkstraBlock{
+		BlockHeader: &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf5}},
+		},
+		BlockBody: dijkstra.DijkstraBlockBody{
+			LeiosCertificate: &dijkstra.DijkstraLeiosCertificate{
+				Signers:             []byte{0x80},
+				AggregatedSignature: make([]byte, 48),
+			},
+		},
+	}
+	params := &dijkstra.DijkstraProtocolParameters{
+		LeiosCommitteeSize:        1,
+		LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+
+	err := validateDijkstraBlockCertificates(block, params, state)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.Equal(
+		t, common.ValidationErrorTypeConfiguration, validationErr.Type,
+	)
+}

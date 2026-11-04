@@ -356,6 +356,11 @@ func validateDijkstraBlockCertificates(
 		context,
 		common.DijkstraBlsProofDomainFor(ledgerState),
 	); err != nil {
+		var configErr *common.ValidationError
+		if errors.As(err, &configErr) &&
+			configErr.Type == common.ValidationErrorTypeConfiguration {
+			return err
+		}
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"invalid Dijkstra Leios certificate",
