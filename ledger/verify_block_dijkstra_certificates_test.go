@@ -251,6 +251,9 @@ func TestValidateDijkstraBlockCertificatesInvalidDomainIsConfigurationError(
 	err := validateDijkstraBlockCertificates(block, params, state)
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
+	if validationErr == nil {
+		t.Fatal("expected validation error")
+	}
 	require.Equal(
 		t, common.ValidationErrorTypeConfiguration, validationErr.Type,
 	)

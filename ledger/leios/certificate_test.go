@@ -148,5 +148,8 @@ func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
 	)
 	var configErr *common.ValidationError
 	require.ErrorAs(t, err, &configErr)
+	if configErr == nil {
+		t.Fatal("expected validation error")
+	}
 	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
 }
