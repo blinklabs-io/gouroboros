@@ -125,7 +125,7 @@ func dijkstraTopTxInfoGuardDatumsV4(
 			}
 			datums = append(datums, txDatum{
 				id:    level.tx.Id(),
-				datum: data.Normalize(datum.Data),
+				datum: data.NormalizeShared(datum.Data),
 			})
 		}
 	}

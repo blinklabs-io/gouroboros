@@ -1025,7 +1025,7 @@ func (o BabbageTransactionOutput) ToPlutusData() data.PlutusData {
 		// with. serialiseData exposes the difference.
 		datumOptionPd = data.NewConstr(
 			2,
-			data.Normalize(o.DatumOption.data.Data),
+			data.NormalizeShared(o.DatumOption.data.Data),
 		)
 	}
 	var scriptRefPd data.PlutusData

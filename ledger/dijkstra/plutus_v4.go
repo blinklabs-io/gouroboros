@@ -68,7 +68,7 @@ func dijkstraPlutusV4Context(
 	}
 	return data.NewList(
 		txInfo,
-		data.Normalize(value.Data.Data),
+		data.NormalizeShared(value.Data.Data),
 		scriptInfo,
 		data.NewByteString(purpose.ScriptHash().Bytes()),
 	), nil
@@ -314,7 +314,7 @@ func dijkstraOutputV4(
 	var datumData data.PlutusData
 	switch {
 	case output.Datum() != nil:
-		datumData = data.NewConstr(2, data.Normalize(output.Datum().Data))
+		datumData = data.NewConstr(2, data.NormalizeShared(output.Datum().Data))
 	case output.DatumHash() != nil:
 		datumData = data.NewConstr(
 			1,
@@ -385,7 +385,7 @@ func dijkstraRedeemersV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		if err != nil {
 			return nil, err
 		}
-		pairs = append(pairs, [2]data.PlutusData{purposeData, data.Normalize(value.Data.Data)})
+		pairs = append(pairs, [2]data.PlutusData{purposeData, data.NormalizeShared(value.Data.Data)})
 	}
 	return data.NewMap(pairs), nil
 }
@@ -709,7 +709,7 @@ func dijkstraRequiredTopLevelGuardsV4(
 			// other script-visible boundary in this file normalizes; this
 			// one must too, or a required top-level guard datum reaches a
 			// PlutusV4 script with non-canonical bytes.
-			value = data.NewConstr(0, data.Normalize(datum.Data))
+			value = data.NewConstr(0, data.NormalizeShared(datum.Data))
 		}
 		pairs = append(pairs, [2]data.PlutusData{
 			credential.ToPlutusData(), value,

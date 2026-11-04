@@ -513,7 +513,7 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 			// handling in BabbageTransactionOutput.ToPlutusData.
 			datumOption = data.NewConstr(
 				2,
-				data.Normalize(tmp.Data),
+				data.NormalizeShared(tmp.Data),
 			)
 		} else if tmp := v.DatumHash(); tmp != nil {
 			datumOption = data.NewConstr(
