@@ -68,7 +68,10 @@ func writeLeiosFetchTestSegment(
 	t.Helper()
 	require.NotNil(t, segment)
 	buf := &bytes.Buffer{}
-	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+	)
 	_, err := buf.Write(segment.Payload)
 	require.NoError(t, err)
 	_, err = conn.Write(buf.Bytes())
@@ -232,7 +235,11 @@ func sendRepeatedRequestTest(
 	peerResponse, err := readLeiosFetchTestSegment(t, connB)
 	require.NoError(t, err)
 	require.True(t, peerResponse.IsResponse())
-	require.Equal(t, uint16(peersharing.ProtocolId), peerResponse.GetProtocolId())
+	require.Equal(
+		t,
+		uint16(peersharing.ProtocolId),
+		peerResponse.GetProtocolId(),
+	)
 	require.Never(t, func() bool {
 		select {
 		case <-errs:
@@ -272,13 +279,15 @@ func TestHandleBlockRequest_CallbackIsCalled(t *testing.T) {
 	expectedHash := testPointHash(0x01)
 
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			called = true
-			assert.Equal(t, expectedSlot, point.Slot)
-			assert.Equal(t, expectedHash, point.Hash)
-			// Return an error to prevent attempting to send (which would hang)
-			return nil, errors.New("test: stopping before send")
-		}),
+		WithBlockRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
+				called = true
+				assert.Equal(t, expectedSlot, point.Slot)
+				assert.Equal(t, expectedHash, point.Hash)
+				// Return an error to prevent attempting to send (which would hang)
+				return nil, errors.New("test: stopping before send")
+			},
+		),
 	)
 
 	server := &Server{
@@ -303,9 +312,11 @@ func TestHandleBlockRequest_CallbackError(t *testing.T) {
 
 	expectedError := fmt.Errorf("cache lookup: %w", ErrBlockNotFound)
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			return nil, expectedError
-		}),
+		WithBlockRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
+				return nil, expectedError
+			},
+		),
 	)
 
 	server := &Server{
@@ -329,9 +340,11 @@ func TestHandleBlockRequest_NilResponse(t *testing.T) {
 	}
 
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			return nil, nil
-		}),
+		WithBlockRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
+				return nil, nil
+			},
+		),
 	)
 
 	server := &Server{
@@ -355,9 +368,11 @@ func TestHandleBlockRequest_NonNotFoundErrorPropagates(t *testing.T) {
 
 	expectedError := errors.New("some other failure")
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(CallbackContext, pcommon.Point) (protocol.Message, error) {
-			return nil, expectedError
-		}),
+		WithBlockRequestFunc(
+			func(CallbackContext, pcommon.Point) (protocol.Message, error) {
+				return nil, expectedError
+			},
+		),
 	)
 
 	server := &Server{
@@ -388,14 +403,16 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 	}
 
 	cfg := NewConfig(
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
-			called = true
-			assert.Equal(t, expectedSlot, point.Slot)
-			assert.Equal(t, expectedHash, point.Hash)
-			assert.Equal(t, expectedBitmaps, bitmaps)
-			// Return an error to prevent attempting to send (which would hang)
-			return nil, errors.New("test: stopping before send")
-		}),
+		WithBlockTxsRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
+				called = true
+				assert.Equal(t, expectedSlot, point.Slot)
+				assert.Equal(t, expectedHash, point.Hash)
+				assert.Equal(t, expectedBitmaps, bitmaps)
+				// Return an error to prevent attempting to send (which would hang)
+				return nil, errors.New("test: stopping before send")
+			},
+		),
 	)
 
 	server := &Server{
@@ -404,7 +421,10 @@ func TestHandleBlockTxsRequest_CallbackIsCalled(t *testing.T) {
 	}
 	server.initProtocol()
 
-	msg := NewMsgBlockTxsRequest(pcommon.NewPoint(expectedSlot, expectedHash), expectedBitmaps)
+	msg := NewMsgBlockTxsRequest(
+		pcommon.NewPoint(expectedSlot, expectedHash),
+		expectedBitmaps,
+	)
 	err := server.handleBlockTxsRequest(msg)
 
 	// Error is expected because we return an error from the callback
@@ -424,12 +444,14 @@ func TestHandleVotesRequest_CallbackIsCalled(t *testing.T) {
 	}
 
 	cfg := NewConfig(
-		WithVotesRequestFunc(func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
-			called = true
-			assert.Equal(t, expectedVoteIds, voteIds)
-			// Return an error to prevent attempting to send (which would hang)
-			return nil, errors.New("test: stopping before send")
-		}),
+		WithVotesRequestFunc(
+			func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
+				called = true
+				assert.Equal(t, expectedVoteIds, voteIds)
+				// Return an error to prevent attempting to send (which would hang)
+				return nil, errors.New("test: stopping before send")
+			},
+		),
 	)
 
 	server := &Server{
@@ -468,12 +490,14 @@ func TestHandleBlockRangeRequest_Callback(t *testing.T) {
 	expectedEnd := pcommon.NewPoint(200, testPointHash(0x05))
 
 	cfg := NewConfig(
-		WithBlockRangeRequestFunc(func(ctx CallbackContext, start, end pcommon.Point) error {
-			called = true
-			assert.Equal(t, expectedStart, start)
-			assert.Equal(t, expectedEnd, end)
-			return nil
-		}),
+		WithBlockRangeRequestFunc(
+			func(ctx CallbackContext, start, end pcommon.Point) error {
+				called = true
+				assert.Equal(t, expectedStart, start)
+				assert.Equal(t, expectedEnd, end)
+				return nil
+			},
+		),
 	)
 
 	server := &Server{
@@ -533,18 +557,26 @@ func TestServerMessageHandler_AllTypes(t *testing.T) {
 
 	// Create a config with all callbacks that return errors to prevent send attempts
 	cfg := NewConfig(
-		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			return nil, errors.New("test: callback error")
-		}),
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
-			return nil, errors.New("test: callback error")
-		}),
-		WithVotesRequestFunc(func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
-			return nil, errors.New("test: callback error")
-		}),
-		WithBlockRangeRequestFunc(func(ctx CallbackContext, start, end pcommon.Point) error {
-			return errors.New("test: callback error")
-		}),
+		WithBlockRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
+				return nil, errors.New("test: callback error")
+			},
+		),
+		WithBlockTxsRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
+				return nil, errors.New("test: callback error")
+			},
+		),
+		WithVotesRequestFunc(
+			func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
+				return nil, errors.New("test: callback error")
+			},
+		),
+		WithBlockRangeRequestFunc(
+			func(ctx CallbackContext, start, end pcommon.Point) error {
+				return errors.New("test: callback error")
+			},
+		),
 	)
 
 	server := NewServer(protoOptions, &cfg)
@@ -555,11 +587,16 @@ func TestServerMessageHandler_AllTypes(t *testing.T) {
 	}{
 		{
 			name: "BlockRequest",
-			msg:  NewMsgBlockRequest(pcommon.NewPoint(12345, testPointHash(0x01))),
+			msg: NewMsgBlockRequest(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+			),
 		},
 		{
 			name: "BlockTxsRequest",
-			msg:  NewMsgBlockTxsRequest(pcommon.NewPoint(12345, testPointHash(0x01)), nil),
+			msg: NewMsgBlockTxsRequest(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				nil,
+			),
 		},
 		{
 			name: "VotesRequest",

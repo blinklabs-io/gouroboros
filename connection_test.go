@@ -55,8 +55,16 @@ func TestWithDMQ(t *testing.T) {
 	defer oConn.Close()
 	// Before setupConnection runs (no underlying conn supplied yet) the
 	// DMQ protocol handles are nil. The accessors must still be callable.
-	assert.Nil(t, oConn.LocalMessageSubmission(), "LocalMessageSubmission should be nil before handshake")
-	assert.Nil(t, oConn.LocalMessageNotification(), "LocalMessageNotification should be nil before handshake")
+	assert.Nil(
+		t,
+		oConn.LocalMessageSubmission(),
+		"LocalMessageSubmission should be nil before handshake",
+	)
+	assert.Nil(
+		t,
+		oConn.LocalMessageNotification(),
+		"LocalMessageNotification should be nil before handshake",
+	)
 }
 
 // Ensure that we don't panic when closing the Connection object after a failed Dial() call
@@ -138,18 +146,54 @@ func TestConnectionOptions(t *testing.T) {
 		{"WithLogger", ouroboros.WithLogger(slog.Default())},
 		{"WithErrorChan", ouroboros.WithErrorChan(make(chan error, 10))},
 		{"WithNetwork", ouroboros.WithNetwork(ouroboros.NetworkMainnet)},
-		{"WithBlockFetchConfig", ouroboros.WithBlockFetchConfig(blockfetch.Config{})},
-		{"WithChainSyncConfig", ouroboros.WithChainSyncConfig(chainsync.Config{})},
-		{"WithKeepAliveConfig", ouroboros.WithKeepAliveConfig(keepalive.Config{})},
-		{"WithLocalStateQueryConfig", ouroboros.WithLocalStateQueryConfig(localstatequery.Config{})},
-		{"WithLocalTxMonitorConfig", ouroboros.WithLocalTxMonitorConfig(localtxmonitor.Config{})},
-		{"WithLocalTxSubmissionConfig", ouroboros.WithLocalTxSubmissionConfig(localtxsubmission.Config{})},
-		{"WithPeerSharingConfig", ouroboros.WithPeerSharingConfig(peersharing.Config{})},
-		{"WithTxSubmissionConfig", ouroboros.WithTxSubmissionConfig(txsubmission.Config{})},
-		{"WithLeiosFetchConfig", ouroboros.WithLeiosFetchConfig(leiosfetch.Config{})},
-		{"WithLeiosNotifyConfig", ouroboros.WithLeiosNotifyConfig(leiosnotify.Config{})},
-		{"WithLeiosVotesConfig", ouroboros.WithLeiosVotesConfig(leiosvotes.Config{})},
-		{"WithPerasVotesConfig", ouroboros.WithPerasVotesConfig(perasvotes.Config{})},
+		{
+			"WithBlockFetchConfig",
+			ouroboros.WithBlockFetchConfig(blockfetch.Config{}),
+		},
+		{
+			"WithChainSyncConfig",
+			ouroboros.WithChainSyncConfig(chainsync.Config{}),
+		},
+		{
+			"WithKeepAliveConfig",
+			ouroboros.WithKeepAliveConfig(keepalive.Config{}),
+		},
+		{
+			"WithLocalStateQueryConfig",
+			ouroboros.WithLocalStateQueryConfig(localstatequery.Config{}),
+		},
+		{
+			"WithLocalTxMonitorConfig",
+			ouroboros.WithLocalTxMonitorConfig(localtxmonitor.Config{}),
+		},
+		{
+			"WithLocalTxSubmissionConfig",
+			ouroboros.WithLocalTxSubmissionConfig(localtxsubmission.Config{}),
+		},
+		{
+			"WithPeerSharingConfig",
+			ouroboros.WithPeerSharingConfig(peersharing.Config{}),
+		},
+		{
+			"WithTxSubmissionConfig",
+			ouroboros.WithTxSubmissionConfig(txsubmission.Config{}),
+		},
+		{
+			"WithLeiosFetchConfig",
+			ouroboros.WithLeiosFetchConfig(leiosfetch.Config{}),
+		},
+		{
+			"WithLeiosNotifyConfig",
+			ouroboros.WithLeiosNotifyConfig(leiosnotify.Config{}),
+		},
+		{
+			"WithLeiosVotesConfig",
+			ouroboros.WithLeiosVotesConfig(leiosvotes.Config{}),
+		},
+		{
+			"WithPerasVotesConfig",
+			ouroboros.WithPerasVotesConfig(perasvotes.Config{}),
+		},
 	}
 
 	for _, tc := range testCases {
@@ -237,11 +281,17 @@ func TestPerasVotesHandshakeNegotiation(t *testing.T) {
 			}
 			results := make(chan result, 2)
 			clientOptions := []ouroboros.ConnectionOptionFunc{
-				ouroboros.WithConnection(clientPipe), ouroboros.WithNodeToNode(true),
-				ouroboros.WithNetworkMagic(42), ouroboros.WithDelayProtocolStart(true),
+				ouroboros.WithConnection(
+					clientPipe,
+				), ouroboros.WithNodeToNode(true),
+				ouroboros.WithNetworkMagic(
+					42,
+				), ouroboros.WithDelayProtocolStart(true),
 			}
 			serverOptions := []ouroboros.ConnectionOptionFunc{
-				ouroboros.WithConnection(serverPipe), ouroboros.WithServer(true),
+				ouroboros.WithConnection(
+					serverPipe,
+				), ouroboros.WithServer(true),
 				ouroboros.WithNodeToNode(true), ouroboros.WithNetworkMagic(42),
 				ouroboros.WithDelayProtocolStart(true),
 			}
@@ -379,7 +429,9 @@ func TestConnectionRejectsUnconfiguredLeiosProtocolFromPeer(t *testing.T) {
 	case err := <-conn.ErrorChan():
 		require.Error(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("unconfigured Leios protocol segment did not fail the connection")
+		t.Fatal(
+			"unconfigured Leios protocol segment did not fail the connection",
+		)
 	}
 }
 
@@ -426,7 +478,11 @@ func TestConnectionErrorChanDefault(t *testing.T) {
 	require.NotNil(t, conn)
 
 	errChan := conn.ErrorChan()
-	assert.NotNil(t, errChan, "ErrorChan should not be nil even without explicit config")
+	assert.NotNil(
+		t,
+		errChan,
+		"ErrorChan should not be nil even without explicit config",
+	)
 }
 
 func TestConnectionMuxerBeforeSetup(t *testing.T) {
@@ -450,8 +506,16 @@ func TestConnectionIdBeforeSetup(t *testing.T) {
 	require.NotNil(t, conn)
 
 	id := conn.Id()
-	assert.Nil(t, id.LocalAddr, "LocalAddr should be nil before connection setup")
-	assert.Nil(t, id.RemoteAddr, "RemoteAddr should be nil before connection setup")
+	assert.Nil(
+		t,
+		id.LocalAddr,
+		"LocalAddr should be nil before connection setup",
+	)
+	assert.Nil(
+		t,
+		id.RemoteAddr,
+		"RemoteAddr should be nil before connection setup",
+	)
 }
 
 func TestConnectionProtocolGettersBeforeSetup(t *testing.T) {
@@ -469,11 +533,27 @@ func TestConnectionProtocolGettersBeforeSetup(t *testing.T) {
 	assert.Nil(t, conn.LeiosFetch(), "LeiosFetch should be nil before setup")
 	assert.Nil(t, conn.LeiosNotify(), "LeiosNotify should be nil before setup")
 	assert.Nil(t, conn.LeiosVotes(), "LeiosVotes should be nil before setup")
-	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil before setup")
-	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil before setup")
-	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil before setup")
+	assert.Nil(
+		t,
+		conn.LocalStateQuery(),
+		"LocalStateQuery should be nil before setup",
+	)
+	assert.Nil(
+		t,
+		conn.LocalTxMonitor(),
+		"LocalTxMonitor should be nil before setup",
+	)
+	assert.Nil(
+		t,
+		conn.LocalTxSubmission(),
+		"LocalTxSubmission should be nil before setup",
+	)
 	assert.Nil(t, conn.PeerSharing(), "PeerSharing should be nil before setup")
-	assert.Nil(t, conn.TxSubmission(), "TxSubmission should be nil before setup")
+	assert.Nil(
+		t,
+		conn.TxSubmission(),
+		"TxSubmission should be nil before setup",
+	)
 }
 
 func TestConnectionProtocolGettersAfterSetup(t *testing.T) {
@@ -542,7 +622,11 @@ func TestConnectionProtocolVersion(t *testing.T) {
 	}()
 
 	version, _ := conn.ProtocolVersion()
-	assert.NotZero(t, version, "Protocol version should be non-zero after handshake")
+	assert.NotZero(
+		t,
+		version,
+		"Protocol version should be non-zero after handshake",
+	)
 
 	err = conn.Close()
 	assert.NoError(t, err)
@@ -576,20 +660,44 @@ func TestConnectionQueryMode(t *testing.T) {
 		ouroboros.WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		ouroboros.WithQueryMode(true),
 	)
-	require.NoError(t, err, "unexpected error when creating Connection object in query mode")
+	require.NoError(
+		t,
+		err,
+		"unexpected error when creating Connection object in query mode",
+	)
 	require.NotNil(t, conn)
 
 	// In query mode, no protocols are set up
 	assert.Nil(t, conn.ChainSync(), "ChainSync should be nil in query mode")
 	assert.Nil(t, conn.BlockFetch(), "BlockFetch should be nil in query mode")
-	assert.Nil(t, conn.TxSubmission(), "TxSubmission should be nil in query mode")
-	assert.Nil(t, conn.LocalStateQuery(), "LocalStateQuery should be nil in query mode")
-	assert.Nil(t, conn.LocalTxMonitor(), "LocalTxMonitor should be nil in query mode")
-	assert.Nil(t, conn.LocalTxSubmission(), "LocalTxSubmission should be nil in query mode")
+	assert.Nil(
+		t,
+		conn.TxSubmission(),
+		"TxSubmission should be nil in query mode",
+	)
+	assert.Nil(
+		t,
+		conn.LocalStateQuery(),
+		"LocalStateQuery should be nil in query mode",
+	)
+	assert.Nil(
+		t,
+		conn.LocalTxMonitor(),
+		"LocalTxMonitor should be nil in query mode",
+	)
+	assert.Nil(
+		t,
+		conn.LocalTxSubmission(),
+		"LocalTxSubmission should be nil in query mode",
+	)
 
 	// QueryReplyVersionMap should return the version map
 	versionMap := conn.QueryReplyVersionMap()
-	require.NotNil(t, versionMap, "QueryReplyVersionMap should not be nil after query mode")
+	require.NotNil(
+		t,
+		versionMap,
+		"QueryReplyVersionMap should not be nil after query mode",
+	)
 	assert.NotEmpty(t, versionMap, "QueryReplyVersionMap should not be empty")
 
 	err = conn.Close()
@@ -676,7 +784,11 @@ func TestNoErrorOnGracefulProtocolDone(t *testing.T) {
 	}
 
 	// No errors should have been surfaced: the remote peer sent Done before closing
-	require.Empty(t, connErrors, "expected no errors after graceful protocol Done")
+	require.Empty(
+		t,
+		connErrors,
+		"expected no errors after graceful protocol Done",
+	)
 }
 
 // TestErrorOnUngracefulClose tests that when a connection is closed while

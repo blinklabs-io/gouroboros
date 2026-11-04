@@ -205,7 +205,9 @@ func TestBabbagePlutusExecutionRejectsV3ReferenceScript(t *testing.T) {
 		tx,
 		0,
 		state,
-		&BabbageProtocolParameters{ProtocolMajor: common.ProtocolVersionBabbage},
+		&BabbageProtocolParameters{
+			ProtocolMajor: common.ProtocolVersionBabbage,
+		},
 	)
 	var unsupported common.PlutusScriptValidationUnsupportedError
 	require.ErrorAs(t, err, &unsupported)
@@ -234,20 +236,29 @@ func TestDatumWitnessRules(t *testing.T) {
 	datum := common.Datum{Data: data.NewInteger(big.NewInt(42))}
 	datumHash := datum.Hash()
 	inputOutput := plainOutput(scriptAddr(t, v2))
-	inputOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
+	inputOutput.DatumOption = &BabbageTransactionOutputDatumOption{
+		hash: &datumHash,
+	}
 	stateUtxo := utxo(input, inputOutput)
 
-	t.Run("missing V2 datum is phase-1 for invalid transactions", func(t *testing.T) {
-		tx := &BabbageTransaction{
-			TxIsValid: false,
-			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
-			WitnessSet: BabbageTransactionWitnessSet{
-				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
-			},
-		}
-		var missing common.MissingDatumForSpendingScriptError
-		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{stateUtxo}), &missing)
-	})
+	t.Run(
+		"missing V2 datum is phase-1 for invalid transactions",
+		func(t *testing.T) {
+			tx := &BabbageTransaction{
+				TxIsValid: false,
+				Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
+				WitnessSet: BabbageTransactionWitnessSet{
+					WsPlutusV2Scripts: []common.PlutusV2Script{v2},
+				},
+			}
+			var missing common.MissingDatumForSpendingScriptError
+			require.ErrorAs(
+				t,
+				runDatumRules(tx, []common.Utxo{stateUtxo}),
+				&missing,
+			)
+		},
+	)
 
 	t.Run("matching V2 datum is accepted", func(t *testing.T) {
 		tx := &BabbageTransaction{
@@ -255,56 +266,92 @@ func TestDatumWitnessRules(t *testing.T) {
 			Body:      BabbageTransactionBody{TxInputs: inputSet(input)},
 			WitnessSet: BabbageTransactionWitnessSet{
 				WsPlutusV2Scripts: []common.PlutusV2Script{v2},
-				WsPlutusData:      alonzo.PlutusDataList{Items: []common.Datum{datum}},
+				WsPlutusData: alonzo.PlutusDataList{
+					Items: []common.Datum{datum},
+				},
 			},
 		}
 		require.NoError(t, runDatumRules(tx, []common.Utxo{stateUtxo}))
 	})
 
-	t.Run("key input does not justify a supplemental datum", func(t *testing.T) {
-		keyInput := testInput(0x32, 0)
-		keyOutput := plainOutput(keyAddr(t))
-		keyOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
-		tx := &BabbageTransaction{
-			Body: BabbageTransactionBody{TxInputs: inputSet(keyInput)},
-			WitnessSet: BabbageTransactionWitnessSet{
-				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
-			},
-		}
-		var supplemental common.NotAllowedSupplementalDatumsError
-		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(keyInput, keyOutput)}), &supplemental)
-	})
+	t.Run(
+		"key input does not justify a supplemental datum",
+		func(t *testing.T) {
+			keyInput := testInput(0x32, 0)
+			keyOutput := plainOutput(keyAddr(t))
+			keyOutput.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: &datumHash,
+			}
+			tx := &BabbageTransaction{
+				Body: BabbageTransactionBody{TxInputs: inputSet(keyInput)},
+				WitnessSet: BabbageTransactionWitnessSet{
+					WsPlutusData: alonzo.PlutusDataList{
+						Items: []common.Datum{datum},
+					},
+				},
+			}
+			var supplemental common.NotAllowedSupplementalDatumsError
+			require.ErrorAs(
+				t,
+				runDatumRules(tx, []common.Utxo{utxo(keyInput, keyOutput)}),
+				&supplemental,
+			)
+		},
+	)
 
-	t.Run("native script input does not justify a supplemental datum", func(t *testing.T) {
-		nativeBytes, err := cbor.Encode(common.NativeScriptAll{Type: 1})
-		require.NoError(t, err)
-		var native common.NativeScript
-		require.NoError(t, native.UnmarshalCBOR(nativeBytes))
-		nativeInput := testInput(0x33, 0)
-		nativeOutput := plainOutput(scriptAddr(t, native))
-		nativeOutput.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
-		tx := &BabbageTransaction{
-			Body: BabbageTransactionBody{TxInputs: inputSet(nativeInput)},
-			WitnessSet: BabbageTransactionWitnessSet{
-				WsNativeScripts: []common.NativeScript{native},
-				WsPlutusData:    alonzo.PlutusDataList{Items: []common.Datum{datum}},
-			},
-		}
-		var supplemental common.NotAllowedSupplementalDatumsError
-		require.ErrorAs(t, runDatumRules(tx, []common.Utxo{utxo(nativeInput, nativeOutput)}), &supplemental)
-	})
+	t.Run(
+		"native script input does not justify a supplemental datum",
+		func(t *testing.T) {
+			nativeBytes, err := cbor.Encode(common.NativeScriptAll{Type: 1})
+			require.NoError(t, err)
+			var native common.NativeScript
+			require.NoError(t, native.UnmarshalCBOR(nativeBytes))
+			nativeInput := testInput(0x33, 0)
+			nativeOutput := plainOutput(scriptAddr(t, native))
+			nativeOutput.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: &datumHash,
+			}
+			tx := &BabbageTransaction{
+				Body: BabbageTransactionBody{TxInputs: inputSet(nativeInput)},
+				WitnessSet: BabbageTransactionWitnessSet{
+					WsNativeScripts: []common.NativeScript{native},
+					WsPlutusData: alonzo.PlutusDataList{
+						Items: []common.Datum{datum},
+					},
+				},
+			}
+			var supplemental common.NotAllowedSupplementalDatumsError
+			require.ErrorAs(
+				t,
+				runDatumRules(
+					tx,
+					[]common.Utxo{utxo(nativeInput, nativeOutput)},
+				),
+				&supplemental,
+			)
+		},
+	)
 
-	t.Run("collateral return justifies a supplemental datum", func(t *testing.T) {
-		collateralReturn := plainOutput(keyAddr(t))
-		collateralReturn.DatumOption = &BabbageTransactionOutputDatumOption{hash: &datumHash}
-		tx := &BabbageTransaction{
-			Body: BabbageTransactionBody{TxCollateralReturn: &collateralReturn},
-			WitnessSet: BabbageTransactionWitnessSet{
-				WsPlutusData: alonzo.PlutusDataList{Items: []common.Datum{datum}},
-			},
-		}
-		require.NoError(t, runDatumRules(tx, nil))
-	})
+	t.Run(
+		"collateral return justifies a supplemental datum",
+		func(t *testing.T) {
+			collateralReturn := plainOutput(keyAddr(t))
+			collateralReturn.DatumOption = &BabbageTransactionOutputDatumOption{
+				hash: &datumHash,
+			}
+			tx := &BabbageTransaction{
+				Body: BabbageTransactionBody{
+					TxCollateralReturn: &collateralReturn,
+				},
+				WitnessSet: BabbageTransactionWitnessSet{
+					WsPlutusData: alonzo.PlutusDataList{
+						Items: []common.Datum{datum},
+					},
+				},
+			}
+			require.NoError(t, runDatumRules(tx, nil))
+		},
+	)
 }
 
 // A PlutusV1 script reachable through a spent UTxO's reference script, with no
@@ -352,8 +399,10 @@ func TestInlineDatumsPlutusV1_DatumOnProducedOutputRejected(t *testing.T) {
 
 	tx := &BabbageTransaction{
 		Body: BabbageTransactionBody{
-			TxInputs:  inputSet(in),
-			TxOutputs: []BabbageTransactionOutput{inlineDatumOutput(keyAddr(t))},
+			TxInputs: inputSet(in),
+			TxOutputs: []BabbageTransactionOutput{
+				inlineDatumOutput(keyAddr(t)),
+			},
 		},
 		WitnessSet: BabbageTransactionWitnessSet{
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
@@ -366,7 +415,9 @@ func TestInlineDatumsPlutusV1_DatumOnProducedOutputRejected(t *testing.T) {
 	require.ErrorAs(t, err, &want)
 }
 
-func TestInlineDatumsPlutusV1_BabbageScriptRefOnProducedOutputRejected(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageScriptRefOnProducedOutputRejected(
+	t *testing.T,
+) {
 	v1 := common.PlutusV1Script([]byte{0x07, 0x08})
 	in := testInput(0x5, 0)
 
@@ -388,7 +439,9 @@ func TestInlineDatumsPlutusV1_BabbageScriptRefOnProducedOutputRejected(t *testin
 	require.ErrorAs(t, err, &want)
 }
 
-func TestInlineDatumsPlutusV1_BabbageScriptRefOnConsumedInputRejected(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageScriptRefOnConsumedInputRejected(
+	t *testing.T,
+) {
 	v1 := common.PlutusV1Script([]byte{0x11, 0x12})
 	spend := testInput(0xc, 0)
 	refCarrier := testInput(0xd, 0)
@@ -409,7 +462,9 @@ func TestInlineDatumsPlutusV1_BabbageScriptRefOnConsumedInputRejected(t *testing
 	require.ErrorAs(t, err, &want)
 }
 
-func TestInlineDatumsPlutusV1_BabbageDatumOnReferenceInputRejected(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageDatumOnReferenceInputRejected(
+	t *testing.T,
+) {
 	v1 := common.PlutusV1Script([]byte{0x13, 0x14})
 	spend := testInput(0xe, 0)
 	ref := testInput(0xf, 0)
@@ -456,7 +511,9 @@ func TestInlineDatumsPlutusV2_NeededSpendingScriptAccepted(t *testing.T) {
 				[]shelley.ShelleyTransactionInput{testInput(0x12, 0)},
 				false,
 			),
-			TxOutputs: []BabbageTransactionOutput{inlineDatumOutput(keyAddr(t))},
+			TxOutputs: []BabbageTransactionOutput{
+				inlineDatumOutput(keyAddr(t)),
+			},
 		},
 		WitnessSet: BabbageTransactionWitnessSet{
 			WsPlutusV2Scripts: []common.PlutusV2Script{v2},
@@ -469,7 +526,9 @@ func TestInlineDatumsPlutusV2_NeededSpendingScriptAccepted(t *testing.T) {
 	}), "Babbage V1 restrictions must not affect PlutusV2")
 }
 
-func TestInlineDatumsPlutusV1_BabbageReferenceInputPresentRejected(t *testing.T) {
+func TestInlineDatumsPlutusV1_BabbageReferenceInputPresentRejected(
+	t *testing.T,
+) {
 	v1 := common.PlutusV1Script([]byte{0x09, 0x0a})
 	in := testInput(0x6, 0)
 	ref := testInput(0x7, 0)
@@ -508,7 +567,11 @@ func TestInlineDatumsPlutusV1_DatumHashOutputAccepted(t *testing.T) {
 			WsPlutusV1Scripts: []common.PlutusV1Script{v1},
 		},
 	}
-	require.NoError(t, runRule(t, tx, []common.Utxo{utxo(in, out)}), "expected accept for datum-hash output")
+	require.NoError(
+		t,
+		runRule(t, tx, []common.Utxo{utxo(in, out)}),
+		"expected accept for datum-hash output",
+	)
 }
 
 // An unresolvable input is UtxoValidateBadInputsUtxo's finding, not this rule's.

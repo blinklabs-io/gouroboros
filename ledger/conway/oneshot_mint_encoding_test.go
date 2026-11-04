@@ -123,7 +123,8 @@ func TestOneShotMintAssetNamePinsScriptVisibleEncoding(t *testing.T) {
 				"  normalized hash: %s\n"+
 				"Either Normalize no longer resets to the reference encoding,"+
 				" or the package default has changed.",
-			assetName, normalized,
+			assetName,
+			normalized,
 		)
 	}
 

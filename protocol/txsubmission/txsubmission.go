@@ -232,9 +232,11 @@ const (
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.11).
 const (
-	InitTimeout             = time.Duration(0) // No timeout per spec
-	IdleTimeout             = time.Duration(0) // No timeout per spec
-	TxIdsBlockingTimeout    = time.Duration(0) // No timeout per spec (blocking waits indefinitely)
+	InitTimeout          = time.Duration(0) // No timeout per spec
+	IdleTimeout          = time.Duration(0) // No timeout per spec
+	TxIdsBlockingTimeout = time.Duration(
+		0,
+	) // No timeout per spec (blocking waits indefinitely)
 	TxIdsNonblockingTimeout = 10 * time.Second // Timeout for client to reply with tx IDs (non-blocking)
 	TxsTimeout              = 10 * time.Second // Timeout for client to reply with full transactions
 )

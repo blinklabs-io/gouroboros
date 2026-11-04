@@ -345,7 +345,9 @@ func scriptPurposeBuilder(
 					resolvedInput = tmpResolvedInput
 					resolved = true
 					if resolvedInput.Output == nil {
-						return nil, UnmatchedRedeemerError{RedeemerKey: redeemerKey}
+						return nil, UnmatchedRedeemerError{
+							RedeemerKey: redeemerKey,
+						}
 					}
 					if tmpDatum := resolvedInput.Output.Datum(); tmpDatum != nil {
 						// Inline datum - use it directly

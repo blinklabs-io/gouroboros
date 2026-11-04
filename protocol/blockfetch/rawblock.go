@@ -186,7 +186,10 @@ func rawBlockHeaderInfoFromCbor(
 			err,
 		)
 	}
-	prevHashCbor, err := nextRawArrayItem(bodyDecoder, "raw block previous hash")
+	prevHashCbor, err := nextRawArrayItem(
+		bodyDecoder,
+		"raw block previous hash",
+	)
 	if err != nil {
 		return rawBlockHeaderInfo{}, err
 	}
@@ -301,7 +304,10 @@ func rawByronBlockHeaderInfo(
 		slotsPerEpoch,
 	)
 	if err != nil {
-		return rawBlockHeaderInfo{}, fmt.Errorf("convert raw Byron slot: %w", err)
+		return rawBlockHeaderInfo{}, fmt.Errorf(
+			"convert raw Byron slot: %w",
+			err,
+		)
 	}
 	hashInput := make([]byte, 0, len(headerCbor)+2)
 	hashInput = append(hashInput, 0x82, byte(blockType))

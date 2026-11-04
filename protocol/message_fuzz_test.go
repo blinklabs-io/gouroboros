@@ -142,7 +142,11 @@ var protocolMessageDecoders = []protocolMessageDecoder{
 func FuzzProtocolMessageDecoders(f *testing.F) {
 	for decoderIdx, decoder := range protocolMessageDecoders {
 		for msgType := uint(0); msgType <= decoder.maxMsgType; msgType++ {
-			f.Add(uint8(decoderIdx), msgType, mustEncodeFuzzSeed([]any{msgType}))
+			f.Add(
+				uint8(decoderIdx),
+				msgType,
+				mustEncodeFuzzSeed([]any{msgType}),
+			)
 			f.Add(
 				uint8(decoderIdx),
 				msgType,

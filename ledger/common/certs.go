@@ -863,7 +863,10 @@ func (p PoolRelay) validateDecodedAddressWidths() error {
 	return nil
 }
 
-func decodeOptionalRelayAddress(raw cbor.RawMessage, name string) (*net.IP, error) {
+func decodeOptionalRelayAddress(
+	raw cbor.RawMessage,
+	name string,
+) (*net.IP, error) {
 	if len(raw) == 1 && raw[0] == 0xf6 {
 		return nil, nil
 	}
@@ -889,7 +892,9 @@ func decodePoolRelayHostname(raw cbor.RawMessage) (string, error) {
 		return "", errors.New("pool relay hostname must be a CBOR text string")
 	}
 	if raw[0]&0x1f == 0x1f {
-		return "", errors.New("pool relay hostname must be a definite-length text string")
+		return "", errors.New(
+			"pool relay hostname must be a definite-length text string",
+		)
 	}
 	var hostname string
 	if _, err := cbor.Decode(raw, &hostname); err != nil {
@@ -2645,7 +2650,9 @@ func (c *DeregistrationDrepCertificate) UnmarshalCBOR(
 		return errors.New("invalid DRep deregistration certificate array")
 	}
 	if len(fields[2]) == 0 || fields[2][0]>>5 != 0 {
-		return errors.New("DRep deregistration amount must be an unsigned integer")
+		return errors.New(
+			"DRep deregistration amount must be an unsigned integer",
+		)
 	}
 	type tDeregistrationDrepCertificate DeregistrationDrepCertificate
 	var tmp tDeregistrationDrepCertificate

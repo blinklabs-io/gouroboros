@@ -346,8 +346,9 @@ func UtxoValidateOutsideForecast(
 	if !hasRedeemers {
 		return nil
 	}
-	if ledgerState != nil && (reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
-		!reflect.ValueOf(ledgerState).IsNil()) {
+	if ledgerState != nil &&
+		(reflect.ValueOf(ledgerState).Kind() != reflect.Pointer ||
+			!reflect.ValueOf(ledgerState).IsNil()) {
 		if _, err := ledgerState.SlotToTime(upperBound); err == nil {
 			return nil
 		}
@@ -373,7 +374,10 @@ func (s *cachedLedgerState) UtxoById(input TransactionInput) (Utxo, error) {
 // UtxoValidateCurrentTreasuryValue checks a transaction's optional current
 // treasury value against the ledger state.
 func UtxoValidateCurrentTreasuryValue(
-	tx Transaction, slot uint64, ledgerState LedgerState, protocolParams ProtocolParameters,
+	tx Transaction,
+	slot uint64,
+	ledgerState LedgerState,
+	protocolParams ProtocolParameters,
 ) error {
 	if !tx.IsValid() {
 		return nil
@@ -391,8 +395,11 @@ func UtxoValidateCurrentTreasuryValue(
 	if len(values) == 0 {
 		return nil
 	}
-	if ledgerState == nil || (reflect.ValueOf(ledgerState).Kind() == reflect.Pointer && reflect.ValueOf(ledgerState).IsNil()) {
-		return TreasuryValueQueryError{Err: TreasuryValueProviderUnavailableError{}}
+	if ledgerState == nil ||
+		(reflect.ValueOf(ledgerState).Kind() == reflect.Pointer && reflect.ValueOf(ledgerState).IsNil()) {
+		return TreasuryValueQueryError{
+			Err: TreasuryValueProviderUnavailableError{},
+		}
 	}
 	expected, err := ledgerState.TreasuryValue()
 	if err != nil {
@@ -400,7 +407,10 @@ func UtxoValidateCurrentTreasuryValue(
 	}
 	for _, supplied := range values {
 		if supplied.Cmp(new(big.Int).SetUint64(expected)) != 0 {
-			return CurrentTreasuryValueMismatchError{Supplied: new(big.Int).Set(supplied), Expected: expected}
+			return CurrentTreasuryValueMismatchError{
+				Supplied: new(big.Int).Set(supplied),
+				Expected: expected,
+			}
 		}
 	}
 	return nil
@@ -575,7 +585,10 @@ func TxSize(tx Transaction) (int, error) {
 		var err error
 		cborData, err = cbor.Encode(tx)
 		if err != nil {
-			return 0, fmt.Errorf("failed to encode transaction for size: %w", err)
+			return 0, fmt.Errorf(
+				"failed to encode transaction for size: %w",
+				err,
+			)
 		}
 	}
 	fullSize := len(cborData)
@@ -961,7 +974,11 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 // fields, so Shelley through Babbage require signatures from a quorum of the
 // currently delegated genesis keys. A ledger state that cannot answer the
 // query fails closed rather than admitting an unauthorized certificate.
-func ValidateMIRGenesisQuorum(tx Transaction, slot uint64, ls LedgerState) error {
+func ValidateMIRGenesisQuorum(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+) error {
 	hasMIR := false
 	for _, cert := range tx.Certificates() {
 		if _, ok := cert.(*MoveInstantaneousRewardsCertificate); ok {
@@ -1054,7 +1071,9 @@ func ValidateClassicProtocolParameterUpdates(
 			return ProtocolParameterUpdateWitnessError{Delegate: genesisKey}
 		}
 	}
-	currentEpoch, slotOfNoReturn, err := windowState.ProtocolParameterUpdateWindow(slot)
+	currentEpoch, slotOfNoReturn, err := windowState.ProtocolParameterUpdateWindow(
+		slot,
+	)
 	if err != nil {
 		return err
 	}
@@ -1283,12 +1302,10 @@ func collectTransactionScriptRequirements(
 	}
 	addRequirement := func(hash ScriptHash, tag RedeemerTag, index int) {
 		ret.required[hash] = struct{}{}
+		//nolint:gosec // transaction collections are bounded
 		ret.purposes = append(ret.purposes, scriptRequirement{
-			hash: hash,
-			redeemer: RedeemerKey{
-				Tag:   tag,
-				Index: uint32(index), // #nosec G115 -- transaction collections are bounded
-			},
+			hash:     hash,
+			redeemer: RedeemerKey{Tag: tag, Index: uint32(index)},
 		})
 	}
 	addWitnessSet := func(wits TransactionWitnessSet) error {
@@ -1361,7 +1378,10 @@ func collectTransactionScriptRequirements(
 		for _, input := range tx.ReferenceInputs() {
 			utxo, err := ls.UtxoById(input)
 			if err != nil {
-				return ret, ReferenceInputResolutionError{Input: input, Err: err}
+				return ret, ReferenceInputResolutionError{
+					Input: input,
+					Err:   err,
+				}
 			}
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
 				hash, err := addAvailableScript(
@@ -1517,11 +1537,15 @@ func collectTransactionScriptRequirements(
 
 	for index, proposal := range tx.ProposalProcedures() {
 		if proposal == nil {
-			return ret, MalformedAuthorizationError{Subject: "nil proposal procedure"}
+			return ret, MalformedAuthorizationError{
+				Subject: "nil proposal procedure",
+			}
 		}
 		govAction := proposal.GovAction()
 		if govAction == nil {
-			return ret, MalformedAuthorizationError{Subject: "nil governance action"}
+			return ret, MalformedAuthorizationError{
+				Subject: "nil governance action",
+			}
 		}
 		if actionWithPolicy, ok := govAction.(GovActionWithPolicy); ok {
 			policyHash := actionWithPolicy.GetPolicyHash()
@@ -2115,7 +2139,10 @@ func EncodeLangViews(
 			// Tags are single-byte CBOR encodings for small unsigned ints.
 			tag = []byte{byte(version)}
 		default:
-			return nil, fmt.Errorf("unsupported Plutus version for lang views: %d", version)
+			return nil, fmt.Errorf(
+				"unsupported Plutus version for lang views: %d",
+				version,
+			)
 		}
 		params, err = langViewParams(version, costModel)
 		if err != nil {
@@ -2139,7 +2166,8 @@ func EncodeLangViews(
 	result := make([]byte, 0, totalSize)
 	// Encode map length (definite-length map)
 	if len(views) < 24 {
-		result = append(result, 0xa0+byte(len(views))) //nolint:gosec // len < 24
+		//nolint:gosec // len < 24
+		result = append(result, 0xa0+byte(len(views)))
 	} else {
 		result = append(result, 0xb8, byte(len(views))) //nolint:gosec // len < 256
 	}

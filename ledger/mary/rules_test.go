@@ -301,7 +301,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{Id: testGoodInput},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Good input
@@ -375,7 +377,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Correct network
@@ -439,7 +443,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{}
 	// Correct network
@@ -524,7 +530,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &mary.MaryProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -756,7 +764,9 @@ func TestUtxoValidateValueNotConservedChecksZeroPolicyMint(t *testing.T) {
 		Body: mary.MaryTransactionBody{
 			TxMint: &mint,
 			TxOutputs: []mary.MaryTransactionOutput{{
-				OutputAmount: mary.MaryTransactionOutputValue{Assets: &outputAssets},
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Assets: &outputAssets,
+				},
 			}},
 		},
 	}

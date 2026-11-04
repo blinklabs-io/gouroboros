@@ -122,7 +122,10 @@ func (p *replyValidationPeer) waitForRequest(t *testing.T) {
 	select {
 	case <-p.outbound:
 	case err := <-p.errorChan:
-		t.Fatalf("TxSubmission server failed before sending its request: %v", err)
+		t.Fatalf(
+			"TxSubmission server failed before sending its request: %v",
+			err,
+		)
 	case <-time.After(time.Second):
 		t.Fatal("TxSubmission server did not send its request")
 	}
@@ -213,7 +216,11 @@ func TestServerRequestTxsMatchesAndOrdersBodies(t *testing.T) {
 		txIdAndSize(bodyC, idC),
 	})
 
-	got, err := peer.requestTxs(t, []TxId{idA, idB, idC}, []TxBody{bodyC, bodyA})
+	got, err := peer.requestTxs(
+		t,
+		[]TxId{idA, idB, idC},
+		[]TxBody{bodyC, bodyA},
+	)
 	require.NoError(t, err)
 	require.Equal(t, []TxBody{bodyA, bodyC}, got)
 }
@@ -239,7 +246,10 @@ func TestServerRequestTxsRejectsDuplicateBodies(t *testing.T) {
 	peer := newReplyValidationPeer(t)
 	bodyA, idA := testShelleyTxBody(t, 1)
 	bodyB, idB := testShelleyTxBody(t, 2)
-	peer.announceTxIds(t, []TxIdAndSize{txIdAndSize(bodyA, idA), txIdAndSize(bodyB, idB)})
+	peer.announceTxIds(
+		t,
+		[]TxIdAndSize{txIdAndSize(bodyA, idA), txIdAndSize(bodyB, idB)},
+	)
 
 	got, err := peer.requestTxs(t, []TxId{idA, idB}, []TxBody{bodyA, bodyA})
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
@@ -315,12 +325,15 @@ func TestServerShutdownClearsPendingTxIdRequest(t *testing.T) {
 func TestClientRejectsRequestForUnannouncedTxId(t *testing.T) {
 	called := false
 	callbackErr := errors.New("RequestTxsFunc should not be called")
-	client := NewClient(protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode}, &Config{
-		RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
-			called = true
-			return nil, callbackErr
+	client := NewClient(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{
+			RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
+				called = true
+				return nil, callbackErr
+			},
 		},
-	})
+	)
 	err := client.handleRequestTxs(NewMsgRequestTxs([]TxId{testTxId(1, 0x01)}))
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
 	require.False(t, called)
@@ -329,11 +342,14 @@ func TestClientRejectsRequestForUnannouncedTxId(t *testing.T) {
 func TestClientRejectsUnrequestedCallbackBody(t *testing.T) {
 	body, _ := testShelleyTxBody(t, 1)
 	requested := testTxId(uint16(ledger.TxTypeShelley), 0x01)
-	client := NewClient(protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode}, &Config{
-		RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
-			return []TxBody{body}, nil
+	client := NewClient(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{
+			RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
+				return []TxBody{body}, nil
+			},
 		},
-	})
+	)
 	client.unackedMu.Lock()
 	client.unackedTxIds = []TxIdAndSize{{
 		TxId: requested,
@@ -347,11 +363,14 @@ func TestClientRejectsUnrequestedCallbackBody(t *testing.T) {
 
 func TestClientRejectsCallbackBodySizeMismatch(t *testing.T) {
 	body, txId := testShelleyTxBody(t, 1)
-	client := NewClient(protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode}, &Config{
-		RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
-			return []TxBody{body}, nil
+	client := NewClient(
+		protocol.ProtocolOptions{Mode: protocol.ProtocolModeNodeToNode},
+		&Config{
+			RequestTxsFunc: func(CallbackContext, []TxId) ([]TxBody, error) {
+				return []TxBody{body}, nil
+			},
 		},
-	})
+	)
 	client.unackedMu.Lock()
 	client.unackedTxIds = []TxIdAndSize{{
 		TxId: txId,

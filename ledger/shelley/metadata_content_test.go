@@ -24,7 +24,10 @@ import (
 )
 
 // nestedMetadatum wraps inner in depth single-element lists.
-func nestedMetadatum(depth int, inner common.TransactionMetadatum) common.TransactionMetadatum {
+func nestedMetadatum(
+	depth int,
+	inner common.TransactionMetadatum,
+) common.TransactionMetadatum {
 	md := inner
 	for range depth {
 		md = common.MetaList{Items: []common.TransactionMetadatum{md}}
@@ -67,7 +70,11 @@ func TestValidateMetadataContentRejectsOversizedLeafWhenDeep(t *testing.T) {
 			t.Fatalf("oversized %s leaf at depth 1025 accepted", name)
 		}
 		if !strings.Contains(err.Error(), "64 byte limit") {
-			t.Fatalf("oversized %s leaf at depth 1025: unexpected error: %v", name, err)
+			t.Fatalf(
+				"oversized %s leaf at depth 1025: unexpected error: %v",
+				name,
+				err,
+			)
 		}
 	}
 }

@@ -83,7 +83,9 @@ func getDecMode() (_cbor.DecMode, error) {
 			MaxMapPairs:      10_000_000,
 			MaxArrayElements: 10_000_000,
 		}
-		cachedDecMode, cachedDecModeErr = decOptions.DecModeWithTags(customTagSet)
+		cachedDecMode, cachedDecModeErr = decOptions.DecModeWithTags(
+			customTagSet,
+		)
 	})
 	return cachedDecMode, cachedDecModeErr
 }
@@ -239,7 +241,9 @@ func getStrictDecMode() (_cbor.DecMode, error) {
 			MaxMapPairs:      131072,
 			MaxArrayElements: 131072,
 		}
-		cachedStrictDecMode, cachedStrictDecModeErr = decOptions.DecModeWithTags(customTagSet)
+		cachedStrictDecMode, cachedStrictDecModeErr = decOptions.DecModeWithTags(
+			customTagSet,
+		)
 	})
 	return cachedStrictDecMode, cachedStrictDecModeErr
 }
@@ -272,7 +276,9 @@ func getLenientDecMode() (_cbor.DecMode, error) {
 			MaxMapPairs:      10_000_000,
 			MaxArrayElements: 10_000_000,
 		}
-		cachedLenientDecMode, cachedLenientDecModeErr = decOptions.DecModeWithTags(customTagSet)
+		cachedLenientDecMode, cachedLenientDecModeErr = decOptions.DecModeWithTags(
+			customTagSet,
+		)
 	})
 	return cachedLenientDecMode, cachedLenientDecModeErr
 }
@@ -471,19 +477,22 @@ func DecodeGeneric(cborData []byte, dest any) error {
 		return errors.New("destination must be a pointer to a struct")
 	}
 	typeDest := valueDest.Elem().Type()
-	tmpTypeDest, err := decodeGenericTypeCache.getOrCreate(typeDest, func() (reflect.Type, error) {
-		// Create a duplicate(-ish) struct from the destination
-		// We do this so that we can bypass any custom UnmarshalCBOR() function on the
-		// destination object
-		destTypeFields := []reflect.StructField{}
-		for i := range typeDest.NumField() {
-			tmpField := typeDest.Field(i)
-			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
-				destTypeFields = append(destTypeFields, tmpField)
+	tmpTypeDest, err := decodeGenericTypeCache.getOrCreate(
+		typeDest,
+		func() (reflect.Type, error) {
+			// Create a duplicate(-ish) struct from the destination
+			// We do this so that we can bypass any custom UnmarshalCBOR() function on the
+			// destination object
+			destTypeFields := []reflect.StructField{}
+			for i := range typeDest.NumField() {
+				tmpField := typeDest.Field(i)
+				if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
+					destTypeFields = append(destTypeFields, tmpField)
+				}
 			}
-		}
-		return reflect.StructOf(destTypeFields), nil
-	})
+			return reflect.StructOf(destTypeFields), nil
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -623,7 +632,11 @@ func (d *StreamDecoder) DecodeArrayHeader() (int, int, int, error) {
 	majorType := firstByte & CborTypeMask
 
 	if majorType != CborTypeArray {
-		return 0, 0, 0, fmt.Errorf("expected array (0x%x), got 0x%x", CborTypeArray, majorType)
+		return 0, 0, 0, fmt.Errorf(
+			"expected array (0x%x), got 0x%x",
+			CborTypeArray,
+			majorType,
+		)
 	}
 
 	additionalInfo := firstByte & 0x1f
@@ -638,52 +651,93 @@ func (d *StreamDecoder) DecodeArrayHeader() (int, int, int, error) {
 	case additionalInfo == 24:
 		// 1-byte length follows
 		if absStart+2 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading array length",
+			)
 		}
 		length = int(d.data[absStart+1])
 		headerLen = 2
 	case additionalInfo == 25:
 		// 2-byte length follows (big-endian)
 		if absStart+3 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading array length",
+			)
 		}
 		length = int(d.data[absStart+1])<<8 | int(d.data[absStart+2])
 		headerLen = 3
 	case additionalInfo == 26:
 		// 4-byte length follows (big-endian)
 		if absStart+5 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading array length",
+			)
 		}
 		// Read as uint32 first to avoid sign issues on 32-bit systems
-		len32 := uint32(d.data[absStart+1])<<24 | uint32(d.data[absStart+2])<<16 |
-			uint32(d.data[absStart+3])<<8 | uint32(d.data[absStart+4])
+		len32 := uint32(
+			d.data[absStart+1],
+		)<<24 | uint32(
+			d.data[absStart+2],
+		)<<16 |
+			uint32(
+				d.data[absStart+3],
+			)<<8 | uint32(
+			d.data[absStart+4],
+		)
 		if len32 > uint32(math.MaxInt32) {
-			return 0, 0, 0, errors.New("array length exceeds maximum int32 value")
+			return 0, 0, 0, errors.New(
+				"array length exceeds maximum int32 value",
+			)
 		}
 		length = int(len32)
 		headerLen = 5
 	case additionalInfo == 27:
 		// 8-byte length follows (big-endian)
 		if absStart+9 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading array length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading array length",
+			)
 		}
 		// Read as uint64 first, then check if it fits in int32
 		// Use MaxInt32 for consistency with ArrayInfo and to prevent overflow
 		// when values are later converted to uint32 for offset calculations
-		len64 := uint64(d.data[absStart+1])<<56 | uint64(d.data[absStart+2])<<48 |
-			uint64(d.data[absStart+3])<<40 | uint64(d.data[absStart+4])<<32 |
-			uint64(d.data[absStart+5])<<24 | uint64(d.data[absStart+6])<<16 |
-			uint64(d.data[absStart+7])<<8 | uint64(d.data[absStart+8])
+		len64 := uint64(
+			d.data[absStart+1],
+		)<<56 | uint64(
+			d.data[absStart+2],
+		)<<48 |
+			uint64(
+				d.data[absStart+3],
+			)<<40 | uint64(
+			d.data[absStart+4],
+		)<<32 |
+			uint64(
+				d.data[absStart+5],
+			)<<24 | uint64(
+			d.data[absStart+6],
+		)<<16 |
+			uint64(
+				d.data[absStart+7],
+			)<<8 | uint64(
+			d.data[absStart+8],
+		)
 		if len64 > uint64(math.MaxInt32) {
-			return 0, 0, 0, errors.New("array length exceeds maximum int32 value")
+			return 0, 0, 0, errors.New(
+				"array length exceeds maximum int32 value",
+			)
 		}
 		length = int(len64)
 		headerLen = 9
 	case additionalInfo == 31:
 		// Indefinite length array - need to count elements
-		return 0, 0, 0, errors.New("indefinite length arrays not supported in header-only decode")
+		return 0, 0, 0, errors.New(
+			"indefinite length arrays not supported in header-only decode",
+		)
 	default:
-		return 0, 0, 0, fmt.Errorf("invalid array additional info: %d", additionalInfo)
+		return 0, 0, 0, fmt.Errorf(
+			"invalid array additional info: %d",
+			additionalInfo,
+		)
 	}
 
 	// Advance the decoder position past the header
@@ -708,7 +762,11 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 	majorType := firstByte & CborTypeMask
 
 	if majorType != CborTypeMap {
-		return 0, 0, 0, fmt.Errorf("expected map (0x%x), got 0x%x", CborTypeMap, majorType)
+		return 0, 0, 0, fmt.Errorf(
+			"expected map (0x%x), got 0x%x",
+			CborTypeMap,
+			majorType,
+		)
 	}
 
 	additionalInfo := firstByte & 0x1f
@@ -721,24 +779,38 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 		headerLen = 1
 	case additionalInfo == 24:
 		if absStart+2 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading map length",
+			)
 		}
 		length = int(d.data[absStart+1])
 		headerLen = 2
 	case additionalInfo == 25:
 		if absStart+3 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading map length",
+			)
 		}
 		length = int(d.data[absStart+1])<<8 | int(d.data[absStart+2])
 		headerLen = 3
 	case additionalInfo == 26:
 		// 4-byte length follows (big-endian)
 		if absStart+5 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading map length",
+			)
 		}
 		// Read as uint32 first to avoid sign issues on 32-bit systems
-		len32 := uint32(d.data[absStart+1])<<24 | uint32(d.data[absStart+2])<<16 |
-			uint32(d.data[absStart+3])<<8 | uint32(d.data[absStart+4])
+		len32 := uint32(
+			d.data[absStart+1],
+		)<<24 | uint32(
+			d.data[absStart+2],
+		)<<16 |
+			uint32(
+				d.data[absStart+3],
+			)<<8 | uint32(
+			d.data[absStart+4],
+		)
 		if len32 > uint32(math.MaxInt32) {
 			return 0, 0, 0, errors.New("map length exceeds maximum int32 value")
 		}
@@ -747,24 +819,47 @@ func (d *StreamDecoder) DecodeMapHeader() (int, int, int, error) {
 	case additionalInfo == 27:
 		// 8-byte length follows (big-endian)
 		if absStart+9 > len(d.data) {
-			return 0, 0, 0, errors.New("unexpected end of data reading map length")
+			return 0, 0, 0, errors.New(
+				"unexpected end of data reading map length",
+			)
 		}
 		// Read as uint64 first, then check if it fits in int32
 		// Use MaxInt32 for consistency with MapInfo and to prevent overflow
 		// when values are later converted to uint32 for offset calculations
-		len64 := uint64(d.data[absStart+1])<<56 | uint64(d.data[absStart+2])<<48 |
-			uint64(d.data[absStart+3])<<40 | uint64(d.data[absStart+4])<<32 |
-			uint64(d.data[absStart+5])<<24 | uint64(d.data[absStart+6])<<16 |
-			uint64(d.data[absStart+7])<<8 | uint64(d.data[absStart+8])
+		len64 := uint64(
+			d.data[absStart+1],
+		)<<56 | uint64(
+			d.data[absStart+2],
+		)<<48 |
+			uint64(
+				d.data[absStart+3],
+			)<<40 | uint64(
+			d.data[absStart+4],
+		)<<32 |
+			uint64(
+				d.data[absStart+5],
+			)<<24 | uint64(
+			d.data[absStart+6],
+		)<<16 |
+			uint64(
+				d.data[absStart+7],
+			)<<8 | uint64(
+			d.data[absStart+8],
+		)
 		if len64 > uint64(math.MaxInt32) {
 			return 0, 0, 0, errors.New("map length exceeds maximum int32 value")
 		}
 		length = int(len64)
 		headerLen = 9
 	case additionalInfo == 31:
-		return 0, 0, 0, errors.New("indefinite length maps not supported in header-only decode")
+		return 0, 0, 0, errors.New(
+			"indefinite length maps not supported in header-only decode",
+		)
 	default:
-		return 0, 0, 0, fmt.Errorf("invalid map additional info: %d", additionalInfo)
+		return 0, 0, 0, fmt.Errorf(
+			"invalid map additional info: %d",
+			additionalInfo,
+		)
 	}
 
 	// Advance the decoder position past the header
@@ -899,7 +994,11 @@ func cborArrayHeaderSizeFromBytes(data []byte, offset int) (int, error) {
 	majorType := firstByte & CborTypeMask
 
 	if majorType != CborTypeArray {
-		return 0, fmt.Errorf("expected array (0x%x), got 0x%x", CborTypeArray, majorType)
+		return 0, fmt.Errorf(
+			"expected array (0x%x), got 0x%x",
+			CborTypeArray,
+			majorType,
+		)
 	}
 
 	additionalInfo := firstByte & 0x1f
@@ -918,7 +1017,10 @@ func cborArrayHeaderSizeFromBytes(data []byte, offset int) (int, error) {
 	case additionalInfo == 31:
 		return 0, errors.New("indefinite length arrays not supported")
 	default:
-		return 0, fmt.Errorf("invalid array additional info: %d", additionalInfo)
+		return 0, fmt.Errorf(
+			"invalid array additional info: %d",
+			additionalInfo,
+		)
 	}
 }
 
@@ -945,7 +1047,15 @@ func ArrayInfo(data []byte) (int, uint32, bool) {
 		return int(uint16(data[1])<<8 | uint16(data[2])), 3, false
 	case additional == 26 && len(data) >= 5:
 		// 4-byte length - check for overflow before converting to int
-		len32 := uint32(data[1])<<24 | uint32(data[2])<<16 | uint32(data[3])<<8 | uint32(data[4])
+		len32 := uint32(
+			data[1],
+		)<<24 | uint32(
+			data[2],
+		)<<16 | uint32(
+			data[3],
+		)<<8 | uint32(
+			data[4],
+		)
 		if len32 > uint32(math.MaxInt32) {
 			return -1, 0, false // Too large to handle
 		}
@@ -990,7 +1100,15 @@ func MapInfo(data []byte) (int, uint32, bool) {
 		return int(uint16(data[1])<<8 | uint16(data[2])), 3, false
 	case additional == 26 && len(data) >= 5:
 		// 4-byte length - check for overflow before converting to int
-		len32 := uint32(data[1])<<24 | uint32(data[2])<<16 | uint32(data[3])<<8 | uint32(data[4])
+		len32 := uint32(
+			data[1],
+		)<<24 | uint32(
+			data[2],
+		)<<16 | uint32(
+			data[3],
+		)<<8 | uint32(
+			data[4],
+		)
 		if len32 > uint32(math.MaxInt32) {
 			return -1, 0, false // Too large to handle
 		}
@@ -1046,7 +1164,10 @@ func IsEmptyCollection(data []byte) (bool, error) {
 			}
 		}
 		if tag != CborTagSet {
-			return false, fmt.Errorf("unexpected CBOR tag %d on collection", tag)
+			return false, fmt.Errorf(
+				"unexpected CBOR tag %d on collection",
+				tag,
+			)
 		}
 		if len(data) <= headerSize {
 			return false, errors.New("empty CBOR set content")

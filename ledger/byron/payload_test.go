@@ -588,17 +588,30 @@ func TestUpdateVoteWireDecisionIsDiscarded(t *testing.T) {
 	require.NoError(t, vote.Verify(testPayloadProtocolMagic))
 
 	falseSignedBytes := []byte{byron.SignTagUSVote}
-	falseSignedBytes = append(falseSignedBytes, mustEncode(t, testPayloadProtocolMagic)...)
+	falseSignedBytes = append(
+		falseSignedBytes,
+		mustEncode(t, testPayloadProtocolMagic)...)
 	falseSignedBytes = append(falseSignedBytes, 0x82)
-	falseSignedBytes = append(falseSignedBytes, shortestProposalId(t, proposalId)...)
+	falseSignedBytes = append(
+		falseSignedBytes,
+		shortestProposalId(t, proposalId)...)
 	falseSignedBytes = append(falseSignedBytes, 0xf4)
 	falseSigned := rawArray(
-		mustEncode(t, voterVK), shortestProposalId(t, proposalId),
-		mustEncode(t, false), mustEncode(t, ed25519.Sign(voterPrivate, falseSignedBytes)),
+		mustEncode(t, voterVK),
+		shortestProposalId(t, proposalId),
+		mustEncode(
+			t,
+			false,
+		),
+		mustEncode(t, ed25519.Sign(voterPrivate, falseSignedBytes)),
 	)
 	falseVote, err := byron.ParseUpdateVote(falseSigned)
 	require.NoError(t, err)
-	require.ErrorIs(t, falseVote.Verify(testPayloadProtocolMagic), byron.ErrInvalidSignature)
+	require.ErrorIs(
+		t,
+		falseVote.Verify(testPayloadProtocolMagic),
+		byron.ErrInvalidSignature,
+	)
 }
 
 // TestUpdateVoteNonShortestProposalId is the regression vector the reviewer
@@ -838,10 +851,19 @@ func TestUpdatePayloadStructure(t *testing.T) {
 		return testMainBlock(t, testPayloadProtocolMagic, nil, proposals, votes)
 	}
 	t.Run("zero proposals", func(t *testing.T) {
-		require.NoError(t, newBlock(nil, nil).Body.ValidateUpdatePayloadStructure())
+		require.NoError(
+			t,
+			newBlock(nil, nil).Body.ValidateUpdatePayloadStructure(),
+		)
 	})
 	t.Run("one proposal", func(t *testing.T) {
-		require.NoError(t, newBlock([]cbor.RawMessage{proposal}, nil).Body.ValidateUpdatePayloadStructure())
+		require.NoError(
+			t,
+			newBlock(
+				[]cbor.RawMessage{proposal},
+				nil,
+			).Body.ValidateUpdatePayloadStructure(),
+		)
 	})
 	t.Run("multiple proposals rejected", func(t *testing.T) {
 		var payload byron.ByronUpdatePayload
@@ -867,8 +889,19 @@ func TestUpdatePayloadStructure(t *testing.T) {
 			t, testPayloadProtocolMagic, voterVK, voterPrivate,
 			shortestProposalId(t, proposalId),
 		), 4)
-		wireFalse := rawArray(valid[0], valid[1], mustEncode(t, false), valid[3])
-		require.NoError(t, newBlock(nil, []cbor.RawMessage{wireFalse}).Body.ValidateUpdatePayloadStructure())
+		wireFalse := rawArray(
+			valid[0],
+			valid[1],
+			mustEncode(t, false),
+			valid[3],
+		)
+		require.NoError(
+			t,
+			newBlock(
+				nil,
+				[]cbor.RawMessage{wireFalse},
+			).Body.ValidateUpdatePayloadStructure(),
+		)
 	})
 
 	encodeMod := func(fieldIndex int, value any) []byte {
@@ -932,19 +965,25 @@ func TestUpdatePayloadStructure(t *testing.T) {
 			require.ErrorIs(t, err, byron.ErrInvalidPayload)
 		})
 	}
-	t.Run("LovelacePortion maximum accepted in all threshold fields", func(t *testing.T) {
-		for field := 6; field <= 9; field++ {
-			var decoded byron.ByronUpdateProposalBlockVersionMod
-			_, err := cbor.Decode(
-				encodeMod(field, []uint64{1_000_000_000_000_000}),
-				&decoded,
-			)
-			require.NoError(t, err)
-		}
-	})
+	t.Run(
+		"LovelacePortion maximum accepted in all threshold fields",
+		func(t *testing.T) {
+			for field := 6; field <= 9; field++ {
+				var decoded byron.ByronUpdateProposalBlockVersionMod
+				_, err := cbor.Decode(
+					encodeMod(field, []uint64{1_000_000_000_000_000}),
+					&decoded,
+				)
+				require.NoError(t, err)
+			}
+		},
+	)
 	t.Run("valid TxFeePolicy known-CBOR value", func(t *testing.T) {
 		linear := mustEncode(t, []uint64{99_000_000_000, 777_000_000_000})
-		policy := rawArray(mustEncode(t, uint64(0)), append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...))
+		policy := rawArray(
+			mustEncode(t, uint64(0)),
+			append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...),
+		)
 		modFields := make([][]byte, 14)
 		for index := range modFields {
 			modFields[index] = mustEncode(t, []any{})
@@ -955,24 +994,49 @@ func TestUpdatePayloadStructure(t *testing.T) {
 			t, testPayloadProtocolMagic, issuerVK, issuerPrivate, mod,
 			emptyMap(), emptyMap(),
 		)
-		require.NoError(t, newBlock([]cbor.RawMessage{rawProposal}, nil).Body.ValidateUpdatePayloadStructure())
+		require.NoError(
+			t,
+			newBlock(
+				[]cbor.RawMessage{rawProposal},
+				nil,
+			).Body.ValidateUpdatePayloadStructure(),
+		)
 	})
-	t.Run("negative Nano summand that rounds to zero is accepted", func(t *testing.T) {
-		for _, summand := range []int64{-1, -499_999_999, -500_000_000} {
-			linear := mustEncode(t, []*big.Int{big.NewInt(summand), big.NewInt(1)})
-			policy := rawArray(mustEncode(t, uint64(0)), append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...))
-			modFields := make([][]byte, 14)
-			for index := range modFields {
-				modFields[index] = mustEncode(t, []any{})
+	t.Run(
+		"negative Nano summand that rounds to zero is accepted",
+		func(t *testing.T) {
+			for _, summand := range []int64{-1, -499_999_999, -500_000_000} {
+				linear := mustEncode(
+					t,
+					[]*big.Int{big.NewInt(summand), big.NewInt(1)},
+				)
+				policy := rawArray(
+					mustEncode(t, uint64(0)),
+					append(
+						[]byte{0xd8, 0x18},
+						mustEncode(t, []byte(linear))...),
+				)
+				modFields := make([][]byte, 14)
+				for index := range modFields {
+					modFields[index] = mustEncode(t, []any{})
+				}
+				modFields[12] = rawArray(policy)
+				proposal := signedUpdateProposalWithMod(
+					t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
+					rawArray(modFields...), emptyMap(), emptyMap(),
+				)
+				require.NoError(
+					t,
+					newBlock(
+						[]cbor.RawMessage{proposal},
+						nil,
+					).Body.ValidateUpdatePayloadStructure(),
+					"summand %d",
+					summand,
+				)
 			}
-			modFields[12] = rawArray(policy)
-			proposal := signedUpdateProposalWithMod(
-				t, testPayloadProtocolMagic, issuerVK, issuerPrivate,
-				rawArray(modFields...), emptyMap(), emptyMap(),
-			)
-			require.NoError(t, newBlock([]cbor.RawMessage{proposal}, nil).Body.ValidateUpdatePayloadStructure(), "summand %d", summand)
-		}
-	})
+		},
+	)
 }
 
 func TestByronMainBlockDecodeEnforcesUpdatePayloadStructure(t *testing.T) {
@@ -983,7 +1047,9 @@ func TestByronMainBlockDecodeEnforcesUpdatePayloadStructure(t *testing.T) {
 	)
 	blockWithPayload := func(payload []byte) []byte {
 		t.Helper()
-		blockRaw, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+		blockRaw, err := hex.DecodeString(
+			strings.TrimSpace(testdata.ByronBlockHex),
+		)
 		require.NoError(t, err)
 		var blockParts []cbor.RawMessage
 		_, err = cbor.Decode(blockRaw, &blockParts)
@@ -1036,7 +1102,9 @@ func TestByronTxFeePolicyRoundsSummandBeforeLovelaceBounds(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			linear := mustEncode(t, []any{tc.summandNano, int64(0)})
-			knownCbor := append([]byte{0xd8, 0x18}, mustEncode(t, []byte(linear))...)
+			knownCbor := append(
+				[]byte{0xd8, 0x18},
+				mustEncode(t, []byte(linear))...)
 			policy := rawArray(mustEncode(t, uint64(0)), knownCbor)
 			var decoded byron.ByronTxFeePolicy
 			_, err := cbor.Decode(policy, &decoded)
@@ -1167,7 +1235,10 @@ func TestUpdateProposalShapes(t *testing.T) {
 			// reference enforces four.
 			name: "installer hash with one element",
 			metadata: metadataMap(t, "linux", rawArray(
-				mustEncode(t, bytes.Repeat([]byte{0x7c}, common.Blake2b256Size)),
+				mustEncode(
+					t,
+					bytes.Repeat([]byte{0x7c}, common.Blake2b256Size),
+				),
 			)),
 			attributes: emptyMap(),
 		},

@@ -305,12 +305,17 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.Phase2ValidUtxoValidationRules(UtxoValidateProposalProcedures),
 	common.AlwaysUtxoValidationRules(UtxoValidateGovActionWellFormedness),
 	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateHardForkCanFollow, UtxoValidateProposalAncestry,
-		UtxoValidateProposalDeposit, UtxoValidateProposalNetworkIds,
-		UtxoValidateProposalReturnAccounts, UtxoValidateEmptyTreasuryWithdrawals,
+		UtxoValidateHardForkCanFollow,
+		UtxoValidateProposalAncestry,
+		UtxoValidateProposalDeposit,
+		UtxoValidateProposalNetworkIds,
+		UtxoValidateProposalReturnAccounts,
+		UtxoValidateEmptyTreasuryWithdrawals,
 		UtxoValidateBootstrapAllowedGovActions,
 	),
-	common.AlwaysUtxoValidationRules(common.UtxoValidateProposalReturnAddressShape),
+	common.AlwaysUtxoValidationRules(
+		common.UtxoValidateProposalReturnAddressShape,
+	),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateCollateralVKeyWitnesses,
@@ -318,30 +323,52 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateRedeemerAndScriptWitnesses,
-		UtxoValidateSignatures, UtxoValidateCostModelsPresent, UtxoValidateScriptDataHash,
-		UtxoValidateInlineDatumsWithPlutusV1, UtxoValidateConwayFeaturesWithPlutusV1V2,
-		UtxoValidateDisjointRefInputs, UtxoValidateOutsideValidityIntervalUtxo,
+		UtxoValidateSignatures,
+		UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash,
+		UtxoValidateInlineDatumsWithPlutusV1,
+		UtxoValidateConwayFeaturesWithPlutusV1V2,
+		UtxoValidateDisjointRefInputs,
+		UtxoValidateOutsideValidityIntervalUtxo,
 		UtxoValidateOutsideForecast,
-		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
-		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
-		UtxoValidateCollateralContainsNonAda, UtxoValidateCollateralEqBalance,
-		UtxoValidateNoCollateralInputs, UtxoValidateBadInputsUtxo,
-		UtxoValidateScriptWitnesses, UtxoValidateRequiredRedeemers,
-		UtxoValidateValueNotConservedUtxo, UtxoValidateOutputTooSmallUtxo,
-		UtxoValidateOutputTooBigUtxo, UtxoValidateOutputBootAddrAttrsTooBig,
-		UtxoValidateWrongNetwork, UtxoValidateWrongNetworkWithdrawal,
-		UtxoValidateTransactionNetworkId, UtxoValidateMaxTxSizeUtxo,
-		UtxoValidateExUnitsTooBigUtxo, UtxoValidateTooManyCollateralInputs,
-		UtxoValidateSupplementalDatums, UtxoValidateExtraneousRedeemers,
-		UtxoValidateMalformedReferenceScripts, UtxoValidatePlutusScripts,
+		UtxoValidateInputSetEmptyUtxo,
+		UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo,
+		UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda,
+		UtxoValidateCollateralEqBalance,
+		UtxoValidateNoCollateralInputs,
+		UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses,
+		UtxoValidateRequiredRedeemers,
+		UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo,
+		UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork,
+		UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateTransactionNetworkId,
+		UtxoValidateMaxTxSizeUtxo,
+		UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs,
+		UtxoValidateSupplementalDatums,
+		UtxoValidateExtraneousRedeemers,
+		UtxoValidateMalformedReferenceScripts,
+		UtxoValidatePlutusScripts,
 		UtxoValidateNativeScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateDelegation, UtxoValidateWithdrawals, UtxoValidateCertificateDeposits,
-		UtxoValidateCommitteeCertificates, UtxoValidateUnknownVoters,
-		UtxoValidateUnknownGovActionIds, UtxoValidateVotingOnExpiredGovAction,
-		UtxoValidateBootstrapVotingRestrictions, UtxoValidateStakePoolVotingRestrictions,
-		UtxoValidateCCVotingRestrictions, UtxoValidateUnelectedCommitteeVoters,
+		UtxoValidateDelegation,
+		UtxoValidateWithdrawals,
+		UtxoValidateCertificateDeposits,
+		UtxoValidateCommitteeCertificates,
+		UtxoValidateUnknownVoters,
+		UtxoValidateUnknownGovActionIds,
+		UtxoValidateVotingOnExpiredGovAction,
+		UtxoValidateBootstrapVotingRestrictions,
+		UtxoValidateStakePoolVotingRestrictions,
+		UtxoValidateCCVotingRestrictions,
+		UtxoValidateUnelectedCommitteeVoters,
 		UtxoValidateRefScriptSizePerTx,
 		UtxoValidatePoolCertificates,
 	),
@@ -427,7 +454,9 @@ func UtxoValidateProposalProcedures(
 			}
 			for credential, expiry := range committeeUpdate.CredEpochs {
 				if credential == nil {
-					return errors.New("update committee contains a nil credential")
+					return errors.New(
+						"update committee contains a nil credential",
+					)
 				}
 				if expiry <= currentEpoch {
 					return CommitteeMemberAlreadyExpiredError{
@@ -1156,7 +1185,9 @@ func UtxoValidateHardForkCanFollow(
 						Field:    "hard-fork predecessor contents",
 					}
 				}
-				major, minor, isHardFork := hardForkProposedVersion(ancestorAction)
+				major, minor, isHardFork := hardForkProposedVersion(
+					ancestorAction,
+				)
 				if !isHardFork {
 					// A predecessor of another purpose is reported by
 					// UtxoValidateProposalAncestry.
@@ -1532,28 +1563,42 @@ func ValidateProtocolParameterUpdateNonZeroFields(
 		major = versionedPparams.ProtocolMajorVersion()
 	}
 	if ppu.CollateralPercentage != nil && *ppu.CollateralPercentage == 0 {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "collateralPercentage"}
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "collateralPercentage",
+		}
 	}
 	if ppu.CommitteeTermLimit != nil && *ppu.CommitteeTermLimit == 0 {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "committeeMaxTermLength"}
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "committeeMaxTermLength",
+		}
 	}
 	if ppu.GovActionValidityPeriod != nil && *ppu.GovActionValidityPeriod == 0 {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionLifetime"}
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "govActionLifetime",
+		}
 	}
 	if ppu.PoolDeposit != nil && *ppu.PoolDeposit == 0 {
 		return ProtocolParameterUpdateFieldZeroError{FieldName: "poolDeposit"}
 	}
 	if ppu.GovActionDeposit != nil && *ppu.GovActionDeposit == 0 {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "govActionDeposit"}
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "govActionDeposit",
+		}
 	}
 	if ppu.DRepDeposit != nil && *ppu.DRepDeposit == 0 {
 		return ProtocolParameterUpdateFieldZeroError{FieldName: "drepDeposit"}
 	}
-	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 && major >= common.ProtocolVersionPlomin {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "coinsPerUTxOByte"}
+	if ppu.AdaPerUtxoByte != nil && *ppu.AdaPerUtxoByte == 0 &&
+		major >= common.ProtocolVersionPlomin {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "coinsPerUTxOByte",
+		}
 	}
-	if ppu.NOpt != nil && *ppu.NOpt == 0 && major >= common.ProtocolVersionVanRossem {
-		return ProtocolParameterUpdateFieldZeroError{FieldName: "nOptimalPoolCount"}
+	if ppu.NOpt != nil && *ppu.NOpt == 0 &&
+		major >= common.ProtocolVersionVanRossem {
+		return ProtocolParameterUpdateFieldZeroError{
+			FieldName: "nOptimalPoolCount",
+		}
 	}
 
 	return nil
@@ -2347,10 +2392,17 @@ func conwayValueConservationDeposits(
 	deposits := new(big.Int)
 	keyDeposit := uint64(pp.KeyDeposit)
 	drepDeposit := pp.DRepDeposit
-	stakeStates := make(map[certificateStakeCredentialKey]valueConservationStakeState)
-	drepStates := make(map[certificateStakeCredentialKey]*common.DRepRegistration)
+	stakeStates := make(
+		map[certificateStakeCredentialKey]valueConservationStakeState,
+	)
+	drepStates := make(
+		map[certificateStakeCredentialKey]*common.DRepRegistration,
+	)
 	getStake := func(cred common.Credential) (valueConservationStakeState, error) {
-		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		key := certificateStakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
 		if state, ok := stakeStates[key]; ok {
 			return state, nil
 		}
@@ -2359,7 +2411,11 @@ func conwayValueConservationDeposits(
 			deposit:    keyDeposit,
 		}
 		if state.registered {
-			deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, keyDeposit)
+			deposit, err := common.StakeCredentialDepositOrDefault(
+				ls,
+				cred,
+				keyDeposit,
+			)
 			if err != nil {
 				return state, err
 			}
@@ -2372,7 +2428,10 @@ func conwayValueConservationDeposits(
 		stakeStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
 	}
 	getDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
-		key := certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}
+		key := certificateStakeCredentialKey{
+			credType: cred.CredType,
+			hash:     cred.Credential,
+		}
 		if state, ok := drepStates[key]; ok {
 			return state, nil
 		}
@@ -3129,7 +3188,10 @@ func MinFeeTx(
 	if err != nil {
 		return 0, err
 	}
-	executionFee, err := CalculateExecutionUnitsFee(tx, tmpPparams.ExecutionCosts)
+	executionFee, err := CalculateExecutionUnitsFee(
+		tx,
+		tmpPparams.ExecutionCosts,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -3394,10 +3456,12 @@ func UtxoValidateDelegation(
 		if err != nil {
 			return err
 		}
-		return DelegateVoteToUnregisteredDRepError{DRepCredential: common.Credential{
-			CredType:   credType,
-			Credential: common.NewBlake2b224(drep.Credential),
-		}}
+		return DelegateVoteToUnregisteredDRepError{
+			DRepCredential: common.Credential{
+				CredType:   credType,
+				Credential: common.NewBlake2b224(drep.Credential),
+			},
+		}
 	}
 
 	for _, cert := range tx.Certificates() {
@@ -4725,8 +4789,9 @@ func UtxoValidateUnelectedCommitteeVoters(
 
 	voters := make([]*common.Voter, 0, len(votes))
 	for voter := range votes {
-		if voter == nil || (voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
-			voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash) {
+		if voter == nil ||
+			(voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
+				voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash) {
 			continue
 		}
 		voters = append(voters, voter)

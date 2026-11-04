@@ -45,7 +45,8 @@ func TestConformanceValidationRulesSkipDelegationForPhase2Invalid(
 	params := &conway.ConwayProtocolParameters{}
 
 	var delegationRule common.UtxoValidationRuleFunc
-	delegationPointer := reflect.ValueOf(conway.UtxoValidateDelegation).Pointer()
+	delegationPointer := reflect.ValueOf(conway.UtxoValidateDelegation).
+		Pointer()
 	for _, rule := range mockconformance.ConformanceValidationRules {
 		if reflect.ValueOf(rule).Pointer() == delegationPointer {
 			delegationRule = rule

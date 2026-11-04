@@ -60,7 +60,10 @@ func TestDecodeExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
 	const childEnv = "GOUROBOROS_TEST_DECODE_EXACT_DEPTH_CHILD"
 	if os.Getenv(childEnv) != "1" {
 		// The cached decoder mode keeps the depth limit from the first decode.
-		cmd := exec.Command(os.Args[0], "-test.run=^TestDecodeExactChecksDepthBeforeCustomUnmarshal$")
+		cmd := exec.Command(
+			os.Args[0],
+			"-test.run=^TestDecodeExactChecksDepthBeforeCustomUnmarshal$",
+		)
 		cmd.Env = append(os.Environ(), childEnv+"=1")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("depth-check subprocess failed: %v\n%s", err, output)
@@ -75,7 +78,10 @@ func TestDecodeExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
 		t.Fatalf("accepted nesting depth %d", cbor.MaxUntrustedNestedLevels+1)
 	}
 	if dest.calls != 0 {
-		t.Fatalf("custom UnmarshalCBOR ran %d times before the nesting limit was checked", dest.calls)
+		t.Fatalf(
+			"custom UnmarshalCBOR ran %d times before the nesting limit was checked",
+			dest.calls,
+		)
 	}
 }
 
@@ -129,6 +135,9 @@ func TestDecodeAcceptsNestingAtConfiguredLimit(t *testing.T) {
 func TestDecodeStrictAcceptsDeepTransactionNesting(t *testing.T) {
 	var value cbor.Value
 	if _, err := cbor.DecodeStrict(nestedArrays(257), &value); err != nil {
-		t.Fatalf("DecodeStrict rejected valid deep transaction nesting: %v", err)
+		t.Fatalf(
+			"DecodeStrict rejected valid deep transaction nesting: %v",
+			err,
+		)
 	}
 }

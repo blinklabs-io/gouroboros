@@ -503,7 +503,9 @@ func TestVerifyOperationalCertificateInvalidSignatureSize(t *testing.T) {
 // real, already-issued Cardano operational certificate — signed over the raw
 // OCertSignable representation (KES vkey || issue number BE || KES period
 // BE), matching cardano-node/cardano-ledger, not a CBOR encoding.
-func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(t *testing.T) {
+func TestVerifyOperationalCertificate_RawOCertSignableRepresentation(
+	t *testing.T,
+) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
 		CurrentSlot:           testCurrentSlot,
 		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
@@ -937,7 +939,9 @@ func TestVerifyMessage_EndToEndEvolvedKES(t *testing.T) {
 // TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance proves
 // a message claiming to have been signed at a KES period earlier than its
 // own certificate's issuance period is rejected outright.
-func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(t *testing.T) {
+func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(
+	t *testing.T,
+) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
 		CurrentSlot:           testCurrentSlot,
 		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,

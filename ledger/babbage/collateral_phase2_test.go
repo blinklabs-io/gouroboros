@@ -83,7 +83,10 @@ func collateralFixtureLedgerState(t *testing.T) common.LedgerState {
 	}
 	return mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{
 		{
-			Id: shelley.MustNewShelleyTransactionInput(collateralFixtureTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(
+				collateralFixtureTxId,
+				0,
+			),
 			Output: babbage.BabbageTransactionOutput{
 				OutputAddress: scriptAddr,
 				OutputAmount: mary.MaryTransactionOutputValue{
@@ -121,7 +124,10 @@ func collateralFixtureTx(
 			TxTotalCollateral: totalCollateral,
 			TxCollateral: cbor.NewSetType(
 				[]shelley.ShelleyTransactionInput{
-					shelley.MustNewShelleyTransactionInput(collateralFixtureTxId, 0),
+					shelley.MustNewShelleyTransactionInput(
+						collateralFixtureTxId,
+						0,
+					),
 				},
 				false,
 			),
@@ -156,46 +162,60 @@ func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 	pp := &babbage.BabbageProtocolParameters{}
 	rule := productionRuleByID(t, common.UtxoValidationRuleCollateralKeyLocked)
 
-	t.Run("no phase-2 scripts: script collateral is accepted", func(t *testing.T) {
-		if err := rule(collateralFixtureTx(false, 0), 0, ls, pp); err != nil {
-			t.Errorf(
-				"a transaction running no phase-2 scripts has nothing for "+
-					"collateral to cover, so it must not be held to the "+
-					"key-locked rule; got: %v", err,
-			)
-		}
-	})
+	t.Run(
+		"no phase-2 scripts: script collateral is accepted",
+		func(t *testing.T) {
+			if err := rule(collateralFixtureTx(false, 0), 0, ls, pp); err != nil {
+				t.Errorf(
+					"a transaction running no phase-2 scripts has nothing for "+
+						"collateral to cover, so it must not be held to the "+
+						"key-locked rule; got: %v", err,
+				)
+			}
+		},
+	)
 
-	t.Run("redeemers only in a sub-transaction still count", func(t *testing.T) {
-		// A Dijkstra transaction can carry its redeemers in a sub-transaction.
-		// Reading only the top-level witness set would report no phase-2
-		// execution and skip the rule, which is the one direction this guard
-		// must never fail in.
-		tx := withSubTxRedeemers(collateralFixtureTx(false, 0))
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error(
-				"redeemers in a sub-transaction mean phase-2 execution, so " +
-					"the collateral rule must still apply",
-			)
-		}
-	})
+	t.Run(
+		"redeemers only in a sub-transaction still count",
+		func(t *testing.T) {
+			// A Dijkstra transaction can carry its redeemers in a sub-transaction.
+			// Reading only the top-level witness set would report no phase-2
+			// execution and skip the rule, which is the one direction this guard
+			// must never fail in.
+			tx := withSubTxRedeemers(collateralFixtureTx(false, 0))
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"redeemers in a sub-transaction mean phase-2 execution, so " +
+						"the collateral rule must still apply",
+				)
+			}
+		},
+	)
 
-	t.Run("phase-2 scripts: script collateral is still rejected", func(t *testing.T) {
-		if err := rule(collateralFixtureTx(true, 0), 0, ls, pp); err == nil {
-			t.Error(
-				"a transaction that runs phase-2 scripts must still be held " +
-					"to the key-locked rule; the guard must not become a way " +
-					"to skip it",
-			)
-		}
-	})
-	t.Run("phase-2-invalid transaction still checks collateral key lock", func(t *testing.T) {
-		tx := collateralFixtureTx(true, 0)
-		tx.TxIsValid = false
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error("phase-2-invalid transactions consume collateral and must still reject script-locked collateral")
-		}
-	})
+	t.Run(
+		"phase-2 scripts: script collateral is still rejected",
+		func(t *testing.T) {
+			if err := rule(collateralFixtureTx(true, 0), 0, ls, pp); err == nil {
+				t.Error(
+					"a transaction that runs phase-2 scripts must still be held " +
+						"to the key-locked rule; the guard must not become a way " +
+						"to skip it",
+				)
+			}
+		},
+	)
+	t.Run(
+		"phase-2-invalid transaction still checks collateral key lock",
+		func(t *testing.T) {
+			tx := collateralFixtureTx(true, 0)
+			tx.TxIsValid = false
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"phase-2-invalid transactions consume collateral and must still reject script-locked collateral",
+				)
+			}
+		},
+	)
 
 	for _, era := range []struct {
 		name        string
@@ -228,7 +248,9 @@ func TestCollateralKeyLockedOnlyForPhase2(t *testing.T) {
 			tx := collateralFixtureTx(true, 0)
 			tx.TxIsValid = false
 			if err := rule(tx, 0, ls, &babbage.BabbageProtocolParameters{}); err == nil {
-				t.Error("phase-2-invalid transaction skipped collateral key-lock validation")
+				t.Error(
+					"phase-2-invalid transaction skipped collateral key-lock validation",
+				)
 			}
 		})
 	}
@@ -256,39 +278,49 @@ func TestCollateralEqBalanceOnlyForPhase2(t *testing.T) {
 		babbage.UtxoValidateCollateralEqBalance,
 	)
 
-	t.Run("no phase-2 scripts: total_collateral is not checked", func(t *testing.T) {
-		tx := collateralFixtureTx(false, mismatchedTotalCollateral)
-		if err := rule(tx, 0, ls, pp); err != nil {
-			t.Errorf(
-				"total_collateral is checked inside feesOK's redeemer guard, "+
-					"so a transaction running no phase-2 scripts must not be "+
-					"held to it; got: %v", err,
-			)
-		}
-	})
+	t.Run(
+		"no phase-2 scripts: total_collateral is not checked",
+		func(t *testing.T) {
+			tx := collateralFixtureTx(false, mismatchedTotalCollateral)
+			if err := rule(tx, 0, ls, pp); err != nil {
+				t.Errorf(
+					"total_collateral is checked inside feesOK's redeemer guard, "+
+						"so a transaction running no phase-2 scripts must not be "+
+						"held to it; got: %v",
+					err,
+				)
+			}
+		},
+	)
 
-	t.Run("redeemers only in a sub-transaction still count", func(t *testing.T) {
-		tx := withSubTxRedeemers(
-			collateralFixtureTx(false, mismatchedTotalCollateral),
-		)
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error(
-				"redeemers in a sub-transaction mean phase-2 execution, so " +
-					"total_collateral must still be checked",
+	t.Run(
+		"redeemers only in a sub-transaction still count",
+		func(t *testing.T) {
+			tx := withSubTxRedeemers(
+				collateralFixtureTx(false, mismatchedTotalCollateral),
 			)
-		}
-	})
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"redeemers in a sub-transaction mean phase-2 execution, so " +
+						"total_collateral must still be checked",
+				)
+			}
+		},
+	)
 
-	t.Run("phase-2 scripts: total_collateral is still checked", func(t *testing.T) {
-		tx := collateralFixtureTx(true, mismatchedTotalCollateral)
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error(
-				"a transaction that runs phase-2 scripts must still be held " +
-					"to the total_collateral rule; the guard must not become " +
-					"a way to skip it",
-			)
-		}
-	})
+	t.Run(
+		"phase-2 scripts: total_collateral is still checked",
+		func(t *testing.T) {
+			tx := collateralFixtureTx(true, mismatchedTotalCollateral)
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"a transaction that runs phase-2 scripts must still be held " +
+						"to the total_collateral rule; the guard must not become " +
+						"a way to skip it",
+				)
+			}
+		},
+	)
 }
 
 // keyLockedCollateralFixtureTxId is the input the key-locked collateral
@@ -382,67 +414,79 @@ func TestCollateralVKeyWitnessRequiredWithoutPhase2(t *testing.T) {
 		babbage.UtxoValidateCollateralVKeyWitnesses,
 	)
 
-	t.Run("no phase-2, no vkey witness: key-locked collateral is rejected", func(t *testing.T) {
-		tx := keyLockedCollateralFixtureTx(false, false)
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error(
-				"witsVKeyNeeded is not redeemer-gated in the reference, so a " +
-					"key-locked collateral input with no matching vkey " +
-					"witness must be rejected even when the transaction runs " +
-					"no phase-2 scripts",
-			)
-		}
-	})
+	t.Run(
+		"no phase-2, no vkey witness: key-locked collateral is rejected",
+		func(t *testing.T) {
+			tx := keyLockedCollateralFixtureTx(false, false)
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"witsVKeyNeeded is not redeemer-gated in the reference, so a " +
+						"key-locked collateral input with no matching vkey " +
+						"witness must be rejected even when the transaction runs " +
+						"no phase-2 scripts",
+				)
+			}
+		},
+	)
 
-	t.Run("no phase-2, matching vkey witness: key-locked collateral is accepted", func(t *testing.T) {
-		tx := keyLockedCollateralFixtureTx(false, true)
-		if err := rule(tx, 0, ls, pp); err != nil {
-			t.Errorf(
-				"a key-locked collateral input with a matching vkey witness "+
-					"must be accepted regardless of phase-2 execution; got: %v",
-				err,
-			)
-		}
-	})
+	t.Run(
+		"no phase-2, matching vkey witness: key-locked collateral is accepted",
+		func(t *testing.T) {
+			tx := keyLockedCollateralFixtureTx(false, true)
+			if err := rule(tx, 0, ls, pp); err != nil {
+				t.Errorf(
+					"a key-locked collateral input with a matching vkey witness "+
+						"must be accepted regardless of phase-2 execution; got: %v",
+					err,
+				)
+			}
+		},
+	)
 
-	t.Run("phase-2, no vkey witness: key-locked collateral is still rejected", func(t *testing.T) {
-		tx := keyLockedCollateralFixtureTx(true, false)
-		if err := rule(tx, 0, ls, pp); err == nil {
-			t.Error(
-				"a key-locked collateral input with no matching vkey " +
-					"witness must be rejected when the transaction runs " +
-					"phase-2 scripts too",
-			)
-		}
-	})
+	t.Run(
+		"phase-2, no vkey witness: key-locked collateral is still rejected",
+		func(t *testing.T) {
+			tx := keyLockedCollateralFixtureTx(true, false)
+			if err := rule(tx, 0, ls, pp); err == nil {
+				t.Error(
+					"a key-locked collateral input with no matching vkey " +
+						"witness must be rejected when the transaction runs " +
+						"phase-2 scripts too",
+				)
+			}
+		},
+	)
 
-	t.Run("no phase-2: script-locked collateral is accepted with zero vkey witnesses", func(t *testing.T) {
-		// Same shape as TestCollateralKeyLockedOnlyForPhase2, but with zero
-		// vkey witnesses at all (not even one for an unrelated input), to
-		// pin that the vkey-witness membership check never applies to a
-		// script-locked collateral input: only the key-locked/script-locked
-		// rule is phase-2-gated, and it is not held to needing any witness.
-		tx := &babbage.BabbageTransaction{
-			Body: babbage.BabbageTransactionBody{
-				TxCollateral: cbor.NewSetType(
-					[]shelley.ShelleyTransactionInput{
-						shelley.MustNewShelleyTransactionInput(
-							collateralFixtureTxId,
-							0,
-						),
-					},
-					false,
-				),
-			},
-		}
-		if err := rule(tx, 0, collateralFixtureLedgerState(t), pp); err != nil {
-			t.Errorf(
-				"script-locked collateral with no phase-2 execution and no "+
-					"vkey witnesses at all must still be accepted; got: %v",
-				err,
-			)
-		}
-	})
+	t.Run(
+		"no phase-2: script-locked collateral is accepted with zero vkey witnesses",
+		func(t *testing.T) {
+			// Same shape as TestCollateralKeyLockedOnlyForPhase2, but with zero
+			// vkey witnesses at all (not even one for an unrelated input), to
+			// pin that the vkey-witness membership check never applies to a
+			// script-locked collateral input: only the key-locked/script-locked
+			// rule is phase-2-gated, and it is not held to needing any witness.
+			tx := &babbage.BabbageTransaction{
+				Body: babbage.BabbageTransactionBody{
+					TxCollateral: cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{
+							shelley.MustNewShelleyTransactionInput(
+								collateralFixtureTxId,
+								0,
+							),
+						},
+						false,
+					),
+				},
+			}
+			if err := rule(tx, 0, collateralFixtureLedgerState(t), pp); err != nil {
+				t.Errorf(
+					"script-locked collateral with no phase-2 execution and no "+
+						"vkey witnesses at all must still be accepted; got: %v",
+					err,
+				)
+			}
+		},
+	)
 }
 
 // subTxCarrier is a Babbage transaction that also exposes sub-transaction

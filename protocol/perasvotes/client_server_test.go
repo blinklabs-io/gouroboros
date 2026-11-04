@@ -47,12 +47,14 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 				return []VoteID{id}, nil
 			},
 		),
-		WithObjectsFunc(func(_ CallbackContext, ids []VoteID) ([]VoteObject, error) {
-			if len(ids) != 1 || ids[0] != id {
-				return nil, fmt.Errorf("unexpected object request: %v", ids)
-			}
-			return []VoteObject{object}, nil
-		}),
+		WithObjectsFunc(
+			func(_ CallbackContext, ids []VoteID) ([]VoteObject, error) {
+				if len(ids) != 1 || ids[0] != id {
+					return nil, fmt.Errorf("unexpected object request: %v", ids)
+				}
+				return []VoteObject{object}, nil
+			},
+		),
 	)
 	server := NewServer(protocol.ProtocolOptions{
 		Muxer:        leftMuxer,

@@ -65,7 +65,12 @@ func TestVerifyBlockStateAcceptsAuthorizedByronUtxoSpend(t *testing.T) {
 				TxId:        common.Blake2b256{byte(test.addressType + 1)},
 				OutputIndex: 0,
 			}
-			tx, address := signedByronStateTransaction(t, test.addressType, input, 9)
+			tx, address := signedByronStateTransaction(
+				t,
+				test.addressType,
+				input,
+				9,
+			)
 			state := byronStateWithInput(input, address, 10)
 
 			require.NoError(t, ledger.VerifyBlockState(
@@ -214,7 +219,9 @@ func TestVerifyBlockStateEnforcesByronSizeFeePolicy(t *testing.T) {
 	minFee := uint64(len(tx.Cbor()))
 	config := func(state common.LedgerState) common.VerifyConfig {
 		cfg := byronStateConfig(state)
-		cfg.ByronTxFeePolicy = &common.ByronTxFeePolicy{Multiplier: 1_000_000_000}
+		cfg.ByronTxFeePolicy = &common.ByronTxFeePolicy{
+			Multiplier: 1_000_000_000,
+		}
 		return cfg
 	}
 
@@ -286,7 +293,9 @@ func signedByronStateTransaction(
 
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	verificationKey := append(append([]byte(nil), publicKey...), make([]byte, 32)...)
+	verificationKey := append(
+		append([]byte(nil), publicKey...),
+		make([]byte, 32)...)
 	attributes := common.ByronAddressAttributes{}
 	var address common.Address
 	switch addressType {
@@ -313,8 +322,10 @@ func signedByronStateTransaction(
 		t.Fatalf("unsupported Byron address type %d", addressType)
 	}
 	body := byron.ByronTransactionBody{
-		TxInputs:   []byron.ByronTransactionInput{input},
-		TxOutputs:  []byron.ByronTransactionOutput{{OutputAddress: address, OutputAmount: outputAmount}},
+		TxInputs: []byron.ByronTransactionInput{input},
+		TxOutputs: []byron.ByronTransactionOutput{
+			{OutputAddress: address, OutputAmount: outputAmount},
+		},
 		Attributes: cbor.RawMessage{0xa0},
 	}
 	body.SetCbor([]byte{0x80})
@@ -341,12 +352,17 @@ func signedByronStateTransaction(
 	require.NoError(t, err)
 	var witness cbor.Value
 	require.NoError(t, witness.UnmarshalCBOR(witnessCbor))
-	return byron.ByronTransaction{Body: body, Twit: []cbor.Value{witness}}, address
+	return byron.ByronTransaction{
+		Body: body,
+		Twit: []cbor.Value{witness},
+	}, address
 }
 
 func byronStateBlock(txs ...byron.ByronTransaction) *byron.ByronMainBlock {
 	return &byron.ByronMainBlock{
-		BlockHeader: &byron.ByronMainBlockHeader{ProtocolMagic: byronStateProtocolMagic},
+		BlockHeader: &byron.ByronMainBlockHeader{
+			ProtocolMagic: byronStateProtocolMagic,
+		},
 		Body: byron.ByronMainBlockBody{
 			TxPayload: txs,
 		},

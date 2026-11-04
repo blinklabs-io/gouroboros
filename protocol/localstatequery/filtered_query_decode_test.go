@@ -202,7 +202,11 @@ func TestPoolFilterClientParamsMatchDecoder(t *testing.T) {
 					t.Fatalf("unexpected query type %T", decoded)
 				}
 				if len(tc.ids) == 0 {
-					require.Empty(t, pools, "empty StrictMaybe must select all pools")
+					require.Empty(
+						t,
+						pools,
+						"empty StrictMaybe must select all pools",
+					)
 					return
 				}
 				require.Len(t, pools, 1)

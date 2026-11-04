@@ -59,11 +59,18 @@ func TestInvalidPossessionProofIsNeverCached(t *testing.T) {
 	// after the genuine proof for the same public key has been cached.
 	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
 	message := append([]byte{0x58, 0x20}, messageHash[:]...)
-	signature := signLeiosTestMessage(t, big.NewInt(101), message, leiosSignatureDST)
+	signature := signLeiosTestMessage(
+		t,
+		big.NewInt(101),
+		message,
+		leiosSignatureDST,
+	)
 	context := common.DijkstraLeiosCertificateContext{
 		AnnouncingBlockHash: messageHash,
 		TotalActiveStake:    1,
-		Committee:           []common.DijkstraLeiosCommitteeMember{{Stake: 1, Key: &forged}},
+		Committee: []common.DijkstraLeiosCommitteeMember{
+			{Stake: 1, Key: &forged},
+		},
 	}
 	require.ErrorIs(t, VerifyDijkstraCertificate(
 		[]byte{0x80}, signature, 1, big.NewRat(1, 1), context,
@@ -99,8 +106,16 @@ func TestVerifiedKeyCacheStaysBounded(t *testing.T) {
 		verifiedKeys.Unlock()
 	})
 
-	require.NoError(t, VerifyPossessionProof(*makeLeiosTestKey(t, big.NewInt(104))))
+	require.NoError(
+		t,
+		VerifyPossessionProof(*makeLeiosTestKey(t, big.NewInt(104))),
+	)
 	verifiedKeys.RLock()
 	defer verifiedKeys.RUnlock()
-	require.Len(t, verifiedKeys.keys, 1, "a full cache empties before admitting a key")
+	require.Len(
+		t,
+		verifiedKeys.keys,
+		1,
+		"a full cache empties before admitting a key",
+	)
 }

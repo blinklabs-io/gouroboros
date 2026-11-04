@@ -832,7 +832,9 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 		if indefinite {
 			pos := decoder.Position()
 			if pos >= len(cborData) {
-				return false, errors.New("unterminated Conway transaction body map")
+				return false, errors.New(
+					"unterminated Conway transaction body map",
+				)
 			}
 			if cborData[pos] == 0xff {
 				return false, nil
@@ -904,7 +906,10 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 		proposals := cbor.NewSetType(b.TxProposalProcedures, true)
 		encodedProposals, err := cbor.Encode(&proposals)
 		if err != nil {
-			return nil, fmt.Errorf("encode Conway proposal-procedure set: %w", err)
+			return nil, fmt.Errorf(
+				"encode Conway proposal-procedure set: %w",
+				err,
+			)
 		}
 		bodyFields[20] = encodedProposals
 	}
@@ -1149,7 +1154,10 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraConway)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraConway,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}

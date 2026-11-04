@@ -177,7 +177,9 @@ func NewConfig(options ...KeepAliveOptionFunc) Config {
 }
 
 // WithOnKeepAliveReceived sets an optional notification callback that is called when a keep-alive message is received (server side).
-func WithOnKeepAliveReceived(callback func(connection.ConnectionId, uint16)) KeepAliveOptionFunc {
+func WithOnKeepAliveReceived(
+	callback func(connection.ConnectionId, uint16),
+) KeepAliveOptionFunc {
 	return func(c *Config) {
 		c.OnKeepAliveReceived = callback
 	}
@@ -193,7 +195,9 @@ func WithKeepAliveFunc(callback KeepAliveFunc) KeepAliveOptionFunc {
 // WithKeepAliveResponseFunc sets the legacy response callback.
 //
 // Deprecated: use WithOnKeepAliveResponseReceived.
-func WithKeepAliveResponseFunc(callback KeepAliveResponseFunc) KeepAliveOptionFunc {
+func WithKeepAliveResponseFunc(
+	callback KeepAliveResponseFunc,
+) KeepAliveOptionFunc {
 	return func(c *Config) { c.KeepAliveResponseFunc = callback }
 }
 
@@ -205,7 +209,9 @@ func WithDoneFunc(callback DoneFunc) KeepAliveOptionFunc {
 }
 
 // WithOnKeepAliveResponseReceived sets an optional notification callback that is called when a keep-alive response is received (client side).
-func WithOnKeepAliveResponseReceived(callback func(connection.ConnectionId, uint16)) KeepAliveOptionFunc {
+func WithOnKeepAliveResponseReceived(
+	callback func(connection.ConnectionId, uint16),
+) KeepAliveOptionFunc {
 	return func(c *Config) {
 		c.OnKeepAliveResponseReceived = callback
 	}

@@ -31,9 +31,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestReplyMessageCountPreflightRejectsBeforeCollectionAllocation(t *testing.T) {
+func TestReplyMessageCountPreflightRejectsBeforeCollectionAllocation(
+	t *testing.T,
+) {
 	const claimedCount = 100_000
-	data := []byte{0x83, MessageTypeReplyMessagesNonBlocking, 0x9a, 0, 0, 0, 0, 0xf4}
+	data := []byte{
+		0x83,
+		MessageTypeReplyMessagesNonBlocking,
+		0x9a,
+		0,
+		0,
+		0,
+		0,
+		0xf4,
+	}
 	binary.BigEndian.PutUint32(data[3:7], claimedCount)
 
 	var err error
@@ -62,7 +73,11 @@ func TestReplyMessageCountPreflightAcceptsConfiguredLimit(t *testing.T) {
 		len(messages),
 	)
 	require.NoError(t, err)
-	require.Len(t, parsed.(*MsgReplyMessagesNonBlocking).Messages, len(messages))
+	require.Len(
+		t,
+		parsed.(*MsgReplyMessagesNonBlocking).Messages,
+		len(messages),
+	)
 
 	_, err = newMsgFromCborWithLimit(
 		MessageTypeReplyMessagesNonBlocking,
@@ -364,7 +379,13 @@ func TestReplyMessageCollectionBudget(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("message_%d", msgType), func(t *testing.T) {
 			// array header with a two-byte count
-			wire := []byte{0x82, byte(msgType), 0x99, byte(over >> 8), byte(over)}
+			wire := []byte{
+				0x82,
+				byte(msgType),
+				0x99,
+				byte(over >> 8),
+				byte(over),
+			}
 			if msgType == MessageTypeReplyMessagesNonBlocking {
 				wire[0] = 0x83
 			}

@@ -149,7 +149,9 @@ func TestValidateRequiredRedeemersValidReferenceScript(t *testing.T) {
 // canonical CIP-33 shape: the Plutus script lives on a dedicated reference
 // input (TxReferenceInputs), not on the output actually being spent. The
 // spent input's own output carries no script at all.
-func TestValidateRequiredRedeemersScriptViaSeparateReferenceInput(t *testing.T) {
+func TestValidateRequiredRedeemersScriptViaSeparateReferenceInput(
+	t *testing.T,
+) {
 	v1 := common.PlutusV1Script{0x01, 0x02, 0x03}
 	spentInput := shelley.MustNewShelleyTransactionInput(
 		"9999999999999999999999999999999999999999999999999999999999999999",
@@ -644,7 +646,9 @@ func TestValidateRequiredRedeemersMissingRedeemerPlutusV3AndV4(t *testing.T) {
 				Id: input,
 				Output: &babbage.BabbageTransactionOutput{
 					OutputAddress: scriptAddress(t, tc.script),
-					OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: 1000,
+					},
 					TxOutScriptRef: &common.ScriptRef{
 						Type:   tc.refType,
 						Script: tc.script,

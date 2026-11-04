@@ -104,7 +104,10 @@ func TestSegmentReadTimeout_DisabledNeverFires(t *testing.T) {
 	case seg := <-recvChan:
 		require.Equal(t, []byte("late reply"), seg.Payload)
 	case err := <-m.ErrorChan():
-		t.Fatalf("expected the late segment to be delivered, got error: %v", err)
+		t.Fatalf(
+			"expected the late segment to be delivered, got error: %v",
+			err,
+		)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected the late segment to be delivered within 2s")
 	}

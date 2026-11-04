@@ -76,12 +76,19 @@ func TestRecordBlockSameSlotEBBAndMainBlock(t *testing.T) {
 		}))
 	})
 
-	t.Run("first block at start slot must be the start point", func(t *testing.T) {
-		t.Parallel()
-		req := &rangeRequest{start: main0, end: main5}
-		err := recordAll(req, []recordStep{{ebb, genesis}})
-		require.ErrorContains(t, err, "does not match requested range start")
-	})
+	t.Run(
+		"first block at start slot must be the start point",
+		func(t *testing.T) {
+			t.Parallel()
+			req := &rangeRequest{start: main0, end: main5}
+			err := recordAll(req, []recordStep{{ebb, genesis}})
+			require.ErrorContains(
+				t,
+				err,
+				"does not match requested range start",
+			)
+		},
+	)
 
 	t.Run("same slot block must chain from previous block", func(t *testing.T) {
 		t.Parallel()

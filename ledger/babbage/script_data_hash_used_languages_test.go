@@ -50,7 +50,9 @@ const preview1796036TxHex = "84a500818258203b063fb1ab831a4d03e628a30a072394fc9bb
 //
 // blake2b256(80 || 9fd87980ff || a0) is the declared value, which is what pins
 // the empty map as the correct input.
-func TestUtxoValidateScriptDataHashIgnoresUnneededReferenceScript(t *testing.T) {
+func TestUtxoValidateScriptDataHashIgnoresUnneededReferenceScript(
+	t *testing.T,
+) {
 	txBytes, err := hex.DecodeString(preview1796036TxHex)
 	require.NoError(t, err)
 	tx, err := babbage.NewBabbageTransactionFromCbor(txBytes)

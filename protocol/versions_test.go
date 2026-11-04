@@ -57,8 +57,16 @@ func TestGetProtocolVersionMapDMQNtC(t *testing.T) {
 	// Query flag passes through.
 	mq := GetProtocolVersionMapDMQNtC(dmqDefaultMagic, true)
 	vq, ok := mq[0x1001]
-	require.True(t, ok, "DMQ N2C v1 (0x1001) missing from query-mode version map")
-	assert.True(t, vq.Query(), "Query flag did not propagate from caller to VersionData")
+	require.True(
+		t,
+		ok,
+		"DMQ N2C v1 (0x1001) missing from query-mode version map",
+	)
+	assert.True(
+		t,
+		vq.Query(),
+		"Query flag did not propagate from caller to VersionData",
+	)
 }
 
 func TestGetProtocolVersionMapDMQNtN(t *testing.T) {
@@ -188,7 +196,12 @@ func TestNtNVersion16NegotiatesPerasSupport(t *testing.T) {
 	)
 
 	versionMap := GetProtocolVersionMapWithPerasSupport(
-		ProtocolModeNodeToNode, 42, DiffusionModeInitiatorOnly, false, false, true,
+		ProtocolModeNodeToNode,
+		42,
+		DiffusionModeInitiatorOnly,
+		false,
+		false,
+		true,
 	)
 	versionData, ok := versionMap[version].(VersionDataNtN16andUp)
 	require.True(t, ok)

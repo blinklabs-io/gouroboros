@@ -41,7 +41,11 @@ func validateVersionMapMessage(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite, err := handshakeCollectionInfo(collection, 5, "handshake versions")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(
+		collection,
+		5,
+		"handshake versions",
+	)
 	if err != nil {
 		return err
 	}
@@ -71,7 +75,9 @@ func validateVersionMapMessage(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("decode handshake version %d: %w", idx, err)
 		}
-		version := uint16(versionValue) // #nosec G115 -- bounded to uint16 above
+		version := uint16(
+			versionValue,
+		) // #nosec G115 -- bounded to uint16 above
 		pos += consumed
 		byteIndex := version >> 3
 		bit := byte(1 << (version & 7))
@@ -93,7 +99,11 @@ func validateRefusalMessage(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite, err := handshakeCollectionInfo(collection, 4, "handshake refusal reason")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(
+		collection,
+		4,
+		"handshake refusal reason",
+	)
 	if err != nil {
 		return err
 	}
@@ -147,7 +157,11 @@ func validateSupportedVersions(data []byte) error {
 	if err != nil {
 		return err
 	}
-	count, headerSize, indefinite, err := handshakeCollectionInfo(data[pos:], 4, "handshake supported versions")
+	count, headerSize, indefinite, err := handshakeCollectionInfo(
+		data[pos:],
+		4,
+		"handshake supported versions",
+	)
 	if err != nil {
 		return err
 	}
@@ -169,7 +183,11 @@ func validateSupportedVersions(data []byte) error {
 			}
 		}
 		if length, err := cborwalk.ItemLength(data[position:]); err != nil {
-			return fmt.Errorf("decode handshake supported version %d: %w", idx, err)
+			return fmt.Errorf(
+				"decode handshake supported version %d: %w",
+				idx,
+				err,
+			)
 		} else {
 			pos += length
 		}
@@ -182,7 +200,11 @@ func handshakeSecondField(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	fieldCount, headerSize, indefinite, err := handshakeCollectionInfo(data[pos:], 4, "handshake message")
+	fieldCount, headerSize, indefinite, err := handshakeCollectionInfo(
+		data[pos:],
+		4,
+		"handshake message",
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +252,11 @@ func decodeHandshakeUnsigned(
 	return head.Argument, head.EncodedSize, nil
 }
 
-func handshakeCollectionInfo(data []byte, major byte, label string) (int, uint32, bool, error) {
+func handshakeCollectionInfo(
+	data []byte,
+	major byte,
+	label string,
+) (int, uint32, bool, error) {
 	head, ok, err := cborwalk.ReadHead(data, 0)
 	if err != nil {
 		return 0, 0, false, fmt.Errorf("invalid %s header: %w", label, err)

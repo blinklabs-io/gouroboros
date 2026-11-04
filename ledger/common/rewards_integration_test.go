@@ -73,13 +73,16 @@ func TestRewardServiceIntegration(t *testing.T) {
 		},
 		TotalBlocksInEpoch: 2500,
 	}
-	require.NoError(t, snapshot.PoolParams[common.PoolKeyHash{1}].SetRewardAccountCredential(
-		common.Credential{
-			CredType:   common.CredentialTypeScriptHash,
-			Credential: common.CredentialHash{4},
-		},
-		0,
-	))
+	require.NoError(
+		t,
+		snapshot.PoolParams[common.PoolKeyHash{1}].SetRewardAccountCredential(
+			common.Credential{
+				CredType:   common.CredentialTypeScriptHash,
+				Credential: common.CredentialHash{4},
+			},
+			0,
+		),
+	)
 
 	mockState := mockledger.NewLedgerStateBuilder().
 		WithAdaPots(pots).

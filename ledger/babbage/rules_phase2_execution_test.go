@@ -49,11 +49,15 @@ func TestBabbagePlutusExecutionMatchesValidityFlag(t *testing.T) {
 				WsPlutusV2Scripts: []common.PlutusV2Script{
 					plutus.(common.PlutusV2Script),
 				},
-				WsRedeemers: alonzo.AlonzoRedeemers{Redeemers: []alonzo.AlonzoRedeemer{{
-					Tag:     common.RedeemerTagMint,
-					Data:    common.Datum{Data: data.NewInteger(big.NewInt(1))},
-					ExUnits: units,
-				}}},
+				WsRedeemers: alonzo.AlonzoRedeemers{
+					Redeemers: []alonzo.AlonzoRedeemer{{
+						Tag: common.RedeemerTagMint,
+						Data: common.Datum{
+							Data: data.NewInteger(big.NewInt(1)),
+						},
+						ExUnits: units,
+					}},
+				},
 			},
 			TxIsValid: valid,
 		}
@@ -68,11 +72,26 @@ func TestBabbagePlutusExecutionMatchesValidityFlag(t *testing.T) {
 	}
 	state := mockledger.NewLedgerStateBuilder().Build()
 
-	require.NoError(t, babbage.UtxoValidatePlutusScripts(newTx(false, true), 0, state, params))
+	require.NoError(
+		t,
+		babbage.UtxoValidatePlutusScripts(newTx(false, true), 0, state, params),
+	)
 	var scriptFailure common.PlutusScriptFailedError
-	require.ErrorAs(t, babbage.UtxoValidatePlutusScripts(newTx(true, true), 0, state, params), &scriptFailure)
-	require.NoError(t, babbage.UtxoValidatePlutusScripts(newTx(true, false), 0, state, params))
+	require.ErrorAs(
+		t,
+		babbage.UtxoValidatePlutusScripts(newTx(true, true), 0, state, params),
+		&scriptFailure,
+	)
+	require.NoError(
+		t,
+		babbage.UtxoValidatePlutusScripts(newTx(true, false), 0, state, params),
+	)
 	var unexpectedSuccess common.UnexpectedPlutusScriptSuccessError
-	err := babbage.UtxoValidatePlutusScripts(newTx(false, false), 0, state, params)
+	err := babbage.UtxoValidatePlutusScripts(
+		newTx(false, false),
+		0,
+		state,
+		params,
+	)
 	require.True(t, errors.As(err, &unexpectedSuccess))
 }

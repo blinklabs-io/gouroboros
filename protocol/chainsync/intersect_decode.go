@@ -33,7 +33,10 @@ const (
 )
 
 func maxFindIntersectPoints(modeLimit int) int {
-	return max(0, min(modeLimit-findIntersectFrameBytes, maxFindIntersectDecodedPoints))
+	return max(
+		0,
+		min(modeLimit-findIntersectFrameBytes, maxFindIntersectDecodedPoints),
+	)
 }
 
 func validateFindIntersect(data []byte, maxCount int) error {

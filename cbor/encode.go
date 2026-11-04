@@ -73,19 +73,22 @@ func EncodeGeneric(src any) ([]byte, error) {
 		return nil, errors.New("source must be a pointer to a struct")
 	}
 	typeSrc := valueSrc.Elem().Type()
-	tmpTypeSrc, err := encodeGenericTypeCache.getOrCreate(typeSrc, func() (reflect.Type, error) {
-		// Create a duplicate(-ish) struct from the destination
-		// We do this so that we can bypass any custom MarshalCBOR() function on the
-		// source object
-		srcTypeFields := []reflect.StructField{}
-		for i := range typeSrc.NumField() {
-			tmpField := typeSrc.Field(i)
-			if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
-				srcTypeFields = append(srcTypeFields, tmpField)
+	tmpTypeSrc, err := encodeGenericTypeCache.getOrCreate(
+		typeSrc,
+		func() (reflect.Type, error) {
+			// Create a duplicate(-ish) struct from the destination
+			// We do this so that we can bypass any custom MarshalCBOR() function on the
+			// source object
+			srcTypeFields := []reflect.StructField{}
+			for i := range typeSrc.NumField() {
+				tmpField := typeSrc.Field(i)
+				if tmpField.IsExported() && tmpField.Name != "DecodeStoreCbor" {
+					srcTypeFields = append(srcTypeFields, tmpField)
+				}
 			}
-		}
-		return reflect.StructOf(srcTypeFields), nil
-	})
+			return reflect.StructOf(srcTypeFields), nil
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

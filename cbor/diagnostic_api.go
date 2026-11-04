@@ -301,7 +301,11 @@ func unwrapBlockInner(
 // each with their own slice of that payload. We count via the chunks so
 // the totals match the encoded payload bytes exactly once. Definite-
 // length strings have no children, so they're counted on the parent.
-func collectDiagnosticStats(n *DiagnosticNode, depth int, stats *DiagnosticStats) {
+func collectDiagnosticStats(
+	n *DiagnosticNode,
+	depth int,
+	stats *DiagnosticStats,
+) {
 	if n == nil {
 		return
 	}

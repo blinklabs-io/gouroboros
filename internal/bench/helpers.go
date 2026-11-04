@@ -128,13 +128,37 @@ type eraInfo struct {
 
 // eraLookup maps lowercase era names to their type constants and test data.
 var eraLookup = map[string]eraInfo{
-	"byron":   {ledger.BlockTypeByronMain, ledger.TxTypeByron, testdata.ByronBlockHex},
-	"shelley": {ledger.BlockTypeShelley, ledger.TxTypeShelley, testdata.ShelleyBlockHex},
-	"allegra": {ledger.BlockTypeAllegra, ledger.TxTypeAllegra, testdata.AllegraBlockHex},
-	"mary":    {ledger.BlockTypeMary, ledger.TxTypeMary, testdata.MaryBlockHex},
-	"alonzo":  {ledger.BlockTypeAlonzo, ledger.TxTypeAlonzo, testdata.AlonzoBlockHex},
-	"babbage": {ledger.BlockTypeBabbage, ledger.TxTypeBabbage, testdata.BabbageBlockHex},
-	"conway":  {ledger.BlockTypeConway, ledger.TxTypeConway, testdata.ConwayBlockHex},
+	"byron": {
+		ledger.BlockTypeByronMain,
+		ledger.TxTypeByron,
+		testdata.ByronBlockHex,
+	},
+	"shelley": {
+		ledger.BlockTypeShelley,
+		ledger.TxTypeShelley,
+		testdata.ShelleyBlockHex,
+	},
+	"allegra": {
+		ledger.BlockTypeAllegra,
+		ledger.TxTypeAllegra,
+		testdata.AllegraBlockHex,
+	},
+	"mary": {ledger.BlockTypeMary, ledger.TxTypeMary, testdata.MaryBlockHex},
+	"alonzo": {
+		ledger.BlockTypeAlonzo,
+		ledger.TxTypeAlonzo,
+		testdata.AlonzoBlockHex,
+	},
+	"babbage": {
+		ledger.BlockTypeBabbage,
+		ledger.TxTypeBabbage,
+		testdata.BabbageBlockHex,
+	},
+	"conway": {
+		ledger.BlockTypeConway,
+		ledger.TxTypeConway,
+		testdata.ConwayBlockHex,
+	},
 }
 
 // BlockTypeFromEra returns the ledger block type constant for the given era

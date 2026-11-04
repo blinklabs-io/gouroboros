@@ -64,7 +64,10 @@ func decodeCborArray(t *testing.T, data []byte) []cbor.RawMessage {
 	return items
 }
 
-func currentDijkstraFixtureTx(t *testing.T, parts []cbor.RawMessage) []cbor.RawMessage {
+func currentDijkstraFixtureTx(
+	t *testing.T,
+	parts []cbor.RawMessage,
+) []cbor.RawMessage {
 	t.Helper()
 	require.Len(t, parts, 3)
 	var bodyFields map[uint]cbor.RawMessage
@@ -110,7 +113,10 @@ func dijkstraFixtureParts(
 	t *testing.T,
 ) (header, leios, peras cbor.RawMessage, tx3 []cbor.RawMessage) {
 	t.Helper()
-	blockParts := decodeCborArray(t, readHexFixture(t, dijkstraBlockFixturePath))
+	blockParts := decodeCborArray(
+		t,
+		readHexFixture(t, dijkstraBlockFixturePath),
+	)
 	require.Len(t, blockParts, 2)
 	bodyParts := decodeCborArray(t, []byte(blockParts[1]))
 	// The in-tree fixture is in the legacy prototype-2026w27 form:
@@ -264,7 +270,9 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 	}
 }
 
-func TestExtractTransactionOffsetsDijkstraSubTransactionComponents(t *testing.T) {
+func TestExtractTransactionOffsetsDijkstraSubTransactionComponents(
+	t *testing.T,
+) {
 	t.Parallel()
 	header, leios, peras, _ := dijkstraFixtureParts(t)
 	output := encodeCbor(t, map[uint]any{0: uint64(1)})
@@ -274,7 +282,10 @@ func TestExtractTransactionOffsetsDijkstraSubTransactionComponents(t *testing.T)
 	})
 	witness := encodeCbor(t, map[uint]any{})
 	metadata := encodeCbor(t, map[uint]any{0: uint64(1)})
-	subTransaction := encodeCbor(t, []cbor.RawMessage{subBody, witness, metadata})
+	subTransaction := encodeCbor(
+		t,
+		[]cbor.RawMessage{subBody, witness, metadata},
+	)
 	topBody := encodeCbor(t, map[uint]any{
 		0:  []any{},
 		1:  []any{},
@@ -299,18 +310,39 @@ func TestExtractTransactionOffsetsDijkstraSubTransactionComponents(t *testing.T)
 	require.Len(t, offsets.Transactions, 1)
 	require.Len(t, offsets.Transactions[0].SubTransactions, 1)
 	subLoc := offsets.Transactions[0].SubTransactions[0]
-	assert.Equal(t, []byte(subBody), block[subLoc.Body.Offset:subLoc.Body.Offset+subLoc.Body.Length])
-	assert.Equal(t, []byte(witness), block[subLoc.Witness.Offset:subLoc.Witness.Offset+subLoc.Witness.Length])
-	assert.Equal(t, []byte(metadata), block[subLoc.Metadata.Offset:subLoc.Metadata.Offset+subLoc.Metadata.Length])
+	assert.Equal(
+		t,
+		[]byte(subBody),
+		block[subLoc.Body.Offset:subLoc.Body.Offset+subLoc.Body.Length],
+	)
+	assert.Equal(
+		t,
+		[]byte(witness),
+		block[subLoc.Witness.Offset:subLoc.Witness.Offset+subLoc.Witness.Length],
+	)
+	assert.Equal(
+		t,
+		[]byte(metadata),
+		block[subLoc.Metadata.Offset:subLoc.Metadata.Offset+subLoc.Metadata.Length],
+	)
 	require.Len(t, subLoc.Outputs, 1)
 	outputLoc := subLoc.Outputs[0]
-	assert.Equal(t, []byte(output), block[outputLoc.Offset:outputLoc.Offset+outputLoc.Length])
+	assert.Equal(
+		t,
+		[]byte(output),
+		block[outputLoc.Offset:outputLoc.Offset+outputLoc.Length],
+	)
 }
 
-func TestExtractTransactionOffsetsDijkstraRejectsMalformedSubTransaction(t *testing.T) {
+func TestExtractTransactionOffsetsDijkstraRejectsMalformedSubTransaction(
+	t *testing.T,
+) {
 	t.Parallel()
 	header, leios, peras, _ := dijkstraFixtureParts(t)
-	malformedSubTransaction := encodeCbor(t, []any{map[uint]any{}, map[uint]any{}})
+	malformedSubTransaction := encodeCbor(
+		t,
+		[]any{map[uint]any{}, map[uint]any{}},
+	)
 	topBody := encodeCbor(t, map[uint]any{
 		0:  []any{},
 		1:  []any{},
@@ -331,10 +363,16 @@ func TestExtractTransactionOffsetsDijkstraRejectsMalformedSubTransaction(t *test
 	block := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
 
 	_, err := common.ExtractTransactionOffsets(block)
-	require.ErrorContains(t, err, "sub-transaction 0 has 2 components, expected 3")
+	require.ErrorContains(
+		t,
+		err,
+		"sub-transaction 0 has 2 components, expected 3",
+	)
 }
 
-func TestExtractTransactionOffsetsDijkstraReturnsInvalidTransactions(t *testing.T) {
+func TestExtractTransactionOffsetsDijkstraReturnsInvalidTransactions(
+	t *testing.T,
+) {
 	header, leios, peras, tx3 := dijkstraFixtureParts(t)
 	txs := []cbor.RawMessage{
 		encodeCbor(t, tx3),
@@ -449,8 +487,11 @@ func TestExtractTransactionOffsetsTwoElementNonDijkstra(t *testing.T) {
 			block: []any{[]byte{0x01}, []byte{0x02, 0x03}},
 		},
 		{
-			name:  "body holds bytestrings, not transactions",
-			block: []any{[]byte{0x01}, []any{[]byte{0x02}, []byte{0x03}, []byte{0x04}}},
+			name: "body holds bytestrings, not transactions",
+			block: []any{
+				[]byte{0x01},
+				[]any{[]byte{0x02}, []byte{0x03}, []byte{0x04}},
+			},
 		},
 		{
 			name:  "malformed body with unrelated header",

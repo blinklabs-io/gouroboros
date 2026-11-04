@@ -30,8 +30,11 @@ func TestLocalStateQueryDispatchersAcceptListLengthEncodings(t *testing.T) {
 		decode    func(*testing.T, []byte)
 	}{
 		{
-			name:      "QueryWrapper",
-			canonical: mustEncodeLocalStateQueryFixture(t, []any{QueryTypeChainPoint}),
+			name: "QueryWrapper",
+			canonical: mustEncodeLocalStateQueryFixture(
+				t,
+				[]any{QueryTypeChainPoint},
+			),
 			decode: func(t *testing.T, data []byte) {
 				var decoded QueryWrapper
 				require.NoError(t, decoded.UnmarshalCBOR(data))

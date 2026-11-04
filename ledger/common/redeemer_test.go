@@ -188,7 +188,9 @@ func TestRedeemerValueMarshalJSON(t *testing.T) {
 }
 
 func TestRedeemerValueUnmarshalCBORRejectsExtraFields(t *testing.T) {
-	encoded, err := cbor.Encode([]any{cbor.RawMessage{0x00}, [2]uint64{0, 0}, uint8(1)})
+	encoded, err := cbor.Encode(
+		[]any{cbor.RawMessage{0x00}, [2]uint64{0, 0}, uint8(1)},
+	)
 	require.NoError(t, err)
 	var decoded RedeemerValue
 	require.Error(t, decoded.UnmarshalCBOR(encoded))
@@ -196,7 +198,10 @@ func TestRedeemerValueUnmarshalCBORRejectsExtraFields(t *testing.T) {
 
 func TestRedeemerValueUnmarshalCBORDefiniteArray(t *testing.T) {
 	var decoded RedeemerValue
-	require.NoError(t, decoded.UnmarshalCBOR([]byte{0x82, 0x00, 0x82, 0x01, 0x02}))
+	require.NoError(
+		t,
+		decoded.UnmarshalCBOR([]byte{0x82, 0x00, 0x82, 0x01, 0x02}),
+	)
 	assert.Equal(t, int64(1), decoded.ExUnits.Memory)
 	assert.Equal(t, int64(2), decoded.ExUnits.Steps)
 }

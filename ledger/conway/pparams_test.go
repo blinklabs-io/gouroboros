@@ -36,7 +36,9 @@ import (
 	utxorpc "github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
 
-func TestConwayProtocolParameterUpdateAcceptsShortKnownCostModels(t *testing.T) {
+func TestConwayProtocolParameterUpdateAcceptsShortKnownCostModels(
+	t *testing.T,
+) {
 	decode := func(model []int64) error {
 		wire, err := cbor.Encode(map[int]any{
 			18: map[uint][]int64{0: model},
@@ -495,7 +497,9 @@ func TestConwayProtocolParamsUpdate(t *testing.T) {
 	}
 }
 
-func TestConwayProtocolParameterUpdateRejectsProtocolVersionField(t *testing.T) {
+func TestConwayProtocolParameterUpdateRejectsProtocolVersionField(
+	t *testing.T,
+) {
 	encoded, err := hex.DecodeString("a10e820900")
 	require.NoError(t, err)
 	var update conway.ConwayProtocolParameterUpdate
@@ -1154,7 +1158,11 @@ func TestConwayUtxorpc_VotingThresholdProjectsWord64(t *testing.T) {
 		}
 		got, err := params.Utxorpc()
 		require.NoError(t, err)
-		require.Equal(t, int32(math.MaxInt32), got.PoolVotingThresholds.Thresholds[0].Numerator)
+		require.Equal(
+			t,
+			int32(math.MaxInt32),
+			got.PoolVotingThresholds.Thresholds[0].Numerator,
+		)
 	})
 
 	t.Run("drep voting threshold", func(t *testing.T) {
@@ -1173,7 +1181,11 @@ func TestConwayUtxorpc_VotingThresholdProjectsWord64(t *testing.T) {
 		}
 		got, err := params.Utxorpc()
 		require.NoError(t, err)
-		require.Equal(t, int32(math.MaxInt32), got.DrepVotingThresholds.Thresholds[0].Numerator)
+		require.Equal(
+			t,
+			int32(math.MaxInt32),
+			got.DrepVotingThresholds.Thresholds[0].Numerator,
+		)
 	})
 }
 
@@ -2018,8 +2030,11 @@ func TestConwayUtxorpc_FullWidthRationalBounds(t *testing.T) {
 			denominator: 1,
 		},
 		{
-			name:        "2^63 numerator",
-			rational:    rat(new(big.Int).Lsh(big.NewInt(1), 63), big.NewInt(1)),
+			name: "2^63 numerator",
+			rational: rat(
+				new(big.Int).Lsh(big.NewInt(1), 63),
+				big.NewInt(1),
+			),
 			numerator:   math.MaxInt32,
 			denominator: 1,
 		},

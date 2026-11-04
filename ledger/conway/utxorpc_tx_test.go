@@ -532,7 +532,11 @@ func TestConwayTransactionUtxorpcProjectsWideGovernanceRationals(
 					require.Equal(t, successful, got.Successful)
 					rational := tc.get(got)
 					require.Equal(t, int32(1), rational.Numerator)
-					require.Equal(t, uint32(math.MaxUint32), rational.Denominator)
+					require.Equal(
+						t,
+						uint32(math.MaxUint32),
+						rational.Denominator,
+					)
 				}
 			}
 		})

@@ -113,13 +113,25 @@ func TestHeaderHashSettersResetCache(t *testing.T) {
 					require.Equal(t, firstHash, copyHeader.Hash())
 
 					setter.set(header, second)
-					require.Equal(t, headerHash(test.prefix, second), header.Hash())
+					require.Equal(
+						t,
+						headerHash(test.prefix, second),
+						header.Hash(),
+					)
 					require.Equal(t, firstHash, copyHeader.Hash())
 
 					clearedCopy := test.copyHeader(header)
 					setter.set(header, nil)
-					require.Equal(t, headerHash(test.prefix, nil), header.Hash())
-					require.Equal(t, headerHash(test.prefix, second), clearedCopy.Hash())
+					require.Equal(
+						t,
+						headerHash(test.prefix, nil),
+						header.Hash(),
+					)
+					require.Equal(
+						t,
+						headerHash(test.prefix, second),
+						clearedCopy.Hash(),
+					)
 				})
 			}
 		})

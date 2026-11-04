@@ -43,7 +43,11 @@ func (clientTestStakeAuthority) PoolActiveStake(
 	return 1, nil
 }
 
-func clientTestMessage(t *testing.T, body string, expiresAt uint32) pcommon.DmqMessage {
+func clientTestMessage(
+	t *testing.T,
+	body string,
+	expiresAt uint32,
+) pcommon.DmqMessage {
 	t.Helper()
 	msg := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
@@ -186,9 +190,11 @@ func TestClientRejectsForgedAndExpiredRepliesBeforeCallback(t *testing.T) {
 			var callbacks atomic.Int32
 			cfg := NewConfig(
 				WithAuthenticator(test.authenticator),
-				WithReplyMessagesFunc(func(CallbackContext, []pcommon.DmqMessage, bool) {
-					callbacks.Add(1)
-				}),
+				WithReplyMessagesFunc(
+					func(CallbackContext, []pcommon.DmqMessage, bool) {
+						callbacks.Add(1)
+					},
+				),
 			)
 			client := NewClient(protocol.ProtocolOptions{}, &cfg)
 
@@ -209,10 +215,12 @@ func TestClientConcurrentReplayDeliversMessageOnce(t *testing.T) {
 	var delivered atomic.Int32
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
-		WithReplyMessagesFunc(func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
-			callbacks.Add(1)
-			delivered.Add(int32(len(messages)))
-		}),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+				callbacks.Add(1)
+				delivered.Add(int32(len(messages)))
+			},
+		),
 	)
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	msg := clientTestMessage(
@@ -248,14 +256,20 @@ func TestClientBatchFailureDoesNotReserveEarlierMessages(t *testing.T) {
 	var callbacks atomic.Int32
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
-		WithReplyMessagesFunc(func(CallbackContext, []pcommon.DmqMessage, bool) {
-			callbacks.Add(1)
-		}),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
 	)
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	now := time.Now()
 	valid := clientTestMessage(t, "valid", uint32(now.Add(time.Minute).Unix()))
-	expired := clientTestMessage(t, "expired", uint32(now.Add(-time.Minute).Unix()))
+	expired := clientTestMessage(
+		t,
+		"expired",
+		uint32(now.Add(-time.Minute).Unix()),
+	)
 
 	require.Error(t, client.messageHandler(
 		NewMsgReplyMessagesNonBlocking(
@@ -278,9 +292,11 @@ func TestClientReplayCapacityKeepsUnexpiredIDs(t *testing.T) {
 	cfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 		WithMaxReplayEntries(1),
-		WithReplyMessagesFunc(func(CallbackContext, []pcommon.DmqMessage, bool) {
-			callbacks.Add(1)
-		}),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
 	)
 	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 	now := time.Unix(100, 0)
@@ -315,7 +331,11 @@ func TestClientReplayCapacityKeepsUnexpiredIDs(t *testing.T) {
 		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{fresh}, false),
 	))
 	require.Equal(t, int32(2), callbacks.Load())
-	require.NotContains(t, client.replayState.acceptedIDs, string(accepted.ID()))
+	require.NotContains(
+		t,
+		client.replayState.acceptedIDs,
+		string(accepted.ID()),
+	)
 	require.Contains(t, client.replayState.acceptedIDs, string(fresh.ID()))
 }
 
@@ -335,22 +355,31 @@ func TestClientReplayAdmissionNeverEvictsForBatch(t *testing.T) {
 			cfg := NewConfig(
 				WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 				WithMaxReplayEntries(3),
-				WithReplyMessagesFunc(func(_ CallbackContext, _ []pcommon.DmqMessage, _ bool) {
-					callbacks.Add(1)
-				}),
+				WithReplyMessagesFunc(
+					func(_ CallbackContext, _ []pcommon.DmqMessage, _ bool) {
+						callbacks.Add(1)
+					},
+				),
 			)
 			client := NewClient(protocol.ProtocolOptions{}, &cfg)
 			client.now = func() time.Time { return time.Unix(100, 0) }
 			var existingIDs []string
 			for i := range tc.occupancy {
-				msg := clientTestMessage(t, fmt.Sprintf("existing-%d", i), uint32(200+i*100))
+				msg := clientTestMessage(
+					t,
+					fmt.Sprintf("existing-%d", i),
+					uint32(200+i*100),
+				)
 				id := string(msg.ID())
 				existingIDs = append(existingIDs, id)
 				client.replayState.acceptedIDs[id] = msg.Payload.ExpiresAt
 			}
 			var batch []pcommon.DmqMessage
 			for i := range 2 {
-				batch = append(batch, clientTestMessage(t, fmt.Sprintf("reply-%d", i), 500))
+				batch = append(
+					batch,
+					clientTestMessage(t, fmt.Sprintf("reply-%d", i), 500),
+				)
 			}
 			err := client.messageHandler(
 				NewMsgReplyMessagesNonBlocking(batch, false),
@@ -424,7 +453,10 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 		WithMaxReplayEntries(1),
 	)
-	client := NewClient(protocol.ProtocolOptions{Muxer: m, ErrorChan: clientErrors}, &cfg)
+	client := NewClient(
+		protocol.ProtocolOptions{Muxer: m, ErrorChan: clientErrors},
+		&cfg,
+	)
 	t.Cleanup(func() {
 		client.Protocol.Stop()
 		m.Stop()
@@ -441,15 +473,20 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 	_, err := io.ReadFull(peerConn, requestPayload)
 	require.NoError(t, err)
 
-	data, err := cbor.Encode(NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{
-		clientTestMessage(t, "first", 200),
-		clientTestMessage(t, "second", 200),
-	}, false))
+	data, err := cbor.Encode(
+		NewMsgReplyMessagesNonBlocking([]pcommon.DmqMessage{
+			clientTestMessage(t, "first", 200),
+			clientTestMessage(t, "second", 200),
+		}, false),
+	)
 	require.NoError(t, err)
 	segment := muxer.NewSegment(ProtocolID, data, true)
 	require.NotNil(t, segment)
 	var wire bytes.Buffer
-	require.NoError(t, binary.Write(&wire, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(&wire, binary.BigEndian, segment.SegmentHeader),
+	)
 	_, err = wire.Write(segment.Payload)
 	require.NoError(t, err)
 	require.NoError(t, peerConn.SetWriteDeadline(time.Now().Add(time.Second)))
@@ -479,7 +516,9 @@ func TestClientReplayCapacityDoesNotEvictBeforeValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []pcommon.DmqMessage{first}, accepted)
 
-	accepted, err = client.validateAndReserve([]pcommon.DmqMessage{second, third, fourth})
+	accepted, err = client.validateAndReserve(
+		[]pcommon.DmqMessage{second, third, fourth},
+	)
 	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
 	require.Empty(t, accepted)
 	require.Len(t, client.replayState.acceptedIDs, 1)
@@ -695,7 +734,11 @@ func TestClientReplayCapacityDoesNotEvictBeforeAuthentication(t *testing.T) {
 	require.Error(t, err)
 	require.Empty(t, accepted)
 	require.Contains(t, client.replayState.acceptedIDs, firstID)
-	require.NotContains(t, client.replayState.acceptedIDs, string(messages[1].ID()))
+	require.NotContains(
+		t,
+		client.replayState.acceptedIDs,
+		string(messages[1].ID()),
+	)
 }
 
 func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {

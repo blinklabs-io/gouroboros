@@ -241,7 +241,12 @@ func TestPlutusConstructorWireVectors(t *testing.T) {
 			_, err = cbor.Decode(want, &value)
 			require.NoError(t, err)
 			valueConstructor, ok := value.Value().(cbor.ConstructorDecoder)
-			require.True(t, ok, "Value must classify tag %d as a constructor", tt.alt)
+			require.True(
+				t,
+				ok,
+				"Value must classify tag %d as a constructor",
+				tt.alt,
+			)
 			assert.Equal(t, tt.alt, valueConstructor.Tag())
 			var valueFields []uint64
 			require.NoError(t, valueConstructor.DecodeFields(&valueFields))
@@ -279,7 +284,12 @@ func TestPlutusConstructorGeneralAlternativeWidth(t *testing.T) {
 		reject bool
 	}{
 		{"maximum uint32", maxUint32, "d866821aFFFFFFFF81182a", false},
-		{"beyond uint32", 1 << 32, "d866821b000000010000000081182a", uint64(^uint(0)) == maxUint32},
+		{
+			"beyond uint32",
+			1 << 32,
+			"d866821b000000010000000081182a",
+			uint64(^uint(0)) == maxUint32,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

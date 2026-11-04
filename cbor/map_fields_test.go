@@ -22,12 +22,19 @@ import (
 )
 
 func TestValidateMapFields(t *testing.T) {
-	t.Run("required key distinguishes missing from zero value", func(t *testing.T) {
-		data, err := cbor.Encode(map[uint64]any{0: uint64(0)})
-		require.NoError(t, err)
-		require.NoError(t, cbor.ValidateMapFields(data, []uint64{0}, nil))
-		require.ErrorContains(t, cbor.ValidateMapFields(data, []uint64{1}, nil), "field 1 is missing")
-	})
+	t.Run(
+		"required key distinguishes missing from zero value",
+		func(t *testing.T) {
+			data, err := cbor.Encode(map[uint64]any{0: uint64(0)})
+			require.NoError(t, err)
+			require.NoError(t, cbor.ValidateMapFields(data, []uint64{0}, nil))
+			require.ErrorContains(
+				t,
+				cbor.ValidateMapFields(data, []uint64{1}, nil),
+				"field 1 is missing",
+			)
+		},
+	)
 
 	t.Run("empty outputs are permitted when not guarded", func(t *testing.T) {
 		data, err := cbor.Encode(map[uint64]any{0: []any{}})

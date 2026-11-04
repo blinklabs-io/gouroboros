@@ -32,8 +32,14 @@ func TestGovernancePlutusDataUsesLedgerCredentialOrder(t *testing.T) {
 	var scriptHash, keyHash CredentialHash
 	copy(scriptHash[:], bytes.Repeat([]byte{0x11}, len(scriptHash)))
 	copy(keyHash[:], bytes.Repeat([]byte{0x22}, len(keyHash)))
-	scriptCredential := Credential{CredType: CredentialTypeScriptHash, Credential: scriptHash}
-	keyCredential := Credential{CredType: CredentialTypeAddrKeyHash, Credential: keyHash}
+	scriptCredential := Credential{
+		CredType:   CredentialTypeScriptHash,
+		Credential: scriptHash,
+	}
+	keyCredential := Credential{
+		CredType:   CredentialTypeAddrKeyHash,
+		Credential: keyHash,
+	}
 	removed := []Credential{keyCredential, scriptCredential}
 	added := map[*Credential]uint64{
 		&keyCredential:    20,
@@ -46,7 +52,10 @@ func TestGovernancePlutusDataUsesLedgerCredentialOrder(t *testing.T) {
 	require.True(t, keyCredential.ToPlutusData().Equal(removedData.Items[1]))
 	addedData := encodedAction.Fields[2].(*data.Map)
 	require.Equal(t, 2, len(addedData.Pairs))
-	require.True(t, scriptCredential.ToPlutusData().Equal(addedData.Pairs[0][0]))
+	require.True(
+		t,
+		scriptCredential.ToPlutusData().Equal(addedData.Pairs[0][0]),
+	)
 	require.True(t, keyCredential.ToPlutusData().Equal(addedData.Pairs[1][0]))
 
 	other := &UpdateCommitteeGovAction{
@@ -1547,7 +1556,9 @@ func TestGovAnchorUnmarshalCBORRejectsIndefiniteURL(t *testing.T) {
 }
 
 func TestGovAnchorUnmarshalCBORRejectsExtraFields(t *testing.T) {
-	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, 32), uint8(0)})
+	encoded, err := cbor.Encode(
+		[]any{"https://example.com", make([]byte, 32), uint8(0)},
+	)
 	require.NoError(t, err)
 	var anchor GovAnchor
 	require.Error(t, anchor.UnmarshalCBOR(encoded))
@@ -1564,12 +1575,18 @@ func TestVoterTextRoundTrip(t *testing.T) {
 		voter Voter
 	}{
 		{
-			name:  "CcHotKeyHash",
-			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotKeyHash, Hash: zeroHash},
+			name: "CcHotKeyHash",
+			voter: Voter{
+				Type: VoterTypeConstitutionalCommitteeHotKeyHash,
+				Hash: zeroHash,
+			},
 		},
 		{
-			name:  "CcHotScriptHash",
-			voter: Voter{Type: VoterTypeConstitutionalCommitteeHotScriptHash, Hash: zeroHash},
+			name: "CcHotScriptHash",
+			voter: Voter{
+				Type: VoterTypeConstitutionalCommitteeHotScriptHash,
+				Hash: zeroHash,
+			},
 		},
 		{
 			name:  "DRepKeyHash",
@@ -1580,8 +1597,11 @@ func TestVoterTextRoundTrip(t *testing.T) {
 			voter: Voter{Type: VoterTypeDRepScriptHash, Hash: sequentialHash},
 		},
 		{
-			name:  "StakingPoolKeyHash",
-			voter: Voter{Type: VoterTypeStakingPoolKeyHash, Hash: sequentialHash},
+			name: "StakingPoolKeyHash",
+			voter: Voter{
+				Type: VoterTypeStakingPoolKeyHash,
+				Hash: sequentialHash,
+			},
 		},
 	}
 	for _, tc := range testCases {
@@ -1641,9 +1661,18 @@ func TestVoterUnmarshalTextErrors(t *testing.T) {
 		input string
 	}{
 		{"InvalidBech32", "not-valid-bech32!!!"},
-		{"UnknownPrefix", "unknown1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2uwmrs"},
-		{"CcHotWithDRepType", "cc_hot1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7guj37"},
-		{"DRepWithCcHotType", "drep1qgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqvuwczn"},
+		{
+			"UnknownPrefix",
+			"unknown1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq2uwmrs",
+		},
+		{
+			"CcHotWithDRepType",
+			"cc_hot1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7guj37",
+		},
+		{
+			"DRepWithCcHotType",
+			"drep1qgqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqvuwczn",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1715,7 +1744,10 @@ func TestGovActionIdUnmarshalTextErrors(t *testing.T) {
 		input string
 	}{
 		{"InvalidBech32", "not-valid!!!"},
-		{"WrongPrefix", "pool1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk35lkuk"},
+		{
+			"WrongPrefix",
+			"pool1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk35lkuk",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

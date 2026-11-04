@@ -342,19 +342,27 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 		if err != nil {
 			return err
 		}
-		if len(payloadField) == 0 || payloadField[0]&cbor.CborTypeMask != cbor.CborTypeTag {
-			return errors.New("invalid Byron address data: payload is not tag 24")
+		if len(payloadField) == 0 ||
+			payloadField[0]&cbor.CborTypeMask != cbor.CborTypeTag {
+			return errors.New(
+				"invalid Byron address data: payload is not tag 24",
+			)
 		}
 		tagNumber, tagHeaderSize, err := addressCBORArgument(
 			payloadField,
 			payloadField[0]&0x1f,
 		)
 		if err != nil || tagNumber != 24 || tagHeaderSize >= len(payloadField) {
-			return errors.New("invalid Byron address data: payload is not tag 24")
+			return errors.New(
+				"invalid Byron address data: payload is not tag 24",
+			)
 		}
 		byteString := payloadField[tagHeaderSize:]
-		if byteString[0]&cbor.CborTypeMask != cbor.CborTypeByteString || byteString[0]&0x1f == 31 {
-			return errors.New("invalid Byron address data: tag 24 content must be a definite byte string")
+		if byteString[0]&cbor.CborTypeMask != cbor.CborTypeByteString ||
+			byteString[0]&0x1f == 31 {
+			return errors.New(
+				"invalid Byron address data: tag 24 content must be a definite byte string",
+			)
 		}
 		var rawAddr byronAddress
 		byronLen, err := cbor.Decode(data, &rawAddr)
@@ -387,9 +395,13 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 		if _, err := cbor.Decode(payloadBytes, &byronAddr); err != nil {
 			return err
 		}
-		if byronAddr.AddrType > 0xff || len(typeRaw) != 1 || typeRaw[0] != byte(byronAddr.AddrType) ||
+		if byronAddr.AddrType > 0xff || len(typeRaw) != 1 ||
+			typeRaw[0] != byte(byronAddr.AddrType) ||
 			(byronAddr.AddrType != ByronAddressTypePubkey && byronAddr.AddrType != ByronAddressTypeRedeem) {
-			return fmt.Errorf("invalid Byron address type: %d", byronAddr.AddrType)
+			return fmt.Errorf(
+				"invalid Byron address type: %d",
+				byronAddr.AddrType,
+			)
 		}
 		if len(byronAddr.Hash) != AddressHashSize {
 			return errors.New(
@@ -516,10 +528,18 @@ func (a *Address) populateFromBytes(data []byte, allowTrailing bool) error {
 	return nil
 }
 
-func requireByronAddressArrayLength(raw []byte, name string, expected int) error {
+func requireByronAddressArrayLength(
+	raw []byte,
+	name string,
+	expected int,
+) error {
 	length, _, indefinite := cbor.ArrayInfo(raw)
 	if indefinite || length != expected {
-		return fmt.Errorf("%s must be a definite-length array of %d fields", name, expected)
+		return fmt.Errorf(
+			"%s must be a definite-length array of %d fields",
+			name,
+			expected,
+		)
 	}
 	return nil
 }
@@ -539,7 +559,9 @@ func byronAddressArrayField(raw []byte, index, expected int) ([]byte, error) {
 		}
 		if field == index {
 			if pos != len(raw) && field == length-1 {
-				return nil, errors.New("byron address payload has trailing CBOR data")
+				return nil, errors.New(
+					"byron address payload has trailing CBOR data",
+				)
 			}
 			return raw[start:pos], nil
 		}
@@ -600,7 +622,11 @@ func addressCBORArgument(raw []byte, additional byte) (uint64, int, error) {
 	case additional == 25 && len(raw) >= 3:
 		return uint64(raw[1])<<8 | uint64(raw[2]), 3, nil
 	case additional == 26 && len(raw) >= 5:
-		return uint64(raw[1])<<24 | uint64(raw[2])<<16 | uint64(raw[3])<<8 | uint64(raw[4]), 5, nil
+		var value uint64
+		for _, b := range raw[1:5] {
+			value = value<<8 | uint64(b)
+		}
+		return value, 5, nil
 	case additional == 27 && len(raw) >= 9:
 		var value uint64
 		for _, b := range raw[1:9] {
@@ -621,7 +647,10 @@ func validateByronAddressAttributeWire(raw []byte) error {
 	for i := 0; i < length; i++ {
 		keyStart := pos
 		if keyStart >= len(raw) || raw[keyStart]&cbor.CborTypeMask != 0 {
-			return fmt.Errorf("byron address attribute key %d must be an unsigned integer", i)
+			return fmt.Errorf(
+				"byron address attribute key %d must be an unsigned integer",
+				i,
+			)
 		}
 		var err error
 		pos, err = addressCBORItemEnd(raw, pos, 0)
@@ -629,8 +658,13 @@ func validateByronAddressAttributeWire(raw []byte) error {
 			return err
 		}
 		var key uint64
-		if consumed, err := cbor.Decode(raw[keyStart:pos], &key); err != nil || consumed != pos-keyStart || key > 0xff {
-			return fmt.Errorf("byron address attribute key %d is not a Word8", i)
+		if consumed, err := cbor.Decode(raw[keyStart:pos], &key); err != nil ||
+			consumed != pos-keyStart ||
+			key > 0xff {
+			return fmt.Errorf(
+				"byron address attribute key %d is not a Word8",
+				i,
+			)
 		}
 		valueStart := pos
 		pos, err = addressCBORItemEnd(raw, pos, 0)
@@ -638,8 +672,13 @@ func validateByronAddressAttributeWire(raw []byte) error {
 			return err
 		}
 		valueRaw := raw[valueStart:pos]
-		if len(valueRaw) == 0 || valueRaw[0]&cbor.CborTypeMask != cbor.CborTypeByteString || valueRaw[0]&0x1f == 31 {
-			return fmt.Errorf("byron address attribute %d must be a definite byte string", key)
+		if len(valueRaw) == 0 ||
+			valueRaw[0]&cbor.CborTypeMask != cbor.CborTypeByteString ||
+			valueRaw[0]&0x1f == 31 {
+			return fmt.Errorf(
+				"byron address attribute %d must be a definite byte string",
+				key,
+			)
 		}
 	}
 	if pos != len(raw) {
@@ -1224,7 +1263,9 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 			}
 			canonical, err := cbor.Encode(payload)
 			if err != nil || !bytes.Equal(canonical, value) {
-				return errors.New("non-canonical Byron address derivation path CBOR")
+				return errors.New(
+					"non-canonical Byron address derivation path CBOR",
+				)
 			}
 			a.Payload = value
 		case byronAddressAttrNetworkMagic:
@@ -1243,7 +1284,9 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 			}
 			canonical, err := cbor.Encode(tmpNetwork)
 			if err != nil || !bytes.Equal(canonical, value) {
-				return errors.New("non-canonical Byron address network magic CBOR")
+				return errors.New(
+					"non-canonical Byron address network magic CBOR",
+				)
 			}
 			a.Network = &tmpNetwork
 		default:
@@ -1432,7 +1475,8 @@ func (a AddressPayloadPointer) encode() []byte {
 		val /= 128
 		for val > 0 {
 			i--
-			tmp[i] = byte((val & 0x7F) | 0x80) //nolint:gosec // masked to 7 bits, always fits byte
+			//nolint:gosec // masked to 7 bits, always fits byte
+			tmp[i] = byte((val & 0x7F) | 0x80)
 			val /= 128
 		}
 		return copy(dst, tmp[i:])

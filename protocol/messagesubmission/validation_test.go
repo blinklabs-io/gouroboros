@@ -203,7 +203,11 @@ func TestMessageIDRequestCountRules(t *testing.T) {
 				DefaultMaxUnacknowledgedMessageIDs,
 			)
 			if tt.wantErr {
-				require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
+				require.ErrorIs(
+					t,
+					err,
+					protocol.ErrProtocolViolationRequestExceeded,
+				)
 			} else {
 				require.NoError(t, err)
 			}

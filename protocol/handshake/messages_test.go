@@ -111,14 +111,36 @@ func TestHandshakePreservesLargeValidCollections(t *testing.T) {
 
 func TestHandshakeExtendedHeaderCountsUseTheirEncodedSize(t *testing.T) {
 	versionCount := maxHandshakeVersions + 1
-	versionWire := []byte{0x82, MessageTypeProposeVersions, 0xb9, byte(versionCount >> 8), byte(versionCount)}
+	versionWire := []byte{
+		0x82,
+		MessageTypeProposeVersions,
+		0xb9,
+		byte(versionCount >> 8),
+		byte(versionCount),
+	}
 	_, err := NewMsgFromCbor(MessageTypeProposeVersions, versionWire)
-	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", maxHandshakeVersions))
+	require.ErrorContains(
+		t,
+		err,
+		fmt.Sprintf("maximum is %d", maxHandshakeVersions),
+	)
 
 	supportedCount := maxRefusalSupportedVersions + 1
-	supportedWire := []byte{0x82, MessageTypeRefuse, 0x82, byte(RefuseReasonVersionMismatch), 0x99, byte(supportedCount >> 8), byte(supportedCount)}
+	supportedWire := []byte{
+		0x82,
+		MessageTypeRefuse,
+		0x82,
+		byte(RefuseReasonVersionMismatch),
+		0x99,
+		byte(supportedCount >> 8),
+		byte(supportedCount),
+	}
 	_, err = NewMsgFromCbor(MessageTypeRefuse, supportedWire)
-	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", maxRefusalSupportedVersions))
+	require.ErrorContains(
+		t,
+		err,
+		fmt.Sprintf("maximum is %d", maxRefusalSupportedVersions),
+	)
 }
 
 type testDefinition struct {
@@ -281,10 +303,16 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 
 func TestHandshakeRejectsDeepVersionDataBeforeTypedDecode(t *testing.T) {
 	versionData := append(bytes.Repeat([]byte{0x81}, 64), 0)
-	wire := append([]byte{0x82, MessageTypeProposeVersions, 0xa1, 0}, versionData...)
+	wire := append(
+		[]byte{0x82, MessageTypeProposeVersions, 0xa1, 0},
+		versionData...)
 
 	_, err := NewMsgFromCbor(MessageTypeProposeVersions, wire)
-	require.ErrorContains(t, err, "handshake message: CBOR nesting exceeds maximum depth 4")
+	require.ErrorContains(
+		t,
+		err,
+		"handshake message: CBOR nesting exceeds maximum depth 4",
+	)
 }
 
 func TestHandshakeRejectsDeepScalarBeforeTypedDecode(t *testing.T) {

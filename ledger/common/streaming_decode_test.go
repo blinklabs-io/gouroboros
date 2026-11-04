@@ -140,7 +140,18 @@ func TestStreamingBlockDecoderUsesEncodedArrayHeaders(t *testing.T) {
 func TestExtractOutputCbor(t *testing.T) {
 	t.Run("valid extraction", func(t *testing.T) {
 		// Create mock block data and offsets
-		blockData := []byte{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}
+		blockData := []byte{
+			0x00,
+			0x01,
+			0x02,
+			0x03,
+			0x04,
+			0x05,
+			0x06,
+			0x07,
+			0x08,
+			0x09,
+		}
 		offsets := &common.BlockTransactionOffsets{
 			Transactions: []common.TransactionLocation{
 				{
@@ -211,7 +222,10 @@ func TestExtractWitnessCbor(t *testing.T) {
 	offsets := &common.BlockTransactionOffsets{
 		Transactions: []common.TransactionLocation{
 			{
-				Witness: common.ByteRange{Offset: 3, Length: 3}, // bytes 0x03-0x05
+				Witness: common.ByteRange{
+					Offset: 3,
+					Length: 3,
+				}, // bytes 0x03-0x05
 			},
 		},
 	}
@@ -238,7 +252,9 @@ func TestExtractTransactionOffsetsDijkstra(t *testing.T) {
 			1: []any{[]any{[]byte{0xde, 0xad}, uint64(5)}},
 			2: uint64(20),
 		},
-		map[uint64]any{0: []any{}},          // witness set with empty vkey witness list
+		map[uint64]any{
+			0: []any{},
+		}, // witness set with empty vkey witness list
 		map[uint64]any{uint64(674): "meta"}, // auxiliary_data (metadata)
 	}
 	// A realistic 2-element header placeholder ([body, signature]); its contents

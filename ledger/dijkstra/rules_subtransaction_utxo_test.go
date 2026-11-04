@@ -163,15 +163,25 @@ func TestDijkstraConsumedAndProducedIncludeSubTransactions(t *testing.T) {
 	)
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{{
 		Body: DijkstraSubTransactionBody{
-			TxInputs:  conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{childInput}),
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{childInput},
+			),
 			TxOutputs: []DijkstraTransactionOutput{childOutput},
 		},
 	}}, true)
 
-	require.Equal(t, []common.TransactionInput{childInput, parentInput}, tx.Consumed())
+	require.Equal(
+		t,
+		[]common.TransactionInput{childInput, parentInput},
+		tx.Consumed(),
+	)
 	produced := tx.Produced()
 	require.Len(t, produced, 2)
-	require.Equal(t, tx.Body.TxSubTransactions.Items()[0].Body.Id(), produced[0].Id.Id())
+	require.Equal(
+		t,
+		tx.Body.TxSubTransactions.Items()[0].Body.Id(),
+		produced[0].Id.Id(),
+	)
 	require.Equal(t, uint32(0), produced[0].Id.Index())
 	require.Equal(t, childOutput.Output, produced[0].Output)
 	require.Equal(t, tx.Hash(), produced[1].Id.Id())
@@ -188,10 +198,17 @@ func TestDijkstraInvalidConsumedAndProducedUseCollateralOnly(t *testing.T) {
 		[]DijkstraTransactionOutput{dijkstraSubUtxoOutput(t, 1_000_000)},
 	)
 	tx.TxIsValid = false
-	tx.Body.TxCollateral = cbor.NewSetType([]shelley.ShelleyTransactionInput{collateral}, true)
+	tx.Body.TxCollateral = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{collateral},
+		true,
+	)
 	tx.Body.TxCollateralReturn = &collateralReturn
 	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{{
-		Body: DijkstraSubTransactionBody{TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{childInput})},
+		Body: DijkstraSubTransactionBody{
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{childInput},
+			),
+		},
 	}}, true)
 
 	require.Equal(t, []common.TransactionInput{collateral}, tx.Consumed())
@@ -206,44 +223,51 @@ func TestDijkstraOutsideForecastChecksChildForBothValidityOutcomes(
 	const upperBound = uint64(12_345)
 	for _, level := range []string{"child", "top-level"} {
 		for _, valid := range []bool{true, false} {
-			t.Run(level+"/"+map[bool]string{true: "valid", false: "invalid"}[valid], func(t *testing.T) {
-				calls := 0
-				ls := mockledger.NewLedgerStateBuilder().WithSlotToTime(
-					func(slot uint64) (time.Time, error) {
-						calls++
-						if slot == 0 {
-							return time.Unix(0, 0), nil
-						}
-						require.Equal(t, upperBound, slot)
-						return time.Time{}, errors.New("slot is outside forecast")
-					},
-				).Build()
-				redeemers := DijkstraRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {},
-				}}
-				var tx *DijkstraTransaction
-				if level == "child" {
-					tx = dijkstraSingleSubTx(DijkstraSubTransaction{
-						Body: DijkstraSubTransactionBody{Ttl: upperBound},
-						WitnessSet: DijkstraTransactionWitnessSet{
-							WsRedeemers: redeemers,
+			t.Run(
+				level+"/"+map[bool]string{true: "valid", false: "invalid"}[valid],
+				func(t *testing.T) {
+					calls := 0
+					ls := mockledger.NewLedgerStateBuilder().WithSlotToTime(
+						func(slot uint64) (time.Time, error) {
+							calls++
+							if slot == 0 {
+								return time.Unix(0, 0), nil
+							}
+							require.Equal(t, upperBound, slot)
+							return time.Time{}, errors.New(
+								"slot is outside forecast",
+							)
 						},
-					})
-				} else {
-					tx = &DijkstraTransaction{
-						Body:       DijkstraTransactionBody{Ttl: upperBound},
-						WitnessSet: DijkstraTransactionWitnessSet{WsRedeemers: redeemers},
+					).Build()
+					redeemers := DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							{Tag: common.RedeemerTagSpend, Index: 0}: {},
+						},
 					}
-				}
-				tx.TxIsValid = valid
-				var outsideForecast *common.OutsideForecastError
-				err := UtxoValidateOutsideForecast(tx, 0, ls, nil)
-				require.ErrorAs(t, err, &outsideForecast)
-				require.NotNil(t, outsideForecast)
-				require.Equal(t, upperBound, outsideForecast.Slot)
-				require.Equal(t, uint8(16), outsideForecast.Type)
-				require.Equal(t, 1, calls)
-			})
+					var tx *DijkstraTransaction
+					if level == "child" {
+						tx = dijkstraSingleSubTx(DijkstraSubTransaction{
+							Body: DijkstraSubTransactionBody{Ttl: upperBound},
+							WitnessSet: DijkstraTransactionWitnessSet{
+								WsRedeemers: redeemers,
+							},
+						})
+					} else {
+						tx = &DijkstraTransaction{
+							Body:       DijkstraTransactionBody{Ttl: upperBound},
+							WitnessSet: DijkstraTransactionWitnessSet{WsRedeemers: redeemers},
+						}
+					}
+					tx.TxIsValid = valid
+					var outsideForecast *common.OutsideForecastError
+					err := UtxoValidateOutsideForecast(tx, 0, ls, nil)
+					require.ErrorAs(t, err, &outsideForecast)
+					require.NotNil(t, outsideForecast)
+					require.Equal(t, upperBound, outsideForecast.Slot)
+					require.Equal(t, uint8(16), outsideForecast.Type)
+					require.Equal(t, 1, calls)
+				},
+			)
 		}
 	}
 }
@@ -360,9 +384,16 @@ func TestDijkstraAllowsSpendReferenceInputOverlap(t *testing.T) {
 		},
 	})
 	require.NoError(t, UtxoValidateDisjointRefInputs(topLevelTx, 0, ls, pp))
-	require.NoError(t, UtxoValidateDisjointRefInputs(subTransactionTx, 0, ls, pp))
+	require.NoError(
+		t,
+		UtxoValidateDisjointRefInputs(subTransactionTx, 0, ls, pp),
+	)
 	for _, descriptor := range utxoValidationRuleDescriptors {
-		require.NotEqual(t, common.UtxoValidationRuleDisjointRefInputs, descriptor.Id)
+		require.NotEqual(
+			t,
+			common.UtxoValidationRuleDisjointRefInputs,
+			descriptor.Id,
+		)
 	}
 }
 
@@ -373,10 +404,12 @@ func TestDijkstraBootstrapOutputAttributesCoverSubTransactions(t *testing.T) {
 		common.ByronAddressAttributes{Payload: bytes.Repeat([]byte{0x22}, 100)},
 	)
 	require.NoError(t, err)
-	output := DijkstraTransactionOutput{Output: &babbage.BabbageTransactionOutput{
-		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 2_000_000},
-	}}
+	output := DijkstraTransactionOutput{
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: address,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 2_000_000},
+		},
+	}
 	tx := dijkstraSubUtxoSubTx(nil, []DijkstraTransactionOutput{output})
 	var attrsErr shelley.OutputBootAddrAttrsTooBigError
 	require.ErrorAs(
@@ -437,7 +470,10 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 	}
 
 	// An unused witness does not make a donation invalid, even at the same level.
-	require.NoError(t, rule(newTx(DijkstraTransactionWitnessSet{}, false), 0, ls, pp))
+	require.NoError(
+		t,
+		rule(newTx(DijkstraTransactionWitnessSet{}, false), 0, ls, pp),
+	)
 	require.NoError(t, rule(newTx(v1, false), 0, ls, pp))
 
 	// A V1 witness required by a minting purpose at that level still rejects it.
@@ -501,7 +537,9 @@ func TestDijkstraBadInputsCoversSubTransactions(t *testing.T) {
 			}
 			validTx := &DijkstraTransaction{TxIsValid: true}
 			if level == "child" {
-				validTx = dijkstraSingleSubTx(DijkstraSubTransaction{Body: validBody})
+				validTx = dijkstraSingleSubTx(
+					DijkstraSubTransaction{Body: validBody},
+				)
 			} else {
 				validTx.Body.TxReferenceInputs = validBody.TxReferenceInputs
 			}
@@ -688,9 +726,13 @@ func TestDijkstraSubTransactionMetadataRequiresChildHash(t *testing.T) {
 	)
 }
 
-func TestDijkstraSubTransactionMetadataRejectsInvalidChildMetadata(t *testing.T) {
+func TestDijkstraSubTransactionMetadataRejectsInvalidChildMetadata(
+	t *testing.T,
+) {
 	// Label 0 maps to a 65-byte text value, beyond the Cardano metadata limit.
-	auxCBOR := append([]byte{0xa1, 0x00, 0x78, 0x41}, bytes.Repeat([]byte{'x'}, 65)...)
+	auxCBOR := append(
+		[]byte{0xa1, 0x00, 0x78, 0x41},
+		bytes.Repeat([]byte{'x'}, 65)...)
 	auxData, err := common.DecodeAuxiliaryData(auxCBOR)
 	require.NoError(t, err)
 	metadata, err := common.DecodeAuxiliaryDataToMetadata(auxCBOR)
@@ -867,8 +909,11 @@ func TestDijkstraChildProposalAncestryUsesEarlierChildState(t *testing.T) {
 		rule(
 			tx,
 			0,
-			dijkstraRootsState{LedgerState: mockledger.NewLedgerStateBuilder().Build()},
-			&DijkstraProtocolParameters{}),
+			dijkstraRootsState{
+				LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+			},
+			&DijkstraProtocolParameters{},
+		),
 	)
 }
 
@@ -883,7 +928,9 @@ func TestDijkstraChildDRepRegistrationIsVisibleToLaterChildVote(t *testing.T) {
 			TxCertificates: []common.CertificateWrapper{{
 				Type: uint(common.CertificateTypeRegistrationDrep),
 				Certificate: &common.RegistrationDrepCertificate{
-					CertType:       uint(common.CertificateTypeRegistrationDrep),
+					CertType: uint(
+						common.CertificateTypeRegistrationDrep,
+					),
 					DrepCredential: drepCredential,
 					Amount:         1,
 				},
@@ -927,7 +974,9 @@ func TestDijkstraChildDRepRegistrationIsVisibleToSameChildVote(t *testing.T) {
 			TxCertificates: []common.CertificateWrapper{{
 				Type: uint(common.CertificateTypeRegistrationDrep),
 				Certificate: &common.RegistrationDrepCertificate{
-					CertType:       uint(common.CertificateTypeRegistrationDrep),
+					CertType: uint(
+						common.CertificateTypeRegistrationDrep,
+					),
 					DrepCredential: drepCredential,
 					Amount:         1,
 				},

@@ -176,7 +176,9 @@ func ConsumedReferenceScriptSizePerBlock(
 			return 0, err
 		}
 		if total > math.MaxUint64-txSize {
-			return 0, errors.New("block consumed reference-script size overflow")
+			return 0, errors.New(
+				"block consumed reference-script size overflow",
+			)
 		}
 		total += txSize
 		if includeProduced {

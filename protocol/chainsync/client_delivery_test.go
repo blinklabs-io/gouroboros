@@ -42,7 +42,9 @@ func (c *doneWriteGate) Write(p []byte) (int, error) {
 	return c.Conn.Write(p)
 }
 
-func newGatedClient(t *testing.T) (*Client, *doneWriteGate, net.Conn, *muxer.Muxer) {
+func newGatedClient(
+	t *testing.T,
+) (*Client, *doneWriteGate, net.Conn, *muxer.Muxer) {
 	t.Helper()
 	local, peer := net.Pipe()
 	gate := &doneWriteGate{

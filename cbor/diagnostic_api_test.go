@@ -40,7 +40,11 @@ func TestDiagnosticNotation(t *testing.T) {
 		{"text", "6548656c6c6f", "\"Hello\""},
 		{"array", "83010203", "[1, 2, 3]"},
 		{"map", "a2616101616202", "{\"a\": 1, \"b\": 2}"},
-		{"tag", "c074323031332d30332d32315432303a30343a30305a", "0(\"2013-03-21T20:04:00Z\")"},
+		{
+			"tag",
+			"c074323031332d30332d32315432303a30343a30305a",
+			"0(\"2013-03-21T20:04:00Z\")",
+		},
 		{"true", "f5", "true"},
 		{"false", "f4", "false"},
 		{"null", "f6", "null"},
@@ -118,7 +122,10 @@ func TestCardanoLabels(t *testing.T) {
 	assert.Equal(t, len(txData), result.Statistics.TotalBytes)
 	assert.Empty(t, result.Warnings, "well-formed tx should have no warnings")
 
-	out, err := cbor.FormatTransactionDiagnostic(txData, cbor.DiagnosticOptions{})
+	out, err := cbor.FormatTransactionDiagnostic(
+		txData,
+		cbor.DiagnosticOptions{},
+	)
 	require.NoError(t, err)
 	for _, want := range []string{
 		"transaction [", "body: {", "witness_set: {",
@@ -136,7 +143,11 @@ func TestCardanoLabels(t *testing.T) {
 
 	bResult, err := cbor.DiagnoseBlock(blockData, cbor.DiagnosticOptions{})
 	require.NoError(t, err)
-	assert.Empty(t, bResult.Warnings, "well-formed block should have no warnings")
+	assert.Empty(
+		t,
+		bResult.Warnings,
+		"well-formed block should have no warnings",
+	)
 
 	bOut, err := cbor.FormatBlockDiagnostic(blockData, cbor.DiagnosticOptions{})
 	require.NoError(t, err)
@@ -187,7 +198,10 @@ func TestMalformedInput(t *testing.T) {
 
 	t.Run("non-array transaction", func(t *testing.T) {
 		// {} can't be a tx.
-		_, err := cbor.DiagnoseTransaction([]byte{0xa0}, cbor.DiagnosticOptions{})
+		_, err := cbor.DiagnoseTransaction(
+			[]byte{0xa0},
+			cbor.DiagnosticOptions{},
+		)
 		require.Error(t, err)
 	})
 
@@ -236,7 +250,12 @@ func TestMalformedInput(t *testing.T) {
 				break
 			}
 		}
-		assert.True(t, found, "expected max_tx_size warning, got %v", result.Warnings)
+		assert.True(
+			t,
+			found,
+			"expected max_tx_size warning, got %v",
+			result.Warnings,
+		)
 	})
 
 	t.Run("block with non-tag-24 outer tag", func(t *testing.T) {
@@ -275,9 +294,12 @@ func TestMalformedInput(t *testing.T) {
 		}
 		assert.True(t, sawEraWarning,
 			"expected era-id warning, got %v", result.Warnings)
-		assert.False(t, sawFieldsWarning,
+		assert.False(
+			t,
+			sawFieldsWarning,
 			"inner should have been unwrapped — no fields warning expected; got %v",
-			result.Warnings)
+			result.Warnings,
+		)
 	})
 
 	t.Run("block with extra fields", func(t *testing.T) {

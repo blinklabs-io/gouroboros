@@ -257,17 +257,20 @@ func TestUtxoValidateRequiredRedeemersSubTransaction(t *testing.T) {
 		))
 	})
 
-	t.Run("top-level redeemer does not satisfy sub-transaction", func(t *testing.T) {
-		err := conway.UtxoValidateRequiredRedeemers(
-			newTx(DijkstraRedeemers{}, spendRedeemer),
-			0,
-			ls,
-			pp,
-		)
-		var missingErr common.MissingRedeemerForScriptError
-		require.ErrorAs(t, err, &missingErr)
-		require.Equal(t, v3.Hash(), missingErr.ScriptHash)
-	})
+	t.Run(
+		"top-level redeemer does not satisfy sub-transaction",
+		func(t *testing.T) {
+			err := conway.UtxoValidateRequiredRedeemers(
+				newTx(DijkstraRedeemers{}, spendRedeemer),
+				0,
+				ls,
+				pp,
+			)
+			var missingErr common.MissingRedeemerForScriptError
+			require.ErrorAs(t, err, &missingErr)
+			require.Equal(t, v3.Hash(), missingErr.ScriptHash)
+		},
+	)
 }
 
 // TestUtxoValidateRequiredRedeemersGuardingPurpose pins that a Dijkstra
@@ -348,7 +351,9 @@ func TestUtxoValidateRequiredRedeemersGuardingPurpose(t *testing.T) {
 // nothing-is-available shortcut before the sub-transaction inputs are resolved
 // would skip this transaction entirely -- the same reference-script-implies-no-
 // redeemer shape as issue #2147, one level down.
-func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(t *testing.T) {
+func TestUtxoValidateRequiredRedeemersSubTransactionReferenceScriptOnly(
+	t *testing.T,
+) {
 	v3 := common.PlutusV3Script{0x1a, 0x1b, 0x1c}
 	scriptAddr, err := common.NewAddressFromParts(
 		common.AddressTypeScriptNone,

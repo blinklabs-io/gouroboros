@@ -106,7 +106,9 @@ func (rs *RewardService) ValidateRewardDistribution(
 	}
 
 	if !maps.Equal(expectedAllocations, actualRewards) {
-		return errors.New("reward distribution does not match calculated allocations")
+		return errors.New(
+			"reward distribution does not match calculated allocations",
+		)
 	}
 
 	return nil

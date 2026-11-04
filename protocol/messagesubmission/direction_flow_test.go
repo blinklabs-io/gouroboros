@@ -130,7 +130,10 @@ func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			for idx := range entries {
 				entries[idx].MessageID = testMessageID(byte(idx))
 			}
-			require.NoError(t, flow.client.SendMessage(NewMsgReplyMessageIds(entries)))
+			require.NoError(
+				t,
+				flow.client.SendMessage(NewMsgReplyMessageIds(entries)),
+			)
 			if tc.valid {
 				select {
 				case count := <-replyReceived:

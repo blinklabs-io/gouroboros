@@ -210,13 +210,18 @@ func TestServerOwnsAuthenticatedQueuedMessage(t *testing.T) {
 	require.Equal(t, []pcommon.DmqMessage{expected}, drained)
 }
 
-func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(t *testing.T) {
+func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(
+	t *testing.T,
+) {
 	initial := time.Unix(1_000, 0)
 	messages, authenticator := clientTestSignedMessages(
 		t,
 		[]string{"expiring", "later"},
 		[]uint64{2, 1},
-		[]uint32{uint32(initial.Unix()), uint32(initial.Add(time.Minute).Unix())},
+		[]uint32{
+			uint32(initial.Unix()),
+			uint32(initial.Add(time.Minute).Unix()),
+		},
 	)
 	cfg := NewConfig(WithAuthenticator(authenticator))
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)

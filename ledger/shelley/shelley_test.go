@@ -46,7 +46,11 @@ func TestShelleyTransactionInputSetOnlyCoalescesOnDecode(t *testing.T) {
 		[]shelley.ShelleyTransactionInput{input, input},
 	)
 
-	assert.Equal(t, []shelley.ShelleyTransactionInput{input, input}, set.Items())
+	assert.Equal(
+		t,
+		[]shelley.ShelleyTransactionInput{input, input},
+		set.Items(),
+	)
 }
 
 func TestShelleyTransactionInputRejectsIndexOutsideWireWidth(t *testing.T) {

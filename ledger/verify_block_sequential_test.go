@@ -447,24 +447,26 @@ func TestVerifyBlockTransactionsKeepsCurrentPoolOnReregistration(
 		Operator:   pool,
 		VrfKeyHash: vrf(0x41),
 	}
-	ls := sequentialFuturePoolState{LedgerState: mockledger.NewLedgerStateBuilder().
-		WithPoolCurrentState(func(
-			operator common.PoolKeyHash,
-		) (*common.PoolRegistrationCertificate, *uint64, error) {
-			if operator == pool {
-				return current, nil, nil
-			}
-			return nil, nil, nil
-		}).
-		WithVrfKeyInUseFunc(func(
-			key common.Blake2b256,
-		) (bool, common.PoolKeyHash, error) {
-			if key == vrf(0x41) {
-				return true, pool, nil
-			}
-			return false, common.PoolKeyHash{}, nil
-		}).
-		Build()}
+	ls := sequentialFuturePoolState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(
+				operator common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if operator == pool {
+					return current, nil, nil
+				}
+				return nil, nil, nil
+			}).
+			WithVrfKeyInUseFunc(func(
+				key common.Blake2b256,
+			) (bool, common.PoolKeyHash, error) {
+				if key == vrf(0x41) {
+					return true, pool, nil
+				}
+				return false, common.PoolKeyHash{}, nil
+			}).
+			Build(),
+	}
 	pp := &conway.ConwayProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
 	rules := []common.UtxoValidationRuleFunc{
@@ -659,7 +661,15 @@ func TestVerifyBlockTransactionsReleasesFuturePoolVrfKeyThroughOuterAdapter(
 		pp,
 		[]common.UtxoValidationRuleFunc{
 			func(tx common.Transaction, slot uint64, state common.LedgerState, params common.ProtocolParameters) error {
-				return shelley.UtxoValidatePoolCertificates(tx, slot, sequentialFuturePoolState{LedgerState: state, lookup: ls.lookup}, params)
+				return shelley.UtxoValidatePoolCertificates(
+					tx,
+					slot,
+					sequentialFuturePoolState{
+						LedgerState: state,
+						lookup:      ls.lookup,
+					},
+					params,
+				)
 			},
 		},
 	)

@@ -92,7 +92,10 @@ func (vps VotingProcedures) MarshalCBOR() ([]byte, error) {
 		for _, actionId := range actionIds {
 			encodedActionId, err := cbor.Encode(actionId)
 			if err != nil {
-				return nil, fmt.Errorf("encode voting procedure action id: %w", err)
+				return nil, fmt.Errorf(
+					"encode voting procedure action id: %w",
+					err,
+				)
 			}
 			encodedProcedure, err := cbor.Encode(actions[actionId])
 			if err != nil {
@@ -451,13 +454,20 @@ func (v *Voter) UnmarshalText(text []byte) error {
 	switch prefix {
 	case "pool":
 		if len(decoded) != 28 {
-			return fmt.Errorf("invalid pool voter hash length: %d", len(decoded))
+			return fmt.Errorf(
+				"invalid pool voter hash length: %d",
+				len(decoded),
+			)
 		}
 		v.Type = VoterTypeStakingPoolKeyHash
 		copy(v.Hash[:], decoded)
 	case "cc_hot", "drep":
 		if len(decoded) != 29 {
-			return fmt.Errorf("invalid %s voter data length: %d", prefix, len(decoded))
+			return fmt.Errorf(
+				"invalid %s voter data length: %d",
+				prefix,
+				len(decoded),
+			)
 		}
 		header := decoded[0]
 		v.Type = header >> 4
@@ -466,21 +476,40 @@ func (v *Voter) UnmarshalText(text []byte) error {
 		switch v.Type {
 		case VoterTypeConstitutionalCommitteeHotKeyHash, VoterTypeDRepKeyHash:
 			if credNibble != 0x2 {
-				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for key hash voter type %d", credNibble, v.Type)
+				return fmt.Errorf(
+					"invalid CIP-129 credential type nibble 0x%x for key hash voter type %d",
+					credNibble,
+					v.Type,
+				)
 			}
-		case VoterTypeConstitutionalCommitteeHotScriptHash, VoterTypeDRepScriptHash:
+		case VoterTypeConstitutionalCommitteeHotScriptHash,
+			VoterTypeDRepScriptHash:
 			if credNibble != 0x3 {
-				return fmt.Errorf("invalid CIP-129 credential type nibble 0x%x for script hash voter type %d", credNibble, v.Type)
+				return fmt.Errorf(
+					"invalid CIP-129 credential type nibble 0x%x for script hash voter type %d",
+					credNibble,
+					v.Type,
+				)
 			}
 		}
 		switch prefix {
 		case "cc_hot":
-			if v.Type != VoterTypeConstitutionalCommitteeHotKeyHash && v.Type != VoterTypeConstitutionalCommitteeHotScriptHash {
-				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			if v.Type != VoterTypeConstitutionalCommitteeHotKeyHash &&
+				v.Type != VoterTypeConstitutionalCommitteeHotScriptHash {
+				return fmt.Errorf(
+					"invalid voter type %d for prefix %s",
+					v.Type,
+					prefix,
+				)
 			}
 		case "drep":
-			if v.Type != VoterTypeDRepKeyHash && v.Type != VoterTypeDRepScriptHash {
-				return fmt.Errorf("invalid voter type %d for prefix %s", v.Type, prefix)
+			if v.Type != VoterTypeDRepKeyHash &&
+				v.Type != VoterTypeDRepScriptHash {
+				return fmt.Errorf(
+					"invalid voter type %d for prefix %s",
+					v.Type,
+					prefix,
+				)
 			}
 		}
 		copy(v.Hash[:], decoded[1:])
@@ -924,7 +953,9 @@ func (a *TreasuryWithdrawalGovAction) UnmarshalCBOR(cborData []byte) error {
 			return errors.New("nil withdrawal address")
 		}
 		if len(amountCBOR) == 0 || amountCBOR[0]&cbor.CborTypeMask != 0 {
-			return errors.New("treasury withdrawal amount must be an unsigned integer")
+			return errors.New(
+				"treasury withdrawal amount must be an unsigned integer",
+			)
 		}
 		var amount uint64
 		if _, err := cbor.DecodeExact(amountCBOR, &amount); err != nil {
@@ -1200,7 +1231,10 @@ func (a UpdateCommitteeGovAction) ToPlutusData() data.PlutusData {
 	}
 	removedCredentials := append([]Credential(nil), a.Credentials...)
 	sort.Slice(removedCredentials, func(i, j int) bool {
-		return committeeCredentialLess(removedCredentials[i], removedCredentials[j])
+		return committeeCredentialLess(
+			removedCredentials[i],
+			removedCredentials[j],
+		)
 	})
 	removedItems := make([]data.PlutusData, 0, len(removedCredentials))
 	for _, cred := range removedCredentials {
@@ -1323,7 +1357,9 @@ func (a *NewConstitutionGovAction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
-		return errors.New("new constitution previous action ID cannot be CBOR undefined")
+		return errors.New(
+			"new constitution previous action ID cannot be CBOR undefined",
+		)
 	}
 	if err := ValidateDefiniteCBORArrayLength(
 		fields[2],

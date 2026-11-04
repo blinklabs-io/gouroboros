@@ -33,7 +33,11 @@ import (
 // the reference TestVerifyAndHashMatchesLegacy compares against.
 
 // VerifyAndHash verifies a VRF proof and returns the hash output.
-func legacyVerifyAndHash(publicKey []byte, proof []byte, msg []byte) ([]byte, error) {
+func legacyVerifyAndHash(
+	publicKey []byte,
+	proof []byte,
+	msg []byte,
+) ([]byte, error) {
 	Y := &edwards25519.Point{}
 	// validate key
 	if _, err := Y.SetBytes(publicKey); err != nil {
@@ -75,7 +79,11 @@ func legacyProofToHash(pi []byte) ([]byte, error) {
 }
 
 // verify performs the core VRF verification
-func legacyVerify(Y *edwards25519.Point, pi []byte, alpha []byte) (bool, error) {
+func legacyVerify(
+	Y *edwards25519.Point,
+	pi []byte,
+	alpha []byte,
+) (bool, error) {
 	var U, V *edwards25519.Point
 	var tmp1, tmp2 *edwards25519.Point
 	var cScalarArr, sScalarArr [32]byte
@@ -356,17 +364,36 @@ func TestVerifyAndHashMatchesLegacy(t *testing.T) {
 		want, wantErr := legacyVerifyAndHash(pk, proof, msg)
 		compared++
 		if (gotErr == nil) != (wantErr == nil) {
-			t.Fatalf("pk %x proof %x msg %x: error %v, legacy %v", pk, proof, msg, gotErr, wantErr)
+			t.Fatalf(
+				"pk %x proof %x msg %x: error %v, legacy %v",
+				pk,
+				proof,
+				msg,
+				gotErr,
+				wantErr,
+			)
 		}
 		if gotErr != nil {
 			if gotErr.Error() != wantErr.Error() {
-				t.Fatalf("pk %x proof %x: error %q, legacy %q", pk, proof, gotErr, wantErr)
+				t.Fatalf(
+					"pk %x proof %x: error %q, legacy %q",
+					pk,
+					proof,
+					gotErr,
+					wantErr,
+				)
 			}
 			return
 		}
 		accepted++
 		if !bytes.Equal(got, want) {
-			t.Fatalf("pk %x proof %x: output %x, legacy %x", pk, proof, got, want)
+			t.Fatalf(
+				"pk %x proof %x: output %x, legacy %x",
+				pk,
+				proof,
+				got,
+				want,
+			)
 		}
 	}
 	for range cases {
@@ -531,14 +558,26 @@ func TestVerifyAndHashMatchesLegacyWithTorsion(t *testing.T) {
 			for range 20 {
 				alpha := make([]byte, 32)
 				rng.Read(alpha)
-				pk, proof := proveWithTorsion(t, rng, alpha, tc.torsionY, tc.torsionGamma)
+				pk, proof := proveWithTorsion(
+					t,
+					rng,
+					alpha,
+					tc.torsionY,
+					tc.torsionGamma,
+				)
 				want, err := legacyVerifyAndHash(pk, proof, alpha)
 				if err != nil {
-					t.Fatalf("legacy verifier rejected the torsion proof: %v", err)
+					t.Fatalf(
+						"legacy verifier rejected the torsion proof: %v",
+						err,
+					)
 				}
 				got, err := VerifyAndHash(pk, proof, alpha)
 				if err != nil {
-					t.Fatalf("VerifyAndHash rejected a proof the legacy verifier accepts: %v", err)
+					t.Fatalf(
+						"VerifyAndHash rejected a proof the legacy verifier accepts: %v",
+						err,
+					)
 				}
 				if !bytes.Equal(got, want) {
 					t.Fatalf("output %x, legacy %x", got, want)

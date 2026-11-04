@@ -304,7 +304,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: allegra.AllegraTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput, Output: nil}}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &allegra.AllegraProtocolParameters{}
 	// Good input
@@ -376,7 +378,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &allegra.AllegraProtocolParameters{}
 	// Correct network
@@ -440,7 +444,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &allegra.AllegraProtocolParameters{}
 	// Correct network
@@ -522,7 +528,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &allegra.AllegraProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -580,9 +588,28 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
 			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
 			}
 			err := allegra.UtxoValidateValueNotConservedUtxo(
 				testTx,

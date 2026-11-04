@@ -642,7 +642,9 @@ func TestBlockRangeRequestRejectsAggregateTransactionHeaders(t *testing.T) {
 			case connErr := <-connErrs:
 				require.ErrorContains(t, connErr, "maximum is 1")
 			case <-time.After(2 * time.Second):
-				t.Fatal("aggregate transaction headers did not fail the connection")
+				t.Fatal(
+					"aggregate transaction headers did not fail the connection",
+				)
 			}
 		},
 		ouroboros.WithLeiosFetchConfig(cfg),
@@ -834,7 +836,11 @@ func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
 					)
 					if tc.limitErr == "" {
 						require.NoError(t, err)
-						require.Len(t, msg.(*leiosfetch.MsgVotes).VotesRaw, tc.replies)
+						require.Len(
+							t,
+							msg.(*leiosfetch.MsgVotes).VotesRaw,
+							tc.replies,
+						)
 						return
 					}
 					require.Error(t, err)
@@ -842,7 +848,9 @@ func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
 					case connErr := <-connErrs:
 						require.ErrorContains(t, connErr, tc.limitErr)
 					case <-time.After(2 * time.Second):
-						t.Fatal("oversized Votes reply did not fail the connection")
+						t.Fatal(
+							"oversized Votes reply did not fail the connection",
+						)
 					}
 				},
 			)
@@ -895,7 +903,11 @@ func TestBlockRangeRequestStallFailsConnection(t *testing.T) {
 			)
 			require.Error(t, err)
 			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
-			require.GreaterOrEqual(t, time.Since(startedAt), 50*time.Millisecond)
+			require.GreaterOrEqual(
+				t,
+				time.Since(startedAt),
+				50*time.Millisecond,
+			)
 			select {
 			case <-oConn.LeiosFetch().Client.DoneChan():
 			case <-time.After(time.Second):
@@ -1026,17 +1038,30 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs(
+						[]cbor.RawMessage{{0x80}, {0x80}},
+					),
 				},
 			},
 		)
-		runTest(t, conversation, func(t *testing.T, conn *ouroboros.Connection) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			msg, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
-			require.NoError(t, err)
-			require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 2)
-		})
+		runTest(
+			t,
+			conversation,
+			func(t *testing.T, conn *ouroboros.Connection) {
+				ctx, cancel := context.WithTimeout(
+					context.Background(),
+					2*time.Second,
+				)
+				defer cancel()
+				msg, err := conn.LeiosFetch().Client.BlockTxsRequest(
+					ctx,
+					point,
+					bitmaps,
+				)
+				require.NoError(t, err)
+				require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 2)
+			},
+		)
 	})
 
 	t.Run("rejects above requested count", func(t *testing.T) {
@@ -1050,7 +1075,9 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 				ProtocolId: leiosfetch.ProtocolId,
 				IsResponse: true,
 				Messages: []protocol.Message{
-					leiosfetch.NewMsgBlockTxs([]cbor.RawMessage{{0x80}, {0x80}, {0x80}}),
+					leiosfetch.NewMsgBlockTxs(
+						[]cbor.RawMessage{{0x80}, {0x80}, {0x80}},
+					),
 				},
 			},
 		)
@@ -1058,15 +1085,24 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 			t,
 			conversation,
 			func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx, cancel := context.WithTimeout(
+					context.Background(),
+					2*time.Second,
+				)
 				defer cancel()
-				_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+				_, err := conn.LeiosFetch().Client.BlockTxsRequest(
+					ctx,
+					point,
+					bitmaps,
+				)
 				require.Error(t, err)
 				select {
 				case connErr := <-connErrs:
 					require.ErrorContains(t, connErr, "maximum is 2")
 				case <-time.After(2 * time.Second):
-					t.Fatal("oversized BlockTxs reply did not fail the connection")
+					t.Fatal(
+						"oversized BlockTxs reply did not fail the connection",
+					)
 				}
 			},
 		)
@@ -1091,13 +1127,24 @@ func TestBlockTxsRequestPinsReplyToBitmapCardinality(t *testing.T) {
 			t,
 			conversation,
 			func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx, cancel := context.WithTimeout(
+					context.Background(),
+					2*time.Second,
+				)
 				defer cancel()
-				_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
+				_, err := conn.LeiosFetch().Client.BlockTxsRequest(
+					ctx,
+					point,
+					bitmaps,
+				)
 				require.Error(t, err)
 				select {
 				case connErr := <-connErrs:
-					require.ErrorContains(t, connErr, "do not match the 2 requested")
+					require.ErrorContains(
+						t,
+						connErr,
+						"do not match the 2 requested",
+					)
 				case <-time.After(2 * time.Second):
 					t.Fatal("short BlockTxs reply did not fail the connection")
 				}
@@ -1122,13 +1169,27 @@ func TestBlockTxsRequestRejectsBitmapsThePeerRefuses(t *testing.T) {
 				t,
 				conversationHandshake,
 				func(t *testing.T, conn *ouroboros.Connection, connErrs <-chan error) {
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					ctx, cancel := context.WithTimeout(
+						context.Background(),
+						2*time.Second,
+					)
 					defer cancel()
-					_, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, tc.bitmaps)
-					require.ErrorIs(t, err, leiosfetch.ErrInvalidBlockTxsBitmaps)
+					_, err := conn.LeiosFetch().Client.BlockTxsRequest(
+						ctx,
+						point,
+						tc.bitmaps,
+					)
+					require.ErrorIs(
+						t,
+						err,
+						leiosfetch.ErrInvalidBlockTxsBitmaps,
+					)
 					select {
 					case connErr := <-connErrs:
-						t.Fatalf("local refusal failed the connection: %v", connErr)
+						t.Fatalf(
+							"local refusal failed the connection: %v",
+							connErr,
+						)
 					case <-time.After(100 * time.Millisecond):
 					}
 				},
@@ -1151,13 +1212,24 @@ func TestBlockTxsRequestRejectsBitmapsThePeerRefuses(t *testing.T) {
 				},
 			},
 		)
-		runTest(t, conversation, func(t *testing.T, conn *ouroboros.Connection) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			msg, err := conn.LeiosFetch().Client.BlockTxsRequest(ctx, point, bitmaps)
-			require.NoError(t, err)
-			require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 1)
-		})
+		runTest(
+			t,
+			conversation,
+			func(t *testing.T, conn *ouroboros.Connection) {
+				ctx, cancel := context.WithTimeout(
+					context.Background(),
+					2*time.Second,
+				)
+				defer cancel()
+				msg, err := conn.LeiosFetch().Client.BlockTxsRequest(
+					ctx,
+					point,
+					bitmaps,
+				)
+				require.NoError(t, err)
+				require.Len(t, msg.(*leiosfetch.MsgBlockTxs).TxsRaw, 1)
+			},
+		)
 	})
 }
 

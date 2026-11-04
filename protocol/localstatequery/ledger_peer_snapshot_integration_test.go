@@ -52,7 +52,9 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 	}
 	magicStr := os.Getenv("GOUROBOROS_NETWORK_MAGIC")
 	if magicStr == "" {
-		t.Fatal("GOUROBOROS_NETWORK_MAGIC must be set when GOUROBOROS_NTC_SOCKET is set")
+		t.Fatal(
+			"GOUROBOROS_NETWORK_MAGIC must be set when GOUROBOROS_NTC_SOCKET is set",
+		)
 	}
 	magic, err := strconv.ParseUint(magicStr, 10, 32)
 	if err != nil {

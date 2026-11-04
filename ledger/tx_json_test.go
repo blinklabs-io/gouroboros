@@ -84,16 +84,33 @@ func TestTransactionMarshalJSON(t *testing.T) {
 			require.NoError(t, err)
 
 			jsonData, err := json.Marshal(tx)
-			require.NoError(t, err, "json.Marshal should not fail for %s transaction", tc.name)
+			require.NoError(
+				t,
+				err,
+				"json.Marshal should not fail for %s transaction",
+				tc.name,
+			)
 			assert.NotEmpty(t, jsonData)
 
 			// Verify the JSON is valid and contains expected top-level keys
 			var parsed map[string]json.RawMessage
 			err = json.Unmarshal(jsonData, &parsed)
-			require.NoError(t, err, "JSON output should be valid for %s transaction", tc.name)
+			require.NoError(
+				t,
+				err,
+				"JSON output should be valid for %s transaction",
+				tc.name,
+			)
 
 			for _, key := range tc.checkKeys {
-				assert.Contains(t, parsed, key, "%s transaction JSON should contain %q key", tc.name, key)
+				assert.Contains(
+					t,
+					parsed,
+					key,
+					"%s transaction JSON should contain %q key",
+					tc.name,
+					key,
+				)
 			}
 		})
 	}

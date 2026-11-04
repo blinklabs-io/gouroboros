@@ -32,11 +32,26 @@ func TestCalculateBlockBodyHashCanonicalCollectionLengths(t *testing.T) {
 		count    int
 		wantHash string
 	}{
-		{count: 0, wantHash: "29571d16f081709b3c48651860077bebf9340abb3fc7133443c54f1f5a5edcf1"},
-		{count: 1, wantHash: "52857c11f9df9534730a84a9e84c931793e6340fed9efda0001f49274ade08e1"},
-		{count: 23, wantHash: "0283eb0b1eafb4da66660cfbeb70746cbbd42aa6fb4fafc26226d605f69a44d5"},
-		{count: 24, wantHash: "cc19df1ff04cb38de1e32b0097b958ba9ceec81059aef9dc7ff26a77c035b251"},
-		{count: 32, wantHash: "03714029c823903cab0059e591be2f3823f570a8473ee80b2b59bdf5e25f5d0f"},
+		{
+			count:    0,
+			wantHash: "29571d16f081709b3c48651860077bebf9340abb3fc7133443c54f1f5a5edcf1",
+		},
+		{
+			count:    1,
+			wantHash: "52857c11f9df9534730a84a9e84c931793e6340fed9efda0001f49274ade08e1",
+		},
+		{
+			count:    23,
+			wantHash: "0283eb0b1eafb4da66660cfbeb70746cbbd42aa6fb4fafc26226d605f69a44d5",
+		},
+		{
+			count:    24,
+			wantHash: "cc19df1ff04cb38de1e32b0097b958ba9ceec81059aef9dc7ff26a77c035b251",
+		},
+		{
+			count:    32,
+			wantHash: "03714029c823903cab0059e591be2f3823f570a8473ee80b2b59bdf5e25f5d0f",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(strconv.Itoa(tc.count), func(t *testing.T) {
@@ -47,7 +62,10 @@ func TestCalculateBlockBodyHashCanonicalCollectionLengths(t *testing.T) {
 				invalidTxIndices[idx] = uint(idx)
 			}
 
-			serialized, err := ledger.CalculateBlockBodyHash(txs, invalidTxIndices)
+			serialized, err := ledger.CalculateBlockBodyHash(
+				txs,
+				invalidTxIndices,
+			)
 			require.NoError(t, err)
 			gotHash := blake2b.Sum256(serialized)
 			require.Equal(t, tc.wantHash, hex.EncodeToString(gotHash[:]))

@@ -463,7 +463,9 @@ func (p *DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 		PerasHealingFactor:               p.PerasHealingFactor,
 		PerasCertBoost:                   p.PerasCertBoost,
 		PerasTargetCommitteeSize:         p.PerasTargetCommitteeSize,
-		PerasBootstrapRound:              perasBootstrapRoundToCbor(p.PerasBootstrapRound),
+		PerasBootstrapRound: perasBootstrapRoundToCbor(
+			p.PerasBootstrapRound,
+		),
 		PerasQuorumThresholdSafetyMargin: p.PerasQuorumThresholdSafetyMargin,
 		RefInputsCostPerMultiAssetPolicy: p.RefInputsCostPerMultiAssetPolicy,
 		RefInputsCostPerDatumByte:        p.RefInputsCostPerDatumByte,
@@ -502,7 +504,8 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	if paramUpdate.RefScriptCostMultiplier != nil {
 		p.RefScriptCostMultiplier = paramUpdate.RefScriptCostMultiplier
 	}
-	if paramUpdate.MaxPledgeLeverageSet || paramUpdate.MaxPledgeLeverage != nil {
+	if paramUpdate.MaxPledgeLeverageSet ||
+		paramUpdate.MaxPledgeLeverage != nil {
 		p.MaxPledgeLeverage = paramUpdate.MaxPledgeLeverage
 	}
 	if paramUpdate.MinPoolMargin != nil {
@@ -547,7 +550,8 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 	if paramUpdate.PerasTargetCommitteeSize != nil {
 		p.PerasTargetCommitteeSize = *paramUpdate.PerasTargetCommitteeSize
 	}
-	if paramUpdate.PerasBootstrapRoundSet || paramUpdate.PerasBootstrapRound != nil {
+	if paramUpdate.PerasBootstrapRoundSet ||
+		paramUpdate.PerasBootstrapRound != nil {
 		p.PerasBootstrapRound = copyUint32(paramUpdate.PerasBootstrapRound)
 	}
 	if paramUpdate.PerasQuorumThresholdSafetyMargin != nil {
@@ -719,14 +723,21 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 				continue
 			}
 			if err := common.ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
-				return fmt.Errorf("dijkstra protocol parameter tag %d: %w", key, err)
+				return fmt.Errorf(
+					"dijkstra protocol parameter tag %d: %w",
+					key,
+					err,
+				)
 			}
 		}
 	}
 	for key, raw := range fields {
 		if key >= 34 && key <= 56 && key != 38 && key != 53 &&
 			(len(raw) == 1 && (raw[0] == 0xf6 || raw[0] == 0xf7)) {
-			return fmt.Errorf("dijkstra protocol parameter tag %d cannot be null or undefined", key)
+			return fmt.Errorf(
+				"dijkstra protocol parameter tag %d cannot be null or undefined",
+				key,
+			)
 		}
 	}
 	for key := range fields {
@@ -1214,25 +1225,59 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		pushRat(39, u.MinPoolMargin)
 	}
 	if u.LeiosAnnouncementPeriodLength != nil {
-		push(40, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosAnnouncementPeriodLength))))
+		push(
+			40,
+			data.NewInteger(
+				new(
+					big.Int,
+				).SetUint64(uint64(*u.LeiosAnnouncementPeriodLength)),
+			),
+		)
 	}
 	if u.LeiosVotePeriodLength != nil {
-		push(41, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosVotePeriodLength))))
+		push(
+			41,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.LeiosVotePeriodLength)),
+			),
+		)
 	}
 	if u.LeiosDiffusionPeriodLength != nil {
-		push(42, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosDiffusionPeriodLength))))
+		push(
+			42,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.LeiosDiffusionPeriodLength)),
+			),
+		)
 	}
 	if u.LeiosCommitteeSize != nil {
-		push(43, data.NewInteger(new(big.Int).SetUint64(uint64(*u.LeiosCommitteeSize))))
+		push(
+			43,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.LeiosCommitteeSize)),
+			),
+		)
 	}
 	if u.LeiosQuorumStakeThreshold != nil {
 		pushRat(44, u.LeiosQuorumStakeThreshold)
 	}
 	if u.MaxEndorserBlockReferencesSize != nil {
-		push(45, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEndorserBlockReferencesSize))))
+		push(
+			45,
+			data.NewInteger(
+				new(
+					big.Int,
+				).SetUint64(uint64(*u.MaxEndorserBlockReferencesSize)),
+			),
+		)
 	}
 	if u.MaxEndorserBlockTxsSize != nil {
-		push(46, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxEndorserBlockTxsSize))))
+		push(
+			46,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.MaxEndorserBlockTxsSize)),
+			),
+		)
 	}
 	if u.MaxEndorserBlockExUnits != nil {
 		push(47, data.NewList(
@@ -1241,19 +1286,39 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		))
 	}
 	if u.MaxRefScriptSizePerEndorserBlock != nil {
-		push(48, data.NewInteger(new(big.Int).SetUint64(uint64(*u.MaxRefScriptSizePerEndorserBlock))))
+		push(
+			48,
+			data.NewInteger(
+				new(
+					big.Int,
+				).SetUint64(uint64(*u.MaxRefScriptSizePerEndorserBlock)),
+			),
+		)
 	}
 	if u.PerasMinCandidateBlockAge != nil {
-		push(49, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasMinCandidateBlockAge))))
+		push(
+			49,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.PerasMinCandidateBlockAge)),
+			),
+		)
 	}
 	if u.PerasHealingFactor != nil {
 		pushRat(50, u.PerasHealingFactor)
 	}
 	if u.PerasCertBoost != nil {
-		push(51, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasCertBoost))))
+		push(
+			51,
+			data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasCertBoost))),
+		)
 	}
 	if u.PerasTargetCommitteeSize != nil {
-		push(52, data.NewInteger(new(big.Int).SetUint64(uint64(*u.PerasTargetCommitteeSize))))
+		push(
+			52,
+			data.NewInteger(
+				new(big.Int).SetUint64(uint64(*u.PerasTargetCommitteeSize)),
+			),
+		)
 	}
 	if u.PerasBootstrapRoundSet || u.PerasBootstrapRound != nil {
 		if u.PerasBootstrapRound == nil {
@@ -1268,10 +1333,20 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 		pushRat(54, u.PerasQuorumThresholdSafetyMargin)
 	}
 	if u.RefInputsCostPerMultiAssetPolicy != nil {
-		push(55, data.NewInteger(new(big.Int).SetUint64(*u.RefInputsCostPerMultiAssetPolicy)))
+		push(
+			55,
+			data.NewInteger(
+				new(big.Int).SetUint64(*u.RefInputsCostPerMultiAssetPolicy),
+			),
+		)
 	}
 	if u.RefInputsCostPerDatumByte != nil {
-		push(56, data.NewInteger(new(big.Int).SetUint64(*u.RefInputsCostPerDatumByte)))
+		push(
+			56,
+			data.NewInteger(
+				new(big.Int).SetUint64(*u.RefInputsCostPerDatumByte),
+			),
+		)
 	}
 	return data.NewMap(tmpPairs)
 }

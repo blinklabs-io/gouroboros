@@ -48,11 +48,15 @@ func TestAlonzoPlutusExecutionMatchesValidityFlag(t *testing.T) {
 				WsPlutusV1Scripts: []common.PlutusV1Script{
 					plutus.(common.PlutusV1Script),
 				},
-				WsRedeemers: alonzo.AlonzoRedeemers{Redeemers: []alonzo.AlonzoRedeemer{{
-					Tag:     common.RedeemerTagMint,
-					Data:    common.Datum{Data: data.NewInteger(big.NewInt(1))},
-					ExUnits: units,
-				}}},
+				WsRedeemers: alonzo.AlonzoRedeemers{
+					Redeemers: []alonzo.AlonzoRedeemer{{
+						Tag: common.RedeemerTagMint,
+						Data: common.Datum{
+							Data: data.NewInteger(big.NewInt(1)),
+						},
+						ExUnits: units,
+					}},
+				},
 			},
 			TxIsValid: valid,
 		}
@@ -67,12 +71,27 @@ func TestAlonzoPlutusExecutionMatchesValidityFlag(t *testing.T) {
 	}
 	state := mockledger.NewLedgerStateBuilder().Build()
 
-	require.NoError(t, alonzo.UtxoValidatePlutusScripts(newTx(false, true), 0, state, params))
+	require.NoError(
+		t,
+		alonzo.UtxoValidatePlutusScripts(newTx(false, true), 0, state, params),
+	)
 	var scriptFailure common.PlutusScriptFailedError
-	require.ErrorAs(t, alonzo.UtxoValidatePlutusScripts(newTx(true, true), 0, state, params), &scriptFailure)
-	require.NoError(t, alonzo.UtxoValidatePlutusScripts(newTx(true, false), 0, state, params))
+	require.ErrorAs(
+		t,
+		alonzo.UtxoValidatePlutusScripts(newTx(true, true), 0, state, params),
+		&scriptFailure,
+	)
+	require.NoError(
+		t,
+		alonzo.UtxoValidatePlutusScripts(newTx(true, false), 0, state, params),
+	)
 	var unexpectedSuccess common.UnexpectedPlutusScriptSuccessError
-	err := alonzo.UtxoValidatePlutusScripts(newTx(false, false), 0, state, params)
+	err := alonzo.UtxoValidatePlutusScripts(
+		newTx(false, false),
+		0,
+		state,
+		params,
+	)
 	require.True(t, errors.As(err, &unexpectedSuccess))
 }
 
@@ -88,10 +107,12 @@ func TestAlonzoMalformedScriptIsPhaseOneFailure(t *testing.T) {
 		Body: alonzo.AlonzoTransactionBody{TxMint: &mint},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
 			WsPlutusV1Scripts: []common.PlutusV1Script{plutus},
-			WsRedeemers: alonzo.AlonzoRedeemers{Redeemers: []alonzo.AlonzoRedeemer{{
-				Tag:     common.RedeemerTagMint,
-				ExUnits: common.ExUnits{Memory: 1, Steps: 1},
-			}}},
+			WsRedeemers: alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{{
+					Tag:     common.RedeemerTagMint,
+					ExUnits: common.ExUnits{Memory: 1, Steps: 1},
+				}},
+			},
 		},
 		TxIsValid: false,
 	}

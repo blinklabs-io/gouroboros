@@ -31,8 +31,14 @@ func TestConnectionShutdownStopsConstructedDMQProtocols(t *testing.T) {
 		conn, err := New()
 		require.NoError(t, err)
 		protoOptions := protocol.ProtocolOptions{}
-		conn.localMessageSubmission = localmessagesubmission.New(protoOptions, nil)
-		conn.localMessageNotification = localmessagenotification.New(protoOptions, nil)
+		conn.localMessageSubmission = localmessagesubmission.New(
+			protoOptions,
+			nil,
+		)
+		conn.localMessageNotification = localmessagenotification.New(
+			protoOptions,
+			nil,
+		)
 		conn.protocolsReady = true
 
 		protocolDone := []<-chan struct{}{
@@ -47,7 +53,9 @@ func TestConnectionShutdownStopsConstructedDMQProtocols(t *testing.T) {
 			select {
 			case <-done:
 			case <-time.After(time.Second):
-				t.Fatal("constructed protocol did not complete connection shutdown")
+				t.Fatal(
+					"constructed protocol did not complete connection shutdown",
+				)
 			}
 		}
 	}

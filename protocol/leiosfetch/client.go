@@ -520,12 +520,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
-func (c *Client) messageFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+func (c *Client) messageFromCbor(
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
 	switch msgType {
 	case MessageTypeBlock, MessageTypeBlockTxs, MessageTypeVotes,
 		MessageTypeNextBlockAndTxsInRange, MessageTypeLastBlockAndTxsInRange:
 	default:
-		return nil, fmt.Errorf("%s: message type %d is not a server response", ProtocolName, msgType)
+		return nil, fmt.Errorf(
+			"%s: message type %d is not a server response",
+			ProtocolName,
+			msgType,
+		)
 	}
 	if msgType == MessageTypeBlockTxs {
 		c.blockRequestSlot.mu.Lock()

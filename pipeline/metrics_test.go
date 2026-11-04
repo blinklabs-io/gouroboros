@@ -544,7 +544,10 @@ func TestStageMetricsRecordersFeedMatchingTimings(t *testing.T) {
 				RecordMetrics: tc.recorder(metrics),
 				ShouldRecord:  tc.shouldRecord,
 			})
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				10*time.Second,
+			)
 			defer cancel()
 			pool.Start(ctx)
 

@@ -54,7 +54,12 @@ func runTest(
 	innerFunc testInnerFunc,
 	options ...ouroboros.ConnectionOptionFunc,
 ) {
-	runTestWithExpectedProtocolError(t, conversation, innerFunc, nil, options...)
+	runTestWithExpectedProtocolError(
+		t,
+		conversation,
+		innerFunc,
+		nil,
+		options...)
 }
 
 func runTestWithExpectedProtocolError(
@@ -118,7 +123,8 @@ func runTestWithExpectedProtocolError(
 		}
 		connErrsMu.Lock()
 		for _, err := range connErrs {
-			if expectedErr != nil && strings.Contains(err.Error(), expectedErr.Error()) {
+			if expectedErr != nil &&
+				strings.Contains(err.Error(), expectedErr.Error()) {
 				continue
 			}
 			t.Error(err)
@@ -135,7 +141,8 @@ func runTestWithExpectedProtocolError(
 				if !ok {
 					return
 				}
-				if expectedErr != nil && strings.Contains(err.Error(), expectedErr.Error()) {
+				if expectedErr != nil &&
+					strings.Contains(err.Error(), expectedErr.Error()) {
 					continue
 				}
 				t.Error(err)
@@ -149,7 +156,8 @@ func runTestWithExpectedProtocolError(
 	// Wait for mock connection shutdown
 	select {
 	case err, ok := <-asyncErrChan:
-		if ok && (expectedErr == nil || !strings.Contains(err.Error(), expectedErr.Error())) {
+		if ok &&
+			(expectedErr == nil || !strings.Contains(err.Error(), expectedErr.Error())) {
 			t.Fatal(err.Error())
 		}
 	case <-time.After(2 * time.Second):
@@ -305,9 +313,14 @@ func TestGetBlockByronConfiguredEpochLengthOverflow(t *testing.T) {
 	)
 }
 
-func byronBlockWithSlotID(t *testing.T, epoch, slot uint64) ([]byte, *byron.ByronMainBlock) {
+func byronBlockWithSlotID(
+	t *testing.T,
+	epoch, slot uint64,
+) ([]byte, *byron.ByronMainBlock) {
 	t.Helper()
-	fixtureHex, err := os.ReadFile("../chainsync/testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex")
+	fixtureHex, err := os.ReadFile(
+		"../chainsync/testdata/byron_main_block_testnet_f38aa5e8cf0b47d1ffa8b2385aa2d43882282db2ffd5ac0e3dadec1a6f2ecf08.hex",
+	)
 	require.NoError(t, err)
 	blockCbor, err := hex.DecodeString(strings.TrimSpace(string(fixtureHex)))
 	require.NoError(t, err)

@@ -59,9 +59,19 @@ func TestEraMismatch_DecodesByronWire(t *testing.T) {
 	got := &EraMismatch{}
 	_, err := cbor.Decode(mustHex(t, goldenWrongEraByron), got)
 	require.NoError(t, err)
-	assert.Equal(t, uint8(1), got.OtherEra.Index, "other era index = Shelley(1)")
+	assert.Equal(
+		t,
+		uint8(1),
+		got.OtherEra.Index,
+		"other era index = Shelley(1)",
+	)
 	assert.Equal(t, "Shelley", got.OtherEra.Name)
-	assert.Equal(t, uint8(0), got.LedgerEra.Index, "ledger era index = Byron(0)")
+	assert.Equal(
+		t,
+		uint8(0),
+		got.LedgerEra.Index,
+		"ledger era index = Byron(0)",
+	)
 	assert.Equal(t, "Byron", got.LedgerEra.Name)
 }
 
@@ -71,7 +81,12 @@ func TestEraMismatch_DecodesShelleyWire(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint8(0), got.OtherEra.Index, "other era index = Byron(0)")
 	assert.Equal(t, "Byron", got.OtherEra.Name)
-	assert.Equal(t, uint8(1), got.LedgerEra.Index, "ledger era index = Shelley(1)")
+	assert.Equal(
+		t,
+		uint8(1),
+		got.LedgerEra.Index,
+		"ledger era index = Shelley(1)",
+	)
 	assert.Equal(t, "Shelley", got.LedgerEra.Name)
 }
 
@@ -93,8 +108,12 @@ func TestEraMismatch_EncodesShelleyWire(t *testing.T) {
 	}
 	got, err := cbor.Encode(em)
 	require.NoError(t, err)
-	assert.Equal(t, mustHex(t, goldenWrongEraShelley), got,
-		"encoded bytes must match the Haskell golden ApplyTxErr_WrongEraShelley")
+	assert.Equal(
+		t,
+		mustHex(t, goldenWrongEraShelley),
+		got,
+		"encoded bytes must match the Haskell golden ApplyTxErr_WrongEraShelley",
+	)
 }
 
 func TestEraMismatch_RoundTrip(t *testing.T) {
@@ -144,8 +163,11 @@ func TestNewTxSubmitErrorFromCbor_PrefersEraMismatch(t *testing.T) {
 	got, err := NewTxSubmitErrorFromCbor(mustHex(t, goldenWrongEraByron))
 	require.NoError(t, err)
 	var em *EraMismatch
-	require.True(t, errors.As(got, &em),
-		"NewTxSubmitErrorFromCbor must select *EraMismatch over GenericError fallback")
+	require.True(
+		t,
+		errors.As(got, &em),
+		"NewTxSubmitErrorFromCbor must select *EraMismatch over GenericError fallback",
+	)
 	assert.Equal(t, "Shelley", em.OtherEra.Name)
 	assert.Equal(t, "Byron", em.LedgerEra.Name)
 }

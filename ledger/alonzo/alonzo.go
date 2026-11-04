@@ -94,7 +94,10 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	for _, val := range tmp.InvalidTransactions {
 		converted := uint(val)
 		if uint64(converted) != val {
-			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+			return fmt.Errorf(
+				"invalid transaction index %d overflows uint",
+				val,
+			)
 		}
 		if val >= uint64(len(tmp.TransactionBodies)) {
 			return fmt.Errorf(
@@ -351,7 +354,12 @@ func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func coalesceUntaggedTransactionInputs(
@@ -789,7 +797,11 @@ func (r *AlonzoRedeemers) UnmarshalJSON(raw []byte) error {
 	for _, entry := range r.Redeemers {
 		key := common.RedeemerKey{Tag: entry.Tag, Index: entry.Index}
 		if _, exists := seen[key]; exists {
-			return fmt.Errorf("duplicate redeemer key: tag=%d index=%d", entry.Tag, entry.Index)
+			return fmt.Errorf(
+				"duplicate redeemer key: tag=%d index=%d",
+				entry.Tag,
+				entry.Index,
+			)
 		}
 		seen[key] = struct{}{}
 	}
@@ -1011,7 +1023,10 @@ func (t *AlonzoTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraAlonzo)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraAlonzo,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}

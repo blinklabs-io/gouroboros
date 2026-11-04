@@ -76,15 +76,42 @@ func TestClassicPPUPThroughVerifyTransaction(t *testing.T) {
 		shelley.UtxoValidateProtocolParameterUpdates,
 	}
 	pp := &shelley.ShelleyProtocolParameters{ProtocolMajor: 8}
-	require.NoError(t, common.VerifyTransaction(makeTransaction(7, delegate, true), 39, state, pp, rules))
-	wrongEpochErr := common.VerifyTransaction(makeTransaction(8, delegate, true), 39, state, pp, rules)
+	require.NoError(
+		t,
+		common.VerifyTransaction(
+			makeTransaction(7, delegate, true),
+			39,
+			state,
+			pp,
+			rules,
+		),
+	)
+	wrongEpochErr := common.VerifyTransaction(
+		makeTransaction(8, delegate, true),
+		39,
+		state,
+		pp,
+		rules,
+	)
 	var epochErr common.ProtocolParameterUpdateEpochError
 	require.ErrorAs(t, wrongEpochErr, &epochErr)
 	unknown := common.Blake2b224Hash(bytes.Repeat([]byte{4}, 32))
-	unknownErr := common.VerifyTransaction(makeTransaction(7, unknown, true), 39, state, pp, rules)
+	unknownErr := common.VerifyTransaction(
+		makeTransaction(7, unknown, true),
+		39,
+		state,
+		pp,
+		rules,
+	)
 	var delegateErr common.ProtocolParameterUpdateDelegateError
 	require.ErrorAs(t, unknownErr, &delegateErr)
-	missingWitnessErr := common.VerifyTransaction(makeTransaction(7, delegate, false), 39, state, pp, rules)
+	missingWitnessErr := common.VerifyTransaction(
+		makeTransaction(7, delegate, false),
+		39,
+		state,
+		pp,
+		rules,
+	)
 	var witnessErr common.ProtocolParameterUpdateWitnessError
 	require.ErrorAs(t, missingWitnessErr, &witnessErr)
 }
@@ -163,12 +190,18 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 		epoch:  10,
 		cutoff: 50,
 	}
-	witness := classicPPUPTestWitnessSet{vkeys: []common.VkeyWitness{{Vkey: vkey}}}
-	update := common.ProtocolParameterUpdate(shelley.ShelleyProtocolParameterUpdate{})
+	witness := classicPPUPTestWitnessSet{
+		vkeys: []common.VkeyWitness{{Vkey: vkey}},
+	}
+	update := common.ProtocolParameterUpdate(
+		shelley.ShelleyProtocolParameterUpdate{},
+	)
 	newTx := func(epoch uint64, key common.Blake2b224, withWitness bool) classicPPUPTestTransaction {
 		tx := classicPPUPTestTransaction{
-			Epoch:   epoch,
-			Updates: map[common.Blake2b224]common.ProtocolParameterUpdate{key: update},
+			Epoch: epoch,
+			Updates: map[common.Blake2b224]common.ProtocolParameterUpdate{
+				key: update,
+			},
 		}
 		if withWitness {
 			tx.Witness = witness
@@ -188,19 +221,45 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 	for _, era := range allEraDescriptors {
 		t.Run(era.name, func(t *testing.T) {
 			validate := classicPPUPValidator(t, era.descriptors())
-			require.NoError(t, validate(newTx(10, genesisKey, true), 49, state, &shelley.ShelleyProtocolParameters{}))
+			require.NoError(
+				t,
+				validate(
+					newTx(10, genesisKey, true),
+					49,
+					state,
+					&shelley.ShelleyProtocolParameters{},
+				),
+			)
 		})
 	}
 	validate := classicPPUPValidator(t, shelley.UtxoValidationRuleDescriptors())
 	t.Run("unknown genesis key", func(t *testing.T) {
 		unknown := common.Blake2b224Hash(bytes.Repeat([]byte{8}, 32))
 		var updateErr common.ProtocolParameterUpdateDelegateError
-		require.ErrorAs(t, validate(newTx(10, unknown, true), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(
+			t,
+			validate(
+				newTx(10, unknown, true),
+				49,
+				state,
+				&shelley.ShelleyProtocolParameters{},
+			),
+			&updateErr,
+		)
 		require.Equal(t, unknown, updateErr.Delegate)
 	})
 	t.Run("missing proposing delegate witness", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateWitnessError
-		require.ErrorAs(t, validate(newTx(10, genesisKey, false), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(
+			t,
+			validate(
+				newTx(10, genesisKey, false),
+				49,
+				state,
+				&shelley.ShelleyProtocolParameters{},
+			),
+			&updateErr,
+		)
 		require.Equal(t, genesisKey, updateErr.Delegate)
 	})
 	t.Run("proposal requires the active delegate witness", func(t *testing.T) {
@@ -210,38 +269,78 @@ func TestClassicProtocolParameterUpdateRuleRegistrationAndEpochs(t *testing.T) {
 		tx := newTx(10, genesisKey, true)
 		tx.Witness = wrongWitness
 		var updateErr common.ProtocolParameterUpdateWitnessError
-		require.ErrorAs(t, validate(tx, 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(
+			t,
+			validate(tx, 49, state, &shelley.ShelleyProtocolParameters{}),
+			&updateErr,
+		)
 	})
 	t.Run("wrong current epoch", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateEpochError
-		require.ErrorAs(t, validate(newTx(11, genesisKey, true), 49, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(
+			t,
+			validate(
+				newTx(11, genesisKey, true),
+				49,
+				state,
+				&shelley.ShelleyProtocolParameters{},
+			),
+			&updateErr,
+		)
 		require.Equal(t, uint64(10), updateErr.Expected)
 		require.False(t, updateErr.ForNextEpoch)
 	})
 	t.Run("wrong epoch after no-return slot", func(t *testing.T) {
 		var updateErr common.ProtocolParameterUpdateEpochError
-		require.ErrorAs(t, validate(newTx(10, genesisKey, true), 50, state, &shelley.ShelleyProtocolParameters{}), &updateErr)
+		require.ErrorAs(
+			t,
+			validate(
+				newTx(10, genesisKey, true),
+				50,
+				state,
+				&shelley.ShelleyProtocolParameters{},
+			),
+			&updateErr,
+		)
 		require.Equal(t, uint64(11), updateErr.Expected)
 		require.True(t, updateErr.ForNextEpoch)
 	})
 	t.Run("next epoch after no-return slot", func(t *testing.T) {
-		require.NoError(t, validate(newTx(11, genesisKey, true), 50, state, &shelley.ShelleyProtocolParameters{}))
+		require.NoError(
+			t,
+			validate(
+				newTx(11, genesisKey, true),
+				50,
+				state,
+				&shelley.ShelleyProtocolParameters{},
+			),
+		)
 	})
 	t.Run("reject invalid protocol version jump", func(t *testing.T) {
 		proposed := common.ProtocolParametersProtocolVersion{Major: 12}
-		versionUpdate := shelley.ShelleyProtocolParameterUpdate{ProtocolVersion: &proposed}
+		versionUpdate := shelley.ShelleyProtocolParameterUpdate{
+			ProtocolVersion: &proposed,
+		}
 		tx := newTx(10, genesisKey, true)
 		tx.Updates[genesisKey] = versionUpdate
-		params := &shelley.ShelleyProtocolParameters{ProtocolMajor: 10, ProtocolMinor: 0}
+		params := &shelley.ShelleyProtocolParameters{
+			ProtocolMajor: 10,
+			ProtocolMinor: 0,
+		}
 		var updateErr common.ProtocolParameterUpdateVersionError
 		require.ErrorAs(t, validate(tx, 49, state, params), &updateErr)
 	})
 	t.Run("accept next major protocol version", func(t *testing.T) {
 		proposed := common.ProtocolParametersProtocolVersion{Major: 11}
-		versionUpdate := shelley.ShelleyProtocolParameterUpdate{ProtocolVersion: &proposed}
+		versionUpdate := shelley.ShelleyProtocolParameterUpdate{
+			ProtocolVersion: &proposed,
+		}
 		tx := newTx(10, genesisKey, true)
 		tx.Updates[genesisKey] = versionUpdate
-		params := &shelley.ShelleyProtocolParameters{ProtocolMajor: 10, ProtocolMinor: 0}
+		params := &shelley.ShelleyProtocolParameters{
+			ProtocolMajor: 10,
+			ProtocolMinor: 0,
+		}
 		require.NoError(t, validate(tx, 49, state, params))
 	})
 }
@@ -257,7 +356,9 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 		epoch:  3,
 		cutoff: 100,
 	}
-	witness := classicPPUPTestWitnessSet{vkeys: []common.VkeyWitness{{Vkey: vkey}}}
+	witness := classicPPUPTestWitnessSet{
+		vkeys: []common.VkeyWitness{{Vkey: vkey}},
+	}
 	for _, era := range []struct {
 		name        string
 		descriptors func() []common.UtxoValidationRuleDescriptor
@@ -318,9 +419,16 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 			require.NoError(t, validateModels(era.valid, era.params(8)))
 			for _, models := range era.invalid {
 				var modelErr common.ProtocolParameterUpdateCostModelError
-				require.ErrorAs(t, validateModels(models, era.params(8)), &modelErr)
+				require.ErrorAs(
+					t,
+					validateModels(models, era.params(8)),
+					&modelErr,
+				)
 			}
-			require.NoError(t, validateModels(map[uint][]int64{99: nil}, era.params(9)))
+			require.NoError(
+				t,
+				validateModels(map[uint][]int64{99: nil}, era.params(9)),
+			)
 			require.NoError(t, validateModels(nil, nil))
 		})
 	}

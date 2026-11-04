@@ -146,7 +146,9 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 		Output: output,
 	}
 
-	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
 
 	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
@@ -160,7 +162,10 @@ func TestConway_CostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	// A reachable but unused reference script does not require a cost model.
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("unused reference script should not require a cost model: %v", err)
+		t.Fatalf(
+			"unused reference script should not require a cost model: %v",
+			err,
+		)
 	}
 }
 
@@ -188,7 +193,9 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 		0,
 	)
 	utxo := common.Utxo{Id: input, Output: output}
-	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
 	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
 	tmpTx := &conway.ConwayTransaction{}
@@ -200,7 +207,10 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV1(
 
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("unused reference script should not require a cost model: %v", err)
+		t.Fatalf(
+			"unused reference script should not require a cost model: %v",
+			err,
+		)
 	}
 }
 
@@ -228,7 +238,9 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 		0,
 	)
 	utxo := common.Utxo{Id: input, Output: output}
-	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
 	var pp common.ProtocolParameters = &conway.ConwayProtocolParameters{}
 
 	tmpTx := &conway.ConwayTransaction{}
@@ -240,7 +252,10 @@ func TestConway_CostModelsPresent_ResolvedReferenceInput_PlutusV3(
 
 	err := conway.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("unused reference script should not require a cost model: %v", err)
+		t.Fatalf(
+			"unused reference script should not require a cost model: %v",
+			err,
+		)
 	}
 }
 
@@ -351,8 +366,11 @@ func TestDuplicateVrfKeyError(t *testing.T) {
 
 func TestCCVotingRestrictionError(t *testing.T) {
 	err := conway.CCVotingRestrictionError{
-		VoterId:     common.Blake2b224{0x01},
-		ActionId:    common.GovActionId{TransactionId: common.Blake2b256{0x02}, GovActionIdx: 1},
+		VoterId: common.Blake2b224{0x01},
+		ActionId: common.GovActionId{
+			TransactionId: common.Blake2b256{0x02},
+			GovActionIdx:  1,
+		},
 		Restriction: "CC cannot vote on this action type",
 	}
 	assert.Contains(t, err.Error(), "voting restriction")
@@ -423,7 +441,9 @@ func TestConway_Rule7_ScriptDataHashWithWitnessDatumsNoRedeemers(
 }
 
 func TestBootstrapDisallowedGovActionError_String(t *testing.T) {
-	err := conway.BootstrapDisallowedGovActionError{ActionType: common.GovActionTypeTreasuryWithdrawal}
+	err := conway.BootstrapDisallowedGovActionError{
+		ActionType: common.GovActionTypeTreasuryWithdrawal,
+	}
 	got := err.Error()
 	want := "governance action type 2 is not allowed during the Conway bootstrap phase (PV9); requires PV10 (Plomin) or later"
 	if got != want {

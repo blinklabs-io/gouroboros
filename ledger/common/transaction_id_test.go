@@ -55,10 +55,18 @@ func TestTransactionBodyBaseIdSetCborInvalidatesOnlyCopy(t *testing.T) {
 			newWire := []byte{0xa1, 0x00, 0x01}
 			setCbor(&copyBody, newWire)
 			if got := body.Id(); got != wantOriginal {
-				t.Fatalf("original hash changed after copy invalidation: got %x, want %x", got, wantOriginal)
+				t.Fatalf(
+					"original hash changed after copy invalidation: got %x, want %x",
+					got,
+					wantOriginal,
+				)
 			}
 			if got, want := copyBody.Id(), common.Blake2b256Hash(newWire); got != want {
-				t.Fatalf("copy hash mismatch after invalidation: got %x, want %x", got, want)
+				t.Fatalf(
+					"copy hash mismatch after invalidation: got %x, want %x",
+					got,
+					want,
+				)
 			}
 
 			setCbor(&copyBody, nil)

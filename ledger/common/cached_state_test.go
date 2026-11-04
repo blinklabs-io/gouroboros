@@ -163,7 +163,12 @@ func TestVerifyTransactionUnwrapRestoresEveryOptionalCapability(t *testing.T) {
 	for name, probe := range capabilityProbes {
 		direct, unwrapped := probe(state)
 		require.True(t, direct, "%s: unwrapped state must implement it", name)
-		require.True(t, unwrapped, "%s: UnwrapLedgerState is identity here", name)
+		require.True(
+			t,
+			unwrapped,
+			"%s: UnwrapLedgerState is identity here",
+			name,
+		)
 	}
 
 	observed := map[string][2]bool{}
@@ -209,7 +214,10 @@ func TestVerifyTransactionUnwrapRestoresEveryOptionalCapability(t *testing.T) {
 func TestVerifyTransactionUnwrapLeavesForeignStateAlone(t *testing.T) {
 	t.Parallel()
 	inner := mockledger.NewLedgerStateBuilder().Build()
-	state := foreignWrapper{LedgerState: mockledger.NewLedgerStateBuilder().Build(), inner: inner}
+	state := foreignWrapper{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		inner:       inner,
+	}
 	require.Equal(
 		t,
 		common.LedgerState(state),
@@ -272,7 +280,9 @@ func TestStateCapabilityLookupPreservesImplementingAdapter(t *testing.T) {
 	blockState := common.NewBlockLedgerState(adapter)
 	futureState, ok := common.FuturePoolParametersStateFor(blockState)
 	require.True(t, ok)
-	inUse, gotOwner, err := futureState.IsFutureVrfKeyInUse(common.Blake2b256{0x41})
+	inUse, gotOwner, err := futureState.IsFutureVrfKeyInUse(
+		common.Blake2b256{0x41},
+	)
 	require.NoError(t, err)
 	require.True(t, inUse)
 	require.Equal(t, owner, gotOwner)

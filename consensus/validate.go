@@ -43,7 +43,8 @@ func NewTachysHeaderValidator(
 	config NetworkConfig,
 	selector *TachysLeaderSelector,
 ) (*HeaderValidator, error) {
-	if selector == nil || len(selector.intervals) == 0 || selector.totalStake == 0 {
+	if selector == nil || len(selector.intervals) == 0 ||
+		selector.totalStake == 0 {
 		return nil, errors.New("tachys leader selector is uninitialized")
 	}
 	validator := NewHeaderValidatorWithMode(config, ConsensusModeCPraos)

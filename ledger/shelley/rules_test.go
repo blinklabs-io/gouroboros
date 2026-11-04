@@ -361,7 +361,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: shelley.ShelleyTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput}}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Good input
@@ -433,7 +435,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
@@ -497,7 +501,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{}
 	// Correct network
@@ -579,7 +585,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &shelley.ShelleyProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -637,9 +645,28 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount = testOutputExactAmount
 			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
 			}
 			err := shelley.UtxoValidateValueNotConservedUtxo(
 				testTx,
@@ -1080,7 +1107,11 @@ func TestUtxoValidateWithdrawals(t *testing.T) {
 
 		err := shelley.UtxoValidateWithdrawals(tx, 0, ls, nil)
 		require.Error(t, err)
-		assert.IsType(t, shelley.WithdrawalFromUnregisteredRewardAccountError{}, err)
+		assert.IsType(
+			t,
+			shelley.WithdrawalFromUnregisteredRewardAccountError{},
+			err,
+		)
 	})
 
 	t.Run("balance lookup error is propagated", func(t *testing.T) {

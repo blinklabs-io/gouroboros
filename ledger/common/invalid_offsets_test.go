@@ -39,7 +39,9 @@ func TestExtractTransactionOffsetsReturnsInvalidTransactions(t *testing.T) {
 	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
 }
 
-func TestExtractTransactionOffsetsPreservesDuplicateInvalidTransactions(t *testing.T) {
+func TestExtractTransactionOffsetsPreservesDuplicateInvalidTransactions(
+	t *testing.T,
+) {
 	block := []any{
 		[]any{}, // header
 		[]any{map[uint64]any{}, map[uint64]any{}},

@@ -49,9 +49,13 @@ func TestHeaderHashConcurrentFirstFill(t *testing.T) {
 			hashData := cborData
 			switch test.name {
 			case "byron":
-				hashData = append([]byte{0x82, byron.BlockTypeByronMain}, cborData...)
+				hashData = append(
+					[]byte{0x82, byron.BlockTypeByronMain},
+					cborData...)
 			case "byron ebb":
-				hashData = append([]byte{0x82, byron.BlockTypeByronEbb}, cborData...)
+				hashData = append(
+					[]byte{0x82, byron.BlockTypeByronEbb},
+					cborData...)
 			}
 			want := common.Blake2b256Hash(hashData)
 			results := make(chan common.Blake2b256, 32)

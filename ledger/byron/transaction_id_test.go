@@ -59,10 +59,18 @@ func TestByronTransactionBodyIdSetCborInvalidatesOnlyCopy(t *testing.T) {
 			newWire := []byte{0x82, 0x81, 0x80, 0x80}
 			setCbor(&copyBody, newWire)
 			if got := body.WireId(); got != wantOriginal {
-				t.Fatalf("original hash changed after copy invalidation: got %x, want %x", got, wantOriginal)
+				t.Fatalf(
+					"original hash changed after copy invalidation: got %x, want %x",
+					got,
+					wantOriginal,
+				)
 			}
 			if got, want := copyBody.WireId(), common.Blake2b256Hash(newWire); got != want {
-				t.Fatalf("copy hash mismatch after invalidation: got %x, want %x", got, want)
+				t.Fatalf(
+					"copy hash mismatch after invalidation: got %x, want %x",
+					got,
+					want,
+				)
 			}
 
 			setCbor(&copyBody, nil)
@@ -91,7 +99,9 @@ func TestByronTransactionIdsSeparateCanonicalAndWireHashes(t *testing.T) {
 	// also uses a valid non-shortest integer encoding.
 	wireBody := append([]byte{0x83, 0x9f, 0xff, 0x9f, 0x82}, encodedAddress...)
 	wireBody = append(wireBody, 0x18, 0x01, 0xff, 0xa0)
-	canonicalBody := append([]byte{0x83, 0x9f, 0xff, 0x9f, 0x82}, encodedAddress...)
+	canonicalBody := append(
+		[]byte{0x83, 0x9f, 0xff, 0x9f, 0x82},
+		encodedAddress...)
 	canonicalBody = append(canonicalBody, 0x01, 0xff, 0xa0)
 	var body byron.ByronTransactionBody
 	if err := body.UnmarshalCBOR(wireBody); err != nil {
@@ -101,7 +111,11 @@ func TestByronTransactionIdsSeparateCanonicalAndWireHashes(t *testing.T) {
 		t.Fatalf("wire hash mismatch: got %x, want %x", got, want)
 	}
 	if got, want := body.Id(), common.Blake2b256Hash(canonicalBody); got != want {
-		t.Fatalf("canonical transaction ID mismatch: got %x, want %x", got, want)
+		t.Fatalf(
+			"canonical transaction ID mismatch: got %x, want %x",
+			got,
+			want,
+		)
 	}
 	if body.Id() == body.WireId() {
 		t.Fatal("non-shortest integer encoding produced identical hashes")
@@ -109,7 +123,10 @@ func TestByronTransactionIdsSeparateCanonicalAndWireHashes(t *testing.T) {
 	tx := &byron.ByronTransaction{Body: body}
 	produced := tx.Produced()
 	if len(produced) != 1 || produced[0].Id.Id() != body.Id() {
-		t.Fatalf("produced UTxO did not use canonical transaction ID: %+v", produced)
+		t.Fatalf(
+			"produced UTxO did not use canonical transaction ID: %+v",
+			produced,
+		)
 	}
 	var canonical byron.ByronTransactionBody
 	if err := canonical.UnmarshalCBOR(canonicalBody); err != nil {
@@ -165,7 +182,8 @@ func TestByronInputOutputMarshalCBORRoundTripsWireForm(t *testing.T) {
 		t.Fatalf("encode input: %v", err)
 	}
 	// [0, #6.24(...)]
-	if len(inputCbor) < 3 || inputCbor[0] != 0x82 || inputCbor[1] != 0x00 || inputCbor[2] != 0xd8 {
+	if len(inputCbor) < 3 || inputCbor[0] != 0x82 || inputCbor[1] != 0x00 ||
+		inputCbor[2] != 0xd8 {
 		t.Fatalf("input not in wire form: %x", inputCbor)
 	}
 	var gotInput byron.ByronTransactionInput
@@ -175,21 +193,26 @@ func TestByronInputOutputMarshalCBORRoundTripsWireForm(t *testing.T) {
 	if gotInput.Id() != input.Id() || gotInput.Index() != input.Index() {
 		t.Fatalf("input round trip mismatch: %v != %v", gotInput, input)
 	}
-	output := byron.ByronTransactionOutput{OutputAddress: address, OutputAmount: 1}
+	output := byron.ByronTransactionOutput{
+		OutputAddress: address,
+		OutputAmount:  1,
+	}
 	outputCbor, err := cbor.Encode(output)
 	if err != nil {
 		t.Fatalf("encode output: %v", err)
 	}
 	// [[#6.24(...), crc], amount]: the address array follows the output
 	// array header, and the address payload is tag 24 wrapped.
-	if len(outputCbor) < 3 || outputCbor[0] != 0x82 || outputCbor[1] != 0x82 || outputCbor[2] != 0xd8 {
+	if len(outputCbor) < 3 || outputCbor[0] != 0x82 || outputCbor[1] != 0x82 ||
+		outputCbor[2] != 0xd8 {
 		t.Fatalf("output not in wire form: %x", outputCbor)
 	}
 	var gotOutput byron.ByronTransactionOutput
 	if err := gotOutput.UnmarshalCBOR(outputCbor); err != nil {
 		t.Fatalf("decode encoded output: %v", err)
 	}
-	if gotOutput.Address().String() != address.String() || gotOutput.Amount().Uint64() != 1 {
+	if gotOutput.Address().String() != address.String() ||
+		gotOutput.Amount().Uint64() != 1 {
 		t.Fatalf("output round trip mismatch: %v", gotOutput)
 	}
 }
@@ -219,7 +242,11 @@ func TestByronTransactionBodyIdMatchesWireIdForBuiltOutputs(t *testing.T) {
 		t.Fatalf("encode built output: %v", err)
 	}
 	if hex.EncodeToString(builtCbor) != hex.EncodeToString(wireOutput.Cbor()) {
-		t.Fatalf("built output = %x, want wire form %x", builtCbor, wireOutput.Cbor())
+		t.Fatalf(
+			"built output = %x, want wire form %x",
+			builtCbor,
+			wireOutput.Cbor(),
+		)
 	}
 	body := byron.ByronTransactionBody{
 		TxInputs:   decoded.TxInputs,
@@ -247,7 +274,12 @@ func byronTxBodyWithAddress(t *testing.T, addrHex string) []byte {
 
 // byronAddressHex builds [tag24Hdr || bstrHdr || payload, crc] with the CRC
 // encoded by crcHdr, a CBOR uint head of 1, 2, 3, 5, or 9 bytes.
-func byronAddressHex(t *testing.T, tag24Hdr, bstrHdr string, payload []byte, crcHdr string) string {
+func byronAddressHex(
+	t *testing.T,
+	tag24Hdr, bstrHdr string,
+	payload []byte,
+	crcHdr string,
+) string {
 	t.Helper()
 	crc := crc32.ChecksumIEEE(payload)
 	var crcBytes []byte
@@ -258,11 +290,25 @@ func byronAddressHex(t *testing.T, tag24Hdr, bstrHdr string, payload []byte, crc
 			t.Fatalf("encode crc: %v", err)
 		}
 	case "1b":
-		crcBytes = []byte{0x1b, 0, 0, 0, 0, byte(crc >> 24), byte(crc >> 16), byte(crc >> 8), byte(crc)}
+		crcBytes = []byte{
+			0x1b,
+			0,
+			0,
+			0,
+			0,
+			byte(crc >> 24),
+			byte(crc >> 16),
+			byte(crc >> 8),
+			byte(crc),
+		}
 	default:
 		t.Fatalf("unsupported crc head %q", crcHdr)
 	}
-	return "82" + tag24Hdr + bstrHdr + hex.EncodeToString(payload) + hex.EncodeToString(crcBytes)
+	return "82" + tag24Hdr + bstrHdr + hex.EncodeToString(
+		payload,
+	) + hex.EncodeToString(
+		crcBytes,
+	)
 }
 
 func TestByronTransactionBodyIdCanonicalizesOutputAddress(t *testing.T) {
@@ -282,18 +328,30 @@ func TestByronTransactionBodyIdCanonicalizesOutputAddress(t *testing.T) {
 	}
 	canonicalPayload := payloadOf("a2" + "01" + derivation + "02" + magic)
 	bstrHdr := func(n int) string { return hex.EncodeToString([]byte{0x58, byte(n)}) }
-	canonicalAddr := byronAddressHex(t, "d818", bstrHdr(len(canonicalPayload)), canonicalPayload, "")
+	canonicalAddr := byronAddressHex(
+		t,
+		"d818",
+		bstrHdr(len(canonicalPayload)),
+		canonicalPayload,
+		"",
+	)
 	canonicalBody := byronTxBodyWithAddress(t, canonicalAddr)
 	var canonical byron.ByronTransactionBody
 	if err := canonical.UnmarshalCBOR(canonicalBody); err != nil {
 		t.Fatalf("decode canonical body: %v", err)
 	}
 	if canonical.Id() != canonical.WireId() {
-		t.Fatalf("canonical body Id %s differs from WireId %s", canonical.Id(), canonical.WireId())
+		t.Fatalf(
+			"canonical body Id %s differs from WireId %s",
+			canonical.Id(),
+			canonical.WireId(),
+		)
 	}
 	reorderedPayload := payloadOf("a2" + "02" + magic + "01" + derivation)
 	longKeyPayload := payloadOf("a2" + "1801" + derivation + "02" + magic)
-	longValuePayload := payloadOf("a2" + "01" + "5804" + "43aabbcc" + "02" + magic)
+	longValuePayload := payloadOf(
+		"a2" + "01" + "5804" + "43aabbcc" + "02" + magic,
+	)
 	for name, addr := range map[string]string{
 		"non-shortest CRC": byronAddressHex(
 			t, "d818", bstrHdr(len(canonicalPayload)), canonicalPayload, "1b",
@@ -323,7 +381,9 @@ func TestByronTransactionBodyIdCanonicalizesOutputAddress(t *testing.T) {
 				t.Fatalf("decode body: %v", err)
 			}
 			if body.WireId() == canonical.WireId() {
-				t.Fatal("variant encoding is byte-identical to the canonical body")
+				t.Fatal(
+					"variant encoding is byte-identical to the canonical body",
+				)
 			}
 			if got, want := body.Id(), canonical.Id(); got != want {
 				t.Fatalf("Id = %s, want canonical %s", got, want)
@@ -331,13 +391,18 @@ func TestByronTransactionBodyIdCanonicalizesOutputAddress(t *testing.T) {
 			tx := &byron.ByronTransaction{Body: body}
 			produced := tx.Produced()
 			if len(produced) != 1 || produced[0].Id.Id() != canonical.Id() {
-				t.Fatalf("produced UTxO not keyed by canonical Id: %+v", produced)
+				t.Fatalf(
+					"produced UTxO not keyed by canonical Id: %+v",
+					produced,
+				)
 			}
 		})
 	}
 }
 
-func TestByronTransactionOutputEncodesNonByronAddressAsByteString(t *testing.T) {
+func TestByronTransactionOutputEncodesNonByronAddressAsByteString(
+	t *testing.T,
+) {
 	t.Parallel()
 	// The Byron output decoder accepts a Shelley address byte string, so the
 	// encoder must emit it as a CBOR item rather than as raw address bytes.
@@ -397,7 +462,9 @@ func TestByronTransactionBodyIdCanonicalizesInputsAndFraming(t *testing.T) {
 			t.Parallel()
 			body := decode(t, h)
 			if body.WireId() == canonical.WireId() {
-				t.Fatal("variant encoding is byte-identical to the canonical body")
+				t.Fatal(
+					"variant encoding is byte-identical to the canonical body",
+				)
 			}
 			if got, want := body.Id(), canonical.Id(); got != want {
 				t.Fatalf("Id = %s, want canonical %s", got, want)
@@ -409,7 +476,11 @@ func TestByronTransactionBodyIdCanonicalizesInputsAndFraming(t *testing.T) {
 		want := decode(t, "839f"+input+"ff9f"+output+"ffa1014100")
 		body := decode(t, "839f"+input+"ff9f"+output+"ffa118014100")
 		if want.Id() != want.WireId() {
-			t.Fatalf("canonical attributes: Id %s differs from WireId %s", want.Id(), want.WireId())
+			t.Fatalf(
+				"canonical attributes: Id %s differs from WireId %s",
+				want.Id(),
+				want.WireId(),
+			)
 		}
 		if got := body.Id(); got != want.Id() {
 			t.Fatalf("Id = %s, want canonical %s", got, want.Id())

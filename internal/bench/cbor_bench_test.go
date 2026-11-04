@@ -369,7 +369,8 @@ func BenchmarkCBORDecodeBlockWithOffsets(b *testing.B) {
 	for _, tb := range testBlocks {
 		// Skip Byron - its structure is incompatible with the streaming offset
 		// decoder
-		if tb.blockType == ledger.BlockTypeByronMain || tb.blockType == ledger.BlockTypeByronEbb {
+		if tb.blockType == ledger.BlockTypeByronMain ||
+			tb.blockType == ledger.BlockTypeByronEbb {
 			continue
 		}
 		b.Run(tb.name, func(b *testing.B) {

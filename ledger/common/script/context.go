@@ -262,7 +262,11 @@ func NewTxInfoV1FromTransaction(
 	strictValidityUpperBound bool,
 	protocolVersionMajor uint,
 ) (TxInfoV1, error) {
-	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
+	validityRange, err := validityRangeInfo(
+		slotState,
+		tx,
+		strictValidityUpperBound,
+	)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
@@ -399,7 +403,11 @@ func NewTxInfoV2FromTransaction(
 	strictValidityUpperBound bool,
 	protocolVersionMajor uint,
 ) (TxInfoV2, error) {
-	validityRange, err := validityRangeInfo(slotState, tx, strictValidityUpperBound)
+	validityRange, err := validityRangeInfo(
+		slotState,
+		tx,
+		strictValidityUpperBound,
+	)
 	if err != nil {
 		return TxInfoV2{}, err
 	}
@@ -772,7 +780,8 @@ func contextInputsForPlutus(
 ) ([]ResolvedInput, error) {
 	ret := make([]ResolvedInput, 0, len(inputs))
 	for _, input := range inputs {
-		if input.Output != nil && input.Output.Address().Type() == lcommon.AddressTypeByron {
+		if input.Output != nil &&
+			input.Output.Address().Type() == lcommon.AddressTypeByron {
 			if filterByron {
 				continue
 			}
@@ -789,7 +798,8 @@ func contextOutputsForPlutus(
 ) ([]lcommon.TransactionOutput, error) {
 	ret := make([]lcommon.TransactionOutput, 0, len(outputs))
 	for _, output := range outputs {
-		if output != nil && output.Address().Type() == lcommon.AddressTypeByron {
+		if output != nil &&
+			output.Address().Type() == lcommon.AddressTypeByron {
 			if filterByron {
 				continue
 			}

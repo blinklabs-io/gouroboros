@@ -249,7 +249,11 @@ func TestPBFTDelegationStatePreservesGenesisCertificateEpoch(t *testing.T) {
 	epochOneCertificate := signedPBFTDelegationCertificate(
 		t, protocolMagic, 1, issuerKey, issuerPrivateKey, delegateKey,
 	)
-	_, err = state.ApplyPayloadCbor(1, 2, []cbor.RawMessage{epochOneCertificate})
+	_, err = state.ApplyPayloadCbor(
+		1,
+		2,
+		[]cbor.RawMessage{epochOneCertificate},
+	)
 	require.ErrorContains(t, err, "already delegated for epoch 1")
 }
 

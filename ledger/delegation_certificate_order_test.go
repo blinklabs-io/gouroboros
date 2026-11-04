@@ -80,14 +80,21 @@ func TestDelegationCertificatesUseEffectiveStakeState(t *testing.T) {
 
 	for era, rule := range rules {
 		t.Run(era, func(t *testing.T) {
-			t.Run("deregistration overrides starting state", func(t *testing.T) {
-				tx := mockledger.NewTransactionBuilder().WithCertificates(
-					deregister(credential),
-					delegate(credential),
-				)
-				var target shelley.DelegateUnregisteredStakeCredentialError
-				require.ErrorAs(t, rule(tx, 0, registeredState(), nil), &target)
-			})
+			t.Run(
+				"deregistration overrides starting state",
+				func(t *testing.T) {
+					tx := mockledger.NewTransactionBuilder().WithCertificates(
+						deregister(credential),
+						delegate(credential),
+					)
+					var target shelley.DelegateUnregisteredStakeCredentialError
+					require.ErrorAs(
+						t,
+						rule(tx, 0, registeredState(), nil),
+						&target,
+					)
+				},
+			)
 
 			t.Run("re-registration restores delegation", func(t *testing.T) {
 				tx := mockledger.NewTransactionBuilder().WithCertificates(
@@ -105,7 +112,11 @@ func TestDelegationCertificatesUseEffectiveStakeState(t *testing.T) {
 					delegate(credential),
 				)
 				var target shelley.DelegateUnregisteredStakeCredentialError
-				require.ErrorAs(t, rule(tx, 0, unregisteredState(), nil), &target)
+				require.ErrorAs(
+					t,
+					rule(tx, 0, unregisteredState(), nil),
+					&target,
+				)
 			})
 
 			t.Run("registration enables delegation", func(t *testing.T) {
@@ -116,15 +127,22 @@ func TestDelegationCertificatesUseEffectiveStakeState(t *testing.T) {
 				require.NoError(t, rule(tx, 0, unregisteredState(), nil))
 			})
 
-			t.Run("credential type separates same-hash state", func(t *testing.T) {
-				tx := mockledger.NewTransactionBuilder().WithCertificates(
-					deregister(credential),
-					register(scriptCredential),
-					delegate(credential),
-				)
-				var target shelley.DelegateUnregisteredStakeCredentialError
-				require.ErrorAs(t, rule(tx, 0, registeredState(), nil), &target)
-			})
+			t.Run(
+				"credential type separates same-hash state",
+				func(t *testing.T) {
+					tx := mockledger.NewTransactionBuilder().WithCertificates(
+						deregister(credential),
+						register(scriptCredential),
+						delegate(credential),
+					)
+					var target shelley.DelegateUnregisteredStakeCredentialError
+					require.ErrorAs(
+						t,
+						rule(tx, 0, registeredState(), nil),
+						&target,
+					)
+				},
+			)
 		})
 	}
 }

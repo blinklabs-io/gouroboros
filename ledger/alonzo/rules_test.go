@@ -141,14 +141,26 @@ func TestUtxoValidateTransactionNetworkId(t *testing.T) {
 		WithNetworkId(common.AddressNetworkMainnet).
 		Build()
 	validate := func(tx *alonzo.AlonzoTransaction) error {
-		return alonzo.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &alonzo.AlonzoProtocolParameters{})
+		return alonzo.UtxoValidateTransactionNetworkId(
+			tx,
+			0,
+			ledgerState,
+			&alonzo.AlonzoProtocolParameters{},
+		)
 	}
 
 	t.Run("absent identifier is accepted", func(t *testing.T) {
 		assert.NoError(t, validate(&alonzo.AlonzoTransaction{}))
 	})
 	t.Run("matching identifier is accepted", func(t *testing.T) {
-		assert.NoError(t, validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 1}}))
+		assert.NoError(
+			t,
+			validate(
+				&alonzo.AlonzoTransaction{
+					Body: alonzo.AlonzoTransactionBody{NetworkId: 1},
+				},
+			),
+		)
 	})
 	t.Run("mismatched identifier is rejected", func(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{}
@@ -157,17 +169,24 @@ func TestUtxoValidateTransactionNetworkId(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
 	})
-	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
-		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
-		require.NoError(t, err)
-		var body alonzo.AlonzoTransactionBody
-		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-		err = validate(&alonzo.AlonzoTransaction{Body: body})
-		require.Error(t, err)
-		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
-	})
+	t.Run(
+		"explicit testnet identifier decoded from CBOR is present",
+		func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+			require.NoError(t, err)
+			var body alonzo.AlonzoTransactionBody
+			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+			err = validate(&alonzo.AlonzoTransaction{Body: body})
+			require.Error(t, err)
+			assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+		},
+	)
 	t.Run("invalid identifier is rejected", func(t *testing.T) {
-		err := validate(&alonzo.AlonzoTransaction{Body: alonzo.AlonzoTransactionBody{NetworkId: 2}})
+		err := validate(
+			&alonzo.AlonzoTransaction{
+				Body: alonzo.AlonzoTransactionBody{NetworkId: 2},
+			},
+		)
 		require.Error(t, err)
 		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
 	})
@@ -345,7 +364,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{Id: testGoodInput},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Good input
@@ -573,7 +594,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -631,9 +654,28 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
 			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
 			}
 			err := alonzo.UtxoValidateValueNotConservedUtxo(
 				testTx,
@@ -1032,7 +1074,9 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{
 		CollateralPercentage: 150,
@@ -1097,14 +1141,19 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 	)
 }
 
-func TestUtxoValidateInsufficientCollateralRejectsUnresolvedInput(t *testing.T) {
+func TestUtxoValidateInsufficientCollateralRejectsUnresolvedInput(
+	t *testing.T,
+) {
 	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
 	)
 	tx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
 		},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
 			WsRedeemers: alonzo.AlonzoRedeemers{
@@ -1130,7 +1179,10 @@ func TestUtxoValidateInsufficientCollateralRejectsNilOutput(t *testing.T) {
 	)
 	tx := &alonzo.AlonzoTransaction{
 		Body: alonzo.AlonzoTransactionBody{
-			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
 		},
 		WitnessSet: alonzo.AlonzoTransactionWitnessSet{
 			WsRedeemers: alonzo.AlonzoRedeemers{
@@ -1187,7 +1239,9 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// Coin and assets
@@ -1272,7 +1326,9 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &alonzo.AlonzoProtocolParameters{}
 	// No collateral
@@ -1403,7 +1459,14 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 				},
 			}
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				Redeemers: []alonzo.AlonzoRedeemer{dup, dup, dup, dup, dup, dup},
+				Redeemers: []alonzo.AlonzoRedeemer{
+					dup,
+					dup,
+					dup,
+					dup,
+					dup,
+					dup,
+				},
 			}
 			// One copy is inside the 5,000,000 / 5,000 cap and two already
 			// exceed it, so only a collapse to exactly one entry passes: an
@@ -1644,7 +1707,9 @@ func TestUtxoValidatePlutusScriptsRejectsRedeemerWithoutPurpose(t *testing.T) {
 				tx,
 				0,
 				mockledger.NewLedgerStateBuilder().Build(),
-				&alonzo.AlonzoProtocolParameters{ProtocolMajor: common.ProtocolVersionAlonzo},
+				&alonzo.AlonzoProtocolParameters{
+					ProtocolMajor: common.ProtocolVersionAlonzo,
+				},
 			)
 			var target common.ExtraRedeemerError
 			require.ErrorAs(t, err, &target)
@@ -1759,19 +1824,22 @@ func TestUtxoValidateExtraneousRedeemers_Alonzo(t *testing.T) {
 		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
 	})
 
-	t.Run("in-range redeemers for every supported tag pass", func(t *testing.T) {
-		tx := &alonzo.AlonzoTransaction{Body: baseBody()}
-		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			Redeemers: []alonzo.AlonzoRedeemer{
-				{Tag: common.RedeemerTagSpend, Index: 0},
-				{Tag: common.RedeemerTagMint, Index: 0},
-				{Tag: common.RedeemerTagCert, Index: 0},
-				{Tag: common.RedeemerTagReward, Index: 0},
-			},
-		}
-		err := alonzo.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
-		assert.NoError(t, err)
-	})
+	t.Run(
+		"in-range redeemers for every supported tag pass",
+		func(t *testing.T) {
+			tx := &alonzo.AlonzoTransaction{Body: baseBody()}
+			tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{Tag: common.RedeemerTagSpend, Index: 0},
+					{Tag: common.RedeemerTagMint, Index: 0},
+					{Tag: common.RedeemerTagCert, Index: 0},
+					{Tag: common.RedeemerTagReward, Index: 0},
+				},
+			}
+			err := alonzo.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+			assert.NoError(t, err)
+		},
+	)
 
 	t.Run("no redeemers is valid", func(t *testing.T) {
 		tx := &alonzo.AlonzoTransaction{Body: baseBody()}
@@ -1942,7 +2010,10 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(
+						testInputTxId,
+						0,
+					),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},
@@ -2031,7 +2102,11 @@ func TestMinFeeIncludesDeclaredExecutionUnits(t *testing.T) {
 
 	tx.Body.TxFee = baseFee
 	state := mockledger.NewLedgerStateBuilder().Build()
-	require.ErrorAs(t, alonzo.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	require.ErrorAs(
+		t,
+		alonzo.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp),
+		&shelley.FeeTooSmallUtxoError{},
+	)
 	tx.Body.TxFee = minFee
 	require.NoError(t, alonzo.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
 

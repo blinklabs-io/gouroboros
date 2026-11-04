@@ -59,7 +59,11 @@ func TestV2StateMapMsgDoneOnlyFromIdle(t *testing.T) {
 			)
 		}
 	}
-	assert.True(t, hasDoneFromIdle, "StIdle must have a MsgDone transition in V2")
+	assert.True(
+		t,
+		hasDoneFromIdle,
+		"StIdle must have a MsgDone transition in V2",
+	)
 
 	// StMessageIdsBlocking must NOT have MsgDone
 	blockEntry := stateMapV2[protocolStateMessageIdsBlock]
@@ -127,7 +131,11 @@ func TestV1StateMapMsgDoneOnlyFromBlocking(t *testing.T) {
 			hasDone = true
 		}
 	}
-	assert.True(t, hasDone, "V1 StMessageIdsBlocking must have MsgDone transition")
+	assert.True(
+		t,
+		hasDone,
+		"V1 StMessageIdsBlocking must have MsgDone transition",
+	)
 
 	// StMessageIdsNonBlocking must NOT have MsgDone
 	nonBlockEntry := stateMapV1[protocolStateMessageIdsNonBlk]
@@ -198,7 +206,10 @@ func TestV2VersionSelectsCorrectStateMap(t *testing.T) {
 	assert.Equal(t, uint16(14), v1Client.protoVersion)
 
 	// V2 client (version 15)
-	v2Client := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
+	v2Client := NewClient(
+		newTestProtoOptions(MessageSubmissionV2MinVersion),
+		&cfg,
+	)
 	assert.Equal(t, MessageSubmissionV2MinVersion, v2Client.protoVersion)
 
 	// V1 server (version 14)
@@ -206,18 +217,27 @@ func TestV2VersionSelectsCorrectStateMap(t *testing.T) {
 	assert.Equal(t, uint16(14), v1Server.protoVersion)
 
 	// V2 server (version 15)
-	v2Server := NewServer(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
+	v2Server := NewServer(
+		newTestProtoOptions(MessageSubmissionV2MinVersion),
+		&cfg,
+	)
 	assert.Equal(t, MessageSubmissionV2MinVersion, v2Server.protoVersion)
 }
 
 func TestDMQNtNVersionSelectsCorrectStateMap(t *testing.T) {
 	cfg := NewConfig()
 
-	v1Client := NewClient(newTestProtoOptions(protocol.ProtocolVersionDMQNtN1), &cfg)
+	v1Client := NewClient(
+		newTestProtoOptions(protocol.ProtocolVersionDMQNtN1),
+		&cfg,
+	)
 	assert.Equal(t, protocol.ProtocolVersionDMQNtN1, v1Client.protoVersion)
 	assert.False(t, isMessageSubmissionV2(v1Client.protoVersion))
 
-	v2Client := NewClient(newTestProtoOptions(protocol.ProtocolVersionDMQNtN2), &cfg)
+	v2Client := NewClient(
+		newTestProtoOptions(protocol.ProtocolVersionDMQNtN2),
+		&cfg,
+	)
 	assert.Equal(t, protocol.ProtocolVersionDMQNtN2, v2Client.protoVersion)
 	assert.True(t, isMessageSubmissionV2(v2Client.protoVersion))
 }

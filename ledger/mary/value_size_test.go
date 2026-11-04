@@ -52,14 +52,20 @@ func TestLedgerSerializedSizeMatchesEncoding(t *testing.T) {
 			if i%7 == 0 {
 				policies = 0
 			}
-			data := make(map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput, policies)
+			data := make(
+				map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput,
+				policies,
+			)
 			for range policies {
 				var policy common.Blake2b224
 				for j := range policy {
 					policy[j] = byte(r.Uint32())
 				}
 				count := r.IntN(30) + 1
-				assets := make(map[cbor.ByteString]common.MultiAssetTypeOutput, count)
+				assets := make(
+					map[cbor.ByteString]common.MultiAssetTypeOutput,
+					count,
+				)
 				for range count {
 					name := make([]byte, r.IntN(33))
 					for j := range name {

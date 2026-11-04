@@ -148,13 +148,47 @@ func TestServerWrapsBareSnapshotResult(t *testing.T) {
 		wantPools int
 		wantSlot  uint64
 	}{
-		{name: "bare below 22", version: ntc(21), answer: v1, wantPools: 1, wantSlot: 7},
-		{name: "bare pointer below 22", version: ntc(21), answer: &v1, wantPools: 1, wantSlot: 7},
-		{name: "wrapped below 22", version: ntc(21), answer: []any{v1}, wantPools: 1, wantSlot: 7},
-		{name: "bare at 22", version: ntc(22), answer: v1, wantPools: 2, wantSlot: 7},
+		{
+			name:      "bare below 22",
+			version:   ntc(21),
+			answer:    v1,
+			wantPools: 1,
+			wantSlot:  7,
+		},
+		{
+			name:      "bare pointer below 22",
+			version:   ntc(21),
+			answer:    &v1,
+			wantPools: 1,
+			wantSlot:  7,
+		},
+		{
+			name:      "wrapped below 22",
+			version:   ntc(21),
+			answer:    []any{v1},
+			wantPools: 1,
+			wantSlot:  7,
+		},
+		{
+			name:      "bare at 22",
+			version:   ntc(22),
+			answer:    v1,
+			wantPools: 2,
+			wantSlot:  7,
+		},
 		{name: "bare at 23", version: ntc(23), answer: v3, wantSlot: 9},
-		{name: "bare pointer at 23", version: ntc(23), answer: &v3, wantSlot: 9},
-		{name: "wrapped at 23", version: ntc(23), answer: []any{v3}, wantSlot: 9},
+		{
+			name:     "bare pointer at 23",
+			version:  ntc(23),
+			answer:   &v3,
+			wantSlot: 9,
+		},
+		{
+			name:     "wrapped at 23",
+			version:  ntc(23),
+			answer:   []any{v3},
+			wantSlot: 9,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

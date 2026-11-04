@@ -90,7 +90,9 @@ func TestBabbageBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 
 func TestBabbageBlock_Utxorpc(t *testing.T) {
 	// Decode the test block CBOR
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.BabbageBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.BabbageBlockHex),
+	)
 	if err != nil {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
@@ -180,7 +182,9 @@ func TestBabbageBlock_Utxorpc(t *testing.T) {
 }
 
 func BenchmarkBabbageBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.BabbageBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.BabbageBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -195,7 +199,9 @@ func BenchmarkBabbageBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkBabbageBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.BabbageBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.BabbageBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -155,7 +155,11 @@ func newMsgFromCborWithLimit(
 
 func validateReplyMessageCount(data []byte, maxCount int) error {
 	if maxCount <= 0 {
-		return fmt.Errorf("%s: invalid reply message limit %d", ProtocolName, maxCount)
+		return fmt.Errorf(
+			"%s: invalid reply message limit %d",
+			ProtocolName,
+			maxCount,
+		)
 	}
 	maxCountUint := uint64(maxCount) // #nosec G115 -- maxCount is positive
 	head, ok, err := cborwalk.ReadHead(data, 0)
@@ -171,7 +175,11 @@ func validateReplyMessageCount(data []byte, maxCount int) error {
 	pos := head.EncodedSize
 	messageTypeLength, err := cborwalk.ItemLength(data[pos:])
 	if err != nil {
-		return fmt.Errorf("%s: decode reply message type: %w", ProtocolName, err)
+		return fmt.Errorf(
+			"%s: decode reply message type: %w",
+			ProtocolName,
+			err,
+		)
 	}
 	pos += messageTypeLength
 	messagesHead, ok, err := cborwalk.ReadHead(data, pos)

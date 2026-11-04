@@ -114,17 +114,37 @@ func TestAuxiliaryNativeScriptConstructorsRespectEra(t *testing.T) {
 		{0xa0},
 		scriptList,
 	})
-	_, err := common.DecodeAuxiliaryDataForEra(array, common.AuxiliaryDataEraMary)
-	require.ErrorContains(t, err, "native script constructor 6 is not supported")
-	_, err = common.DecodeAuxiliaryDataForEra(array, common.AuxiliaryDataEraDijkstra)
+	_, err := common.DecodeAuxiliaryDataForEra(
+		array,
+		common.AuxiliaryDataEraMary,
+	)
+	require.ErrorContains(
+		t,
+		err,
+		"native script constructor 6 is not supported",
+	)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		array,
+		common.AuxiliaryDataEraDijkstra,
+	)
 	require.NoError(t, err)
 
 	tagged := encodeTaggedAuxiliaryData(t, map[uint]any{
 		1: []cbor.RawMessage{nativeScript},
 	})
-	_, err = common.DecodeAuxiliaryDataForEra(tagged, common.AuxiliaryDataEraConway)
-	require.ErrorContains(t, err, "native script constructor 6 is not supported")
-	_, err = common.DecodeAuxiliaryDataForEra(tagged, common.AuxiliaryDataEraDijkstra)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		tagged,
+		common.AuxiliaryDataEraConway,
+	)
+	require.ErrorContains(
+		t,
+		err,
+		"native script constructor 6 is not supported",
+	)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		tagged,
+		common.AuxiliaryDataEraDijkstra,
+	)
 	require.NoError(t, err)
 }
 
@@ -199,7 +219,9 @@ func TestDecodeAuxiliaryDataForEraRejectsUnknownTaggedFields(t *testing.T) {
 	}
 }
 
-func TestDecodeAuxiliaryDataForEraRequiresTransactionMetadataDomain(t *testing.T) {
+func TestDecodeAuxiliaryDataForEraRequiresTransactionMetadataDomain(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	textLabelMetadata := mustEncodeCBOR(t, map[string]any{"label": "value"})
@@ -212,20 +234,29 @@ func TestDecodeAuxiliaryDataForEraRequiresTransactionMetadataDomain(t *testing.T
 	taggedScalar := encodeTaggedAuxiliaryData(t, map[uint]any{
 		0: mustEncodeCBOR(t, "metadata must be a map"),
 	})
-	_, err = common.DecodeAuxiliaryDataForEra(taggedScalar, common.AuxiliaryDataEraAlonzo)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		taggedScalar,
+		common.AuxiliaryDataEraAlonzo,
+	)
 	require.ErrorContains(t, err, "transaction metadata must be a map")
 
 	taggedTextLabel := encodeTaggedAuxiliaryData(t, map[uint]any{
 		0: textLabelMetadata,
 	})
-	_, err = common.DecodeAuxiliaryDataForEra(taggedTextLabel, common.AuxiliaryDataEraConway)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		taggedTextLabel,
+		common.AuxiliaryDataEraConway,
+	)
 	require.ErrorContains(t, err, "labels must be unsigned 64-bit integers")
 
 	arrayTextLabel := mustEncodeCBOR(t, []cbor.RawMessage{
 		textLabelMetadata,
 		{0x80},
 	})
-	_, err = common.DecodeAuxiliaryDataForEra(arrayTextLabel, common.AuxiliaryDataEraMary)
+	_, err = common.DecodeAuxiliaryDataForEra(
+		arrayTextLabel,
+		common.AuxiliaryDataEraMary,
+	)
 	require.ErrorContains(t, err, "labels must be unsigned 64-bit integers")
 }
 
@@ -262,22 +293,36 @@ func TestAuxiliaryScriptValidationUsesActiveProtocolContext(t *testing.T) {
 				})
 				aux, err := common.DecodeAuxiliaryDataForEra(valid, era.name)
 				require.NoError(t, err, "valid UPLC must remain accepted")
-				require.NoError(t, common.ValidateAuxiliaryDataPlutusScriptsWellFormed(
-					aux,
-					era.protocolMajor,
-				))
+				require.NoError(
+					t,
+					common.ValidateAuxiliaryDataPlutusScriptsWellFormed(
+						aux,
+						era.protocolMajor,
+					),
+				)
 
-				malformedWrapper := mustEncodeCBOR(t, []byte("not a FLAT program"))
+				malformedWrapper := mustEncodeCBOR(
+					t,
+					[]byte("not a FLAT program"),
+				)
 				malformed := encodeTaggedAuxiliaryData(t, map[uint]any{
 					key: []cbor.RawMessage{malformedWrapper},
 				})
 				aux, err = common.DecodeAuxiliaryDataForEra(malformed, era.name)
-				require.NoError(t, err, "CBOR decoding does not apply UPLC validation")
+				require.NoError(
+					t,
+					err,
+					"CBOR decoding does not apply UPLC validation",
+				)
 				err = common.ValidateAuxiliaryDataPlutusScriptsWellFormed(
 					aux,
 					era.protocolMajor,
 				)
-				require.ErrorContains(t, err, "malformed auxiliary-data Plutus V")
+				require.ErrorContains(
+					t,
+					err,
+					"malformed auxiliary-data Plutus V",
+				)
 			})
 		}
 	}
@@ -305,9 +350,15 @@ func TestDecodeAuxiliaryDataForEraAcceptsStoredNewerTermVersion(t *testing.T) {
 	raw := encodeTaggedAuxiliaryData(t, map[uint]any{
 		2: []cbor.RawMessage{mustEncodeCBOR(t, script)},
 	})
-	aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraAlonzo)
+	aux, err := common.DecodeAuxiliaryDataForEra(
+		raw,
+		common.AuxiliaryDataEraAlonzo,
+	)
 	require.NoError(t, err)
-	require.NoError(t, common.ValidateAuxiliaryDataPlutusScriptsWellFormed(aux, 6))
+	require.NoError(
+		t,
+		common.ValidateAuxiliaryDataPlutusScriptsWellFormed(aux, 6),
+	)
 }
 
 func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
@@ -438,8 +489,18 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 				tc.fourFields,
 				tc.invalidTx,
 			)
-			require.ErrorContains(t, tc.blockDecode(block), tc.wantError, "raw block must reject for the era rule")
-			require.ErrorContains(t, tc.txDecode(tx), tc.wantError, "raw transaction must reject for the era rule")
+			require.ErrorContains(
+				t,
+				tc.blockDecode(block),
+				tc.wantError,
+				"raw block must reject for the era rule",
+			)
+			require.ErrorContains(
+				t,
+				tc.txDecode(tx),
+				tc.wantError,
+				"raw transaction must reject for the era rule",
+			)
 		})
 	}
 
@@ -456,7 +517,9 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 	t.Run("Dijkstra malformed Plutus V4 auxiliary script", func(t *testing.T) {
 		t.Parallel()
 		aux := encodeTaggedAuxiliaryData(t, map[uint]any{
-			5: []cbor.RawMessage{mustEncodeCBOR(t, []byte("not a FLAT program"))},
+			5: []cbor.RawMessage{
+				mustEncodeCBOR(t, []byte("not a FLAT program")),
+			},
 		})
 		tx, block := dijkstraBlockAndTransactionWithAuxiliaryData(t, aux)
 		decoded, err := dijkstra.NewDijkstraTransactionFromCbor(tx)
@@ -469,11 +532,17 @@ func TestEraDecodersRejectMalformedAuxiliaryData(t *testing.T) {
 			nil,
 			&dijkstra.DijkstraProtocolParameters{
 				ConwayProtocolParameters: conway.ConwayProtocolParameters{
-					ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 12},
+					ProtocolVersion: common.ProtocolParametersProtocolVersion{
+						Major: 12,
+					},
 				},
 			},
 		)
-		require.ErrorContains(t, err, "malformed auxiliary-data Plutus V4 script")
+		require.ErrorContains(
+			t,
+			err,
+			"malformed auxiliary-data Plutus V4 script",
+		)
 	})
 }
 
@@ -487,13 +556,17 @@ func dijkstraBlockAndTransactionWithAuxiliaryData(
 	require.NoError(t, err)
 	validity, err := cbor.Encode(true)
 	require.NoError(t, err)
-	blockTx, err := cbor.Encode([]cbor.RawMessage{body, witness, auxiliaryData, validity})
+	blockTx, err := cbor.Encode(
+		[]cbor.RawMessage{body, witness, auxiliaryData, validity},
+	)
 	require.NoError(t, err)
 	txs, err := cbor.Encode([]cbor.RawMessage{blockTx})
 	require.NoError(t, err)
 	blockBody, err := cbor.Encode([]cbor.RawMessage{txs, {0xf6}, {0xf6}})
 	require.NoError(t, err)
-	conwayBlock, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	conwayBlock, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	require.NoError(t, err)
 	var conwayComponents []cbor.RawMessage
 	_, err = cbor.Decode(conwayBlock, &conwayComponents)
@@ -514,7 +587,10 @@ func dijkstraBlockAndTransactionWithAuxiliaryData(
 	require.NoError(t, err)
 	conwayComponents[0], err = cbor.Encode(headerComponents)
 	require.NoError(t, err)
-	conwayComponents[0] = ledgertest.MustWidenToDijkstraHeader(t, conwayComponents[0])
+	conwayComponents[0] = ledgertest.MustWidenToDijkstraHeader(
+		t,
+		conwayComponents[0],
+	)
 	block, err := cbor.Encode([]cbor.RawMessage{conwayComponents[0], blockBody})
 	require.NoError(t, err)
 	return tx, block
@@ -569,7 +645,11 @@ func TestAuxiliaryMalformedScriptsRejectedByEraRules(t *testing.T) {
 		err = alonzo.UtxoValidateMetadata(
 			tx, 0, nil, &alonzo.AlonzoProtocolParameters{ProtocolMajor: 6},
 		)
-		require.ErrorContains(t, err, "malformed auxiliary-data Plutus V1 script")
+		require.ErrorContains(
+			t,
+			err,
+			"malformed auxiliary-data Plutus V1 script",
+		)
 	})
 	t.Run("Babbage V2", func(t *testing.T) {
 		t.Parallel()
@@ -584,7 +664,11 @@ func TestAuxiliaryMalformedScriptsRejectedByEraRules(t *testing.T) {
 		err = babbage.UtxoValidateMalformedReferenceScripts(
 			tx, 0, nil, &babbage.BabbageProtocolParameters{ProtocolMajor: 8},
 		)
-		require.ErrorContains(t, err, "malformed auxiliary-data Plutus V2 script")
+		require.ErrorContains(
+			t,
+			err,
+			"malformed auxiliary-data Plutus V2 script",
+		)
 	})
 	t.Run("Conway V3", func(t *testing.T) {
 		t.Parallel()
@@ -598,10 +682,16 @@ func TestAuxiliaryMalformedScriptsRejectedByEraRules(t *testing.T) {
 		require.NoError(t, err)
 		err = conway.UtxoValidateMalformedReferenceScripts(
 			tx, 0, nil, &conway.ConwayProtocolParameters{
-				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9},
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 9,
+				},
 			},
 		)
-		require.ErrorContains(t, err, "malformed auxiliary-data Plutus V3 script")
+		require.ErrorContains(
+			t,
+			err,
+			"malformed auxiliary-data Plutus V3 script",
+		)
 	})
 }
 
@@ -660,7 +750,9 @@ func blockAndTransactionWithAuxiliaryData(
 	require.NoError(t, err)
 	blockComponents[1], err = cbor.Encode(bodies)
 	require.NoError(t, err)
-	metadataSetRaw, err := cbor.Encode(map[uint]cbor.RawMessage{0: auxiliaryData})
+	metadataSetRaw, err := cbor.Encode(
+		map[uint]cbor.RawMessage{0: auxiliaryData},
+	)
 	require.NoError(t, err)
 	blockComponents[3] = metadataSetRaw
 	var headerComponents []cbor.RawMessage
@@ -678,9 +770,13 @@ func blockAndTransactionWithAuxiliaryData(
 	require.Greater(t, len(headerBody), bodyHashIndex)
 	var bodyHashes []byte
 	for _, component := range blockComponents[1:] {
-		bodyHashes = append(bodyHashes, common.Blake2b256Hash(component).Bytes()...)
+		bodyHashes = append(
+			bodyHashes,
+			common.Blake2b256Hash(component).Bytes()...)
 	}
-	blockBodyHash := cbor.RawMessage(mustEncodeCBOR(t, common.Blake2b256Hash(bodyHashes).Bytes()))
+	blockBodyHash := cbor.RawMessage(
+		mustEncodeCBOR(t, common.Blake2b256Hash(bodyHashes).Bytes()),
+	)
 	headerBody[bodyHashIndex] = blockBodyHash
 	headerComponents[0], err = cbor.Encode(headerBody)
 	require.NoError(t, err)

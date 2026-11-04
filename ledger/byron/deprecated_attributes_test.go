@@ -147,7 +147,11 @@ func mutateBlockExtra(
 
 // replaceBlockExtraWhole rebuilds the full block CBOR with the top-level
 // Extra field's whole raw sub-message (array header included) replaced.
-func replaceBlockExtraWhole(t *testing.T, raw []byte, replacement []byte) []byte {
+func replaceBlockExtraWhole(
+	t *testing.T,
+	raw []byte,
+	replacement []byte,
+) []byte {
 	t.Helper()
 	blockParts := byronBlockParts(t, raw)
 	return spliceArray(raw[0], blockParts, 2, replacement)
@@ -254,7 +258,9 @@ func TestByronMainBlockRejectsOversizedExtraBodyDataBeforeDecoding(
 // must happen before any signature check even runs
 // (Header.hs's decCBORBlockVersions: "enforceSize \"BlockVersions\" 4 >>
 // ... <* dropEmptyAttributes <* dropBytes").
-func TestByronMainBlockHeaderRejectsNonEmptyBlockVersionsAttributes(t *testing.T) {
+func TestByronMainBlockHeaderRejectsNonEmptyBlockVersionsAttributes(
+	t *testing.T,
+) {
 	raw := realByronBlockCbor(t)
 	blockParts := byronBlockParts(t, raw)
 
@@ -294,15 +300,23 @@ func TestByronMainBlockHeaderRejectsNonEmptyBlockVersionsAttributes(t *testing.T
 // any length, unaffected by the new attributes check.
 // Header.hs's decCBORBlockVersions ends with a bare "dropBytes" for this
 // field -- any byte string, never interpreted.
-func TestByronMainBlockHeaderPreservesExtraProofOfArbitraryLength(t *testing.T) {
+func TestByronMainBlockHeaderPreservesExtraProofOfArbitraryLength(
+	t *testing.T,
+) {
 	raw := realByronBlockCbor(t)
 
 	tests := []struct {
 		name        string
 		replacement []byte
 	}{
-		{"shorter than 32 bytes", append([]byte{0x44}, []byte{0x01, 0x02, 0x03, 0x04}...)},
-		{"longer than 32 bytes", append([]byte{0x58, 0x28}, make([]byte, 40)...)},
+		{
+			"shorter than 32 bytes",
+			append([]byte{0x44}, []byte{0x01, 0x02, 0x03, 0x04}...),
+		},
+		{
+			"longer than 32 bytes",
+			append([]byte{0x58, 0x28}, make([]byte, 40)...),
+		},
 		{"empty byte string", []byte{0x40}},
 	}
 	for _, tc := range tests {

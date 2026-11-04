@@ -688,7 +688,9 @@ func (b *BlockLedgerState) IsVrfKeyInUse(
 func (b *BlockLedgerState) IsFutureVrfKeyInUse(
 	vrfKeyHash Blake2b256,
 ) (bool, PoolKeyHash, error) {
-	futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](b.base)
+	futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](
+		b.base,
+	)
 	if !ok {
 		return false, PoolKeyHash{}, FuturePoolParametersStateUnavailableError{}
 	}
@@ -740,13 +742,18 @@ func FuturePoolParametersStateFor(
 	ls LedgerState,
 ) (FuturePoolParametersState, bool) {
 	if b := findBlockLedgerState(ls); b != nil {
-		futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](ls)
+		futureState, ok := ledgerStateCapabilityFor[FuturePoolParametersState](
+			ls,
+		)
 		if provider, isBlock := futureState.(*BlockLedgerState); ok &&
 			isBlock && provider == b {
 			return b, true
 		}
 		if ok {
-			return blockFuturePoolParametersState{block: b, base: futureState}, true
+			return blockFuturePoolParametersState{
+				block: b,
+				base:  futureState,
+			}, true
 		}
 		return b, true
 	}

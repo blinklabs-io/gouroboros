@@ -83,7 +83,12 @@ func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
 
 // startGetPeers issues a request and consumes the resulting ShareRequest
 // segment, leaving the peer free to answer it.
-func startGetPeers(t *testing.T, client *Client, connB net.Conn, amount uint8) chan peersResult {
+func startGetPeers(
+	t *testing.T,
+	client *Client,
+	connB net.Conn,
+	amount uint8,
+) chan peersResult {
 	t.Helper()
 	results := make(chan peersResult, 1)
 	go func() {

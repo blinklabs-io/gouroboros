@@ -27,12 +27,16 @@ import (
 )
 
 func TestUtxoValidateValueNotConservedChecksZeroPolicyAsset(t *testing.T) {
-	mint := common.NewMultiAsset[common.MultiAssetTypeMint](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
-		{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
-	})
-	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
-		{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
-	})
+	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+		},
+	)
+	assets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			{}: {cbor.NewByteString([]byte("token")): big.NewInt(1)},
+		},
+	)
 	tx := &babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{
 		TxMint: &mint,
 		TxOutputs: []babbage.BabbageTransactionOutput{{

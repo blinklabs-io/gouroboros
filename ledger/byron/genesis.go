@@ -387,11 +387,26 @@ func validateGenesisParameterDomains(genesis ByronGenesis) error {
 	}{
 		{"blockVersionData.heavyDelThd", genesis.BlockVersionData.HeavyDelThd},
 		{"blockVersionData.mpcThd", genesis.BlockVersionData.MpcThd},
-		{"blockVersionData.updateProposalThd", genesis.BlockVersionData.UpdateProposalThd},
-		{"blockVersionData.updateVoteThd", genesis.BlockVersionData.UpdateVoteThd},
-		{"blockVersionData.softforkRule.initThd", genesis.BlockVersionData.SoftforkRule.InitThd},
-		{"blockVersionData.softforkRule.minThd", genesis.BlockVersionData.SoftforkRule.MinThd},
-		{"blockVersionData.softforkRule.thdDecrement", genesis.BlockVersionData.SoftforkRule.ThdDecrement},
+		{
+			"blockVersionData.updateProposalThd",
+			genesis.BlockVersionData.UpdateProposalThd,
+		},
+		{
+			"blockVersionData.updateVoteThd",
+			genesis.BlockVersionData.UpdateVoteThd,
+		},
+		{
+			"blockVersionData.softforkRule.initThd",
+			genesis.BlockVersionData.SoftforkRule.InitThd,
+		},
+		{
+			"blockVersionData.softforkRule.minThd",
+			genesis.BlockVersionData.SoftforkRule.MinThd,
+		},
+		{
+			"blockVersionData.softforkRule.thdDecrement",
+			genesis.BlockVersionData.SoftforkRule.ThdDecrement,
+		},
 	}
 	for _, threshold := range thresholds {
 		if threshold.value < 0 || threshold.value > maxLovelacePortion {
@@ -403,7 +418,8 @@ func validateGenesisParameterDomains(genesis ByronGenesis) error {
 			)
 		}
 	}
-	if scriptVersion := genesis.BlockVersionData.ScriptVersion; scriptVersion < 0 || scriptVersion > 1<<16-1 {
+	if scriptVersion := genesis.BlockVersionData.ScriptVersion; scriptVersion < 0 ||
+		scriptVersion > 1<<16-1 {
 		return fmt.Errorf(
 			"blockVersionData.scriptVersion must be between 0 and %d, got %d",
 			1<<16-1,
@@ -423,16 +439,35 @@ func validateGenesisParameterDomains(genesis ByronGenesis) error {
 		name  string
 		value int
 	}{
-		{"blockVersionData.slotDuration", genesis.BlockVersionData.SlotDuration},
-		{"blockVersionData.maxBlockSize", genesis.BlockVersionData.MaxBlockSize},
-		{"blockVersionData.maxHeaderSize", genesis.BlockVersionData.MaxHeaderSize},
+		{
+			"blockVersionData.slotDuration",
+			genesis.BlockVersionData.SlotDuration,
+		},
+		{
+			"blockVersionData.maxBlockSize",
+			genesis.BlockVersionData.MaxBlockSize,
+		},
+		{
+			"blockVersionData.maxHeaderSize",
+			genesis.BlockVersionData.MaxHeaderSize,
+		},
 		{"blockVersionData.maxTxSize", genesis.BlockVersionData.MaxTxSize},
-		{"blockVersionData.maxProposalSize", genesis.BlockVersionData.MaxProposalSize},
-		{"blockVersionData.updateImplicit", genesis.BlockVersionData.UpdateImplicit},
+		{
+			"blockVersionData.maxProposalSize",
+			genesis.BlockVersionData.MaxProposalSize,
+		},
+		{
+			"blockVersionData.updateImplicit",
+			genesis.BlockVersionData.UpdateImplicit,
+		},
 	}
 	for _, parameter := range unsigned {
 		if parameter.value < 0 {
-			return fmt.Errorf("%s must be non-negative, got %d", parameter.name, parameter.value)
+			return fmt.Errorf(
+				"%s must be non-negative, got %d",
+				parameter.name,
+				parameter.value,
+			)
 		}
 	}
 	return nil

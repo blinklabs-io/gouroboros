@@ -24,7 +24,12 @@ func DumpCborStructure(data any, prefix string, maxDepth int) string {
 	return dumpCborStructure(data, prefix, maxDepth, 0)
 }
 
-func dumpCborStructure(data any, prefix string, maxDepth int, currentDepth int) string {
+func dumpCborStructure(
+	data any,
+	prefix string,
+	maxDepth int,
+	currentDepth int,
+) string {
 	if currentDepth >= maxDepth {
 		return prefix + "...\n"
 	}

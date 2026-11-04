@@ -65,13 +65,20 @@ func (s *Server) initProtocol() {
 	s.protocolMu.Unlock()
 }
 
-func serverMessageFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+func serverMessageFromCbor(
+	msgType uint,
+	data []byte,
+) (protocol.Message, error) {
 	switch msgType {
 	case MessageTypeBlockRequest, MessageTypeBlockTxsRequest,
 		MessageTypeVotesRequest, MessageTypeBlockRangeRequest, MessageTypeDone:
 		return NewMsgFromCbor(msgType, data)
 	default:
-		return nil, fmt.Errorf("%s: message type %d is not a client request", ProtocolName, msgType)
+		return nil, fmt.Errorf(
+			"%s: message type %d is not a client request",
+			ProtocolName,
+			msgType,
+		)
 	}
 }
 

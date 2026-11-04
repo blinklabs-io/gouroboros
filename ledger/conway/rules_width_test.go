@@ -58,7 +58,12 @@ func TestGovernanceProposalIndexFits(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if got := governanceProposalIndexFits(test.idx); got != test.want {
-				t.Fatalf("governanceProposalIndexFits(%d) = %t, want %t", test.idx, got, test.want)
+				t.Fatalf(
+					"governanceProposalIndexFits(%d) = %t, want %t",
+					test.idx,
+					got,
+					test.want,
+				)
 			}
 		})
 	}

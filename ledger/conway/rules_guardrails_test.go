@@ -276,7 +276,11 @@ func TestConwayValidationRulesEnforceGuardrailsOnDecodedTransaction(
 			break
 		}
 	}
-	require.NotNil(t, guardrailsRule, "guardrails validation rule is not registered")
+	require.NotNil(
+		t,
+		guardrailsRule,
+		"guardrails validation rule is not registered",
+	)
 	guardrailsRules := []common.UtxoValidationRuleFunc{guardrailsRule}
 
 	require.NoError(t, common.VerifyTransaction(

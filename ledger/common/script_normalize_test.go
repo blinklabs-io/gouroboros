@@ -63,7 +63,9 @@ func encodeRedeemerAssertScript(
 	for range 3 {
 		term = &syn.Lambda[syn.DeBruijn]{Body: term}
 	}
-	flat, err := syn.Encode(&syn.Program[syn.DeBruijn]{Version: version, Term: term})
+	flat, err := syn.Encode(
+		&syn.Program[syn.DeBruijn]{Version: version, Term: term},
+	)
 	require.NoError(t, err)
 	wrapper, err := cbor.Encode(flat)
 	require.NoError(t, err)
@@ -99,8 +101,12 @@ func TestEvaluateNormalizesRedeemerEncoding(t *testing.T) {
 	require.NoError(t, err)
 	indefEnc, err := data.Encode(indefinite)
 	require.NoError(t, err)
-	require.NotEqual(t, hex.EncodeToString(defEnc), hex.EncodeToString(indefEnc),
-		"fixture no longer exercises the encoding difference")
+	require.NotEqual(
+		t,
+		hex.EncodeToString(defEnc),
+		hex.EncodeToString(indefEnc),
+		"fixture no longer exercises the encoding difference",
+	)
 	// ...and that they are the same value once normalized.
 	normDef, err := data.Encode(data.Normalize(definite))
 	require.NoError(t, err)
@@ -145,10 +151,17 @@ func TestEvaluateNormalizesRedeemerEncoding(t *testing.T) {
 				t, lang.LanguageVersion{1, 0, 0}, normDef,
 			)
 			_, err := tc.eval(s, indefinite)
-			require.NoError(t, err, "indefinite-encoded redeemer should evaluate")
+			require.NoError(
+				t,
+				err,
+				"indefinite-encoded redeemer should evaluate",
+			)
 			_, err = tc.eval(s, definite)
-			require.NoError(t, err,
-				"definite-encoded redeemer must be normalized before reaching the script")
+			require.NoError(
+				t,
+				err,
+				"definite-encoded redeemer must be normalized before reaching the script",
+			)
 			t.Log("both wire encodings reached the script as canonical bytes")
 		})
 	}

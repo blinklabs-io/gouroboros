@@ -44,8 +44,16 @@ func TestDebugEpochStateResultDecodesTypedAndPreservesRaw(t *testing.T) {
 	var result DebugEpochStateResult
 	_, err := cbor.Decode(mustDecodeHex(t, epochStateHex), &result)
 	require.NoError(t, err)
-	require.Equal(t, AccountState{Treasury: 10, Reserves: 20}, result.AccountState)
-	require.Equal(t, mustDecodeHex(t, ledgerStateHex), []byte(result.LedgerState))
+	require.Equal(
+		t,
+		AccountState{Treasury: 10, Reserves: 20},
+		result.AccountState,
+	)
+	require.Equal(
+		t,
+		mustDecodeHex(t, ledgerStateHex),
+		[]byte(result.LedgerState),
+	)
 	require.Equal(t, mustDecodeHex(t, snapshotsHex), []byte(result.Snapshots))
 	require.Equal(t, mustDecodeHex(t, nonMyopicHex), []byte(result.NonMyopic))
 }
@@ -53,7 +61,10 @@ func TestDebugEpochStateResultDecodesTypedAndPreservesRaw(t *testing.T) {
 func TestDebugEpochStateResultRejectsShortArray(t *testing.T) {
 	t.Parallel()
 	var result DebugEpochStateResult
-	_, err := cbor.Decode(mustDecodeHex(t, "83820a14828080"+"84a0a0a000"), &result)
+	_, err := cbor.Decode(
+		mustDecodeHex(t, "83820a14828080"+"84a0a0a000"),
+		&result,
+	)
 	require.Error(t, err)
 }
 
@@ -76,15 +87,38 @@ func TestDebugNewEpochStateResultDecodes(t *testing.T) {
 	require.Equal(t, uint64(5), result.Epoch)
 	low := ledger.NewBlake2b224(mustDecodeHex(t, poolIdLowHex))
 	high := ledger.NewBlake2b224(mustDecodeHex(t, poolIdHighHex))
-	require.Equal(t, map[ledger.Blake2b224]uint64{low: 2}, result.BlocksMadePrev)
-	require.Equal(t, map[ledger.Blake2b224]uint64{high: 3}, result.BlocksMadeCur)
-	require.Equal(t, AccountState{Treasury: 10, Reserves: 20}, result.EpochState.AccountState)
-	require.Equal(t, mustDecodeHex(t, nonMyopicHex), []byte(result.EpochState.NonMyopic))
+	require.Equal(
+		t,
+		map[ledger.Blake2b224]uint64{low: 2},
+		result.BlocksMadePrev,
+	)
+	require.Equal(
+		t,
+		map[ledger.Blake2b224]uint64{high: 3},
+		result.BlocksMadeCur,
+	)
+	require.Equal(
+		t,
+		AccountState{Treasury: 10, Reserves: 20},
+		result.EpochState.AccountState,
+	)
+	require.Equal(
+		t,
+		mustDecodeHex(t, nonMyopicHex),
+		[]byte(result.EpochState.NonMyopic),
+	)
 	require.Equal(t, mustDecodeHex(t, "80"), []byte(result.RewardUpdate))
 	require.Equal(
 		t,
-		mustDecodeHex(t, "a1581c"+poolIdLowHex+"82d81e820102"+"5820"+vrfHashHex),
+		mustDecodeHex(
+			t,
+			"a1581c"+poolIdLowHex+"82d81e820102"+"5820"+vrfHashHex,
+		),
 		[]byte(result.PoolDistr),
 	)
-	require.Equal(t, mustDecodeHex(t, "f6"), []byte(result.StashedAVVMAddresses))
+	require.Equal(
+		t,
+		mustDecodeHex(t, "f6"),
+		[]byte(result.StashedAVVMAddresses),
+	)
 }

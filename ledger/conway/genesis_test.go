@@ -387,7 +387,9 @@ var expectedGenesisObj = conway.ConwayGenesis{
 			DRep: common.Drep{
 				Type: common.DrepTypeAddrKeyHash,
 				Credential: func() []byte {
-					foo, _ := hex.DecodeString(`cec68dbf1507d74f92ec025cbce4122f10e7ed421c657924e9502a5e`)
+					foo, _ := hex.DecodeString(
+						`cec68dbf1507d74f92ec025cbce4122f10e7ed421c657924e9502a5e`,
+					)
 					return foo
 				}(),
 			},

@@ -214,12 +214,22 @@ func TestMkSeedTPraos(t *testing.T) {
 	assert.NoError(t, err)
 	praos, err := MkInputVrf(slot, eta0)
 	assert.NoError(t, err)
-	assert.Equal(t, praos, tpraosWithZero, "MkSeedTPraos with zero seed should equal MkInputVrf")
+	assert.Equal(
+		t,
+		praos,
+		tpraosWithZero,
+		"MkSeedTPraos with zero seed should equal MkInputVrf",
+	)
 
 	// MkSeedTPraos with SeedEta should differ from MkInputVrf
 	tpraosSeed, err := MkSeedTPraos(slot, eta0, SeedEta())
 	assert.NoError(t, err)
-	assert.NotEqual(t, praos, tpraosSeed, "TPraos seed should differ from CPraos input")
+	assert.NotEqual(
+		t,
+		praos,
+		tpraosSeed,
+		"TPraos seed should differ from CPraos input",
+	)
 
 	// MkSeedTPraos should be deterministic
 	tpraosSeed2, err := MkSeedTPraos(slot, eta0, SeedEta())
@@ -229,14 +239,24 @@ func TestMkSeedTPraos(t *testing.T) {
 	// Different seed constants should produce different results
 	tpraosL, err := MkSeedTPraos(slot, eta0, SeedL())
 	assert.NoError(t, err)
-	assert.NotEqual(t, tpraosSeed, tpraosL, "SeedEta and SeedL should produce different results")
+	assert.NotEqual(
+		t,
+		tpraosSeed,
+		tpraosL,
+		"SeedEta and SeedL should produce different results",
+	)
 
 	// Verify SeedEta is blake2b-256 of uint64be(0)
 	seedEtaVal := SeedEta()
 	var uint64beBytes [8]byte
 	binary.BigEndian.PutUint64(uint64beBytes[:], 0)
 	expected := blake2b.Sum256(uint64beBytes[:])
-	assert.Equal(t, expected[:], seedEtaVal, "SeedEta should be blake2b-256(uint64be(0))")
+	assert.Equal(
+		t,
+		expected[:],
+		seedEtaVal,
+		"SeedEta should be blake2b-256(uint64be(0))",
+	)
 
 	// Verify XOR property: base XOR seed XOR seed = base
 	recovered := make([]byte, len(tpraosSeed))

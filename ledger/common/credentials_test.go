@@ -81,7 +81,9 @@ func TestCredentialFromJson(t *testing.T) {
 				CredType: common.CredentialTypeAddrKeyHash,
 				Credential: common.Blake2b224(
 					func() []byte {
-						foo, _ := hex.DecodeString(`95936e06ca168da5788019e78625166a2ea47bea1f2537ffd88ab426`)
+						foo, _ := hex.DecodeString(
+							`95936e06ca168da5788019e78625166a2ea47bea1f2537ffd88ab426`,
+						)
 						return foo
 					}(),
 				),
@@ -93,7 +95,9 @@ func TestCredentialFromJson(t *testing.T) {
 				CredType: common.CredentialTypeScriptHash,
 				Credential: common.Blake2b224(
 					func() []byte {
-						foo, _ := hex.DecodeString(`b9fa485ab33acd079d3553f42dac2ce5e12f1e1120fd1158d506e50b`)
+						foo, _ := hex.DecodeString(
+							`b9fa485ab33acd079d3553f42dac2ce5e12f1e1120fd1158d506e50b`,
+						)
 						return foo
 					}(),
 				),
@@ -107,7 +111,11 @@ func TestCredentialFromJson(t *testing.T) {
 			continue
 		}
 		if !reflect.DeepEqual(tmpCred, testDef.expectedCredential) {
-			t.Errorf("decoded credential does not match expected value\n     got: %#v\n  wanted: %#v", tmpCred, testDef.expectedCredential)
+			t.Errorf(
+				"decoded credential does not match expected value\n     got: %#v\n  wanted: %#v",
+				tmpCred,
+				testDef.expectedCredential,
+			)
 		}
 	}
 }

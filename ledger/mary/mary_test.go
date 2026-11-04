@@ -120,7 +120,9 @@ func TestMaryTransactionOutputValueEncodeDecode(t *testing.T) {
 }
 
 func TestMaryTransactionOutputValueEncodesEmptyAssetsAsCoin(t *testing.T) {
-	emptyAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{})
+	emptyAssets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{},
+	)
 	value := MaryTransactionOutputValue{Amount: 42, Assets: &emptyAssets}
 
 	encoded, err := cbor.Encode(value)
@@ -132,11 +134,17 @@ func TestMaryTransactionOutputValueEncodesEmptyAssetsAsCoin(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(encoded, coin) {
-		t.Fatalf("empty multiasset value encoded as %x, want coin %x", encoded, coin)
+		t.Fatalf(
+			"empty multiasset value encoded as %x, want coin %x",
+			encoded,
+			coin,
+		)
 	}
 }
 
-func TestMaryTransactionOutputValueRejectsInvalidMajorTypesAndArrayLength(t *testing.T) {
+func TestMaryTransactionOutputValueRejectsInvalidMajorTypesAndArrayLength(
+	t *testing.T,
+) {
 	for _, test := range []struct {
 		name string
 		wire []byte

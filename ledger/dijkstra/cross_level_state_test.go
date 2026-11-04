@@ -64,7 +64,9 @@ func TestUtxoValidatePoolCertificatesCarriesVrfOwnershipAcrossLevels(
 ) {
 	t.Parallel()
 	ls := futurePoolLedgerState{
-		LedgerState: mockledger.NewLedgerStateBuilder().WithNetworkId(0).Build(),
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithNetworkId(0).
+			Build(),
 	}
 	pp := &DijkstraProtocolParameters{}
 	pp.ProtocolVersion.Major = 12
@@ -76,17 +78,20 @@ func TestUtxoValidatePoolCertificatesCarriesVrfOwnershipAcrossLevels(
 		), 0, ls, pp)
 	}
 
-	t.Run("other operator reusing an earlier level's key is rejected", func(t *testing.T) {
-		t.Parallel()
-		err := register(
-			[]common.CertificateWrapper{crossLevelPoolCert(t, 0x01, 0xaa)},
-			[]common.CertificateWrapper{crossLevelPoolCert(t, 0x02, 0xaa)},
-		)
-		var dup shelley.VrfKeyHashAlreadyRegisteredError
-		require.ErrorAs(t, err, &dup)
-		require.Equal(t, common.PoolKeyHash{0x02}, dup.PoolKeyHash)
-		require.Equal(t, common.PoolKeyHash{0x01}, dup.RegisteredBy)
-	})
+	t.Run(
+		"other operator reusing an earlier level's key is rejected",
+		func(t *testing.T) {
+			t.Parallel()
+			err := register(
+				[]common.CertificateWrapper{crossLevelPoolCert(t, 0x01, 0xaa)},
+				[]common.CertificateWrapper{crossLevelPoolCert(t, 0x02, 0xaa)},
+			)
+			var dup shelley.VrfKeyHashAlreadyRegisteredError
+			require.ErrorAs(t, err, &dup)
+			require.Equal(t, common.PoolKeyHash{0x02}, dup.PoolKeyHash)
+			require.Equal(t, common.PoolKeyHash{0x01}, dup.RegisteredBy)
+		},
+	)
 	t.Run("same operator may re-register its own key", func(t *testing.T) {
 		t.Parallel()
 		require.NoError(t, register(
@@ -101,13 +106,16 @@ func TestUtxoValidatePoolCertificatesCarriesVrfOwnershipAcrossLevels(
 			[]common.CertificateWrapper{crossLevelPoolCert(t, 0x02, 0xbb)},
 		))
 	})
-	t.Run("later level without the earlier registration sees no owner", func(t *testing.T) {
-		t.Parallel()
-		require.NoError(t, register(
-			nil,
-			[]common.CertificateWrapper{crossLevelPoolCert(t, 0x02, 0xaa)},
-		))
-	})
+	t.Run(
+		"later level without the earlier registration sees no owner",
+		func(t *testing.T) {
+			t.Parallel()
+			require.NoError(t, register(
+				nil,
+				[]common.CertificateWrapper{crossLevelPoolCert(t, 0x02, 0xaa)},
+			))
+		},
+	)
 }
 
 func TestUtxoValidateCertificateDepositsFollowEarlierLevelEffects(
@@ -199,52 +207,66 @@ func TestUtxoValidateCertificateDepositsFollowEarlierLevelEffects(
 			&balanceErr,
 		)
 	})
-	t.Run("earlier registration is visible to later levels", func(t *testing.T) {
-		t.Parallel()
-		tx := crossLevelTx(
-			DijkstraSubTransactionBody{TxCertificates: register(keyDeposit)},
-			DijkstraTransactionBody{TxCertificates: register(keyDeposit)},
-		)
-		var registeredErr conway.StakeCredentialAlreadyRegisteredError
-		require.ErrorAs(
-			t,
-			UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
-			&registeredErr,
-		)
-		tx = crossLevelTx(
-			DijkstraSubTransactionBody{TxCertificates: register(keyDeposit)},
-			DijkstraTransactionBody{TxCertificates: deregister(keyDeposit)},
-		)
-		require.NoError(t, UtxoValidateCertificateDeposits(
-			tx, 0, emptyLedger, pp,
-		))
-		tx = crossLevelTx(
-			DijkstraSubTransactionBody{TxCertificates: register(keyDeposit)},
-			DijkstraTransactionBody{TxCertificates: deregister(keyDeposit + 1)},
-		)
-		var refundErr conway.CertificateRefundIncorrectError
-		require.ErrorAs(
-			t,
-			UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
-			&refundErr,
-		)
-		require.Equal(t, keyDeposit, refundErr.Expected)
-	})
-	t.Run("direct deposit to a credential registered earlier blocks deregistration", func(t *testing.T) {
-		t.Parallel()
-		tx := crossLevelTx(
-			DijkstraSubTransactionBody{
-				TxCertificates:   register(keyDeposit),
-				TxDirectDeposits: DijkstraDirectDeposits{key: 7},
-			},
-			DijkstraTransactionBody{TxCertificates: deregister(keyDeposit)},
-		)
-		var balanceErr conway.StakeCredentialNonZeroRewardBalanceError
-		require.ErrorAs(
-			t,
-			UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
-			&balanceErr,
-		)
-		require.Equal(t, uint64(7), balanceErr.Balance)
-	})
+	t.Run(
+		"earlier registration is visible to later levels",
+		func(t *testing.T) {
+			t.Parallel()
+			tx := crossLevelTx(
+				DijkstraSubTransactionBody{
+					TxCertificates: register(keyDeposit),
+				},
+				DijkstraTransactionBody{TxCertificates: register(keyDeposit)},
+			)
+			var registeredErr conway.StakeCredentialAlreadyRegisteredError
+			require.ErrorAs(
+				t,
+				UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
+				&registeredErr,
+			)
+			tx = crossLevelTx(
+				DijkstraSubTransactionBody{
+					TxCertificates: register(keyDeposit),
+				},
+				DijkstraTransactionBody{TxCertificates: deregister(keyDeposit)},
+			)
+			require.NoError(t, UtxoValidateCertificateDeposits(
+				tx, 0, emptyLedger, pp,
+			))
+			tx = crossLevelTx(
+				DijkstraSubTransactionBody{
+					TxCertificates: register(keyDeposit),
+				},
+				DijkstraTransactionBody{
+					TxCertificates: deregister(keyDeposit + 1),
+				},
+			)
+			var refundErr conway.CertificateRefundIncorrectError
+			require.ErrorAs(
+				t,
+				UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
+				&refundErr,
+			)
+			require.Equal(t, keyDeposit, refundErr.Expected)
+		},
+	)
+	t.Run(
+		"direct deposit to a credential registered earlier blocks deregistration",
+		func(t *testing.T) {
+			t.Parallel()
+			tx := crossLevelTx(
+				DijkstraSubTransactionBody{
+					TxCertificates:   register(keyDeposit),
+					TxDirectDeposits: DijkstraDirectDeposits{key: 7},
+				},
+				DijkstraTransactionBody{TxCertificates: deregister(keyDeposit)},
+			)
+			var balanceErr conway.StakeCredentialNonZeroRewardBalanceError
+			require.ErrorAs(
+				t,
+				UtxoValidateCertificateDeposits(tx, 0, emptyLedger, pp),
+				&balanceErr,
+			)
+			require.Equal(t, uint64(7), balanceErr.Balance)
+		},
+	)
 }

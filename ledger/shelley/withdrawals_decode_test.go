@@ -46,7 +46,11 @@ func encodeWithdrawalBody(
 	return ret
 }
 
-func withStrictEraWithdrawalBodyFields(t *testing.T, raw []byte, sub bool) []byte {
+func withStrictEraWithdrawalBodyFields(
+	t *testing.T,
+	raw []byte,
+	sub bool,
+) []byte {
 	t.Helper()
 	fields := make(map[uint]cbor.RawMessage)
 	_, err := cbor.Decode(raw, &fields)
@@ -142,7 +146,9 @@ func TestShelleyTransactionBodyRejectsInvalidWithdrawalAddresses(t *testing.T) {
 	}
 }
 
-func TestShelleyTransactionBodyRejectsSemanticDuplicateWithdrawal(t *testing.T) {
+func TestShelleyTransactionBodyRejectsSemanticDuplicateWithdrawal(
+	t *testing.T,
+) {
 	addr := rewardAccountBytes(
 		0xe1,
 		bytes.Repeat([]byte{0x55}, common.AddressHashSize),

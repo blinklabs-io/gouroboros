@@ -344,15 +344,19 @@ func TestVerifySignedKESRejectsNonStrictEd25519Leaves(t *testing.T) {
 		standardLibraryAccepts bool
 	}{
 		{
-			name:                   "small-order public key",
-			leafPublicKey:          identity,
-			leafSignature:          universalIdentitySignature(ed25519GeneratorEncoding),
+			name:          "small-order public key",
+			leafPublicKey: identity,
+			leafSignature: universalIdentitySignature(
+				ed25519GeneratorEncoding,
+			),
 			standardLibraryAccepts: true,
 		},
 		{
-			name:                   "non-canonical public key",
-			leafPublicKey:          nonCanonicalIdentity,
-			leafSignature:          universalIdentitySignature(ed25519GeneratorEncoding),
+			name:          "non-canonical public key",
+			leafPublicKey: nonCanonicalIdentity,
+			leafSignature: universalIdentitySignature(
+				ed25519GeneratorEncoding,
+			),
 			standardLibraryAccepts: true,
 		},
 		{
@@ -450,7 +454,12 @@ func TestZeroize(t *testing.T) {
 
 	require.Nil(t, sk.Data, "Data not cleared after Zeroize")
 	require.Equal(t, uint64(0), sk.Period, "period not reset after Zeroize")
-	require.Equal(t, publicKey, PublicKey(sk), "public key changed after Zeroize")
+	require.Equal(
+		t,
+		publicKey,
+		PublicKey(sk),
+		"public key changed after Zeroize",
+	)
 	require.Equal(
 		t,
 		make([]byte, len(data)),

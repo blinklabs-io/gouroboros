@@ -201,7 +201,10 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 		name     string
 		requests []request
 	}{
-		{"block txs behind block txs", []request{{true, 1}, {true, 2}, {true, 3}}},
+		{
+			"block txs behind block txs",
+			[]request{{true, 1}, {true, 2}, {true, 3}},
+		},
 		{"block behind block", []request{{false, 1}, {false, 2}, {false, 3}}},
 		{
 			"mixed",
@@ -262,7 +265,11 @@ func TestServerAnswersPipelinedRequestsInOrder(t *testing.T) {
 				if r.txs {
 					got, ok := msg.(*MsgBlockTxs)
 					require.True(t, ok, "reply %d is %T", i, msg)
-					require.Equal(t, []cbor.RawMessage{pipelineMarker(r.slot)}, got.TxsRaw)
+					require.Equal(
+						t,
+						[]cbor.RawMessage{pipelineMarker(r.slot)},
+						got.TxsRaw,
+					)
 					continue
 				}
 				got, ok := msg.(*MsgBlock)
@@ -300,7 +307,9 @@ func TestServerRejectsUnpipelinedRequestWhileReplying(t *testing.T) {
 // Pipelined requests are held in bounded queues while a reply is outstanding.
 // A client that keeps sending past them overruns the protocol's ingress limit,
 // and the connection fails instead of the queue growing.
-func TestServerFailsConnectionWhenPipelinedRequestsOverrunIngress(t *testing.T) {
+func TestServerFailsConnectionWhenPipelinedRequestsOverrunIngress(
+	t *testing.T,
+) {
 	t.Parallel()
 	srv := newPipelineTestServer(t)
 	require.NoError(t, writePipelineTestRequest(srv.conn, NewMsgBlockRequest(

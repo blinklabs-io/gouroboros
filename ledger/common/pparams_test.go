@@ -118,7 +118,9 @@ func TestCostModelsToPlutusDataRejectsLanguageIDsOutsideWord8(t *testing.T) {
 	}
 	defer func() {
 		if recover() == nil {
-			t.Fatal("ChangedParameters conversion accepted out-of-domain language ID")
+			t.Fatal(
+				"ChangedParameters conversion accepted out-of-domain language ID",
+			)
 		}
 	}()
 	_ = CostModelsToPlutusData(map[uint][]int64{256: {1}})

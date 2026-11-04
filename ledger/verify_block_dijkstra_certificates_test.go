@@ -59,21 +59,35 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		require.Error(t, err)
 		var validationErr *common.ValidationError
 		require.ErrorAs(t, err, &validationErr)
-		require.Equal(t, common.ValidationErrorTypeConfiguration, validationErr.Type)
+		require.Equal(
+			t,
+			common.ValidationErrorTypeConfiguration,
+			validationErr.Type,
+		)
 	})
-	t.Run("certificate requires key-backed committee state", func(t *testing.T) {
-		state := dijkstraLeiosTestState{
-			context: common.DijkstraLeiosCertificateContext{
-				TotalActiveStake: 100,
-				Committee:        make([]common.DijkstraLeiosCommitteeMember, 9),
-			},
-		}
-		err := validateDijkstraBlockCertificates(block, params, state)
-		require.Error(t, err)
-		var validationErr *common.ValidationError
-		require.ErrorAs(t, err, &validationErr)
-		require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
-	})
+	t.Run(
+		"certificate requires key-backed committee state",
+		func(t *testing.T) {
+			state := dijkstraLeiosTestState{
+				context: common.DijkstraLeiosCertificateContext{
+					TotalActiveStake: 100,
+					Committee: make(
+						[]common.DijkstraLeiosCommitteeMember,
+						9,
+					),
+				},
+			}
+			err := validateDijkstraBlockCertificates(block, params, state)
+			require.Error(t, err)
+			var validationErr *common.ValidationError
+			require.ErrorAs(t, err, &validationErr)
+			require.Equal(
+				t,
+				common.ValidationErrorTypeProtocol,
+				validationErr.Type,
+			)
+		},
+	)
 	t.Run("missing protocol parameters", func(t *testing.T) {
 		err := validateDijkstraBlockCertificates(block, nil, nil)
 		require.Error(t, err)
@@ -111,7 +125,11 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		require.Error(t, err)
 		var validationErr *common.ValidationError
 		require.ErrorAs(t, err, &validationErr)
-		require.Equal(t, common.ValidationErrorTypeConfiguration, validationErr.Type)
+		require.Equal(
+			t,
+			common.ValidationErrorTypeConfiguration,
+			validationErr.Type,
+		)
 	})
 	t.Run("certified header without certificate", func(t *testing.T) {
 		missing := &dijkstra.DijkstraBlock{

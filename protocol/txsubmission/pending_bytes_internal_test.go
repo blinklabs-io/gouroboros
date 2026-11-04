@@ -142,14 +142,21 @@ func replyTxsOfSize(t *testing.T, size int) protocol.Message {
 	t.Helper()
 	bodyLen := 0
 	for range 8 {
-		msg := NewMsgReplyTxs([]TxBody{{EraId: 6, TxBody: make([]byte, bodyLen)}})
+		msg := NewMsgReplyTxs(
+			[]TxBody{{EraId: 6, TxBody: make([]byte, bodyLen)}},
+		)
 		encoded, err := cbor.Encode(msg)
 		require.NoError(t, err)
 		if len(encoded) == size {
 			return msg
 		}
 		bodyLen += size - len(encoded)
-		require.Positive(t, bodyLen, "cannot shrink a MsgReplyTxs to %d bytes", size)
+		require.Positive(
+			t,
+			bodyLen,
+			"cannot shrink a MsgReplyTxs to %d bytes",
+			size,
+		)
 	}
 	t.Fatalf("could not build a MsgReplyTxs of exactly %d bytes", size)
 	return nil

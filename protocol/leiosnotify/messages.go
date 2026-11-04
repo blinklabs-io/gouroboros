@@ -86,7 +86,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	case MessageTypeCanceled:
 		ret = &MsgCanceled{}
 	default:
-		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, msgType)
+		return nil, fmt.Errorf(
+			"%s: unknown message type %d",
+			ProtocolName,
+			msgType,
+		)
 	}
 	var err error
 	if votesOffer, ok := ret.(*MsgVotesOffer); ok {
@@ -328,7 +332,9 @@ func NewMsgVotesOfferFull(votes []lcommon.LeiosVote) *MsgVotesOffer {
 // NewMsgVotesOfferPrototype builds a current-prototype pushed vote offer.
 func NewMsgVotesOfferPrototype(votes []PrototypeVote) *MsgVotesOffer {
 	return &MsgVotesOffer{
-		MessageBase:    protocol.MessageBase{MessageType: MessageTypeVotesOffer},
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeVotesOffer,
+		},
 		PrototypeVotes: votes,
 	}
 }
@@ -413,7 +419,11 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 	}
 	envelopeCount, envelopeIndefinite, err := decodeArrayHeader(dec)
 	if err != nil {
-		return fmt.Errorf("%s: votes offer: decode envelope: %w", ProtocolName, err)
+		return fmt.Errorf(
+			"%s: votes offer: decode envelope: %w",
+			ProtocolName,
+			err,
+		)
 	}
 	if !envelopeIndefinite && envelopeCount != 2 {
 		return fmt.Errorf(
@@ -437,7 +447,11 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 	}
 	voteRaws, err := decodeArrayItems(dec, MaxVotesOfferCount)
 	if err != nil {
-		return fmt.Errorf("%s: votes offer: decode vote list: %w", ProtocolName, err)
+		return fmt.Errorf(
+			"%s: votes offer: decode vote list: %w",
+			ProtocolName,
+			err,
+		)
 	}
 	if envelopeIndefinite {
 		if !arrayEnded(dec) {
@@ -502,7 +516,10 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 			if len(rbHash) != lcommon.Blake2b256Size {
 				return fmt.Errorf(
 					"%s: votes offer: vote %d announcing RB hash is %d bytes, expected %d",
-					ProtocolName, idx, len(rbHash), lcommon.Blake2b256Size,
+					ProtocolName,
+					idx,
+					len(rbHash),
+					lcommon.Blake2b256Size,
 				)
 			}
 			var voterId uint64
@@ -522,7 +539,10 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 			if len(sig) != lcommon.LeiosBlsSignatureSize {
 				return fmt.Errorf(
 					"%s: votes offer: vote %d signature is %d bytes, expected %d",
-					ProtocolName, idx, len(sig), lcommon.LeiosBlsSignatureSize,
+					ProtocolName,
+					idx,
+					len(sig),
+					lcommon.LeiosBlsSignatureSize,
 				)
 			}
 			m.PrototypeVotes = append(m.PrototypeVotes, PrototypeVote{
@@ -587,7 +607,10 @@ func decodeArrayItems(
 			break
 		}
 		if idx >= maxCount {
-			return nil, fmt.Errorf("array exceeds maximum of %d elements", maxCount)
+			return nil, fmt.Errorf(
+				"array exceeds maximum of %d elements",
+				maxCount,
+			)
 		}
 		start, length, err := dec.Skip()
 		if err != nil {

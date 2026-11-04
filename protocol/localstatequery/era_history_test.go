@@ -62,10 +62,16 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 			wantGenesisWindow:   129600,
 		},
 		{
-			name:                 "Peras fields in bound and parameters",
-			end:                  []any{0, 13, 2, uint64(7)},
-			safeZone:             []any{uint8(1)},
-			params:               []any{432000, 1000, []any{uint8(1)}, 129600, uint64(1800)},
+			name:     "Peras fields in bound and parameters",
+			end:      []any{0, 13, 2, uint64(7)},
+			safeZone: []any{uint8(1)},
+			params: []any{
+				432000,
+				1000,
+				[]any{uint8(1)},
+				129600,
+				uint64(1800),
+			},
 			wantEndSlot:          13,
 			wantPerasRound:       uint64Ptr(7),
 			wantGenesisWindow:    129600,
@@ -76,7 +82,12 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			params := test.params
 			if params == nil {
-				params = []any{432000, 1000, test.safeZone, test.wantGenesisWindow}
+				params = []any{
+					432000,
+					1000,
+					test.safeZone,
+					test.wantGenesisWindow,
+				}
 			}
 			wire, err := cbor.Encode([]any{
 				[]any{0, 0, 0},
@@ -94,7 +105,10 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 				t.Fatalf("End.Unbounded = %t, want %t", got, test.wantUnbounded)
 			}
 			require.Equal(t, test.wantEndSlot, result.End.SlotNo)
-			require.True(t, equalUint64Ptr(test.wantPerasRound, result.End.PerasRound))
+			require.True(
+				t,
+				equalUint64Ptr(test.wantPerasRound, result.End.PerasRound),
+			)
 			if test.wantSafeFromTip == nil {
 				require.Nil(t, result.Params.SafeZone.SafeFromTip)
 			} else {
@@ -110,10 +124,17 @@ func TestEraHistoryResultWireVariants(t *testing.T) {
 			) {
 				t.Fatal("SafeBeforeEpoch did not preserve the tagged epoch")
 			}
-			require.Equal(t, test.wantGenesisWindow, result.Params.GenesisWindow)
+			require.Equal(
+				t,
+				test.wantGenesisWindow,
+				result.Params.GenesisWindow,
+			)
 			require.True(
 				t,
-				equalUint64Ptr(test.wantPerasRoundLength, result.Params.PerasRoundLength),
+				equalUint64Ptr(
+					test.wantPerasRoundLength,
+					result.Params.PerasRoundLength,
+				),
 			)
 
 			roundTrip, err := cbor.Encode(result)
@@ -144,7 +165,10 @@ func TestEraHistorySafeZoneRejectsMalformedVariants(t *testing.T) {
 				[]any{uint8(0)},
 			},
 		},
-		{name: "negative safe from tip", wire: []any{uint8(0), -1, []any{uint8(0)}}},
+		{
+			name: "negative safe from tip",
+			wire: []any{uint8(0), -1, []any{uint8(0)}},
+		},
 		{
 			name: "invalid safe before epoch",
 			wire: []any{uint8(0), 42, []any{uint8(2)}},
@@ -331,7 +355,9 @@ func TestEraHistoryNegativeRelativeTimeRoundTrip(t *testing.T) {
 }
 
 func TestEraHistoryBignumRelativeTimeRoundTrip(t *testing.T) {
-	relativeTime := new(big.Int).Mul(big.NewInt(89_856_000), big.NewInt(1_000_000_000_000))
+	relativeTime := new(
+		big.Int,
+	).Mul(big.NewInt(89_856_000), big.NewInt(1_000_000_000_000))
 	wire, err := cbor.Encode([]any{
 		[]any{relativeTime, 0, 0},
 		nil,

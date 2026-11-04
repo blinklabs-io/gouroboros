@@ -35,7 +35,9 @@ var (
 	}()
 )
 
-func TestDetermineBlockTypeRequiresHardForkContextForSharedShapes(t *testing.T) {
+func TestDetermineBlockTypeRequiresHardForkContextForSharedShapes(
+	t *testing.T,
+) {
 	for _, tc := range []struct {
 		name   string
 		fields int
@@ -350,18 +352,30 @@ func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
 	if err != nil {
 		return 0, nil, "", 0, err
 	}
-	decodedBlock, err := NewBlockFromCbor(blockType, blockCbor, common.VerifyConfig{
-		SkipBodyHashValidation: true,
-	})
+	decodedBlock, err := NewBlockFromCbor(
+		blockType,
+		blockCbor,
+		common.VerifyConfig{
+			SkipBodyHashValidation: true,
+		},
+	)
 	if err != nil {
-		return 0, nil, "", 0, fmt.Errorf("decode complete Babbage fuzz seed: %w", err)
+		return 0, nil, "", 0, fmt.Errorf(
+			"decode complete Babbage fuzz seed: %w",
+			err,
+		)
 	}
-	valid, _, _, _, err := VerifyBlock(decodedBlock, fixture.Eta0, uint64(fixture.Spk), common.VerifyConfig{
-		SkipBodyHashValidation:    true,
-		SkipTransactionValidation: true,
-		SkipStakePoolValidation:   true,
-		SkipBlockLimitsValidation: true,
-	})
+	valid, _, _, _, err := VerifyBlock(
+		decodedBlock,
+		fixture.Eta0,
+		uint64(fixture.Spk),
+		common.VerifyConfig{
+			SkipBodyHashValidation:    true,
+			SkipTransactionValidation: true,
+			SkipStakePoolValidation:   true,
+			SkipBlockLimitsValidation: true,
+		},
+	)
 	if err != nil {
 		return 0, nil, "", 0, fmt.Errorf("verify Babbage fuzz seed: %w", err)
 	}

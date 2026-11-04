@@ -440,7 +440,9 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 	if raceEnabled {
 		return
 	}
-	gcDuring := int64(gcCycles() - gcBefore) // #nosec G115 -- cycle deltas are small
+	gcDuring := int64(
+		gcCycles() - gcBefore,
+	) // #nosec G115 -- cycle deltas are small
 	constructed := machineConstructionCount(
 		lang.LanguageVersionV3,
 		evalContext,

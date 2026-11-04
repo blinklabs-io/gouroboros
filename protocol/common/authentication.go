@@ -261,7 +261,11 @@ func (m *MessageAuthenticator) PrepareMessages(
 	touchedPools := make(map[PoolKeyHash]struct{})
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
-			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
+			return nil, fmt.Errorf(
+				"message %d authentication failed: %w",
+				i,
+				err,
+			)
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
@@ -432,7 +436,11 @@ func (m *MessageAuthenticator) verifyOperationalCertificate(
 	)
 
 	// Verify signature using cold verification key
-	if !ed25519strict.Verify(coldVerificationKey, signable, opcert.ColdSignature) {
+	if !ed25519strict.Verify(
+		coldVerificationKey,
+		signable,
+		opcert.ColdSignature,
+	) {
 		return errors.New("cold signature verification failed")
 	}
 

@@ -43,7 +43,11 @@ func TestBlockPipelineRequiresExplicitSourcePolicy(t *testing.T) {
 			WithValidateWorkers(1),
 			WithEta0("00"),
 		)
-		require.ErrorIs(t, p.Start(t.Context()), ErrMissingChainContextValidator)
+		require.ErrorIs(
+			t,
+			p.Start(t.Context()),
+			ErrMissingChainContextValidator,
+		)
 	})
 
 	t.Run("normal rejects body hash bypass", func(t *testing.T) {
@@ -296,12 +300,19 @@ func TestApplyStageValidatesContextImmediatelyBeforeCommit(t *testing.T) {
 		return nil
 	}, 0)
 	stage.SetRequireValidation(true)
-	stage.SetChainContextValidator(func(_ context.Context, item *BlockItem) error {
-		require.Equal(t, uint(ledger.BlockTypeMary), item.BlockType())
-		calls = append(calls, "validate")
-		return nil
-	})
-	item := NewBlockItem(uint(ledger.BlockTypeMary), nil, createTestTip(1, 1), 0)
+	stage.SetChainContextValidator(
+		func(_ context.Context, item *BlockItem) error {
+			require.Equal(t, uint(ledger.BlockTypeMary), item.BlockType())
+			calls = append(calls, "validate")
+			return nil
+		},
+	)
+	item := NewBlockItem(
+		uint(ledger.BlockTypeMary),
+		nil,
+		createTestTip(1, 1),
+		0,
+	)
 	item.SetValidation(true, "", nil, 0)
 
 	require.NoError(t, stage.Process(t.Context(), item))
@@ -337,7 +348,11 @@ func TestStoppingPipelinePreservesFatalCause(t *testing.T) {
 	p.setFatalError(fatalErr)
 	p.stopping.Store(true)
 
-	require.ErrorIs(t, p.Submit(t.Context(), 0, nil, createTestTip(0, 0)), fatalErr)
+	require.ErrorIs(
+		t,
+		p.Submit(t.Context(), 0, nil, createTestTip(0, 0)),
+		fatalErr,
+	)
 	require.ErrorIs(t, p.Fence(t.Context()), fatalErr)
 
 	p.stopping.Store(false)
@@ -361,13 +376,15 @@ func TestApplyFailureCancelsWithoutAdvancingAuthoritativeContext(t *testing.T) {
 		return nil
 	}, 0)
 	stage.SetRequireValidation(true)
-	stage.SetChainContextValidator(func(_ context.Context, item *BlockItem) error {
-		validationCalls++
-		if item.SequenceNumber() != contextPosition {
-			return errors.New("context advanced")
-		}
-		return nil
-	})
+	stage.SetChainContextValidator(
+		func(_ context.Context, item *BlockItem) error {
+			validationCalls++
+			if item.SequenceNumber() != contextPosition {
+				return errors.New("context advanced")
+			}
+			return nil
+		},
+	)
 	runner := NewApplyStageRunner(stage, input, output, errorChan, 0)
 	runner.setFatalFunc(func() { close(canceled) })
 	runner.Start(t.Context())
@@ -388,7 +405,12 @@ func TestApplyFailureCancelsWithoutAdvancingAuthoritativeContext(t *testing.T) {
 	require.Equal(t, uint64(0), contextPosition)
 	require.Equal(t, 1, validationCalls)
 	require.Empty(t, output)
-	require.Len(t, errorChan, 1, "fatal reporting must not block on a full channel")
+	require.Len(
+		t,
+		errorChan,
+		1,
+		"fatal reporting must not block on a full channel",
+	)
 }
 
 func TestFatalCauseSurvivesBeforeFenceAcquiresSubmitGate(t *testing.T) {
@@ -513,7 +535,10 @@ func TestFatalRejectionCancelsBeforeFullResultDelivery(t *testing.T) {
 		case sequence := <-delivered:
 			require.Equal(t, want, sequence)
 		case <-time.After(50 * time.Millisecond):
-			t.Errorf("successful prefix item %d did not transfer ownership", want)
+			t.Errorf(
+				"successful prefix item %d did not transfer ownership",
+				want,
+			)
 		}
 	}
 	runner.Stop()
@@ -536,7 +561,9 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 			<-releaseHandoff
 		}
 	}
-	t.Cleanup(func() { releaseHandoffOnce.Do(func() { close(releaseHandoff) }) })
+	t.Cleanup(
+		func() { releaseHandoffOnce.Do(func() { close(releaseHandoff) }) },
+	)
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	p.submitChan = make(chan *BlockItem, 1)
 	p.decodedChan = make(chan *BlockItem, rejectedSequence+1)
@@ -567,7 +594,12 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	p.started.Store(true)
 	items := make(map[uint64]*BlockItem, rejectedSequence+1)
 	for sequence := uint64(0); sequence <= rejectedSequence; sequence++ {
-		item := NewBlockItem(0, []byte{0x80}, createTestTip(sequence, sequence), sequence)
+		item := NewBlockItem(
+			0,
+			[]byte{0x80},
+			createTestTip(sequence, sequence),
+			sequence,
+		)
 		item.SetValidation(true, "", nil, 0)
 		p.trackItem(item, 1)
 		items[sequence] = item
@@ -624,7 +656,11 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	if rejectedItem == nil {
 		t.Fatal("rejected item was not created")
 	}
-	require.Nil(t, rejectedItem.RawCbor(), "rejected item remains pipeline-owned")
+	require.Nil(
+		t,
+		rejectedItem.RawCbor(),
+		"rejected item remains pipeline-owned",
+	)
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
@@ -667,12 +703,14 @@ func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {
 				return nil
 			}, 0)
 			stage.SetRequireValidation(true)
-			stage.SetChainContextValidator(func(ctx context.Context, item *BlockItem) error {
-				if item.SequenceNumber() == 1 {
-					return test.validator(ctx, item)
-				}
-				return nil
-			})
+			stage.SetChainContextValidator(
+				func(ctx context.Context, item *BlockItem) error {
+					if item.SequenceNumber() == 1 {
+						return test.validator(ctx, item)
+					}
+					return nil
+				},
+			)
 			metrics := NewPipelineMetrics(1)
 			runner := NewApplyStageRunner(stage, input, output, errorChan, 0)
 			runner.SetMetrics(metrics)
@@ -706,7 +744,10 @@ func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {
 			}
 			select {
 			case item := <-output:
-				t.Fatalf("rejected sequence %d was forwarded", item.SequenceNumber())
+				t.Fatalf(
+					"rejected sequence %d was forwarded",
+					item.SequenceNumber(),
+				)
 			default:
 			}
 		})

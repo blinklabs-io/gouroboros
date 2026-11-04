@@ -218,7 +218,8 @@ func (s *messageScanner) scan(
 				return s.result(maxBytes), errors.New("unexpected CBOR break")
 			}
 			if !head.Indefinite && head.Argument > ^uint64(0)/2 {
-				return s.result(maxBytes), errors.New("CBOR map length overflows")
+				return s.result(maxBytes),
+					errors.New("CBOR map length overflows")
 			}
 			children := head.Argument * 2
 			if err := s.pushFrame(messageScanFrame{

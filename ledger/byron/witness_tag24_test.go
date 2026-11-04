@@ -27,7 +27,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func decodeSingleWitness(t *testing.T, data []byte) *byron.ByronTransactionWitnessSet {
+func decodeSingleWitness(
+	t *testing.T,
+	data []byte,
+) *byron.ByronTransactionWitnessSet {
 	t.Helper()
 	var v cbor.Value
 	require.NoError(t, v.UnmarshalCBOR(data))
@@ -71,21 +74,24 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 		assert.Equal(t, redeemSig, []byte(ws.Vkey()[0].Signature))
 	})
 
-	t.Run("constructor 3 is rejected: no such Byron TxInWitness variant", func(t *testing.T) {
-		// The reference TxInWitness sum type (Cardano.Chain.UTxO.TxWitness)
-		// has exactly two live constructors, VKWitness (0) and
-		// RedeemWitness (2). A four-field "bootstrap witness" shape under
-		// tag 3 belongs to the separate Shelley BootstrapWitness encoding
-		// used to spend legacy Byron UTxOs from a Shelley-era transaction,
-		// not to Byron's own TxInWitness, and must be rejected here.
-		inner, err := cbor.Encode([]any{vkKey, vkSig, chainCode, attrs})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(3), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"constructor 3 is rejected: no such Byron TxInWitness variant",
+		func(t *testing.T) {
+			// The reference TxInWitness sum type (Cardano.Chain.UTxO.TxWitness)
+			// has exactly two live constructors, VKWitness (0) and
+			// RedeemWitness (2). A four-field "bootstrap witness" shape under
+			// tag 3 belongs to the separate Shelley BootstrapWitness encoding
+			// used to spend legacy Byron UTxOs from a Shelley-era transaction,
+			// not to Byron's own TxInWitness, and must be rejected here.
+			inner, err := cbor.Encode([]any{vkKey, vkSig, chainCode, attrs})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(3), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
 	t.Run("untagged vk witness is rejected", func(t *testing.T) {
 		outer, err := cbor.Encode([]any{uint64(0), []any{vkKey, vkSig}})
@@ -133,55 +139,66 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 		assert.Empty(t, ws.Bootstrap())
 	})
 
-	t.Run("unknown constructor is rejected regardless of field count", func(t *testing.T) {
-		// A 2-field payload happens to match the VKey shape, and a
-		// 4-field payload happens to match the bootstrap shape, but an
-		// unrecognized constructor number must still be rejected: the
-		// reference TxInWitness sum type has no catch-all case.
-		twoFields, err := cbor.Encode([]any{vkKey, vkSig})
-		require.NoError(t, err)
-		outerTwo, err := cbor.Encode(
-			[]any{uint64(99), cbor.WrappedCbor(twoFields)},
-		)
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outerTwo)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
+	t.Run(
+		"unknown constructor is rejected regardless of field count",
+		func(t *testing.T) {
+			// A 2-field payload happens to match the VKey shape, and a
+			// 4-field payload happens to match the bootstrap shape, but an
+			// unrecognized constructor number must still be rejected: the
+			// reference TxInWitness sum type has no catch-all case.
+			twoFields, err := cbor.Encode([]any{vkKey, vkSig})
+			require.NoError(t, err)
+			outerTwo, err := cbor.Encode(
+				[]any{uint64(99), cbor.WrappedCbor(twoFields)},
+			)
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outerTwo)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
 
-		fourFields, err := cbor.Encode([]any{vkKey, vkSig, chainCode, attrs})
-		require.NoError(t, err)
-		outerFour, err := cbor.Encode(
-			[]any{uint64(99), cbor.WrappedCbor(fourFields)},
-		)
-		require.NoError(t, err)
-		ws = decodeSingleWitness(t, outerFour)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+			fourFields, err := cbor.Encode(
+				[]any{vkKey, vkSig, chainCode, attrs},
+			)
+			require.NoError(t, err)
+			outerFour, err := cbor.Encode(
+				[]any{uint64(99), cbor.WrappedCbor(fourFields)},
+			)
+			require.NoError(t, err)
+			ws = decodeSingleWitness(t, outerFour)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
-	t.Run("constructor 1 is rejected: ScriptWitness has no reachable decoder", func(t *testing.T) {
-		// ScriptWitness is a defined constructor in the reference sum type,
-		// but cardano-ledger has no decoder path that ever produces one on
-		// a real chain. It must be rejected the same as any other
-		// unrecognized constructor, not silently accepted or skipped.
-		inner, err := cbor.Encode([]any{vkKey, vkSig})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(1), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"constructor 1 is rejected: ScriptWitness has no reachable decoder",
+		func(t *testing.T) {
+			// ScriptWitness is a defined constructor in the reference sum type,
+			// but cardano-ledger has no decoder path that ever produces one on
+			// a real chain. It must be rejected the same as any other
+			// unrecognized constructor, not silently accepted or skipped.
+			inner, err := cbor.Encode([]any{vkKey, vkSig})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(1), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
-	t.Run("malformed constructor-0 field count is rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{vkKey})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-0 field count is rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{vkKey})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
 	t.Run("malformed constructor-0 field type is rejected", func(t *testing.T) {
 		// Both VKWitness fields are byte strings; a numeric field must be
@@ -205,37 +222,46 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 		assert.Empty(t, ws.Bootstrap())
 	})
 
-	t.Run("malformed constructor-0 short signature is rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{vkKey, shortSig})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-0 short signature is rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{vkKey, shortSig})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
-	t.Run("malformed constructor-0 redeem-length key is rejected", func(t *testing.T) {
-		// A 32-byte key is the correct length for RedeemWitness, not
-		// VKWitness: constructor-specific lengths must not cross over.
-		inner, err := cbor.Encode([]any{redeemKey, vkSig})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-0 redeem-length key is rejected",
+		func(t *testing.T) {
+			// A 32-byte key is the correct length for RedeemWitness, not
+			// VKWitness: constructor-specific lengths must not cross over.
+			inner, err := cbor.Encode([]any{redeemKey, vkSig})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(0), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
-	t.Run("malformed constructor-2 field count is rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{redeemKey, redeemSig, chainCode})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-2 field count is rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{redeemKey, redeemSig, chainCode})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
 	t.Run("malformed constructor-2 field type is rejected", func(t *testing.T) {
 		inner, err := cbor.Encode([]any{redeemKey, uint64(7)})
@@ -257,27 +283,33 @@ func TestByronWitnessRequiresTag24(t *testing.T) {
 		assert.Empty(t, ws.Bootstrap())
 	})
 
-	t.Run("malformed constructor-2 short signature is rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{redeemKey, shortSig})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-2 short signature is rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{redeemKey, shortSig})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 
-	t.Run("malformed constructor-2 vk-length key is rejected", func(t *testing.T) {
-		// A 64-byte key is the correct length for VKWitness, not
-		// RedeemWitness: constructor-specific lengths must not cross over.
-		inner, err := cbor.Encode([]any{vkKey, redeemSig})
-		require.NoError(t, err)
-		outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
-		require.NoError(t, err)
-		ws := decodeSingleWitness(t, outer)
-		assert.Empty(t, ws.Vkey())
-		assert.Empty(t, ws.Bootstrap())
-	})
+	t.Run(
+		"malformed constructor-2 vk-length key is rejected",
+		func(t *testing.T) {
+			// A 64-byte key is the correct length for VKWitness, not
+			// RedeemWitness: constructor-specific lengths must not cross over.
+			inner, err := cbor.Encode([]any{vkKey, redeemSig})
+			require.NoError(t, err)
+			outer, err := cbor.Encode([]any{uint64(2), cbor.WrappedCbor(inner)})
+			require.NoError(t, err)
+			ws := decodeSingleWitness(t, outer)
+			assert.Empty(t, ws.Vkey())
+			assert.Empty(t, ws.Bootstrap())
+		},
+	)
 }
 
 // encodeByronTransactionWithWitnesses builds a minimal but structurally
@@ -313,9 +345,21 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 		{"valid verification key witness", 0, validVKey, validSignature, false},
 		{"valid redeem key witness", 2, validRedeemKey, validSignature, false},
 		{"short verification key", 0, validRedeemKey, validSignature, true},
-		{"short verification key signature", 0, validVKey, []byte{5, 6, 7, 8}, true},
+		{
+			"short verification key signature",
+			0,
+			validVKey,
+			[]byte{5, 6, 7, 8},
+			true,
+		},
 		{"oversized redeem key", 2, validVKey, validSignature, true},
-		{"short redeem key signature", 2, validRedeemKey, []byte{5, 6, 7, 8}, true},
+		{
+			"short redeem key signature",
+			2,
+			validRedeemKey,
+			[]byte{5, 6, 7, 8},
+			true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -341,74 +385,95 @@ func TestByronTransactionRejectsInvalidWitness(t *testing.T) {
 	}
 
 	t.Run("untagged witness fails the whole transaction", func(t *testing.T) {
-		witness, err := cbor.Encode([]any{uint64(0), []any{validVKey, validSignature}})
-		require.NoError(t, err)
-		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
-		require.NoError(t, err)
-		var tx byron.ByronTransaction
-		require.Error(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
-	})
-
-	t.Run("unknown witness constructor fails the whole transaction", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{validVKey, validSignature})
-		require.NoError(t, err)
 		witness, err := cbor.Encode(
-			[]any{uint64(99), cbor.WrappedCbor(inner)},
+			[]any{uint64(0), []any{validVKey, validSignature}},
 		)
 		require.NoError(t, err)
 		twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
 		require.NoError(t, err)
 		var tx byron.ByronTransaction
-		require.Error(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)))
+		require.Error(
+			t,
+			tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)),
+		)
 	})
 
-	t.Run("valid witness plus a malformed extra witness fails the whole transaction", func(t *testing.T) {
-		// A transaction with one genuinely valid, required witness must
-		// still be rejected outright if it carries a second, unrecognized
-		// witness: the valid entry does not excuse the invalid one, and the
-		// two are hashed together in the witness proof regardless.
-		//
-		// Constructor 3 is included specifically (not just an arbitrary
-		// unknown value like 1 or 255, both of which the decoder already
-		// rejected before this change): it is the shape this change stops
-		// treating as a valid bootstrap witness, so this pins the
-		// transaction-level rejection to the actual behavior this change
-		// adds, not to a case that already passed beforehand.
-		for _, ctor := range []uint64{1, 3, 255} {
-			t.Run(fmt.Sprintf("constructor %d", ctor), func(t *testing.T) {
-				validInner, err := cbor.Encode(
-					[]any{validVKey, validSignature},
-				)
-				require.NoError(t, err)
-				validWitness, err := cbor.Encode(
-					[]any{uint64(0), cbor.WrappedCbor(validInner)},
-				)
-				require.NoError(t, err)
+	t.Run(
+		"unknown witness constructor fails the whole transaction",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{validVKey, validSignature})
+			require.NoError(t, err)
+			witness, err := cbor.Encode(
+				[]any{uint64(99), cbor.WrappedCbor(inner)},
+			)
+			require.NoError(t, err)
+			twit, err := cbor.Encode([]any{cbor.RawMessage(witness)})
+			require.NoError(t, err)
+			var tx byron.ByronTransaction
+			require.Error(
+				t,
+				tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)),
+			)
+		},
+	)
 
-				extraInner, err := cbor.Encode(
-					[]any{validVKey, validSignature, validVKey, validSignature},
-				)
-				require.NoError(t, err)
-				extraWitness, err := cbor.Encode(
-					[]any{ctor, cbor.WrappedCbor(extraInner)},
-				)
-				require.NoError(t, err)
+	t.Run(
+		"valid witness plus a malformed extra witness fails the whole transaction",
+		func(t *testing.T) {
+			// A transaction with one genuinely valid, required witness must
+			// still be rejected outright if it carries a second, unrecognized
+			// witness: the valid entry does not excuse the invalid one, and the
+			// two are hashed together in the witness proof regardless.
+			//
+			// Constructor 3 is included specifically (not just an arbitrary
+			// unknown value like 1 or 255, both of which the decoder already
+			// rejected before this change): it is the shape this change stops
+			// treating as a valid bootstrap witness, so this pins the
+			// transaction-level rejection to the actual behavior this change
+			// adds, not to a case that already passed beforehand.
+			for _, ctor := range []uint64{1, 3, 255} {
+				t.Run(fmt.Sprintf("constructor %d", ctor), func(t *testing.T) {
+					validInner, err := cbor.Encode(
+						[]any{validVKey, validSignature},
+					)
+					require.NoError(t, err)
+					validWitness, err := cbor.Encode(
+						[]any{uint64(0), cbor.WrappedCbor(validInner)},
+					)
+					require.NoError(t, err)
 
-				twit, err := cbor.Encode(
-					[]any{
-						cbor.RawMessage(validWitness),
-						cbor.RawMessage(extraWitness),
-					},
-				)
-				require.NoError(t, err)
-				var tx byron.ByronTransaction
-				require.Error(
-					t,
-					tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, twit)),
-				)
-			})
-		}
-	})
+					extraInner, err := cbor.Encode(
+						[]any{
+							validVKey,
+							validSignature,
+							validVKey,
+							validSignature,
+						},
+					)
+					require.NoError(t, err)
+					extraWitness, err := cbor.Encode(
+						[]any{ctor, cbor.WrappedCbor(extraInner)},
+					)
+					require.NoError(t, err)
+
+					twit, err := cbor.Encode(
+						[]any{
+							cbor.RawMessage(validWitness),
+							cbor.RawMessage(extraWitness),
+						},
+					)
+					require.NoError(t, err)
+					var tx byron.ByronTransaction
+					require.Error(
+						t,
+						tx.UnmarshalCBOR(
+							encodeByronTransactionWithWitnesses(t, twit),
+						),
+					)
+				})
+			}
+		},
+	)
 }
 
 func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
@@ -424,7 +489,9 @@ func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 			require.NoError(t, err)
-			verificationKey := append(append([]byte(nil), publicKey...), make([]byte, 32)...)
+			verificationKey := append(
+				append([]byte(nil), publicKey...),
+				make([]byte, 32)...)
 			if test.constructor == 2 {
 				verificationKey = publicKey
 			}
@@ -454,7 +521,12 @@ func TestByronTransactionValidatesDomainSeparatedVKeyWitnesses(t *testing.T) {
 			witnesses, err := cbor.Encode([]cbor.RawMessage{witness})
 			require.NoError(t, err)
 			var tx byron.ByronTransaction
-			require.NoError(t, tx.UnmarshalCBOR(encodeByronTransactionWithWitnesses(t, witnesses)))
+			require.NoError(
+				t,
+				tx.UnmarshalCBOR(
+					encodeByronTransactionWithWitnesses(t, witnesses),
+				),
+			)
 			require.NoError(t, tx.ValidateVKeyWitnesses(protocolMagic))
 			require.Error(t, tx.ValidateVKeyWitnesses(protocolMagic+1))
 		})
@@ -519,26 +591,36 @@ func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
 		require.Error(t, mod.UnmarshalCBOR(data))
 	})
 
-	t.Run("trailing bytes after nested TxSizeLinear are rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
-		require.NoError(t, err)
-		withTrailingGarbage := append(append([]byte{}, inner...), 0xFF, 0xFF)
-		policy := []any{uint64(0), cbor.WrappedCbor(withTrailingGarbage)}
-		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
-		require.NoError(t, err)
-		var mod byron.ByronUpdateProposalBlockVersionMod
-		require.Error(t, mod.UnmarshalCBOR(data))
-	})
+	t.Run(
+		"trailing bytes after nested TxSizeLinear are rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{uint64(100), uint64(200)})
+			require.NoError(t, err)
+			withTrailingGarbage := append(
+				append([]byte{}, inner...),
+				0xFF,
+				0xFF,
+			)
+			policy := []any{uint64(0), cbor.WrappedCbor(withTrailingGarbage)}
+			data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+			require.NoError(t, err)
+			var mod byron.ByronUpdateProposalBlockVersionMod
+			require.Error(t, mod.UnmarshalCBOR(data))
+		},
+	)
 
-	t.Run("nested TxSizeLinear with wrong element count is rejected", func(t *testing.T) {
-		inner, err := cbor.Encode([]any{uint64(100)})
-		require.NoError(t, err)
-		policy := []any{uint64(0), cbor.WrappedCbor(inner)}
-		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
-		require.NoError(t, err)
-		var mod byron.ByronUpdateProposalBlockVersionMod
-		require.Error(t, mod.UnmarshalCBOR(data))
-	})
+	t.Run(
+		"nested TxSizeLinear with wrong element count is rejected",
+		func(t *testing.T) {
+			inner, err := cbor.Encode([]any{uint64(100)})
+			require.NoError(t, err)
+			policy := []any{uint64(0), cbor.WrappedCbor(inner)}
+			data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+			require.NoError(t, err)
+			var mod byron.ByronUpdateProposalBlockVersionMod
+			require.Error(t, mod.UnmarshalCBOR(data))
+		},
+	)
 
 	t.Run("unknown policy constructor is rejected", func(t *testing.T) {
 		// The reference TxFeePolicy sum type has a single constructor
@@ -554,17 +636,22 @@ func TestByronUpdateProposalTxFeePolicyRequiresTag24(t *testing.T) {
 		require.Error(t, mod.UnmarshalCBOR(data))
 	})
 
-	t.Run("nested TxSizeLinear with non-numeric field is rejected", func(t *testing.T) {
-		// Both TxSizeLinear fields are Nano (numeric) values; a
-		// two-element payload where a field holds an arbitrary CBOR
-		// value (here, a nested array) must be rejected rather than
-		// accepted because the element count matches.
-		inner, err := cbor.Encode([]any{[]any{uint64(1), uint64(2)}, uint64(200)})
-		require.NoError(t, err)
-		policy := []any{uint64(0), cbor.WrappedCbor(inner)}
-		data, err := cbor.Encode(blockVersionModFields([]any{policy}))
-		require.NoError(t, err)
-		var mod byron.ByronUpdateProposalBlockVersionMod
-		require.Error(t, mod.UnmarshalCBOR(data))
-	})
+	t.Run(
+		"nested TxSizeLinear with non-numeric field is rejected",
+		func(t *testing.T) {
+			// Both TxSizeLinear fields are Nano (numeric) values; a
+			// two-element payload where a field holds an arbitrary CBOR
+			// value (here, a nested array) must be rejected rather than
+			// accepted because the element count matches.
+			inner, err := cbor.Encode(
+				[]any{[]any{uint64(1), uint64(2)}, uint64(200)},
+			)
+			require.NoError(t, err)
+			policy := []any{uint64(0), cbor.WrappedCbor(inner)}
+			data, err := cbor.Encode(blockVersionModFields([]any{policy}))
+			require.NoError(t, err)
+			var mod byron.ByronUpdateProposalBlockVersionMod
+			require.Error(t, mod.UnmarshalCBOR(data))
+		},
+	)
 }

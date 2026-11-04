@@ -47,20 +47,26 @@ func benchCertificate(
 		var public bls12381.G2Affine
 		public.ScalarMultiplicationBase(secret)
 		encodedPublic := public.Bytes()
-		proofHash, err := bls12381.HashToG1(encodedPublic[:], []byte(leiosProofDST))
+		proofHash, err := bls12381.HashToG1(
+			encodedPublic[:],
+			[]byte(leiosProofDST),
+		)
 		if err != nil {
 			b.Fatal(err)
 		}
 		var proof bls12381.G1Affine
 		proof.ScalarMultiplication(&proofHash, secret)
 		encodedProof := proof.Bytes()
-		context.Committee = append(context.Committee, common.DijkstraLeiosCommitteeMember{
-			Stake: 1,
-			Key: &common.LeiosKey{
-				PublicKey:       encodedPublic[:],
-				PossessionProof: encodedProof[:],
+		context.Committee = append(
+			context.Committee,
+			common.DijkstraLeiosCommitteeMember{
+				Stake: 1,
+				Key: &common.LeiosKey{
+					PublicKey:       encodedPublic[:],
+					PossessionProof: encodedProof[:],
+				},
 			},
-		})
+		)
 		var signature bls12381.G1Affine
 		signature.ScalarMultiplication(&hash, secret)
 		var sigJac bls12381.G1Jac

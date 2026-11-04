@@ -206,7 +206,11 @@ func TestVerifyTransactionDijkstraMalformedReferenceScriptOutputs(
 			}
 			var target common.MalformedReferenceScriptsError
 			require.ErrorAs(t, err, &target)
-			require.Equal(t, []common.ScriptHash{malformed.Hash()}, target.ScriptHashes)
+			require.Equal(
+				t,
+				[]common.ScriptHash{malformed.Hash()},
+				target.ScriptHashes,
+			)
 		})
 	}
 }

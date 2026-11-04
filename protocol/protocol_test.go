@@ -82,7 +82,11 @@ func TestInitialStateTimeoutOptIn(t *testing.T) {
 				select {
 				case err := <-errorChan:
 					require.NotNil(t, err)
-					require.Contains(t, err.Error(), "timeout waiting on transition")
+					require.Contains(
+						t,
+						err.Error(),
+						"timeout waiting on transition",
+					)
 				case <-time.After(time.Second):
 					t.Fatal("initial timeout was not enforced")
 				}
@@ -99,13 +103,19 @@ func TestInitialStateTimeoutOptIn(t *testing.T) {
 
 func TestSubsequentStateTimeoutRemainsActive(t *testing.T) {
 	for _, initialStateTimeout := range []bool{false, true} {
-		t.Run(fmt.Sprintf("initial timeout enabled=%t", initialStateTimeout), func(t *testing.T) {
-			testSubsequentStateTimeoutRemainsActive(t, initialStateTimeout)
-		})
+		t.Run(
+			fmt.Sprintf("initial timeout enabled=%t", initialStateTimeout),
+			func(t *testing.T) {
+				testSubsequentStateTimeoutRemainsActive(t, initialStateTimeout)
+			},
+		)
 	}
 }
 
-func testSubsequentStateTimeoutRemainsActive(t *testing.T, initialStateTimeout bool) {
+func testSubsequentStateTimeoutRemainsActive(
+	t *testing.T,
+	initialStateTimeout bool,
+) {
 	serverConn, peerConn := net.Pipe()
 	defer serverConn.Close()
 	defer peerConn.Close()
@@ -445,34 +455,48 @@ func TestIsDone(t *testing.T) {
 		},
 	}
 
-	t.Run("returns false when protocol is active and in working state", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateWorking,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns false when protocol is active and in working state",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateWorking,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		require.False(t, p.IsDone(), "IsDone() should return false when in a non-terminal working state")
-	})
+			require.False(
+				t,
+				p.IsDone(),
+				"IsDone() should return false when in a non-terminal working state",
+			)
+		},
+	)
 
-	t.Run("returns false when in initial state (for client Stop behavior)", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateIdle,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns false when in initial state (for client Stop behavior)",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateIdle,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		// IsDone should return false for initial state - client Stop() should still send Done
-		require.False(t, p.IsDone(), "IsDone() should return false when in initial state (client needs to send Done)")
-	})
+			// IsDone should return false for initial state - client Stop() should still send Done
+			require.False(
+				t,
+				p.IsDone(),
+				"IsDone() should return false when in initial state (client needs to send Done)",
+			)
+		},
+	)
 
 	t.Run("returns true when done channel is closed", func(t *testing.T) {
 		doneChan := make(chan struct{})
@@ -487,40 +511,59 @@ func TestIsDone(t *testing.T) {
 
 		close(doneChan)
 
-		require.True(t, p.IsDone(), "IsDone() should return true when doneChan is closed")
+		require.True(
+			t,
+			p.IsDone(),
+			"IsDone() should return true when doneChan is closed",
+		)
 	})
 
-	t.Run("returns true when in AgencyNone state (Done state)", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateDone,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns true when in AgencyNone state (Done state)",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateDone,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		require.True(t, p.IsDone(), "IsDone() should return true when in AgencyNone (Done) state")
-	})
+			require.True(
+				t,
+				p.IsDone(),
+				"IsDone() should return true when in AgencyNone (Done) state",
+			)
+		},
+	)
 
-	t.Run("returns true consistently after done channel closed", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateWorking,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns true consistently after done channel closed",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateWorking,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		close(doneChan)
+			close(doneChan)
 
-		for i := range 3 {
-			require.True(t, p.IsDone(), "IsDone() call %d should return true", i+1)
-		}
-	})
+			for i := range 3 {
+				require.True(
+					t,
+					p.IsDone(),
+					"IsDone() call %d should return true",
+					i+1,
+				)
+			}
+		},
+	)
 }
 
 func TestIsInTerminalOrIdleState(t *testing.T) {
@@ -540,19 +583,26 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 		},
 	}
 
-	t.Run("returns false when protocol is active and in working state", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateWorking,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns false when protocol is active and in working state",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateWorking,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		require.False(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return false when in a non-terminal working state")
-	})
+			require.False(
+				t,
+				p.IsInTerminalOrIdleState(),
+				"IsInTerminalOrIdleState() should return false when in a non-terminal working state",
+			)
+		},
+	)
 
 	t.Run("returns true when done channel is closed", func(t *testing.T) {
 		doneChan := make(chan struct{})
@@ -567,36 +617,54 @@ func TestIsInTerminalOrIdleState(t *testing.T) {
 
 		close(doneChan)
 
-		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when doneChan is closed")
+		require.True(
+			t,
+			p.IsInTerminalOrIdleState(),
+			"IsInTerminalOrIdleState() should return true when doneChan is closed",
+		)
 	})
 
-	t.Run("returns true when in AgencyNone state (Done state)", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateDone,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns true when in AgencyNone state (Done state)",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateDone,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when in AgencyNone (Done) state")
-	})
+			require.True(
+				t,
+				p.IsInTerminalOrIdleState(),
+				"IsInTerminalOrIdleState() should return true when in AgencyNone (Done) state",
+			)
+		},
+	)
 
-	t.Run("returns true when in initial state (no messages exchanged)", func(t *testing.T) {
-		doneChan := make(chan struct{})
-		p := &Protocol{
-			doneChan:     doneChan,
-			currentState: stateIdle,
-			config: ProtocolConfig{
-				InitialState: stateIdle,
-				StateMap:     stateMap,
-			},
-		}
+	t.Run(
+		"returns true when in initial state (no messages exchanged)",
+		func(t *testing.T) {
+			doneChan := make(chan struct{})
+			p := &Protocol{
+				doneChan:     doneChan,
+				currentState: stateIdle,
+				config: ProtocolConfig{
+					InitialState: stateIdle,
+					StateMap:     stateMap,
+				},
+			}
 
-		require.True(t, p.IsInTerminalOrIdleState(), "IsInTerminalOrIdleState() should return true when in initial state (no messages exchanged)")
-	})
+			require.True(
+				t,
+				p.IsInTerminalOrIdleState(),
+				"IsInTerminalOrIdleState() should return true when in initial state (no messages exchanged)",
+			)
+		},
+	)
 }
 
 // TestReadLoopDrainRespectsMaxBufferSize is the regression test for a real
@@ -679,8 +747,15 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 	select {
 	case err := <-errorChan:
 		require.ErrorContains(t, err, "read buffer exceeded maximum size")
-		matches := regexp.MustCompile(`\((\d+) bytes\)`).FindStringSubmatch(err.Error())
-		require.Len(t, matches, 2, "expected the error to report a byte count: %v", err)
+		matches := regexp.MustCompile(`\((\d+) bytes\)`).
+			FindStringSubmatch(err.Error())
+		require.Len(
+			t,
+			matches,
+			2,
+			"expected the error to report a byte count: %v",
+			err,
+		)
 		reportedSize, parseErr := strconv.Atoi(matches[1])
 		require.NoError(t, parseErr)
 		// The fix checks after every single write inside the drain loop,
@@ -1018,10 +1093,20 @@ func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
 	m.RaiseReadBufferBudget(8192)
 	// A complete 1000-byte message precedes a 3000-byte prefix of a
 	// second message, leaving the original 4000-byte allocation retained.
-	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
-	tail := append([]byte{0x82, 0, 0x59, 0x0f, 0xa0}, bytes.Repeat([]byte{2}, 2995)...)
+	first := append(
+		[]byte{0x82, 0, 0x59, 0x03, 0xe3},
+		bytes.Repeat([]byte{1}, 995)...)
+	tail := append(
+		[]byte{0x82, 0, 0x59, 0x0f, 0xa0},
+		bytes.Repeat([]byte{2}, 2995)...)
 	payload := append(first, tail...)
-	p := newBudgetTestProtocol(t, m, "retained", 8192, []*muxer.Segment{muxer.NewSegment(0, payload, false)})
+	p := newBudgetTestProtocol(
+		t,
+		m,
+		"retained",
+		8192,
+		[]*muxer.Segment{muxer.NewSegment(0, payload, false)},
+	)
 	p.proto.recvQueueChan = make(chan inboundMessage, 1)
 	p.proto.config.MessageFromCborFunc = func(uint, []byte) (Message, error) { return &MessageBase{}, nil }
 	done := make(chan struct{})
@@ -1034,7 +1119,12 @@ func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("first message was not delivered")
 	}
-	require.Eventually(t, func() bool { return m.ReadBufferInUse() == 4000 }, time.Second, time.Millisecond)
+	require.Eventually(
+		t,
+		func() bool { return m.ReadBufferInUse() == 4000 },
+		time.Second,
+		time.Millisecond,
+	)
 	require.Equal(t, 4000, m.ReadBufferInUse())
 }
 
@@ -1044,12 +1134,22 @@ func TestReadLoopAccountsGrownCapacityAfterDelivery(t *testing.T) {
 	m := muxer.New(localConn)
 	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
 	m.RaiseReadBufferBudget(8192)
-	first := append([]byte{0x82, 0, 0x59, 0x03, 0xe3}, bytes.Repeat([]byte{1}, 995)...)
-	secondPrefix := append([]byte{0x82, 0, 0x59, 0x13, 0x83}, bytes.Repeat([]byte{2}, 2995)...)
+	first := append(
+		[]byte{0x82, 0, 0x59, 0x03, 0xe3},
+		bytes.Repeat([]byte{1}, 995)...)
+	secondPrefix := append(
+		[]byte{0x82, 0, 0x59, 0x13, 0x83},
+		bytes.Repeat([]byte{2}, 2995)...)
 	initial := append(first, secondPrefix...)
 	segment := muxer.NewSegment(0, initial, false)
 	require.NotNil(t, segment)
-	p := newBudgetTestProtocol(t, m, "grown-retained", 8192, []*muxer.Segment{segment})
+	p := newBudgetTestProtocol(
+		t,
+		m,
+		"grown-retained",
+		8192,
+		[]*muxer.Segment{segment},
+	)
 	p.proto.recvQueueChan = make(chan inboundMessage, 1)
 	decodeStarted := make(chan struct{})
 	finishDecode := make(chan struct{})
@@ -1093,5 +1193,10 @@ func TestReadLoopAccountsGrownCapacityAfterDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("completed second message was not decoded")
 	}
-	require.Equal(t, 8000, m.ReadBufferInUse(), "reservation must include grown backing capacity")
+	require.Equal(
+		t,
+		8000,
+		m.ReadBufferInUse(),
+		"reservation must include grown backing capacity",
+	)
 }

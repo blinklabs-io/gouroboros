@@ -93,10 +93,15 @@ func TestUtxoValidateOutsideForecast(t *testing.T) {
 				builder.WithTTL(upperBound)
 			}
 			if tc.redeemers {
-				redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-					{Tag: common.RedeemerTagSpend, Index: 0}: {},
-				}}
-				builder.WithWitnesses(mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers))
+				redeemers := conway.ConwayRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagSpend, Index: 0}: {},
+					},
+				}
+				builder.WithWitnesses(
+					mockledger.NewMockTransactionWitnessSet().
+						WithRedeemers(redeemers),
+				)
 			}
 			tx, err := builder.Build()
 			require.NoError(t, err)
@@ -139,20 +144,33 @@ func TestValidateOutsideForecast(t *testing.T) {
 		witnesses := alonzo.AlonzoTransactionWitnessSet{}
 		if withRedeemer {
 			witnesses.WsRedeemers = alonzo.AlonzoRedeemers{
-				Redeemers: []alonzo.AlonzoRedeemer{{Tag: common.RedeemerTagSpend}},
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{Tag: common.RedeemerTagSpend},
+				},
 			}
 		}
-		return &alonzo.AlonzoTransaction{Body: body, WitnessSet: witnesses, TxIsValid: isValid}
+		return &alonzo.AlonzoTransaction{
+			Body:       body,
+			WitnessSet: witnesses,
+			TxIsValid:  isValid,
+		}
 	}
 
 	for _, isValid := range []bool{true, false} {
-		t.Run(map[bool]string{true: "valid", false: "invalid"}[isValid], func(t *testing.T) {
-			err := common.ValidateOutsideForecast(newTx(isValid, true, true), 1, state,
-				common.OutsideForecastTypeAlonzoBabbage)
-			var outsideForecast *common.OutsideForecastError
-			require.ErrorAs(t, err, &outsideForecast)
-			require.Equal(t, upper, outsideForecast.Slot)
-		})
+		t.Run(
+			map[bool]string{true: "valid", false: "invalid"}[isValid],
+			func(t *testing.T) {
+				err := common.ValidateOutsideForecast(
+					newTx(isValid, true, true),
+					1,
+					state,
+					common.OutsideForecastTypeAlonzoBabbage,
+				)
+				var outsideForecast *common.OutsideForecastError
+				require.ErrorAs(t, err, &outsideForecast)
+				require.Equal(t, upper, outsideForecast.Slot)
+			},
+		)
 	}
 	for _, tc := range []struct {
 		name            string
@@ -492,7 +510,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			certificateType: common.CertificateTypeStakeRegistration,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.StakeRegistrationCertificate{
-					CertType:        uint(common.CertificateTypeStakeRegistration),
+					CertType: uint(
+						common.CertificateTypeStakeRegistration,
+					),
 					StakeCredential: credential,
 				}
 			},
@@ -503,7 +523,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.StakeDeregistrationCertificate{
-					CertType:        uint(common.CertificateTypeStakeDeregistration),
+					CertType: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
 					StakeCredential: credential,
 				}
 			},
@@ -514,7 +536,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.StakeDelegationCertificate{
-					CertType:        uint(common.CertificateTypeStakeDelegation),
+					CertType: uint(
+						common.CertificateTypeStakeDelegation,
+					),
 					StakeCredential: &credential,
 				}
 			},
@@ -560,7 +584,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.StakeVoteDelegationCertificate{
-					CertType:        uint(common.CertificateTypeStakeVoteDelegation),
+					CertType: uint(
+						common.CertificateTypeStakeVoteDelegation,
+					),
 					StakeCredential: credential,
 				}
 			},
@@ -610,7 +636,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.AuthCommitteeHotCertificate{
-					CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+					CertType: uint(
+						common.CertificateTypeAuthCommitteeHot,
+					),
 					ColdCredential: credential,
 				}
 			},
@@ -621,7 +649,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.ResignCommitteeColdCertificate{
-					CertType:       uint(common.CertificateTypeResignCommitteeCold),
+					CertType: uint(
+						common.CertificateTypeResignCommitteeCold,
+					),
 					ColdCredential: credential,
 				}
 			},
@@ -632,7 +662,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.RegistrationDrepCertificate{
-					CertType:       uint(common.CertificateTypeRegistrationDrep),
+					CertType: uint(
+						common.CertificateTypeRegistrationDrep,
+					),
 					DrepCredential: credential,
 				}
 			},
@@ -643,7 +675,9 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			requiresWitness: true,
 			certificate: func(credential common.Credential) common.Certificate {
 				return &common.DeregistrationDrepCertificate{
-					CertType:       uint(common.CertificateTypeDeregistrationDrep),
+					CertType: uint(
+						common.CertificateTypeDeregistrationDrep,
+					),
 					DrepCredential: credential,
 				}
 			},
@@ -678,7 +712,12 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 					testAuthorizationVkeyWitness([]byte("unrelated-key")),
 				),
 			)
-			err := conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, ledgerState, nil)
+			err := conway.UtxoValidateRequiredVKeyWitnesses(
+				tx,
+				0,
+				ledgerState,
+				nil,
+			)
 			if testCase.requiresWitness {
 				require.ErrorAs(
 					t,
@@ -695,7 +734,12 @@ func TestCertificateAuthorizationCompleteness(t *testing.T) {
 			)
 			require.NoError(
 				t,
-				conway.UtxoValidateRequiredVKeyWitnesses(tx, 0, ledgerState, nil),
+				conway.UtxoValidateRequiredVKeyWitnesses(
+					tx,
+					0,
+					ledgerState,
+					nil,
+				),
 			)
 		})
 
@@ -769,26 +813,39 @@ func TestPoolAndGenesisCertificateAuthorization(t *testing.T) {
 		},
 	}
 	for omitted := range authors {
-		t.Run("pool registration missing "+authors[omitted].name, func(t *testing.T) {
-			witnesses := mockledger.NewMockTransactionWitnessSet()
-			for index, author := range authors {
-				if index != omitted {
-					witnesses.WithVkeyWitnesses(
-						testAuthorizationVkeyWitness(author.vkey),
-					)
+		t.Run(
+			"pool registration missing "+authors[omitted].name,
+			func(t *testing.T) {
+				witnesses := mockledger.NewMockTransactionWitnessSet()
+				for index, author := range authors {
+					if index != omitted {
+						witnesses.WithVkeyWitnesses(
+							testAuthorizationVkeyWitness(author.vkey),
+						)
+					}
 				}
-			}
-			tx := mockledger.NewTransactionBuilder().
-				WithCertificates(pool).
-				WithWitnesses(witnesses)
-			var missing common.MissingRequiredVKeyWitnessForSignerError
-			require.ErrorAs(t, common.ValidateRequiredVKeyWitnesses(tx), &missing)
-			require.Equal(t, common.Blake2b224Hash(authors[omitted].vkey), missing.Signer)
-		})
+				tx := mockledger.NewTransactionBuilder().
+					WithCertificates(pool).
+					WithWitnesses(witnesses)
+				var missing common.MissingRequiredVKeyWitnessForSignerError
+				require.ErrorAs(
+					t,
+					common.ValidateRequiredVKeyWitnesses(tx),
+					&missing,
+				)
+				require.Equal(
+					t,
+					common.Blake2b224Hash(authors[omitted].vkey),
+					missing.Signer,
+				)
+			},
+		)
 	}
 	allWitnesses := mockledger.NewMockTransactionWitnessSet()
 	for _, author := range authors {
-		allWitnesses.WithVkeyWitnesses(testAuthorizationVkeyWitness(author.vkey))
+		allWitnesses.WithVkeyWitnesses(
+			testAuthorizationVkeyWitness(author.vkey),
+		)
 	}
 	require.NoError(t, common.ValidateRequiredVKeyWitnesses(
 		mockledger.NewTransactionBuilder().
@@ -798,8 +855,10 @@ func TestPoolAndGenesisCertificateAuthorization(t *testing.T) {
 
 	t.Run("pool retirement requires pool key", func(t *testing.T) {
 		cert := &common.PoolRetirementCertificate{
-			CertType:    uint(common.CertificateTypePoolRetirement),
-			PoolKeyHash: common.PoolKeyHash(common.Blake2b224Hash(operatorVkey)),
+			CertType: uint(common.CertificateTypePoolRetirement),
+			PoolKeyHash: common.PoolKeyHash(
+				common.Blake2b224Hash(operatorVkey),
+			),
 		}
 		tx := mockledger.NewTransactionBuilder().WithCertificates(cert)
 		require.Error(t, common.ValidateRequiredVKeyWitnesses(tx))
@@ -815,7 +874,9 @@ func TestPoolAndGenesisCertificateAuthorization(t *testing.T) {
 		genesisVkey := []byte("genesis-source-key")
 		delegateVkey := []byte("genesis-delegate-target")
 		cert := &common.GenesisKeyDelegationCertificate{
-			CertType:            uint(common.CertificateTypeGenesisKeyDelegation),
+			CertType: uint(
+				common.CertificateTypeGenesisKeyDelegation,
+			),
 			GenesisHash:         common.Blake2b224Hash(genesisVkey).Bytes(),
 			GenesisDelegateHash: common.Blake2b224Hash(delegateVkey).Bytes(),
 		}
@@ -855,8 +916,16 @@ func TestVoterAuthorizationCompleteness(t *testing.T) {
 		voterType  uint8
 		scriptForm bool
 	}{
-		{"committee hot key", common.VoterTypeConstitutionalCommitteeHotKeyHash, false},
-		{"committee hot script", common.VoterTypeConstitutionalCommitteeHotScriptHash, true},
+		{
+			"committee hot key",
+			common.VoterTypeConstitutionalCommitteeHotKeyHash,
+			false,
+		},
+		{
+			"committee hot script",
+			common.VoterTypeConstitutionalCommitteeHotScriptHash,
+			true,
+		},
 		{"DRep key", common.VoterTypeDRepKeyHash, false},
 		{"DRep script", common.VoterTypeDRepScriptHash, true},
 		{"stake pool key", common.VoterTypeStakingPoolKeyHash, false},
@@ -945,10 +1014,13 @@ func TestScriptAuthorizationRequiresExactRedeemerPurpose(t *testing.T) {
 		&common.DeregistrationCertificate{StakeCredential: credential},
 		&common.UpdateDrepCertificate{DrepCredential: credential},
 	}
-	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-		{Tag: common.RedeemerTagCert, Index: 0}: {},
-	}}
-	witnesses := mockledger.NewMockTransactionWitnessSet().WithRedeemers(redeemers)
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagCert, Index: 0}: {},
+		},
+	}
+	witnesses := mockledger.NewMockTransactionWitnessSet().
+		WithRedeemers(redeemers)
 	tx := mockledger.NewTransactionBuilder().
 		WithCertificates(certificates...).
 		WithReferenceInputs(utxo.Id).
@@ -1061,9 +1133,11 @@ func TestVoterScriptAuthorizationRequiresExactRedeemerPurpose(t *testing.T) {
 	committeeKey.Hash[0] = 0x42
 	drepScript := &common.Voter{Type: common.VoterTypeDRepScriptHash}
 	copy(drepScript.Hash[:], scriptHash[:])
-	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-		{Tag: common.RedeemerTagVoting, Index: 0}: {},
-	}}
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagVoting, Index: 0}: {},
+		},
+	}
 	tx := mockledger.NewTransactionBuilder().
 		WithVotingProcedures(common.VotingProcedures{
 			committeeScript: {},
@@ -1103,9 +1177,11 @@ func TestNativeScriptAuthorizationRejectsRedeemer(t *testing.T) {
 		CredType:   common.CredentialTypeScriptHash,
 		Credential: common.Blake2b224(native.Hash()),
 	}
-	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-		{Tag: common.RedeemerTagCert, Index: 0}: {},
-	}}
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagCert, Index: 0}: {},
+		},
+	}
 	tx := mockledger.NewTransactionBuilder().
 		WithCertificates(&common.DeregistrationCertificate{StakeCredential: credential}).
 		WithWitnesses(
@@ -1201,9 +1277,11 @@ func TestMalformedAuthorizationSubjectsFailClosed(t *testing.T) {
 		{
 			name: "invalid credential tag",
 			tx: mockledger.NewTransactionBuilder().WithCertificates(
-				&common.DeregistrationCertificate{StakeCredential: common.Credential{
-					CredType: 2,
-				}},
+				&common.DeregistrationCertificate{
+					StakeCredential: common.Credential{
+						CredType: 2,
+					},
+				},
 			),
 		},
 		{
@@ -1299,21 +1377,27 @@ func TestEncodeLangViews(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("rejects_unsupported_versions_without_cost_model", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{4: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_unsupported_versions_without_cost_model",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{4: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
-	t.Run("rejects_missing_cost_model_for_supported_version", func(t *testing.T) {
-		_, err := common.EncodeLangViews(
-			map[uint]struct{}{2: {}},
-			map[uint][]int64{},
-		)
-		require.Error(t, err)
-	})
+	t.Run(
+		"rejects_missing_cost_model_for_supported_version",
+		func(t *testing.T) {
+			_, err := common.EncodeLangViews(
+				map[uint]struct{}{2: {}},
+				map[uint][]int64{},
+			)
+			require.Error(t, err)
+		},
+	)
 
 	// Forward-compat for PV11 (vanRossem) and later: cost models may grow as
 	// new Plutus builtins are added. The langview hash is part of
@@ -1601,7 +1685,11 @@ func TestVerifyTransactionUnwrapsOptionalLedgerStateCapabilities(t *testing.T) {
 			) error {
 				called = true
 				_, ok := common.UnwrapLedgerState(ledgerState).(common.GenesisDelegationState)
-				require.True(t, ok, "unwrapped state must retain optional capabilities")
+				require.True(
+					t,
+					ok,
+					"unwrapped state must retain optional capabilities",
+				)
 				return nil
 			},
 		},
@@ -1826,17 +1914,20 @@ func TestValidateExtraneousRedeemers_Common(t *testing.T) {
 		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
 	})
 
-	t.Run("zero index is out of range for an empty collection", func(t *testing.T) {
-		tx := &conway.ConwayTransaction{}
-		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
-			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-				{Tag: common.RedeemerTagSpend}: {},
-			},
-		}
-		err := common.ValidateExtraneousRedeemers(tx)
-		require.Error(t, err)
-		require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
-	})
+	t.Run(
+		"zero index is out of range for an empty collection",
+		func(t *testing.T) {
+			tx := &conway.ConwayTransaction{}
+			tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend}: {},
+				},
+			}
+			err := common.ValidateExtraneousRedeemers(tx)
+			require.Error(t, err)
+			require.ErrorAs(t, err, &common.ExtraneousRedeemerError{})
+		},
+	)
 
 	t.Run("proposing index out of range", func(t *testing.T) {
 		tx := &conway.ConwayTransaction{Body: baseBody()}
@@ -2024,18 +2115,29 @@ func TestValidateMIRGenesisQuorum(t *testing.T) {
 		))
 	})
 
-	t.Run("ledger state without the capability fails closed", func(t *testing.T) {
-		err := common.ValidateMIRGenesisQuorum(
-			mirTransaction(delegateA, delegateB),
-			0,
-			mockledger.NewLedgerStateBuilder().Build(),
-		)
-		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
-	})
+	t.Run(
+		"ledger state without the capability fails closed",
+		func(t *testing.T) {
+			err := common.ValidateMIRGenesisQuorum(
+				mirTransaction(delegateA, delegateB),
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+			)
+			require.ErrorAs(
+				t,
+				err,
+				&common.GenesisDelegationStateUnavailableError{},
+			)
+		},
+	)
 
 	t.Run("nil ledger state fails closed", func(t *testing.T) {
 		err := common.ValidateMIRGenesisQuorum(mirTransaction(), 0, nil)
-		require.ErrorAs(t, err, &common.GenesisDelegationStateUnavailableError{})
+		require.ErrorAs(
+			t,
+			err,
+			&common.GenesisDelegationStateUnavailableError{},
+		)
 	})
 
 	t.Run("no genesis delegate witnesses is rejected", func(t *testing.T) {

@@ -288,7 +288,9 @@ func TestConwayTransactionBodyRejectsIndefiniteVotingProcedure(t *testing.T) {
 	)
 }
 
-func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testing.T) {
+func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(
+	t *testing.T,
+) {
 	base := map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0)}
 	for _, key := range []uint{0, 1, 2} {
 		t.Run(fmt.Sprintf("missing_%d", key), func(t *testing.T) {
@@ -308,7 +310,11 @@ func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testin
 			encoded, err := cbor.Encode(fields)
 			require.NoError(t, err)
 			var body ConwayTransactionBody
-			require.ErrorContains(t, body.UnmarshalCBOR(encoded), "must not be null")
+			require.ErrorContains(
+				t,
+				body.UnmarshalCBOR(encoded),
+				"must not be null",
+			)
 		})
 	}
 	for _, key := range []uint{4, 5, 9, 13, 14, 18, 20} {
@@ -338,13 +344,22 @@ func TestConwayTransactionBodyRequiresFieldsAndRejectsEmptyCollections(t *testin
 	encoded, err := cbor.Encode(base)
 	require.NoError(t, err)
 	var body ConwayTransactionBody
-	require.NoError(t, body.UnmarshalCBOR(encoded), "present empty outputs are legal")
+	require.NoError(
+		t,
+		body.UnmarshalCBOR(encoded),
+		"present empty outputs are legal",
+	)
 }
 
 func TestConwayTransactionBodyRequiresPositiveTreasuryDonation(t *testing.T) {
 	for _, donation := range []uint64{0, 1, math.MaxUint64} {
 		t.Run(fmt.Sprintf("donation_%d", donation), func(t *testing.T) {
-			fields := map[uint]any{0: []any{}, 1: []any{}, 2: uint64(0), 22: donation}
+			fields := map[uint]any{
+				0:  []any{},
+				1:  []any{},
+				2:  uint64(0),
+				22: donation,
+			}
 			encoded, err := cbor.Encode(fields)
 			require.NoError(t, err)
 			var body ConwayTransactionBody
@@ -589,7 +604,9 @@ func TestConwayTransactionBodyRejectsDuplicateTaggedInputs(t *testing.T) {
 	assert.ErrorContains(t, err, "duplicate member in set")
 }
 
-func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(t *testing.T) {
+func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(
+	t *testing.T,
+) {
 	encoded, err := cbor.Encode(map[uint]any{
 		0: []any{}, 1: []any{}, 2: uint64(0), 21: int64(-1),
 	})
@@ -603,7 +620,9 @@ func TestConwayTransactionBodyRejectsNegativeCurrentTreasuryValue(t *testing.T) 
 	)
 }
 
-func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(t *testing.T) {
+func TestConwayTransactionBodyAcceptsFullWidthCurrentTreasuryValue(
+	t *testing.T,
+) {
 	want := uint64(math.MaxUint64)
 	encoded, err := cbor.Encode(map[uint]any{
 		0: []any{}, 1: []any{}, 2: uint64(0), 21: want,
@@ -816,8 +835,12 @@ func TestConwayTransactionBodyRejectsDuplicatePoolOwners(t *testing.T) {
 }
 
 func TestConwayTransactionBodyEncodesOrderedSetsWithTag258(t *testing.T) {
-	firstCredential := common.Credential{Credential: common.CredentialHash{0x01}}
-	secondCredential := common.Credential{Credential: common.CredentialHash{0x02}}
+	firstCredential := common.Credential{
+		Credential: common.CredentialHash{0x01},
+	}
+	secondCredential := common.Credential{
+		Credential: common.CredentialHash{0x02},
+	}
 	addressBytes := make([]byte, 29)
 	addressBytes[0] = 0xe0
 	rewardAccount, err := common.NewAddressFromBytes(addressBytes)
@@ -829,14 +852,18 @@ func TestConwayTransactionBodyEncodesOrderedSetsWithTag258(t *testing.T) {
 			{
 				Type: uint(common.CertificateTypeStakeRegistration),
 				Certificate: &common.StakeRegistrationCertificate{
-					CertType:        uint(common.CertificateTypeStakeRegistration),
+					CertType: uint(
+						common.CertificateTypeStakeRegistration,
+					),
 					StakeCredential: firstCredential,
 				},
 			},
 			{
 				Type: uint(common.CertificateTypeStakeDeregistration),
 				Certificate: &common.StakeDeregistrationCertificate{
-					CertType:        uint(common.CertificateTypeStakeDeregistration),
+					CertType: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
 					StakeCredential: secondCredential,
 				},
 			},
@@ -846,8 +873,10 @@ func TestConwayTransactionBodyEncodesOrderedSetsWithTag258(t *testing.T) {
 				PPDeposit:       1,
 				PPRewardAccount: rewardAccount,
 				PPGovAction: ConwayGovAction{
-					Type:   uint(common.GovActionTypeInfo),
-					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+					Type: uint(common.GovActionTypeInfo),
+					Action: &common.InfoGovAction{
+						Type: uint(common.GovActionTypeInfo),
+					},
 				},
 				PPAnchor: common.GovAnchor{Url: "first"},
 			},
@@ -855,8 +884,10 @@ func TestConwayTransactionBodyEncodesOrderedSetsWithTag258(t *testing.T) {
 				PPDeposit:       2,
 				PPRewardAccount: rewardAccount,
 				PPGovAction: ConwayGovAction{
-					Type:   uint(common.GovActionTypeInfo),
-					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+					Type: uint(common.GovActionTypeInfo),
+					Action: &common.InfoGovAction{
+						Type: uint(common.GovActionTypeInfo),
+					},
 				},
 				PPAnchor: common.GovAnchor{Url: "second"},
 			},
@@ -890,7 +921,9 @@ func TestConwayTransactionBodySetsUseIndefiniteArraysAbove23(t *testing.T) {
 	certificates := make([]common.CertificateWrapper, 24)
 	proposals := make([]ConwayProposalProcedure, 24)
 	for i := range 24 {
-		credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+		credential := common.Credential{
+			CredType: common.CredentialTypeAddrKeyHash,
+		}
 		credential.Credential[0] = byte(i + 1)
 		certificates[i] = common.CertificateWrapper{
 			Type: uint(common.CertificateTypeStakeRegistration),
@@ -903,7 +936,9 @@ func TestConwayTransactionBodySetsUseIndefiniteArraysAbove23(t *testing.T) {
 			PPDeposit:       uint64(i + 1),
 			PPRewardAccount: rewardAccount,
 			PPGovAction:     ConwayGovAction{Action: &action},
-			PPAnchor:        common.GovAnchor{Url: fmt.Sprintf("proposal-%d", i)},
+			PPAnchor: common.GovAnchor{
+				Url: fmt.Sprintf("proposal-%d", i),
+			},
 		}
 	}
 	body := ConwayTransactionBody{
@@ -947,7 +982,9 @@ func TestConwayTransactionBodySetsUseIndefiniteArraysAbove23(t *testing.T) {
 // wrongly rejects valid historical blocks (issue #1853).
 func TestConwayWitnessSetToleratesDuplicateTaggedVkeyWitness(t *testing.T) {
 	witness := []byte{0x82, 0x58, common.Blake2b256Size}
-	witness = append(witness, bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
+	witness = append(
+		witness,
+		bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
 	witness = append(witness, 0x58, 0x40)
 	witness = append(witness, bytes.Repeat([]byte{0x02}, 64)...)
 	dupCbor := []byte{0xa1, 0x00, 0xd9, 0x01, 0x02, 0x82}
@@ -976,11 +1013,15 @@ func TestConwayWitnessSetToleratesDuplicateTaggedWitnessSetFields(
 			field: 0x02,
 			member: func() []byte {
 				encoded := []byte{0x84, 0x58, common.Blake2b256Size}
-				encoded = append(encoded, bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
+				encoded = append(
+					encoded,
+					bytes.Repeat([]byte{0x01}, common.Blake2b256Size)...)
 				encoded = append(encoded, 0x58, 0x40)
 				encoded = append(encoded, bytes.Repeat([]byte{0x02}, 64)...)
 				encoded = append(encoded, 0x58, common.Blake2b256Size)
-				encoded = append(encoded, bytes.Repeat([]byte{0x03}, common.Blake2b256Size)...)
+				encoded = append(
+					encoded,
+					bytes.Repeat([]byte{0x03}, common.Blake2b256Size)...)
 				encoded = append(encoded, 0x40)
 				return encoded
 			}(),

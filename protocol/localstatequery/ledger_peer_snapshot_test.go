@@ -145,7 +145,11 @@ func TestWithOriginSlotRoundTrip(t *testing.T) {
 		hex  string
 	}{
 		{"origin", WithOriginSlot{HasSlot: false}, "8100"},
-		{"at_slot_12345", WithOriginSlot{HasSlot: true, Slot: 12345}, "8201193039"},
+		{
+			"at_slot_12345",
+			WithOriginSlot{HasSlot: true, Slot: 12345},
+			"8201193039",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

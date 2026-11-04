@@ -50,5 +50,8 @@ func TestConwayBlockNofKInt64Threshold(t *testing.T) {
 		scripts[0].Hash().String(),
 	)
 	// Haskell evalTimelock: isValidMOf n _ = n <= 0 || ...
-	require.True(t, scripts[0].Evaluate(0, 0, ^uint64(0), map[common.Blake2b224]bool{}))
+	require.True(
+		t,
+		scripts[0].Evaluate(0, 0, ^uint64(0), map[common.Blake2b224]bool{}),
+	)
 }

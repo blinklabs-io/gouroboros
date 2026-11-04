@@ -491,7 +491,9 @@ func TestAuxiliaryDataRejectsNativeScriptConstructorsOutsideEra(t *testing.T) {
 	require.NoError(t, err)
 	nativeScripts, err := cbor.Encode([]cbor.RawMessage{nativeScript})
 	require.NoError(t, err)
-	auxiliaryFields, err := cbor.Encode(map[uint]cbor.RawMessage{1: nativeScripts})
+	auxiliaryFields, err := cbor.Encode(
+		map[uint]cbor.RawMessage{1: nativeScripts},
+	)
 	require.NoError(t, err)
 	auxiliaryData, err := cbor.Encode(&cbor.RawTag{
 		Number:  cbor.CborTagMap,
@@ -516,7 +518,11 @@ func TestAuxiliaryDataRejectsNativeScriptConstructorsOutsideEra(t *testing.T) {
 	require.NoError(t, err)
 	var tx alonzo.AlonzoTransaction
 	_, err = cbor.Decode(txCbor, &tx)
-	require.ErrorContains(t, err, "native script constructor 6 is not supported")
+	require.ErrorContains(
+		t,
+		err,
+		"native script constructor 6 is not supported",
+	)
 }
 
 func TestTransactionRejectsMalformedAuxiliaryScriptsWithMetadata(t *testing.T) {

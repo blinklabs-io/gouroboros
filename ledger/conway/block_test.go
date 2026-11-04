@@ -89,8 +89,12 @@ func TestConwayBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 	}
 }
 
-func TestConwayBlockRejectsTransactionWithMissingRequiredBodyField(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+func TestConwayBlockRejectsTransactionWithMissingRequiredBodyField(
+	t *testing.T,
+) {
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	require.NoError(t, err)
 	var components []cbor.RawMessage
 	_, err = cbor.Decode(blockCbor, &components)
@@ -119,7 +123,9 @@ func TestConwayBlockRejectsTransactionWithMissingRequiredBodyField(t *testing.T)
 }
 
 func TestConwayBlockUtxorpc(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	if err != nil {
 		t.Fatalf("failed to decode test block hex: %v", err)
 	}
@@ -223,7 +229,9 @@ func compareByteSlices(a, b []byte) bool {
 }
 
 func BenchmarkConwayBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -238,7 +246,9 @@ func BenchmarkConwayBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkConwayBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -259,20 +269,36 @@ func TestConwayBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
 		indexes []uint
 		valid   []bool
 	}{
-		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
-		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+		{
+			name:    "duplicate index",
+			indexes: []uint{0, 0},
+			valid:   []bool{false, false},
+		},
+		{
+			name:    "descending indexes",
+			indexes: []uint{1, 0},
+			valid:   []bool{true, false},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			block := conway.ConwayBlock{
-				TransactionBodies:      make([]conway.ConwayTransactionBody, 2),
-				TransactionWitnessSets: make([]conway.ConwayTransactionWitnessSet, 2),
-				InvalidTransactions:    tt.indexes,
+				TransactionBodies: make([]conway.ConwayTransactionBody, 2),
+				TransactionWitnessSets: make(
+					[]conway.ConwayTransactionWitnessSet,
+					2,
+				),
+				InvalidTransactions: tt.indexes,
 			}
 			transactions := block.Transactions()
 			for i, transaction := range transactions {
 				if got := transaction.IsValid(); got != tt.valid[i] {
-					t.Errorf("transaction %d validity: got %v, want %v", i, got, tt.valid[i])
+					t.Errorf(
+						"transaction %d validity: got %v, want %v",
+						i,
+						got,
+						tt.valid[i],
+					)
 				}
 			}
 		})

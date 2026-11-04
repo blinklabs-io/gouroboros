@@ -106,7 +106,11 @@ func TestSlotNumberFromHeaderRejectsUnsupportedEpochLength(t *testing.T) {
 	require.Equal(t, uint64(7), got)
 
 	_, err = byron.SlotNumberFromHeader(legacySlotNumberHeader(7), 600)
-	require.ErrorContains(t, err, "does not support configured Byron epoch length")
+	require.ErrorContains(
+		t,
+		err,
+		"does not support configured Byron epoch length",
+	)
 }
 
 func TestByronHeaderSlotNumberWithEpochLengthPreservesRawCounts(t *testing.T) {

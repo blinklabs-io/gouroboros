@@ -85,7 +85,9 @@ func TestRawBlockHeaderInfoMatchesTypedDecode(t *testing.T) {
 		})
 	}
 	ebbHex, err := os.ReadFile(filepath.Join(
-		"..", "chainsync", "testdata",
+		"..",
+		"chainsync",
+		"testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 	))
 	require.NoError(t, err)

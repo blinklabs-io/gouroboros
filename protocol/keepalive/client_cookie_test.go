@@ -29,10 +29,16 @@ func TestClientAdvancesCookieAfterValidResponse(t *testing.T) {
 	defer local.Close()
 	defer remote.Close()
 	client := NewClient(protocol.ProtocolOptions{
-		ConnectionId: connection.ConnectionId{LocalAddr: local.LocalAddr(), RemoteAddr: local.RemoteAddr()},
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  local.LocalAddr(),
+			RemoteAddr: local.RemoteAddr(),
+		},
 	}, &cfg)
 
-	require.NoError(t, client.handleKeepAliveResponse(NewMsgKeepAliveResponse(0xffff)))
+	require.NoError(
+		t,
+		client.handleKeepAliveResponse(NewMsgKeepAliveResponse(0xffff)),
+	)
 	client.cookieMutex.Lock()
 	require.Zero(t, client.cookie)
 	client.cookieMutex.Unlock()
@@ -44,7 +50,10 @@ func TestClientDoesNotAdvanceCookieAfterInvalidResponse(t *testing.T) {
 	defer local.Close()
 	defer remote.Close()
 	client := NewClient(protocol.ProtocolOptions{
-		ConnectionId: connection.ConnectionId{LocalAddr: local.LocalAddr(), RemoteAddr: local.RemoteAddr()},
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  local.LocalAddr(),
+			RemoteAddr: local.RemoteAddr(),
+		},
 	}, &cfg)
 
 	require.Error(t, client.handleKeepAliveResponse(NewMsgKeepAliveResponse(8)))

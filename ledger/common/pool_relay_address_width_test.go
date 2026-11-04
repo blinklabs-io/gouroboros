@@ -38,7 +38,12 @@ func singleHostAddrCBOR(t *testing.T, ipv4, ipv6 []byte) []byte {
 		v6 = ipv6
 	}
 	raw, err := cbor.Encode(
-		[]any{uint(common.PoolRelayTypeSingleHostAddress), uint32(3001), v4, v6},
+		[]any{
+			uint(common.PoolRelayTypeSingleHostAddress),
+			uint32(3001),
+			v4,
+			v6,
+		},
 	)
 	require.NoError(t, err)
 	return raw
@@ -213,13 +218,21 @@ func TestPoolRelayHostnameRequiredAtDecode(t *testing.T) {
 		reject bool
 	}{
 		{
-			name:   "single host name null",
-			raw:    []any{uint(common.PoolRelayTypeSingleHostName), uint32(3001), nil},
+			name: "single host name null",
+			raw: []any{
+				uint(common.PoolRelayTypeSingleHostName),
+				uint32(3001),
+				nil,
+			},
 			reject: true,
 		},
 		{
 			name: "single host name present",
-			raw:  []any{uint(common.PoolRelayTypeSingleHostName), uint32(3001), hostname},
+			raw: []any{
+				uint(common.PoolRelayTypeSingleHostName),
+				uint32(3001),
+				hostname,
+			},
 		},
 		{
 			name:   "multi host name null",

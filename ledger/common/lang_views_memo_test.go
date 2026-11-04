@@ -23,7 +23,11 @@ import (
 
 // encodeLangViewParamsDirect is the language-view parameter encoding without
 // the memo.
-func encodeLangViewParamsDirect(t *testing.T, version uint, costModel []int64) []byte {
+func encodeLangViewParamsDirect(
+	t *testing.T,
+	version uint,
+	costModel []int64,
+) []byte {
 	t.Helper()
 	if version == 0 {
 		indef := make(cbor.IndefLengthList, len(costModel))
@@ -66,8 +70,14 @@ func TestLangViewParamsMemoIsKeyedByContent(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if want := encodeLangViewParamsDirect(t, version, model); !bytes.Equal(got, want) {
-					t.Fatalf("version %d: memoized encoding differs from a fresh one", version)
+				if want := encodeLangViewParamsDirect(t, version, model); !bytes.Equal(
+					got,
+					want,
+				) {
+					t.Fatalf(
+						"version %d: memoized encoding differs from a fresh one",
+						version,
+					)
 				}
 			}
 		}
@@ -90,8 +100,13 @@ func TestLangViewParamsMemoIsKeyedByContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := encodeLangViewParamsDirect(t, 2, reused); !bytes.Equal(got, want) {
-		t.Fatal("a reused cost model slice was matched to its earlier values' encoding")
+	if want := encodeLangViewParamsDirect(t, 2, reused); !bytes.Equal(
+		got,
+		want,
+	) {
+		t.Fatal(
+			"a reused cost model slice was matched to its earlier values' encoding",
+		)
 	}
 }
 
@@ -121,7 +136,12 @@ func TestLangViewParamsDistinguishesNilFromEmpty(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !bytes.Equal(got, want) {
-				t.Fatalf("model nil=%v: got %x, want %x", model == nil, got, want)
+				t.Fatalf(
+					"model nil=%v: got %x, want %x",
+					model == nil,
+					got,
+					want,
+				)
 			}
 		}
 	}

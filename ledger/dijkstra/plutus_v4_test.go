@@ -410,11 +410,13 @@ func TestDijkstraRewardPurposeUsesCredentialOrder(t *testing.T) {
 func TestDijkstraTxInfoV4ReleasedSchema(t *testing.T) {
 	var policy common.Blake2b224
 	copy(policy[:], bytes.Repeat([]byte{0x31}, len(policy)))
-	mint := common.NewMultiAsset(map[common.Blake2b224]map[cbor.ByteString]*big.Int{
-		policy: {
-			cbor.NewByteString([]byte("asset")): big.NewInt(23),
+	mint := common.NewMultiAsset(
+		map[common.Blake2b224]map[cbor.ByteString]*big.Int{
+			policy: {
+				cbor.NewByteString([]byte("asset")): big.NewInt(23),
+			},
 		},
-	})
+	)
 	guard := common.Credential{
 		CredType: common.CredentialTypeScriptHash,
 	}
@@ -564,7 +566,10 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 			// Inserted out of sorted order to confirm the output is sorted
 			// by credential rather than by map iteration order.
 			dijkstraIntervalKey(t, addr2): {Exact: &exact},
-			dijkstraIntervalKey(t, addr1): {LowerBound: &lower, UpperBound: &upper},
+			dijkstraIntervalKey(t, addr1): {
+				LowerBound: &lower,
+				UpperBound: &upper,
+			},
 		},
 	}
 	_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
@@ -668,7 +673,9 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 // transaction from CBOR can never produce these states (UnmarshalCBOR
 // already rejects them), but nothing stops a caller from building one of
 // these exported map types by hand.
-func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(
+	t *testing.T,
+) {
 	guardCredential := testGuardCredential()
 	guard := dijkstraRewardAddressForCredential(t, guardCredential)
 	guardKey := dijkstraIntervalKey(t, guard)
@@ -711,25 +718,31 @@ func TestDijkstraBodyFieldsV4RejectsMalformedDirectlyConstructedMaps(t *testing.
 		require.ErrorContains(t, err, "requires a lower or upper bound")
 	})
 
-	t.Run("required top-level guards: unsupported credential type", func(t *testing.T) {
-		body := &DijkstraSubTransactionBody{
-			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
-				&unsupported: nil,
-			},
-		}
-		_, _, _, _, err := dijkstraBodyFieldsV4(body)
-		require.ErrorContains(t, err, "unsupported credential type")
-	})
+	t.Run(
+		"required top-level guards: unsupported credential type",
+		func(t *testing.T) {
+			body := &DijkstraSubTransactionBody{
+				TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+					&unsupported: nil,
+				},
+			}
+			_, _, _, _, err := dijkstraBodyFieldsV4(body)
+			require.ErrorContains(t, err, "unsupported credential type")
+		},
+	)
 
-	t.Run("required top-level guards: datum missing Plutus data", func(t *testing.T) {
-		body := &DijkstraSubTransactionBody{
-			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
-				&guardCredential: {},
-			},
-		}
-		_, _, _, _, err := dijkstraBodyFieldsV4(body)
-		require.ErrorContains(t, err, "missing Plutus data")
-	})
+	t.Run(
+		"required top-level guards: datum missing Plutus data",
+		func(t *testing.T) {
+			body := &DijkstraSubTransactionBody{
+				TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+					&guardCredential: {},
+				},
+			}
+			_, _, _, _, err := dijkstraBodyFieldsV4(body)
+			require.ErrorContains(t, err, "missing Plutus data")
+		},
+	)
 }
 
 func TestDijkstraTxInfoV4SubTxIndex(t *testing.T) {
@@ -963,7 +976,12 @@ func TestDijkstraAddressV4BasePaymentCredentials(t *testing.T) {
 				1,
 			)
 			requireDijkstraV4Bytes(t, payment.Fields[0], paymentHash)
-			stakeOption := requireDijkstraV4Constr(t, addressData.Items[1], 0, 1)
+			stakeOption := requireDijkstraV4Constr(
+				t,
+				addressData.Items[1],
+				0,
+				1,
+			)
 			stake := requireDijkstraV4Constr(
 				t,
 				stakeOption.Fields[0],
@@ -994,7 +1012,9 @@ func TestOutsideForecastChecksInvalidSubTransaction(t *testing.T) {
 				Body: subBody,
 				WitnessSet: DijkstraTransactionWitnessSet{
 					WsRedeemers: DijkstraRedeemers{
-						Redeemers: map[common.RedeemerKey]common.RedeemerValue{key: {}},
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							key: {},
+						},
 					},
 				},
 			}}, false),

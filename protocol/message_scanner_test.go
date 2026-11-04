@@ -277,7 +277,9 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	case err := <-errorChan:
 		require.ErrorContains(t, err, "without peer agency")
 	case <-time.After(time.Second):
-		t.Fatal("readLoop queued a second reply under the consumed agency grant")
+		t.Fatal(
+			"readLoop queued a second reply under the consumed agency grant",
+		)
 	}
 	require.Equal(t, 1, decodeCalls)
 }
@@ -418,7 +420,12 @@ func TestInboundStaleReplyCannotReserveLaterPipelinedRequest(t *testing.T) {
 		pendingPipelinedRequests: 1,
 	}
 
-	_, admission, result, stopped := p.waitForInboundAdmission(1, busy, 1, false)
+	_, admission, result, stopped := p.waitForInboundAdmission(
+		1,
+		busy,
+		1,
+		false,
+	)
 	require.False(t, stopped)
 	require.Equal(t, inboundAdmissionDenied, result)
 	require.False(t, admission.reservedPipelinedReply)
@@ -582,9 +589,14 @@ func TestReadLoopUsesDeclaredPipelinedMessageTypes(t *testing.T) {
 					require.Equal(t, test.message, msg.message.Type())
 					require.Equal(t, 1, decodeCalls)
 				case err := <-errors:
-					t.Fatalf("readLoop rejected a declared pipelined message: %v", err)
+					t.Fatalf(
+						"readLoop rejected a declared pipelined message: %v",
+						err,
+					)
 				case <-time.After(time.Second):
-					t.Fatal("readLoop did not enqueue the declared pipelined message")
+					t.Fatal(
+						"readLoop did not enqueue the declared pipelined message",
+					)
 				}
 				return
 			}
@@ -688,19 +700,21 @@ func TestInboundSnapshotWaitsForReservedReplyTransition(t *testing.T) {
 		pendingPipelinedReplies:  1,
 	}
 	waits := 0
-	state, generation, hadUnreserved, ok := p.waitForInboundSnapshot(func() bool {
-		waits++
-		// Apply the reserved reply's deferred transition, then release it.
-		p.currentStateMu.Lock()
-		p.currentState = streaming
-		p.currentStateGeneration++
-		p.currentStateMu.Unlock()
-		p.pendingBytesMu.Lock()
-		p.pendingPipelinedRequests--
-		p.pendingPipelinedReplies--
-		p.pendingBytesMu.Unlock()
-		return true
-	})
+	state, generation, hadUnreserved, ok := p.waitForInboundSnapshot(
+		func() bool {
+			waits++
+			// Apply the reserved reply's deferred transition, then release it.
+			p.currentStateMu.Lock()
+			p.currentState = streaming
+			p.currentStateGeneration++
+			p.currentStateMu.Unlock()
+			p.pendingBytesMu.Lock()
+			p.pendingPipelinedRequests--
+			p.pendingPipelinedReplies--
+			p.pendingBytesMu.Unlock()
+			return true
+		},
+	)
 	require.True(t, ok)
 	require.Equal(t, 1, waits)
 	require.Equal(t, streaming, state)

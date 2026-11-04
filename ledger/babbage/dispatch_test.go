@@ -87,7 +87,12 @@ func TestDatumOptionVariantAccessors(t *testing.T) {
 		wantHash   bool
 		wantInline bool
 	}{
-		{"hash", &BabbageTransactionOutputDatumOption{hash: &hash}, true, false},
+		{
+			"hash",
+			&BabbageTransactionOutputDatumOption{hash: &hash},
+			true,
+			false,
+		},
 		{
 			"inline",
 			&BabbageTransactionOutputDatumOption{data: &common.Datum{}},

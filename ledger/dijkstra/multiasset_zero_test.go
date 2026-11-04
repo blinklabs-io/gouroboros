@@ -71,7 +71,9 @@ func TestDijkstraRejectsZeroAndEmptyMultiAsset(t *testing.T) {
 	}
 	// { inputs: [], outputs: [], fee: 0, collateral return: output }
 	collateralReturnBody := func(multiasset string) string {
-		return "a4" + "0080" + "0180" + "0200" + "10" + zeroTestOutput(multiasset)
+		return "a4" + "0080" + "0180" + "0200" + "10" + zeroTestOutput(
+			multiasset,
+		)
 	}
 	// Sub-transaction bodies carry no fee field.
 	subMintBody := func(multiasset string) string {

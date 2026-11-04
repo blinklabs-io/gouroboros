@@ -409,5 +409,9 @@ func TestRequestMessagesRejectsDeepIDBeforeTypedDecode(t *testing.T) {
 	wire := append([]byte{0x82, MessageTypeRequestMessages, 0x81}, item...)
 
 	_, err := NewMsgFromCbor(MessageTypeRequestMessages, wire)
-	require.ErrorContains(t, err, "message-submission item 0: CBOR nesting exceeds maximum depth 0")
+	require.ErrorContains(
+		t,
+		err,
+		"message-submission item 0: CBOR nesting exceeds maximum depth 0",
+	)
 }

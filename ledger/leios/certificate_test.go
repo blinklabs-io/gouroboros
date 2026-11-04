@@ -44,19 +44,25 @@ func TestVerifyDijkstraCertificate(t *testing.T) {
 		)
 		require.NoError(t, err)
 	})
-	t.Run("rejects signature with no cryptographic validity", func(t *testing.T) {
-		err := VerifyDijkstraCertificate(
-			[]byte{0x80}, make([]byte, common.LeiosBlsSignatureSize),
-			2, big.NewRat(3, 5), context,
-		)
-		require.ErrorIs(t, err, ErrInvalidSignature)
-	})
-	t.Run("rejects signer bitfield changed after aggregation", func(t *testing.T) {
-		err := VerifyDijkstraCertificate(
-			[]byte{0xc0}, signature, 2, big.NewRat(3, 5), context,
-		)
-		require.ErrorIs(t, err, ErrKeylessSigner)
-	})
+	t.Run(
+		"rejects signature with no cryptographic validity",
+		func(t *testing.T) {
+			err := VerifyDijkstraCertificate(
+				[]byte{0x80}, make([]byte, common.LeiosBlsSignatureSize),
+				2, big.NewRat(3, 5), context,
+			)
+			require.ErrorIs(t, err, ErrInvalidSignature)
+		},
+	)
+	t.Run(
+		"rejects signer bitfield changed after aggregation",
+		func(t *testing.T) {
+			err := VerifyDijkstraCertificate(
+				[]byte{0xc0}, signature, 2, big.NewRat(3, 5), context,
+			)
+			require.ErrorIs(t, err, ErrKeylessSigner)
+		},
+	)
 	t.Run("rejects signer stake below quorum", func(t *testing.T) {
 		err := VerifyDijkstraCertificate(
 			[]byte{0x80}, signature, 2, big.NewRat(61, 100), context,

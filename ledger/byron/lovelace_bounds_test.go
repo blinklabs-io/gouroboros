@@ -206,24 +206,30 @@ func TestByronMainBlockRejectsOversizedOutputAtDecode(t *testing.T) {
 		return tampered
 	}
 
-	t.Run("proof-consistent block at the maximum decodes and validates", func(t *testing.T) {
-		block, err := byron.NewByronMainBlockFromCbor(
-			buildBlock(t, byron.MaxLovelace),
-		)
-		require.NoError(t, err)
-		require.Equal(
-			t,
-			byron.MaxLovelace,
-			block.Body.TxPayload[0].Body.TxOutputs[0].OutputAmount,
-		)
-	})
+	t.Run(
+		"proof-consistent block at the maximum decodes and validates",
+		func(t *testing.T) {
+			block, err := byron.NewByronMainBlockFromCbor(
+				buildBlock(t, byron.MaxLovelace),
+			)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				byron.MaxLovelace,
+				block.Body.TxPayload[0].Body.TxOutputs[0].OutputAmount,
+			)
+		},
+	)
 
-	t.Run("proof-consistent block over the maximum is rejected at decode", func(t *testing.T) {
-		_, err := byron.NewByronMainBlockFromCbor(
-			buildBlock(t, byron.MaxLovelace+1),
-		)
-		require.Error(t, err)
-		require.NotErrorIs(t, err, byron.ErrBodyProofMismatch)
-		require.Contains(t, err.Error(), "exceeds maximum Lovelace value")
-	})
+	t.Run(
+		"proof-consistent block over the maximum is rejected at decode",
+		func(t *testing.T) {
+			_, err := byron.NewByronMainBlockFromCbor(
+				buildBlock(t, byron.MaxLovelace+1),
+			)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, byron.ErrBodyProofMismatch)
+			require.Contains(t, err.Error(), "exceeds maximum Lovelace value")
+		},
+	)
 }

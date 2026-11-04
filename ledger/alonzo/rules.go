@@ -198,26 +198,42 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(
-		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateSignatures, UtxoValidateProtocolParameterUpdates,
+		UtxoValidateMetadata,
+		UtxoValidateIsValidFlag,
+		UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures,
+		UtxoValidateProtocolParameterUpdates,
 		UtxoValidateCollateralVKeyWitnesses,
 		common.UtxoValidateCollateralKeyLocked,
 	),
 	common.AlwaysUtxoValidationRules(
-		UtxoValidateRedeemerAndScriptWitnesses, UtxoValidateCostModelsPresent,
-		UtxoValidateScriptDataHash, UtxoValidateSupplementalDatums,
-		UtxoValidateOutsideValidityIntervalUtxo, common.UtxoValidateOutsideForecast,
-		UtxoValidateInputSetEmptyUtxo, UtxoValidateNoDuplicateInputs,
-		UtxoValidateFeeTooSmallUtxo, UtxoValidateInsufficientCollateral,
-		UtxoValidateCollateralContainsNonAda, UtxoValidateNoCollateralInputs,
-		UtxoValidateBadInputsUtxo, UtxoValidateScriptWitnesses, UtxoValidateValueNotConservedUtxo,
-		UtxoValidateOutputTooSmallUtxo, UtxoValidateOutputTooBigUtxo,
-		UtxoValidateOutputBootAddrAttrsTooBig, UtxoValidateWrongNetwork,
-		UtxoValidateWrongNetworkWithdrawal, UtxoValidateTransactionNetworkId,
+		UtxoValidateRedeemerAndScriptWitnesses,
+		UtxoValidateCostModelsPresent,
+		UtxoValidateScriptDataHash,
+		UtxoValidateSupplementalDatums,
+		UtxoValidateOutsideValidityIntervalUtxo,
+		common.UtxoValidateOutsideForecast,
+		UtxoValidateInputSetEmptyUtxo,
+		UtxoValidateNoDuplicateInputs,
+		UtxoValidateFeeTooSmallUtxo,
+		UtxoValidateInsufficientCollateral,
+		UtxoValidateCollateralContainsNonAda,
+		UtxoValidateNoCollateralInputs,
+		UtxoValidateBadInputsUtxo,
+		UtxoValidateScriptWitnesses,
+		UtxoValidateValueNotConservedUtxo,
+		UtxoValidateOutputTooSmallUtxo,
+		UtxoValidateOutputTooBigUtxo,
+		UtxoValidateOutputBootAddrAttrsTooBig,
+		UtxoValidateWrongNetwork,
+		UtxoValidateWrongNetworkWithdrawal,
+		UtxoValidateTransactionNetworkId,
 		UtxoValidateMaxTxSizeUtxo,
-		UtxoValidateExUnitsTooBigUtxo, UtxoValidateTooManyCollateralInputs,
+		UtxoValidateExUnitsTooBigUtxo,
+		UtxoValidateTooManyCollateralInputs,
 		UtxoValidateNativeScripts,
-		UtxoValidateExtraneousRedeemers, UtxoValidateMalformedReferenceScripts,
+		UtxoValidateExtraneousRedeemers,
+		UtxoValidateMalformedReferenceScripts,
 		UtxoValidatePlutusScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
@@ -761,7 +777,10 @@ func UtxoValidateValueNotConservedUtxo(
 		hash     string
 	}
 	keyForCredential := func(cred common.Credential) stakeCredentialKey {
-		return stakeCredentialKey{credType: cred.CredType, hash: string(cred.Credential[:])}
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     string(cred.Credential[:]),
+		}
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)

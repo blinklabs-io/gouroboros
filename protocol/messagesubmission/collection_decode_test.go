@@ -71,7 +71,11 @@ func TestMessageSubmissionAcceptsConfiguredCollectionLimit(t *testing.T) {
 	}
 	wire, err := cbor.Encode(NewMsgRequestMessages(ids))
 	require.NoError(t, err)
-	msg, err := decodeMsgFromCborWithLimit(MessageTypeRequestMessages, wire, len(ids))
+	msg, err := decodeMsgFromCborWithLimit(
+		MessageTypeRequestMessages,
+		wire,
+		len(ids),
+	)
 	require.NoError(t, err)
 	require.Len(t, msg.(*MsgRequestMessages).MessageIDs, len(ids))
 }

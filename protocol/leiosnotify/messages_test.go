@@ -123,7 +123,10 @@ func TestUnknownMessageIDsRejected(t *testing.T) {
 }
 
 func TestMessageTypeMustMatchPayload(t *testing.T) {
-	_, err := NewMsgFromCbor(MessageTypeDone, []byte{0x81, MessageTypeBlockOffer})
+	_, err := NewMsgFromCbor(
+		MessageTypeDone,
+		[]byte{0x81, MessageTypeBlockOffer},
+	)
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "message type mismatch")
 }
@@ -164,9 +167,13 @@ func TestDecode(t *testing.T) {
 			// Set the raw CBOR so the comparison should succeed
 			test.Message.SetCbor(encoded)
 
-			assert.True(t, reflect.DeepEqual(decoded, test.Message),
+			assert.True(
+				t,
+				reflect.DeepEqual(decoded, test.Message),
 				"CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v",
-				decoded, test.Message)
+				decoded,
+				test.Message,
+			)
 		})
 	}
 }
@@ -242,7 +249,9 @@ func TestMsgBlockAnnouncementRejectsMalformedHeader(t *testing.T) {
 
 func TestMsgBlockAnnouncementRejectsInvalidEraOnEncode(t *testing.T) {
 	for _, era := range []uint{0, 256} {
-		_, err := cbor.Encode(NewMsgBlockAnnouncement(era, cbor.RawMessage{0x80}))
+		_, err := cbor.Encode(
+			NewMsgBlockAnnouncement(era, cbor.RawMessage{0x80}),
+		)
 		require.Error(t, err, "era %d", era)
 	}
 }
@@ -465,7 +474,10 @@ func TestMsgVotesOfferPrototypeRoundTrip(t *testing.T) {
 	vote := PrototypeVote{
 		AnnouncingRbHash: lcommon.NewBlake2b256(bytes.Repeat([]byte{0xAB}, 32)),
 		VoterId:          7,
-		VoteSignature:    bytes.Repeat([]byte{0xCD}, lcommon.LeiosBlsSignatureSize),
+		VoteSignature: bytes.Repeat(
+			[]byte{0xCD},
+			lcommon.LeiosBlsSignatureSize,
+		),
 	}
 	raw, err := NewMsgVotesOfferPrototype([]PrototypeVote{vote}).MarshalCBOR()
 	require.NoError(t, err)

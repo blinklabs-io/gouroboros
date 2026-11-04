@@ -36,7 +36,10 @@ type wireCacheHarness struct {
 	acquires atomic.Int32
 }
 
-func newWireCacheHarness(t *testing.T, failFirst, failReacquire bool) *wireCacheHarness {
+func newWireCacheHarness(
+	t *testing.T,
+	failFirst, failReacquire bool,
+) *wireCacheHarness {
 	t.Helper()
 	clientRaw, serverRaw := net.Pipe()
 	t.Cleanup(func() {
@@ -210,7 +213,11 @@ func TestCurrentEraCacheInvalidatesAfterFailedReacquire(t *testing.T) {
 	client := h.client.LocalStateQuery().Client
 	_, err := client.GetCurrentEra()
 	require.NoError(t, err)
-	require.ErrorIs(t, client.AcquireVolatileTip(), localstatequery.ErrAcquireFailurePointTooOld)
+	require.ErrorIs(
+		t,
+		client.AcquireVolatileTip(),
+		localstatequery.ErrAcquireFailurePointTooOld,
+	)
 	era, err := client.GetCurrentEra()
 	require.NoError(t, err)
 	require.Equal(t, 6, era)

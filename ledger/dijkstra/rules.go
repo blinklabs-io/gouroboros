@@ -396,11 +396,20 @@ func buildDijkstraUtxoValidationRules() []common.UtxoValidationRuleFunc {
 	); err != nil {
 		panic(err)
 	}
-	rules := make([]common.UtxoValidationRuleFunc, 0, len(utxoValidationRuleDescriptors))
+	rules := make(
+		[]common.UtxoValidationRuleFunc,
+		0,
+		len(utxoValidationRuleDescriptors),
+	)
 	for _, descriptor := range utxoValidationRuleDescriptors {
 		phase, ok := dijkstraUtxoValidationRulePhases[descriptor.Id]
 		if !ok {
-			panic(fmt.Sprintf("Dijkstra validation rule %q has no phase", descriptor.Id))
+			panic(
+				fmt.Sprintf(
+					"Dijkstra validation rule %q has no phase",
+					descriptor.Id,
+				),
+			)
 		}
 		switch phase {
 		case dijkstraUtxoValidationAlways:
@@ -409,7 +418,13 @@ func buildDijkstraUtxoValidationRules() []common.UtxoValidationRuleFunc {
 			group := common.Phase2ValidUtxoValidationRules(descriptor.Validator)
 			rules = append(rules, common.ComposeUtxoValidationRules(group)[0])
 		default:
-			panic(fmt.Sprintf("Dijkstra validation rule %q has unknown phase %d", descriptor.Id, phase))
+			panic(
+				fmt.Sprintf(
+					"Dijkstra validation rule %q has unknown phase %d",
+					descriptor.Id,
+					phase,
+				),
+			)
 		}
 	}
 	return rules
@@ -529,7 +544,9 @@ func (s dijkstraCommitteeVotingView) CommitteeCredentialIsElected(
 	return s.votingState.CommitteeCredentialIsElected(cold)
 }
 
-func dijkstraCommitteeCredentialState(ls common.LedgerState) common.LedgerState {
+func dijkstraCommitteeCredentialState(
+	ls common.LedgerState,
+) common.LedgerState {
 	state, ok := ls.(*dijkstraGovernanceStateView)
 	if !ok {
 		return ls
@@ -731,7 +748,9 @@ func (s *dijkstraGovernanceStateView) committeeHotCredentialColdCredentials(
 			})
 		}
 	}
-	baseCredentials, err := votingState.CommitteeHotCredentialColdCredentials(hot)
+	baseCredentials, err := votingState.CommitteeHotCredentialColdCredentials(
+		hot,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -812,7 +831,9 @@ func (s *dijkstraGovernanceStateView) resignCommitteeCold(
 	s.committeeColdHot[coldKey] = nil
 }
 
-func dijkstraGovActionType(action common.GovAction) (common.GovActionType, bool) {
+func dijkstraGovActionType(
+	action common.GovAction,
+) (common.GovActionType, bool) {
 	switch action.(type) {
 	case common.ParameterChangeGovAction:
 		return common.GovActionTypeParameterChange, true
@@ -1174,7 +1195,9 @@ func UtxoValidateCertificateDeposits(
 	}
 	levels := dijkstraTransactionLevels(dijkstraTx)
 	if len(effects) != len(levels) {
-		return errors.New("dijkstra transaction level effects do not match validation levels")
+		return errors.New(
+			"dijkstra transaction level effects do not match validation levels",
+		)
 	}
 	state := common.NewBlockLedgerState(ls)
 	for idx, level := range levels {
@@ -1343,17 +1366,26 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	if ppu.RefScriptCostStride != nil && *ppu.RefScriptCostStride == 0 {
 		return errors.New("refScriptCostStride must be positive")
 	}
-	if rat := ppu.RefScriptCostMultiplier; rat != nil && !validPositiveDijkstraRat(rat) {
-		return errors.New("refScriptCostMultiplier must be a positive bounded ratio")
+	if rat := ppu.RefScriptCostMultiplier; rat != nil &&
+		!validPositiveDijkstraRat(rat) {
+		return errors.New(
+			"refScriptCostMultiplier must be a positive bounded ratio",
+		)
 	}
-	if rat := ppu.MaxPledgeLeverage; rat != nil && !validNonNegativeDijkstraRat(rat) {
-		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
+	if rat := ppu.MaxPledgeLeverage; rat != nil &&
+		!validNonNegativeDijkstraRat(rat) {
+		return errors.New(
+			"maxPledgeLeverage must be a non-negative bounded ratio",
+		)
 	}
 	if rat := ppu.MinPoolMargin; rat != nil && !validUnitDijkstraRat(rat) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
 	}
-	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil && !validUnitDijkstraRat(rat) {
-		return errors.New("leiosQuorumStakeThreshold must be a bounded unit interval")
+	if rat := ppu.LeiosQuorumStakeThreshold; rat != nil &&
+		!validUnitDijkstraRat(rat) {
+		return errors.New(
+			"leiosQuorumStakeThreshold must be a bounded unit interval",
+		)
 	}
 	if err := validateDijkstraPerasParameterDomains(
 		ppu.PerasHealingFactor,
@@ -1380,8 +1412,11 @@ func validateDijkstraRewardParameterDomains(
 	maxPledgeLeverage *cbor.Rat,
 	minPoolMargin *cbor.Rat,
 ) error {
-	if maxPledgeLeverage != nil && !validNonNegativeDijkstraRat(maxPledgeLeverage) {
-		return errors.New("maxPledgeLeverage must be a non-negative bounded ratio")
+	if maxPledgeLeverage != nil &&
+		!validNonNegativeDijkstraRat(maxPledgeLeverage) {
+		return errors.New(
+			"maxPledgeLeverage must be a non-negative bounded ratio",
+		)
 	}
 	if minPoolMargin != nil && !validUnitDijkstraRat(minPoolMargin) {
 		return errors.New("minPoolMargin must be a bounded unit interval")
@@ -2234,7 +2269,9 @@ func UtxoValidateBadInputsUtxo(
 			if ls == nil {
 				return common.ReferenceInputResolutionError{
 					Input: refInput,
-					Err:   errors.New("ledger state is required to resolve reference input"),
+					Err: errors.New(
+						"ledger state is required to resolve reference input",
+					),
 				}
 			}
 			utxo, err := ls.UtxoById(refInput)
@@ -2647,7 +2684,9 @@ func validateDijkstraAccountBalanceIntervals(
 	for _, addressKey := range sortedDijkstraAccountAddresses(intervals) {
 		interval := intervals[addressKey]
 		if interval == nil {
-			return errors.New("account balance intervals contains a nil interval")
+			return errors.New(
+				"account balance intervals contains a nil interval",
+			)
 		}
 		if err := validateDijkstraAccountBalanceInterval(interval); err != nil {
 			return err
@@ -2765,7 +2804,10 @@ func dijkstraApplyAccountCertificates(
 			credential, changes = cert.StakeCredential, true
 		}
 		if changes {
-			state.set(credential, dijkstraAccountBalance{registered: registered})
+			state.set(
+				credential,
+				dijkstraAccountBalance{registered: registered},
+			)
 		}
 	}
 }
@@ -2865,9 +2907,12 @@ func UtxoValidateAccountBalanceIntervals(
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
 	for idx := range subTxs {
 		body := &subTxs[idx].Body
-		if len(body.TxDirectDeposits) > 0 || len(body.TxAccountBalanceIntervals) > 0 {
+		if len(body.TxDirectDeposits) > 0 ||
+			len(body.TxAccountBalanceIntervals) > 0 {
 			if ls == nil {
-				return errors.New("ledger state is required for Dijkstra account validation")
+				return errors.New(
+					"ledger state is required for Dijkstra account validation",
+				)
 			}
 		}
 		if len(body.TxDirectDeposits) > 0 {
@@ -2894,7 +2939,9 @@ func UtxoValidateAccountBalanceIntervals(
 	if ls == nil && (len(dijkstraTx.Body.TxDirectDeposits) > 0 ||
 		len(dijkstraTx.Body.TxBalanceIntervals) > 0 ||
 		len(dijkstraTx.Body.TxStartingBalanceIntervals) > 0) {
-		return errors.New("ledger state is required for Dijkstra account validation")
+		return errors.New(
+			"ledger state is required for Dijkstra account validation",
+		)
 	}
 	if len(dijkstraTx.Body.TxDirectDeposits) > 0 {
 		if err := validateDijkstraAccountAddressNetwork(
@@ -2969,7 +3016,13 @@ func UtxoValidatePlutusScripts(
 	); err != nil {
 		return err
 	}
-	_, err = evaluateDijkstraPlutusLevels(levels, available, ls, tmpPparams, nil)
+	_, err = evaluateDijkstraPlutusLevels(
+		levels,
+		available,
+		ls,
+		tmpPparams,
+		nil,
+	)
 	return common.ValidatePlutusScriptResult(tx, err)
 }
 
@@ -3454,7 +3507,9 @@ func validateGuardingPlutusScripts(
 		scriptHash := purpose.ScriptHash()
 		plutusScript, ok := availableScripts[scriptHash]
 		if !ok {
-			return nil, common.MissingScriptWitnessesError{ScriptHash: scriptHash}
+			return nil, common.MissingScriptWitnessesError{
+				ScriptHash: scriptHash,
+			}
 		}
 		if _, ok := plutusScript.(common.NativeScript); ok {
 			return nil, conway.ExtraRedeemerError{RedeemerKey: redeemerKey}
@@ -4679,7 +4734,9 @@ func UtxoValidateWithdrawals(
 		levels[idx].withdrawalExactAmount = &requireExactAmount
 		level := levels[idx]
 		if len(level.Withdrawals()) > 0 && ls == nil {
-			return errors.New("ledger state is required for Dijkstra withdrawals")
+			return errors.New(
+				"ledger state is required for Dijkstra withdrawals",
+			)
 		}
 		if err := conway.UtxoValidateWithdrawals(
 			level,

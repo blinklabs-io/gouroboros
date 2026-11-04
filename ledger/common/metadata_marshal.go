@@ -93,7 +93,10 @@ func encodeMetaMapPairs(pairs []MetaPair) ([]encodedMetaPair, error) {
 		}
 		key := string(keyCbor)
 		if _, ok := seen[key]; ok {
-			return nil, fmt.Errorf("duplicate metadata map key at index %d", idx)
+			return nil, fmt.Errorf(
+				"duplicate metadata map key at index %d",
+				idx,
+			)
 		}
 		seen[key] = struct{}{}
 

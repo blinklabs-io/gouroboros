@@ -70,8 +70,16 @@ func TestNewConnectionSynchronizesByronSlotsPerEpoch(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, conn.Close()) })
 			require.NotNil(t, conn.blockFetchConfig)
 			require.NotNil(t, conn.chainSyncConfig)
-			require.Equal(t, uint64(600), conn.blockFetchConfig.ByronSlotsPerEpoch)
-			require.Equal(t, uint64(600), conn.chainSyncConfig.ByronSlotsPerEpoch)
+			require.Equal(
+				t,
+				uint64(600),
+				conn.blockFetchConfig.ByronSlotsPerEpoch,
+			)
+			require.Equal(
+				t,
+				uint64(600),
+				conn.chainSyncConfig.ByronSlotsPerEpoch,
+			)
 		})
 	}
 }

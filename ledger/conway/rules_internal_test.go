@@ -29,22 +29,38 @@ func TestIsInConwayBootstrapPhase(t *testing.T) {
 	}{
 		{
 			name: "PV8 (Babbage) wrapped in Conway pparams returns false",
-			pp:   &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 8}},
+			pp: &ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 8,
+				},
+			},
 			want: false,
 		},
 		{
 			name: "PV9 (bootstrap) returns true",
-			pp:   &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 9}},
+			pp: &ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 9,
+				},
+			},
 			want: true,
 		},
 		{
 			name: "PV10 (Plomin) returns false",
-			pp:   &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 10}},
+			pp: &ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 10,
+				},
+			},
 			want: false,
 		},
 		{
 			name: "PV11 (VanRossem) returns false",
-			pp:   &ConwayProtocolParameters{ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11}},
+			pp: &ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 11,
+				},
+			},
 			want: false,
 		},
 		{

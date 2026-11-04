@@ -49,8 +49,14 @@ func TestCertificateToPlutusDataUsesProtocolVersion(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			pv9 := certificateToPlutusData(tt.certificate, common.ProtocolVersionConway)
-			pv10 := certificateToPlutusData(tt.certificate, common.ProtocolVersionPlomin)
+			pv9 := certificateToPlutusData(
+				tt.certificate,
+				common.ProtocolVersionConway,
+			)
+			pv10 := certificateToPlutusData(
+				tt.certificate,
+				common.ProtocolVersionPlomin,
+			)
 			pv9Fields := pv9.(*data.Constr).Fields
 			pv10Fields := pv10.(*data.Constr).Fields
 			require.Equal(t, tt.constructor, pv9.(*data.Constr).Tag)

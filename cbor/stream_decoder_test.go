@@ -482,7 +482,13 @@ func TestArrayHeaderSize(t *testing.T) {
 		// length boundary and therefore uses the 4-byte length form.
 		maxIntExpected = 5
 	}
-	assert.Equal(t, maxIntExpected, cbor.ArrayHeaderSize(math.MaxInt), "length %d", math.MaxInt)
+	assert.Equal(
+		t,
+		maxIntExpected,
+		cbor.ArrayHeaderSize(math.MaxInt),
+		"length %d",
+		math.MaxInt,
+	)
 
 	// These boundary values don't fit in a 32-bit int at all, so they can
 	// only be constructed and exercised on a 64-bit platform. Build them

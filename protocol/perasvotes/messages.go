@@ -130,7 +130,9 @@ func NewMsgRequestObjectIDs(
 	ack, request uint16,
 ) *MsgRequestObjectIDs {
 	return &MsgRequestObjectIDs{
-		MessageBase:  protocol.MessageBase{MessageType: MessageTypeRequestObjectIDs},
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRequestObjectIDs,
+		},
 		Blocking:     blocking,
 		AckCount:     ack,
 		RequestCount: request,
@@ -146,8 +148,10 @@ type MsgReplyObjectIDs struct {
 // NewMsgReplyObjectIDs creates an object ID reply.
 func NewMsgReplyObjectIDs(ids []VoteID) *MsgReplyObjectIDs {
 	return &MsgReplyObjectIDs{
-		MessageBase: protocol.MessageBase{MessageType: MessageTypeReplyObjectIDs},
-		ObjectIDs:   append([]VoteID(nil), ids...),
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeReplyObjectIDs,
+		},
+		ObjectIDs: append([]VoteID(nil), ids...),
 	}
 }
 
@@ -169,8 +173,10 @@ type MsgRequestObjects struct {
 // NewMsgRequestObjects creates a payload request.
 func NewMsgRequestObjects(ids []VoteID) *MsgRequestObjects {
 	return &MsgRequestObjects{
-		MessageBase: protocol.MessageBase{MessageType: MessageTypeRequestObjects},
-		ObjectIDs:   append([]VoteID(nil), ids...),
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeRequestObjects,
+		},
+		ObjectIDs: append([]VoteID(nil), ids...),
 	}
 }
 
@@ -255,7 +261,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		var blocking bool
 		var ack, request uint16
 		if _, err := cbor.Decode(fields[1], &blocking); err != nil {
-			return nil, fmt.Errorf("%s: decode blocking flag: %w", ProtocolName, err)
+			return nil, fmt.Errorf(
+				"%s: decode blocking flag: %w",
+				ProtocolName,
+				err,
+			)
 		}
 		if _, err := cbor.Decode(fields[2], &ack); err != nil {
 			return nil, fmt.Errorf(
@@ -265,7 +275,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			)
 		}
 		if _, err := cbor.Decode(fields[3], &request); err != nil {
-			return nil, fmt.Errorf("%s: decode requested count: %w", ProtocolName, err)
+			return nil, fmt.Errorf(
+				"%s: decode requested count: %w",
+				ProtocolName,
+				err,
+			)
 		}
 		ret = NewMsgRequestObjectIDs(blocking, ack, request)
 	case MessageTypeReplyObjectIDs:
@@ -276,7 +290,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		}
 		ids, err := decodeVoteIDs(fields[1])
 		if err != nil {
-			return nil, fmt.Errorf("%s: decode object IDs: %w", ProtocolName, err)
+			return nil, fmt.Errorf(
+				"%s: decode object IDs: %w",
+				ProtocolName,
+				err,
+			)
 		}
 		ret = NewMsgReplyObjectIDs(ids)
 	case MessageTypeRequestObjects:
@@ -313,7 +331,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		}
 		ret = NewMsgDone()
 	default:
-		return nil, fmt.Errorf("%s: unknown message type %d", ProtocolName, wireType)
+		return nil, fmt.Errorf(
+			"%s: unknown message type %d",
+			ProtocolName,
+			wireType,
+		)
 	}
 	ret.SetCbor(data)
 	return ret, nil
@@ -384,7 +406,10 @@ func decodeArray(
 			break
 		}
 		if idx >= maxCount {
-			return nil, fmt.Errorf("array exceeds maximum of %d elements", maxCount)
+			return nil, fmt.Errorf(
+				"array exceeds maximum of %d elements",
+				maxCount,
+			)
 		}
 		start, length, err := dec.Skip()
 		if err != nil {

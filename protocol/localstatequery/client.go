@@ -30,7 +30,12 @@ const maxLocalStateQuerySetItems = 10_000
 
 func validateLocalStateQuerySet[T any](items []T, name string) error {
 	if len(items) > maxLocalStateQuerySetItems {
-		return fmt.Errorf("%s contains %d items; maximum is %d", name, len(items), maxLocalStateQuerySetItems)
+		return fmt.Errorf(
+			"%s contains %d items; maximum is %d",
+			name,
+			len(items),
+			maxLocalStateQuerySetItems,
+		)
 	}
 	seen := make(map[string]struct{}, len(items))
 	for _, item := range items {
@@ -277,7 +282,9 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 			return 0, errors.New("malformed chain block number result")
 		}
 		if blockNo > uint64(1<<63-1) {
-			return 0, errors.New("chain block number is outside int64 API range")
+			return 0, errors.New(
+				"chain block number is outside int64 API range",
+			)
 		}
 		return int64(blockNo), nil
 	default:
@@ -357,7 +364,9 @@ func (c *Client) GetEpochNo() (int, error) {
 // GetNonMyopicMemberRewards returns the non-myopic member rewards for the given stakes
 // stakes should be an array of [tag, stake_amount] pairs where tag is 0 for KeyHash credentials
 // The array must be sorted by stake amount
-func (c *Client) GetNonMyopicMemberRewards(stakes []any) (*NonMyopicMemberRewardsResult, error) {
+func (c *Client) GetNonMyopicMemberRewards(
+	stakes []any,
+) (*NonMyopicMemberRewardsResult, error) {
 	c.Protocol.Logger().
 		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(stakes: %+v)", stakes),
 			"component", "network",
@@ -425,7 +434,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Conway protocol parameters query")
+			return nil, errors.New(
+				"empty result from Conway protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	case ledger.EraIdBabbage:
@@ -434,7 +445,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Babbage protocol parameters query")
+			return nil, errors.New(
+				"empty result from Babbage protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	case ledger.EraIdAlonzo:
@@ -443,7 +456,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Alonzo protocol parameters query")
+			return nil, errors.New(
+				"empty result from Alonzo protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	case ledger.EraIdMary:
@@ -452,7 +467,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Mary protocol parameters query")
+			return nil, errors.New(
+				"empty result from Mary protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	case ledger.EraIdAllegra:
@@ -461,7 +478,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Allegra protocol parameters query")
+			return nil, errors.New(
+				"empty result from Allegra protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	case ledger.EraIdShelley:
@@ -470,7 +489,9 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			return nil, err
 		}
 		if len(result) == 0 {
-			return nil, errors.New("empty result from Shelley protocol parameters query")
+			return nil, errors.New(
+				"empty result from Shelley protocol parameters query",
+			)
 		}
 		return &result[0], nil
 	default:
@@ -733,7 +754,11 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugNewEpochState,
 	)
-	return runWrappedQuery[DebugNewEpochStateResult](c, query, "new epoch state")
+	return runWrappedQuery[DebugNewEpochStateResult](
+		c,
+		query,
+		"new epoch state",
+	)
 }
 
 // DebugChainDepState returns the consensus chain-dependent state for the
@@ -771,7 +796,11 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 		currentEra,
 		QueryTypeShelleyDebugChainDepState,
 	)
-	return runWrappedQuery[DebugChainDepStateResult](c, query, "chain dep state")
+	return runWrappedQuery[DebugChainDepStateResult](
+		c,
+		query,
+		"chain dep state",
+	)
 }
 
 // runWrappedQuery runs a query whose result the node sends inside the

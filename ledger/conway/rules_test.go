@@ -66,9 +66,11 @@ func TestUtxoValidateOutsideForecastUsesConwayFailureTag(t *testing.T) {
 		WithLovelace(2_000_000).
 		Build()
 	require.NoError(t, err)
-	redeemers := conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-		{Tag: common.RedeemerTagSpend, Index: 0}: {},
-	}}
+	redeemers := conway.ConwayRedeemers{
+		Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+			{Tag: common.RedeemerTagSpend, Index: 0}: {},
+		},
+	}
 	txBuilder := mockledger.NewTransactionBuilder()
 	txBuilder.WithInputs(inputs...)
 	txBuilder.WithOutputs(output)
@@ -525,38 +527,41 @@ func TestUtxoValidateWithdrawals_DRepDelegationProtocolGate(t *testing.T) {
 		common.ProtocolVersionPlomin,
 		common.ProtocolVersionVanRossem,
 	} {
-		t.Run(fmt.Sprintf("PV%d undelegated zero amount", major), func(t *testing.T) {
-			zeroTx := *tx
-			zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
-				&rewardAddr: 0,
-			}
-			lookups := 0
-			zeroBalanceState := mockledger.NewLedgerStateBuilder().
-				WithRewardAccountBalance(stakeKeyHash, 0).
-				WithDRepDelegation(func(
-					credential common.Credential,
-				) (*common.Drep, error) {
-					lookups++
-					assert.Equal(t, stakeKeyHash, credential.Credential)
-					return nil, nil
-				}).
-				Build()
-			pp := &conway.ConwayProtocolParameters{
-				ProtocolVersion: common.ProtocolParametersProtocolVersion{
-					Major: major,
-				},
-			}
-			err := conway.UtxoValidateWithdrawals(
-				&zeroTx,
-				0,
-				zeroBalanceState,
-				pp,
-			)
-			var target conway.WithdrawalNotDelegatedToDRepError
-			require.ErrorAs(t, err, &target)
-			assert.Equal(t, rewardAddr, target.RewardAddress)
-			assert.Equal(t, 1, lookups)
-		})
+		t.Run(
+			fmt.Sprintf("PV%d undelegated zero amount", major),
+			func(t *testing.T) {
+				zeroTx := *tx
+				zeroTx.Body.TxWithdrawals = map[*common.Address]uint64{
+					&rewardAddr: 0,
+				}
+				lookups := 0
+				zeroBalanceState := mockledger.NewLedgerStateBuilder().
+					WithRewardAccountBalance(stakeKeyHash, 0).
+					WithDRepDelegation(func(
+						credential common.Credential,
+					) (*common.Drep, error) {
+						lookups++
+						assert.Equal(t, stakeKeyHash, credential.Credential)
+						return nil, nil
+					}).
+					Build()
+				pp := &conway.ConwayProtocolParameters{
+					ProtocolVersion: common.ProtocolParametersProtocolVersion{
+						Major: major,
+					},
+				}
+				err := conway.UtxoValidateWithdrawals(
+					&zeroTx,
+					0,
+					zeroBalanceState,
+					pp,
+				)
+				var target conway.WithdrawalNotDelegatedToDRepError
+				require.ErrorAs(t, err, &target)
+				assert.Equal(t, rewardAddr, target.RewardAddress)
+				assert.Equal(t, 1, lookups)
+			},
+		)
 	}
 
 	t.Run("PV10 mixed amounts check every key credential", func(t *testing.T) {
@@ -1004,49 +1009,52 @@ func TestUtxoValidateWitnessRules_Conway(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("redeemer with regular input plutus v4 script ref", func(t *testing.T) {
-		input := shelley.MustNewShelleyTransactionInput(
-			"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-			0,
-		)
-		script := common.PlutusV4Script{0x01, 0x02, 0x03}
-		inputOutput := babbage.BabbageTransactionOutput{
-			OutputAddress: common.Address{},
-			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
-			TxOutScriptRef: &common.ScriptRef{
-				Type:   common.ScriptRefTypePlutusV4,
-				Script: script,
-			},
-		}
-		inputUtxo := common.Utxo{
-			Id:     input,
-			Output: inputOutput,
-		}
-
-		ls := mockledger.NewLedgerStateBuilder().
-			WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
-				if id.Index() == input.Index() &&
-					bytes.Equal(id.Id().Bytes(), input.Id().Bytes()) {
-					return inputUtxo, nil
-				}
-				return common.Utxo{}, errors.New("not found")
-			}).
-			Build()
-
-		tx := &conway.ConwayTransaction{}
-		tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
-			[]shelley.ShelleyTransactionInput{input},
-		)
-		tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
-			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-				{Tag: common.RedeemerTagSpend, Index: 0}: {
-					ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+	t.Run(
+		"redeemer with regular input plutus v4 script ref",
+		func(t *testing.T) {
+			input := shelley.MustNewShelleyTransactionInput(
+				"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+				0,
+			)
+			script := common.PlutusV4Script{0x01, 0x02, 0x03}
+			inputOutput := babbage.BabbageTransactionOutput{
+				OutputAddress: common.Address{},
+				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1000},
+				TxOutScriptRef: &common.ScriptRef{
+					Type:   common.ScriptRefTypePlutusV4,
+					Script: script,
 				},
-			},
-		}
-		err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
-		assert.NoError(t, err)
-	})
+			}
+			inputUtxo := common.Utxo{
+				Id:     input,
+				Output: inputOutput,
+			}
+
+			ls := mockledger.NewLedgerStateBuilder().
+				WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+					if id.Index() == input.Index() &&
+						bytes.Equal(id.Id().Bytes(), input.Id().Bytes()) {
+						return inputUtxo, nil
+					}
+					return common.Utxo{}, errors.New("not found")
+				}).
+				Build()
+
+			tx := &conway.ConwayTransaction{}
+			tx.Body.TxInputs = conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			)
+			tx.WitnessSet.WsRedeemers = conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {
+						ExUnits: common.ExUnits{Steps: 1, Memory: 1},
+					},
+				},
+			}
+			err := conway.UtxoValidateRedeemerAndScriptWitnesses(tx, 0, ls, nil)
+			assert.NoError(t, err)
+		},
+	)
 
 	t.Run(
 		"reference plutus script without redeemer should not error",
@@ -1574,7 +1582,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 		Body: conway.ConwayTransactionBody{},
 	}
 	utxos := []common.Utxo{{Id: testGoodInput}}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
@@ -1817,7 +1827,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			}: testStakeDeposit,
 		},
 	}
-	zeroRefundCredential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	zeroRefundCredential := common.Credential{
+		CredType: common.CredentialTypeAddrKeyHash,
+	}
 	zeroRefundState := certificateDepositLedgerState{
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithUtxos(utxos).
@@ -2488,7 +2500,9 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{
 		CollateralPercentage: 150,
@@ -2609,7 +2623,9 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Coin and assets
@@ -2754,7 +2770,9 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// No collateral
@@ -3052,7 +3070,10 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 			Body: conway.ConwayTransactionBody{
 				TxInputs: conway.NewConwayTransactionInputSet(
 					[]shelley.ShelleyTransactionInput{
-						shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+						shelley.MustNewShelleyTransactionInput(
+							testInputTxId,
+							0,
+						),
 					},
 				),
 				TxReferenceInputs: cbor.NewSetType(
@@ -3072,46 +3093,54 @@ func TestUtxoValidateDisjointRefInputs_PV11PlusSkipsGlobalCheck(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("pre-PV11 does not check reference inputs for PlutusV1V2", func(t *testing.T) {
-		// Before PV11 the Babbage global predicate still applies.
-		prePv11Params := &conway.ConwayProtocolParameters{
-			ProtocolVersion: common.ProtocolParametersProtocolVersion{
-				Major: 9,
-				Minor: 0,
-			},
-		}
-		testTx := &conway.ConwayTransaction{
-			Body: conway.ConwayTransactionBody{
-				TxInputs: conway.NewConwayTransactionInputSet(
-					[]shelley.ShelleyTransactionInput{
-						shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
-					},
-				),
-				TxReferenceInputs: cbor.NewSetType(
-					[]shelley.ShelleyTransactionInput{
-						// different index to avoid disjoint error
-						shelley.MustNewShelleyTransactionInput(
-							refInputTxId,
-							1,
-						),
-					},
-					false,
-				),
-			},
-		}
-		err := conway.UtxoValidateDisjointRefInputs(
-			testTx,
-			0,
-			testLedgerState,
-			prePv11Params,
-		)
-		// Pre-PV11 should not trigger the reference input resolution check
-		// (it delegates directly to babbage.UtxoValidateDisjointRefInputs)
-		assert.NoError(t, err)
-	})
+	t.Run(
+		"pre-PV11 does not check reference inputs for PlutusV1V2",
+		func(t *testing.T) {
+			// Before PV11 the Babbage global predicate still applies.
+			prePv11Params := &conway.ConwayProtocolParameters{
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: 9,
+					Minor: 0,
+				},
+			}
+			testTx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{
+							shelley.MustNewShelleyTransactionInput(
+								testInputTxId,
+								0,
+							),
+						},
+					),
+					TxReferenceInputs: cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{
+							// different index to avoid disjoint error
+							shelley.MustNewShelleyTransactionInput(
+								refInputTxId,
+								1,
+							),
+						},
+						false,
+					),
+				},
+			}
+			err := conway.UtxoValidateDisjointRefInputs(
+				testTx,
+				0,
+				testLedgerState,
+				prePv11Params,
+			)
+			// Pre-PV11 should not trigger the reference input resolution check
+			// (it delegates directly to babbage.UtxoValidateDisjointRefInputs)
+			assert.NoError(t, err)
+		},
+	)
 }
 
-func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(t *testing.T) {
+func TestUtxoValidateDisjointRefInputs_PV11AllowsOverlapWithoutPlutus(
+	t *testing.T,
+) {
 	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
 		0,
@@ -3175,7 +3204,9 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &conway.ConwayProtocolParameters{}
 	// Too much collateral return
@@ -3390,7 +3421,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 
 	t.Run("no voting procedures", func(t *testing.T) {
 		tx := &conway.ConwayTransaction{}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.NoError(t, err)
 	})
 
@@ -3408,7 +3444,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.NoError(t, err)
 	})
 
@@ -3426,7 +3467,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.NoError(t, err)
 	})
 
@@ -3444,7 +3490,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.Error(t, err)
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
@@ -3465,7 +3516,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.Error(t, err)
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
@@ -3481,12 +3537,19 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 			Body: conway.ConwayTransactionBody{
 				TxVotingProcedures: common.VotingProcedures{
 					voter: {
-						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+						&updateCommitteeActionId: common.VotingProcedure{
+							Vote: 1,
+						},
 					},
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.Error(t, err)
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
@@ -3507,7 +3570,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			prePv11Params,
+		)
 		var ccErr conway.CCVotingRestrictionError
 		require.ErrorAs(t, err, &ccErr)
 		assert.Contains(t, ccErr.Restriction, "NoConfidence")
@@ -3522,12 +3590,19 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 			Body: conway.ConwayTransactionBody{
 				TxVotingProcedures: common.VotingProcedures{
 					voter: {
-						&updateCommitteeActionId: common.VotingProcedure{Vote: 1},
+						&updateCommitteeActionId: common.VotingProcedure{
+							Vote: 1,
+						},
 					},
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, prePv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			prePv11Params,
+		)
 		var ccErr conway.CCVotingRestrictionError
 		require.ErrorAs(t, err, &ccErr)
 		assert.Contains(t, ccErr.Restriction, "UpdateCommittee")
@@ -3567,7 +3642,12 @@ func TestUtxoValidateCCVotingRestrictions(t *testing.T) {
 				},
 			},
 		}
-		err := conway.UtxoValidateCCVotingRestrictions(tx, testSlot, testLedgerState, pv11Params)
+		err := conway.UtxoValidateCCVotingRestrictions(
+			tx,
+			testSlot,
+			testLedgerState,
+			pv11Params,
+		)
 		assert.Error(t, err)
 		var ccErr conway.CCVotingRestrictionError
 		assert.True(t, errors.As(err, &ccErr))
@@ -3617,7 +3697,10 @@ func TestUtxoValidateUnelectedCommitteeVoters(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp))
+	require.NoError(
+		t,
+		conway.UtxoValidateUnelectedCommitteeVoters(tx, 0, state, pp),
+	)
 
 	state.electedLookup = func(common.Credential) (bool, error) { return false, nil }
 	var unelected conway.UnelectedCommitteeVoterError
@@ -3647,7 +3730,8 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 	infoAction := common.GovActionId{TransactionId: common.Blake2b256{0x55}}
 	govActions := map[string]*common.GovActionState{
 		fmt.Sprintf("%x#%d", infoAction.TransactionId[:], infoAction.GovActionIdx): {
-			ActionId: infoAction, ActionType: common.GovActionTypeInfo,
+			ActionId:   infoAction,
+			ActionType: common.GovActionTypeInfo,
 		},
 	}
 	newTransaction := func(voterType uint8, voterHash common.Blake2b224, certs ...common.Certificate) *conway.ConwayTransaction {
@@ -3757,12 +3841,19 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 				!tt.noInitialAuthorization {
 				authorizedHot = hot
 			}
-			member := &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotHash, ExpiryEpoch: 100}
-			ledgerBuilder := mockledger.NewLedgerStateBuilder().WithGovActions(govActions)
+			member := &common.CommitteeMember{
+				ColdKey:     coldHash,
+				HotKey:      &hotHash,
+				ExpiryEpoch: 100,
+			}
+			ledgerBuilder := mockledger.NewLedgerStateBuilder().
+				WithGovActions(govActions)
 			if tt.pending {
-				ledgerBuilder.WithProposedCommitteeMembers(map[common.Blake2b224]uint64{
-					coldHash: 100,
-				})
+				ledgerBuilder.WithProposedCommitteeMembers(
+					map[common.Blake2b224]uint64{
+						coldHash: 100,
+					},
+				)
 			} else {
 				ledgerBuilder.WithCommitteeMembers([]common.CommitteeMember{*member})
 			}
@@ -3770,7 +3861,8 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 				LedgerState: ledgerBuilder.Build(),
 				available:   true,
 				coldLookup: func(credential common.Credential) (*common.CommitteeMember, error) {
-					if credential.CredType == cold.CredType && credential.Credential == cold.Credential {
+					if credential.CredType == cold.CredType &&
+						credential.Credential == cold.Credential {
 						return member, nil
 					}
 					return nil, nil
@@ -3799,7 +3891,9 @@ func TestUtxoValidateUnelectedCommitteeVotersThroughRules(t *testing.T) {
 				},
 			}
 			params := &conway.ConwayProtocolParameters{
-				ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: tt.major},
+				ProtocolVersion: common.ProtocolParametersProtocolVersion{
+					Major: tt.major,
+				},
 			}
 			var rule common.UtxoValidationRuleFunc
 			for _, descriptor := range conway.UtxoValidationRuleDescriptors() {
@@ -3856,7 +3950,9 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			name: "authorize hot key",
 			cert: func() common.Certificate {
 				return &common.AuthCommitteeHotCertificate{
-					CertType:       uint(common.CertificateTypeAuthCommitteeHot),
+					CertType: uint(
+						common.CertificateTypeAuthCommitteeHot,
+					),
 					ColdCredential: coldCredential,
 					HotCredential:  hotCredential,
 				}
@@ -3866,7 +3962,9 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 			name: "resign",
 			cert: func() common.Certificate {
 				return &common.ResignCommitteeColdCertificate{
-					CertType:       uint(common.CertificateTypeResignCommitteeCold),
+					CertType: uint(
+						common.CertificateTypeResignCommitteeCold,
+					),
 					ColdCredential: coldCredential,
 				}
 			},
@@ -3925,7 +4023,8 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 				func(t *testing.T) {
 					lookupErr := errors.New("committee state unavailable")
 					ls := committeeCredentialLedgerState{
-						LedgerState:     mockledger.NewLedgerStateBuilder().Build(),
+						LedgerState: mockledger.NewLedgerStateBuilder().
+							Build(),
 						availabilityErr: lookupErr,
 					}
 					err := conway.UtxoValidateCommitteeCertificates(
@@ -3945,27 +4044,30 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 				},
 			)
 
-			t.Run("provider reports committee state unavailable", func(t *testing.T) {
-				ls := committeeCredentialLedgerState{
-					LedgerState: mockledger.NewLedgerStateBuilder().Build(),
-					coldLookup: func(
-						common.Credential,
-					) (*common.CommitteeMember, error) {
-						t.Fatal(
-							"member lookup called for unavailable committee state",
-						)
-						return nil, nil
-					},
-				}
-				err := conway.UtxoValidateCommitteeCertificates(
-					newTx(operation.cert()),
-					0,
-					ls,
-					&conway.ConwayProtocolParameters{},
-				)
-				var unavailableErr conway.CommitteeStateUnavailableError
-				require.ErrorAs(t, err, &unavailableErr)
-			})
+			t.Run(
+				"provider reports committee state unavailable",
+				func(t *testing.T) {
+					ls := committeeCredentialLedgerState{
+						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+						coldLookup: func(
+							common.Credential,
+						) (*common.CommitteeMember, error) {
+							t.Fatal(
+								"member lookup called for unavailable committee state",
+							)
+							return nil, nil
+						},
+					}
+					err := conway.UtxoValidateCommitteeCertificates(
+						newTx(operation.cert()),
+						0,
+						ls,
+						&conway.ConwayProtocolParameters{},
+					)
+					var unavailableErr conway.CommitteeStateUnavailableError
+					require.ErrorAs(t, err, &unavailableErr)
+				},
+			)
 
 			t.Run("member lookup error fails closed", func(t *testing.T) {
 				lookupErr := errors.New("committee member unavailable")
@@ -4050,72 +4152,88 @@ func TestUtxoValidateCommitteeCertificates(t *testing.T) {
 		},
 	)
 
-	t.Run("unrelated certificate does not require committee state", func(t *testing.T) {
-		lookupErr := errors.New("committee state unavailable")
-		ls := committeeMembersErrorLedgerState{
-			LedgerState: mockledger.NewLedgerStateBuilder().Build(),
-			err:         lookupErr,
-		}
-		tx := newTx(&common.RegistrationDrepCertificate{})
-		require.NoError(t, conway.UtxoValidateCommitteeCertificates(
-			tx,
-			0,
-			ls,
-			&conway.ConwayProtocolParameters{},
-		))
-	})
+	t.Run(
+		"unrelated certificate does not require committee state",
+		func(t *testing.T) {
+			lookupErr := errors.New("committee state unavailable")
+			ls := committeeMembersErrorLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+				err:         lookupErr,
+			}
+			tx := newTx(&common.RegistrationDrepCertificate{})
+			require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+				tx,
+				0,
+				ls,
+				&conway.ConwayProtocolParameters{},
+			))
+		},
+	)
 
-	t.Run("certificate sequence uses transaction-local state", func(t *testing.T) {
-		secondHot := common.Credential{
-			CredType:   common.CredentialTypeAddrKeyHash,
-			Credential: common.Blake2b224Hash([]byte("committee-hot-key-2")),
-		}
-		memberState := authoritativeLegacyCommitteeState(
-			mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
-				[]common.CommitteeMember{{ColdKey: coldHash, ExpiryEpoch: 100}},
-			).Build(),
-		)
-		resign := &common.ResignCommitteeColdCertificate{
-			CertType:       uint(common.CertificateTypeResignCommitteeCold),
-			ColdCredential: coldCredential,
-		}
-		authorize := func(hot common.Credential) common.Certificate {
-			return &common.AuthCommitteeHotCertificate{
-				CertType:       uint(common.CertificateTypeAuthCommitteeHot),
-				ColdCredential: coldCredential,
-				HotCredential:  hot,
+	t.Run(
+		"certificate sequence uses transaction-local state",
+		func(t *testing.T) {
+			secondHot := common.Credential{
+				CredType: common.CredentialTypeAddrKeyHash,
+				Credential: common.Blake2b224Hash(
+					[]byte("committee-hot-key-2"),
+				),
 			}
-		}
-		validate := func(certs ...common.Certificate) error {
-			wrapped := make([]common.CertificateWrapper, len(certs))
-			for i, cert := range certs {
-				wrapped[i].Certificate = cert
-			}
-			tx := &conway.ConwayTransaction{TxIsValid: true}
-			tx.Body.TxCertificates = wrapped
-			return conway.UtxoValidateCommitteeCertificates(
-				tx, 0, memberState, &conway.ConwayProtocolParameters{},
+			memberState := authoritativeLegacyCommitteeState(
+				mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
+					[]common.CommitteeMember{
+						{ColdKey: coldHash, ExpiryEpoch: 100},
+					},
+				).
+					Build(),
 			)
-		}
-		t.Run("resign then authorize rejects", func(t *testing.T) {
-			var err error
-			err = validate(resign, authorize(hotCredential))
-			var resigned conway.ResignedCommitteeMemberHotKeyError
-			require.ErrorAs(t, err, &resigned)
-		})
-		t.Run("resign then resign rejects", func(t *testing.T) {
-			var err error
-			err = validate(resign, resign)
-			var resigned conway.ResignedCommitteeMemberError
-			require.ErrorAs(t, err, &resigned)
-		})
-		t.Run("authorize then resign passes", func(t *testing.T) {
-			require.NoError(t, validate(authorize(hotCredential), resign))
-		})
-		t.Run("authorize then authorize passes", func(t *testing.T) {
-			require.NoError(t, validate(authorize(hotCredential), authorize(secondHot)))
-		})
-	})
+			resign := &common.ResignCommitteeColdCertificate{
+				CertType:       uint(common.CertificateTypeResignCommitteeCold),
+				ColdCredential: coldCredential,
+			}
+			authorize := func(hot common.Credential) common.Certificate {
+				return &common.AuthCommitteeHotCertificate{
+					CertType: uint(
+						common.CertificateTypeAuthCommitteeHot,
+					),
+					ColdCredential: coldCredential,
+					HotCredential:  hot,
+				}
+			}
+			validate := func(certs ...common.Certificate) error {
+				wrapped := make([]common.CertificateWrapper, len(certs))
+				for i, cert := range certs {
+					wrapped[i].Certificate = cert
+				}
+				tx := &conway.ConwayTransaction{TxIsValid: true}
+				tx.Body.TxCertificates = wrapped
+				return conway.UtxoValidateCommitteeCertificates(
+					tx, 0, memberState, &conway.ConwayProtocolParameters{},
+				)
+			}
+			t.Run("resign then authorize rejects", func(t *testing.T) {
+				var err error
+				err = validate(resign, authorize(hotCredential))
+				var resigned conway.ResignedCommitteeMemberHotKeyError
+				require.ErrorAs(t, err, &resigned)
+			})
+			t.Run("resign then resign rejects", func(t *testing.T) {
+				var err error
+				err = validate(resign, resign)
+				var resigned conway.ResignedCommitteeMemberError
+				require.ErrorAs(t, err, &resigned)
+			})
+			t.Run("authorize then resign passes", func(t *testing.T) {
+				require.NoError(t, validate(authorize(hotCredential), resign))
+			})
+			t.Run("authorize then authorize passes", func(t *testing.T) {
+				require.NoError(
+					t,
+					validate(authorize(hotCredential), authorize(secondHot)),
+				)
+			})
+		},
+	)
 }
 
 func TestUtxoValidateCommitteeCertificatesUsesSequentialState(t *testing.T) {
@@ -4153,11 +4271,18 @@ func TestUtxoValidateCommitteeCertificatesUsesSequentialState(t *testing.T) {
 		tx := &conway.ConwayTransaction{
 			TxIsValid: true,
 			Body: conway.ConwayTransactionBody{
-				TxCertificates: make([]common.CertificateWrapper, 0, len(certs)),
+				TxCertificates: make(
+					[]common.CertificateWrapper,
+					0,
+					len(certs),
+				),
 			},
 		}
 		for _, cert := range certs {
-			tx.Body.TxCertificates = append(tx.Body.TxCertificates, certificate(cert))
+			tx.Body.TxCertificates = append(
+				tx.Body.TxCertificates,
+				certificate(cert),
+			)
 		}
 		return conway.UtxoValidateCommitteeCertificates(
 			tx, 0, ledgerState, &conway.ConwayProtocolParameters{},
@@ -4195,8 +4320,10 @@ func TestUtxoValidateCommitteeCertificatesRejectsAlreadyResignedMember(
 		Credential: coldHash,
 	}
 	hot := common.Credential{
-		CredType:   common.CredentialTypeAddrKeyHash,
-		Credential: common.Blake2b224Hash([]byte("committee-already-resigned-hot")),
+		CredType: common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224Hash(
+			[]byte("committee-already-resigned-hot"),
+		),
 	}
 	ledgerState := authoritativeLegacyCommitteeState(
 		mockledger.NewLedgerStateBuilder().WithCommitteeMembers(
@@ -4356,7 +4483,9 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 								return common.Utxo{
 									Id: input,
 									Output: babbage.BabbageTransactionOutput{
-										OutputAmount: mary.MaryTransactionOutputValue{Amount: 1_000_000},
+										OutputAmount: mary.MaryTransactionOutputValue{
+											Amount: 1_000_000,
+										},
 									},
 								}, nil
 							}).
@@ -4407,58 +4536,64 @@ func TestProductionValidationSkipsCommitteeRulesForPhase2Invalid(
 			if era.name != "Conway" {
 				return
 			}
-			t.Run("phase-2 valid transaction runs committee rules", func(t *testing.T) {
-				newState := func() *erroringCommitteeCredentialLedgerState {
-					return &erroringCommitteeCredentialLedgerState{
-						LedgerState: mockledger.NewLedgerStateBuilder().Build(),
-						err:         errors.New("committee provider queried"),
+			t.Run(
+				"phase-2 valid transaction runs committee rules",
+				func(t *testing.T) {
+					newState := func() *erroringCommitteeCredentialLedgerState {
+						return &erroringCommitteeCredentialLedgerState{
+							LedgerState: mockledger.NewLedgerStateBuilder().
+								Build(),
+							err: errors.New(
+								"committee provider queried",
+							),
+						}
 					}
-				}
-				pp := &conway.ConwayProtocolParameters{}
-				validTx := operations[0].tx()
-				validTx.TxIsValid = true
+					pp := &conway.ConwayProtocolParameters{}
+					validTx := operations[0].tx()
+					validTx.TxIsValid = true
 
-				// The composition wraps every gated rule in an identical
-				// closure, so the committee rule cannot be selected out of the
-				// production list by function pointer. Locate the composed
-				// position by the lookup error only it reports for a valid
-				// transaction, then assert that same position for an invalid
-				// one. Selecting the rule by pointer instead would test the
-				// function rather than its place in the composed list.
-				var matched []common.UtxoValidationRuleFunc
-				for _, rule := range era.rules {
-					state := newState()
-					err := rule(validTx, 0, state, pp)
-					var lookupErr conway.CommitteeMemberLookupError
-					if !errors.As(err, &lookupErr) {
-						continue
+					// The composition wraps every gated rule in an identical
+					// closure, so the committee rule cannot be selected out of the
+					// production list by function pointer. Locate the composed
+					// position by the lookup error only it reports for a valid
+					// transaction, then assert that same position for an invalid
+					// one. Selecting the rule by pointer instead would test the
+					// function rather than its place in the composed list.
+					var matched []common.UtxoValidationRuleFunc
+					for _, rule := range era.rules {
+						state := newState()
+						err := rule(validTx, 0, state, pp)
+						var lookupErr conway.CommitteeMemberLookupError
+						if !errors.As(err, &lookupErr) {
+							continue
+						}
+						require.Positivef(
+							t,
+							state.queries,
+							"committee provider queries: %v",
+							err,
+						)
+						matched = append(matched, rule)
 					}
-					require.Positivef(
+					require.NotEmpty(
 						t,
-						state.queries,
-						"committee provider queries: %v",
-						err,
+						matched,
+						"no composed rule reached the committee provider",
 					)
-					matched = append(matched, rule)
-				}
-				require.NotEmpty(
-					t,
-					matched,
-					"no composed rule reached the committee provider",
-				)
 
-				invalidTx := operations[0].tx()
-				invalidTx.TxIsValid = false
-				for _, rule := range matched {
-					state := newState()
-					require.NoError(t, rule(invalidTx, 0, state, pp))
-					require.Zero(
-						t,
-						state.queries,
-						"committee provider queries",
-					)
-				}
-			})
+					invalidTx := operations[0].tx()
+					invalidTx.TxIsValid = false
+					for _, rule := range matched {
+						state := newState()
+						require.NoError(t, rule(invalidTx, 0, state, pp))
+						require.Zero(
+							t,
+							state.queries,
+							"committee provider queries",
+						)
+					}
+				},
+			)
 
 			t.Run("phase-1 invalid flag still runs", func(t *testing.T) {
 				tx := operations[0].tx()
@@ -4528,23 +4663,26 @@ func TestPoolValidateVrfKeyUniqueness(t *testing.T) {
 		assert.Equal(t, existingPoolId, dupErr.ExistingPoolId)
 	})
 
-	t.Run("PV11 allows same pool to update with same VRF key", func(t *testing.T) {
-		ls := mockledger.NewLedgerStateBuilder().
-			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
-				// VRF key is in use by the same pool
-				return true, newPoolId, nil
-			}).
-			Build()
+	t.Run(
+		"PV11 allows same pool to update with same VRF key",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+					// VRF key is in use by the same pool
+					return true, newPoolId, nil
+				}).
+				Build()
 
-		cert := &common.PoolRegistrationCertificate{
-			Operator:   newPoolId,
-			VrfKeyHash: vrfKeyHash,
-		}
+			cert := &common.PoolRegistrationCertificate{
+				Operator:   newPoolId,
+				VrfKeyHash: vrfKeyHash,
+			}
 
-		// Same pool updating with same VRF key should be allowed
-		err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
-		assert.NoError(t, err)
-	})
+			// Same pool updating with same VRF key should be allowed
+			err := conway.PoolValidateVrfKeyUniqueness(cert, 11, ls)
+			assert.NoError(t, err)
+		},
+	)
 
 	t.Run("PV11 allows new VRF key", func(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().
@@ -4829,30 +4967,33 @@ func TestUtxoValidateDelegation_RejectsDuplicateStakeRegistrations(
 		require.NoError(t, err)
 	})
 
-	t.Run("deregistration preserves the other credential type", func(t *testing.T) {
-		scriptCred := stakeCred
-		scriptCred.CredType = common.CredentialTypeScriptHash
-		err := conway.UtxoValidateDelegation(
-			newTx(
-				&common.RegistrationCertificate{
-					StakeCredential: scriptCred,
-				},
-				&common.DeregistrationCertificate{
-					StakeCredential: stakeCred,
-				},
-				&common.RegistrationCertificate{
-					StakeCredential: scriptCred,
-				},
-			),
-			0,
-			newLedgerState(false),
-			&conway.ConwayProtocolParameters{},
-		)
-		require.Error(t, err)
-		var duplicateErr conway.StakeCredentialAlreadyRegisteredError
-		require.ErrorAs(t, err, &duplicateErr)
-		assert.Equal(t, scriptCred, duplicateErr.Credential)
-	})
+	t.Run(
+		"deregistration preserves the other credential type",
+		func(t *testing.T) {
+			scriptCred := stakeCred
+			scriptCred.CredType = common.CredentialTypeScriptHash
+			err := conway.UtxoValidateDelegation(
+				newTx(
+					&common.RegistrationCertificate{
+						StakeCredential: scriptCred,
+					},
+					&common.DeregistrationCertificate{
+						StakeCredential: stakeCred,
+					},
+					&common.RegistrationCertificate{
+						StakeCredential: scriptCred,
+					},
+				),
+				0,
+				newLedgerState(false),
+				&conway.ConwayProtocolParameters{},
+			)
+			require.Error(t, err)
+			var duplicateErr conway.StakeCredentialAlreadyRegisteredError
+			require.ErrorAs(t, err, &duplicateErr)
+			assert.Equal(t, scriptCred, duplicateErr.Credential)
+		},
+	)
 }
 
 func TestUtxoValidateDelegation_DeregistrationBlocksLaterDelegation(
@@ -4977,7 +5118,10 @@ func TestUtxoValidateDelegation_PoolRetirementKeepsPoolRegistered(
 	require.NoError(t, conway.UtxoValidateDelegation(
 		newTx(
 			registration,
-			&common.PoolRetirementCertificate{PoolKeyHash: poolKeyHash, Epoch: 5},
+			&common.PoolRetirementCertificate{
+				PoolKeyHash: poolKeyHash,
+				Epoch:       5,
+			},
 			delegation,
 		),
 		0,
@@ -4992,72 +5136,84 @@ func TestUtxoValidateDelegation_InTxVrfKeyDuplicates(t *testing.T) {
 	vrfKeyHash := common.Blake2b256{0x10, 0x11, 0x12}
 
 	pv11Params := &conway.ConwayProtocolParameters{
-		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11, Minor: 0},
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 11,
+			Minor: 0,
+		},
 	}
 	pv10Params := &conway.ConwayProtocolParameters{
-		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 10, Minor: 0},
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: 10,
+			Minor: 0,
+		},
 	}
 
-	t.Run("PV11 rejects in-tx duplicate VRF keys from different pools", func(t *testing.T) {
-		ls := mockledger.NewLedgerStateBuilder().
-			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
-				return false, common.PoolKeyHash{}, nil
-			}).
-			Build()
+	t.Run(
+		"PV11 rejects in-tx duplicate VRF keys from different pools",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+					return false, common.PoolKeyHash{}, nil
+				}).
+				Build()
 
-		// Two pool registrations with the same VRF key
-		tx := &conway.ConwayTransaction{
-			Body: conway.ConwayTransactionBody{
-				TxCertificates: []common.CertificateWrapper{
-					{Certificate: &common.PoolRegistrationCertificate{
-						Operator:   pool1,
-						VrfKeyHash: vrfKeyHash,
-					}},
-					{Certificate: &common.PoolRegistrationCertificate{
-						Operator:   pool2,
-						VrfKeyHash: vrfKeyHash, // Same VRF key, different pool
-					}},
+			// Two pool registrations with the same VRF key
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxCertificates: []common.CertificateWrapper{
+						{Certificate: &common.PoolRegistrationCertificate{
+							Operator:   pool1,
+							VrfKeyHash: vrfKeyHash,
+						}},
+						{Certificate: &common.PoolRegistrationCertificate{
+							Operator:   pool2,
+							VrfKeyHash: vrfKeyHash, // Same VRF key, different pool
+						}},
+					},
 				},
-			},
-			TxIsValid: true,
-		}
+				TxIsValid: true,
+			}
 
-		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
-		require.Error(t, err)
-		var dupErr conway.DuplicateVrfKeyError
-		require.True(t, errors.As(err, &dupErr))
-		assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
-		assert.Equal(t, pool2, dupErr.NewPoolId)
-		assert.Equal(t, pool1, dupErr.ExistingPoolId)
-	})
+			err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+			require.Error(t, err)
+			var dupErr conway.DuplicateVrfKeyError
+			require.True(t, errors.As(err, &dupErr))
+			assert.Equal(t, vrfKeyHash, dupErr.VrfKeyHash)
+			assert.Equal(t, pool2, dupErr.NewPoolId)
+			assert.Equal(t, pool1, dupErr.ExistingPoolId)
+		},
+	)
 
-	t.Run("PV11 allows same pool to register multiple times with same VRF key", func(t *testing.T) {
-		ls := mockledger.NewLedgerStateBuilder().
-			WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
-				return false, common.PoolKeyHash{}, nil
-			}).
-			Build()
+	t.Run(
+		"PV11 allows same pool to register multiple times with same VRF key",
+		func(t *testing.T) {
+			ls := mockledger.NewLedgerStateBuilder().
+				WithVrfKeyInUseFunc(func(h common.Blake2b256) (bool, common.PoolKeyHash, error) {
+					return false, common.PoolKeyHash{}, nil
+				}).
+				Build()
 
-		// Same pool registering twice with same VRF key (update scenario)
-		tx := &conway.ConwayTransaction{
-			Body: conway.ConwayTransactionBody{
-				TxCertificates: []common.CertificateWrapper{
-					{Certificate: &common.PoolRegistrationCertificate{
-						Operator:   pool1,
-						VrfKeyHash: vrfKeyHash,
-					}},
-					{Certificate: &common.PoolRegistrationCertificate{
-						Operator:   pool1,
-						VrfKeyHash: vrfKeyHash, // Same pool, same VRF key
-					}},
+			// Same pool registering twice with same VRF key (update scenario)
+			tx := &conway.ConwayTransaction{
+				Body: conway.ConwayTransactionBody{
+					TxCertificates: []common.CertificateWrapper{
+						{Certificate: &common.PoolRegistrationCertificate{
+							Operator:   pool1,
+							VrfKeyHash: vrfKeyHash,
+						}},
+						{Certificate: &common.PoolRegistrationCertificate{
+							Operator:   pool1,
+							VrfKeyHash: vrfKeyHash, // Same pool, same VRF key
+						}},
+					},
 				},
-			},
-			TxIsValid: true,
-		}
+				TxIsValid: true,
+			}
 
-		err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
-		assert.NoError(t, err)
-	})
+			err := conway.UtxoValidateDelegation(tx, 0, ls, pv11Params)
+			assert.NoError(t, err)
+		},
+	)
 
 	t.Run("PV10 allows in-tx duplicate VRF keys", func(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().
@@ -5113,7 +5269,10 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 		return builder.Build()
 	}
 	registration := func(pool common.PoolKeyHash, key common.Blake2b256) common.Certificate {
-		return &common.PoolRegistrationCertificate{Operator: pool, VrfKeyHash: key}
+		return &common.PoolRegistrationCertificate{
+			Operator:   pool,
+			VrfKeyHash: key,
+		}
 	}
 	validate := func(state common.LedgerState, certs ...common.Certificate) error {
 		wrappers := make([]common.CertificateWrapper, len(certs))
@@ -5127,30 +5286,40 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 		return conway.UtxoValidateDelegation(tx, 0, state, pp)
 	}
 
-	t.Run("one transaction releases the superseded pending key", func(t *testing.T) {
-		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
-		require.NoError(t, validate(
-			state,
-			registration(poolP, keyB),
-			registration(poolP, keyC),
-			registration(poolQ, keyB),
-		))
-	})
-
-	t.Run("one transaction keeps active and pending keys after A to B", func(t *testing.T) {
-		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
-		for _, key := range []common.Blake2b256{keyA, keyB} {
-			err := validate(
+	t.Run(
+		"one transaction releases the superseded pending key",
+		func(t *testing.T) {
+			state := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{keyA: poolP},
+			)
+			require.NoError(t, validate(
 				state,
 				registration(poolP, keyB),
-				registration(poolQ, key),
+				registration(poolP, keyC),
+				registration(poolQ, keyB),
+			))
+		},
+	)
+
+	t.Run(
+		"one transaction keeps active and pending keys after A to B",
+		func(t *testing.T) {
+			state := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{keyA: poolP},
 			)
-			var duplicate conway.DuplicateVrfKeyError
-			require.ErrorAs(t, err, &duplicate)
-			require.Equal(t, key, duplicate.VrfKeyHash)
-			require.Equal(t, poolP, duplicate.ExistingPoolId)
-		}
-	})
+			for _, key := range []common.Blake2b256{keyA, keyB} {
+				err := validate(
+					state,
+					registration(poolP, keyB),
+					registration(poolQ, key),
+				)
+				var duplicate conway.DuplicateVrfKeyError
+				require.ErrorAs(t, err, &duplicate)
+				require.Equal(t, key, duplicate.VrfKeyHash)
+				require.Equal(t, poolP, duplicate.ExistingPoolId)
+			}
+		},
+	)
 
 	t.Run("new pool retains active key", func(t *testing.T) {
 		state := ledgerState(nil)
@@ -5167,46 +5336,66 @@ func TestUtxoValidateDelegationReleasesSupersededVrfKeys(t *testing.T) {
 		require.Equal(t, poolP, duplicate.ExistingPoolId)
 	})
 
-	t.Run("one transaction keeps the active and latest pending keys", func(t *testing.T) {
-		state := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
-		for _, key := range []common.Blake2b256{keyA, keyC} {
-			err := validate(
-				state,
-				registration(poolP, keyB),
-				registration(poolP, keyC),
-				registration(poolQ, key),
+	t.Run(
+		"one transaction keeps the active and latest pending keys",
+		func(t *testing.T) {
+			state := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{keyA: poolP},
 			)
-			var duplicate conway.DuplicateVrfKeyError
-			require.ErrorAs(t, err, &duplicate)
-			require.Equal(t, key, duplicate.VrfKeyHash)
-			require.Equal(t, poolP, duplicate.ExistingPoolId)
-		}
-	})
+			for _, key := range []common.Blake2b256{keyA, keyC} {
+				err := validate(
+					state,
+					registration(poolP, keyB),
+					registration(poolP, keyC),
+					registration(poolQ, key),
+				)
+				var duplicate conway.DuplicateVrfKeyError
+				require.ErrorAs(t, err, &duplicate)
+				require.Equal(t, key, duplicate.VrfKeyHash)
+				require.Equal(t, poolP, duplicate.ExistingPoolId)
+			}
+		},
+	)
 
-	t.Run("separate transactions retain active and latest keys", func(t *testing.T) {
-		stateBefore := ledgerState(map[common.Blake2b256]common.PoolKeyHash{keyA: poolP})
-		require.NoError(t, validate(stateBefore, registration(poolP, keyB)))
-		stateAfterAB := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
-			keyA: poolP,
-			keyB: poolP,
-		})
-		require.NoError(t, validate(stateAfterAB, registration(poolP, keyC)))
-		stateAfterABC := ledgerState(map[common.Blake2b256]common.PoolKeyHash{
-			keyA: poolP,
-			keyC: poolP,
-		})
-		require.NoError(t, validate(stateAfterABC, registration(poolQ, keyB)))
-		for _, key := range []common.Blake2b256{keyA, keyC} {
-			var duplicate conway.DuplicateVrfKeyError
-			require.ErrorAs(
-				t,
-				validate(stateAfterABC, registration(poolQ, key)),
-				&duplicate,
+	t.Run(
+		"separate transactions retain active and latest keys",
+		func(t *testing.T) {
+			stateBefore := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{keyA: poolP},
 			)
-			require.Equal(t, key, duplicate.VrfKeyHash)
-			require.Equal(t, poolP, duplicate.ExistingPoolId)
-		}
-	})
+			require.NoError(t, validate(stateBefore, registration(poolP, keyB)))
+			stateAfterAB := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{
+					keyA: poolP,
+					keyB: poolP,
+				},
+			)
+			require.NoError(
+				t,
+				validate(stateAfterAB, registration(poolP, keyC)),
+			)
+			stateAfterABC := ledgerState(
+				map[common.Blake2b256]common.PoolKeyHash{
+					keyA: poolP,
+					keyC: poolP,
+				},
+			)
+			require.NoError(
+				t,
+				validate(stateAfterABC, registration(poolQ, keyB)),
+			)
+			for _, key := range []common.Blake2b256{keyA, keyC} {
+				var duplicate conway.DuplicateVrfKeyError
+				require.ErrorAs(
+					t,
+					validate(stateAfterABC, registration(poolQ, key)),
+					&duplicate,
+				)
+				require.Equal(t, key, duplicate.VrfKeyHash)
+				require.Equal(t, poolP, duplicate.ExistingPoolId)
+			}
+		},
+	)
 }
 
 func TestUtxoValidateDelegation_DRepType(t *testing.T) {
@@ -5276,11 +5465,13 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 				return &conway.ConwayTransaction{
 					Body: conway.ConwayTransactionBody{
 						TxCertificates: []common.CertificateWrapper{
-							{Certificate: &common.StakeVoteDelegationCertificate{
-								StakeCredential: stakeCred,
-								PoolKeyHash:     poolKeyHash,
-								Drep:            drep,
-							}},
+							{
+								Certificate: &common.StakeVoteDelegationCertificate{
+									StakeCredential: stakeCred,
+									PoolKeyHash:     poolKeyHash,
+									Drep:            drep,
+								},
+							},
 						},
 					},
 					TxIsValid: true,
@@ -5296,10 +5487,12 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 				return &conway.ConwayTransaction{
 					Body: conway.ConwayTransactionBody{
 						TxCertificates: []common.CertificateWrapper{
-							{Certificate: &common.VoteRegistrationDelegationCertificate{
-								StakeCredential: stakeCred,
-								Drep:            drep,
-							}},
+							{
+								Certificate: &common.VoteRegistrationDelegationCertificate{
+									StakeCredential: stakeCred,
+									Drep:            drep,
+								},
+							},
 						},
 					},
 					TxIsValid: true,
@@ -5319,11 +5512,13 @@ func TestUtxoValidateDelegation_DRepType(t *testing.T) {
 				return &conway.ConwayTransaction{
 					Body: conway.ConwayTransactionBody{
 						TxCertificates: []common.CertificateWrapper{
-							{Certificate: &common.StakeVoteRegistrationDelegationCertificate{
-								StakeCredential: stakeCred,
-								PoolKeyHash:     poolKeyHash,
-								Drep:            drep,
-							}},
+							{
+								Certificate: &common.StakeVoteRegistrationDelegationCertificate{
+									StakeCredential: stakeCred,
+									PoolKeyHash:     poolKeyHash,
+									Drep:            drep,
+								},
+							},
 						},
 					},
 					TxIsValid: true,
@@ -5570,12 +5765,16 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 		{
 			name:    "PV9 ParameterChange allowed shape",
 			pvMajor: 9,
-			actions: []common.GovAction{&conway.ConwayParameterChangeGovAction{}},
+			actions: []common.GovAction{
+				&conway.ConwayParameterChangeGovAction{},
+			},
 		},
 		{
-			name:        "PV9 TreasuryWithdrawal rejected",
-			pvMajor:     9,
-			actions:     []common.GovAction{&common.TreasuryWithdrawalGovAction{}},
+			name:    "PV9 TreasuryWithdrawal rejected",
+			pvMajor: 9,
+			actions: []common.GovAction{
+				&common.TreasuryWithdrawalGovAction{},
+			},
 			wantErrType: conway.BootstrapDisallowedGovActionError{},
 		},
 		{
@@ -5649,17 +5848,36 @@ func TestUtxoValidateBootstrapAllowedGovActions(t *testing.T) {
 		}
 	})
 
-	t.Run("PV9 mixed proposals fails on first disallowed action", func(t *testing.T) {
-		tx := mkTx(&common.InfoGovAction{}, &common.TreasuryWithdrawalGovAction{})
-		err := conway.UtxoValidateBootstrapAllowedGovActions(tx, 0, nil, mkPp(9))
-		var bdErr conway.BootstrapDisallowedGovActionError
-		if !errors.As(err, &bdErr) {
-			t.Fatalf("got %T (%v), want BootstrapDisallowedGovActionError", err, err)
-		}
-		if bdErr.ActionType != common.GovActionTypeTreasuryWithdrawal {
-			t.Fatalf("got ActionType %d, want %d (TreasuryWithdrawal)", bdErr.ActionType, common.GovActionTypeTreasuryWithdrawal)
-		}
-	})
+	t.Run(
+		"PV9 mixed proposals fails on first disallowed action",
+		func(t *testing.T) {
+			tx := mkTx(
+				&common.InfoGovAction{},
+				&common.TreasuryWithdrawalGovAction{},
+			)
+			err := conway.UtxoValidateBootstrapAllowedGovActions(
+				tx,
+				0,
+				nil,
+				mkPp(9),
+			)
+			var bdErr conway.BootstrapDisallowedGovActionError
+			if !errors.As(err, &bdErr) {
+				t.Fatalf(
+					"got %T (%v), want BootstrapDisallowedGovActionError",
+					err,
+					err,
+				)
+			}
+			if bdErr.ActionType != common.GovActionTypeTreasuryWithdrawal {
+				t.Fatalf(
+					"got ActionType %d, want %d (TreasuryWithdrawal)",
+					bdErr.ActionType,
+					common.GovActionTypeTreasuryWithdrawal,
+				)
+			}
+		},
+	)
 }
 
 // Voter committee lookups report the same CommitteeMemberLookupError shape as
@@ -5839,7 +6057,10 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(
+						testInputTxId,
+						0,
+					),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},

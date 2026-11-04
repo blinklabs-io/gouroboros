@@ -60,7 +60,10 @@ func writeLeiosNotifyTestSegment(
 	t.Helper()
 	require.NotNil(t, segment)
 	buf := &bytes.Buffer{}
-	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+	)
 	_, err := buf.Write(segment.Payload)
 	require.NoError(t, err)
 	_, err = conn.Write(buf.Bytes())
@@ -200,11 +203,13 @@ func TestHandleRequestNext_CallbackIsCalled(t *testing.T) {
 	called := false
 
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			called = true
-			// Return an error to prevent attempting to send (which would hang)
-			return nil, errors.New("test: stopping before send")
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				called = true
+				// Return an error to prevent attempting to send (which would hang)
+				return nil, errors.New("test: stopping before send")
+			},
+		),
 	)
 
 	server := &Server{
@@ -231,7 +236,10 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	m := muxer.New(connA)
 	defer m.Stop()
 
-	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(
+		testAnnouncementEra,
+		cbor.RawMessage{0x82, 0x01, 0x02},
+	)
 	type sendResult struct {
 		msg protocol.Message
 		err error
@@ -290,7 +298,10 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer m.Stop()
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
-			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(
+				testAnnouncementEra,
+				cbor.RawMessage{0x81, 0x01},
+			), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -343,7 +354,10 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 			close(requestCalled)
 			// Keep the response from being queued until shutdown is observable.
 			<-releaseRequest
-			return NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x81, 0x01}), nil
+			return NewMsgBlockAnnouncement(
+				testAnnouncementEra,
+				cbor.RawMessage{0x81, 0x01},
+			), nil
 		}),
 		WithResponseSentFunc(func(
 			_ CallbackContext,
@@ -448,7 +462,10 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	assert.Equal(t, connId, server.callbackContext.ConnectionId)
 	assert.Equal(t, server, server.callbackContext.Server)
 
-	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(
+		testAnnouncementEra,
+		cbor.RawMessage{0x82, 0x01, 0x02},
+	)
 	require.NoError(t, server.SendMessage(response))
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
@@ -490,9 +507,11 @@ func TestHandleRequestNext_CallbackError(t *testing.T) {
 
 	expectedError := errors.New("no notifications available")
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			return nil, expectedError
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				return nil, expectedError
+			},
+		),
 	)
 
 	server := &Server{
@@ -514,9 +533,11 @@ func TestHandleRequestNext_NilResponse(t *testing.T) {
 	}
 
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			return nil, nil
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				return nil, nil
+			},
+		),
 	)
 
 	server := &Server{
@@ -565,11 +586,13 @@ func TestServerMessageHandler_RequestNext(t *testing.T) {
 	errCh := make(chan error, 1)
 	protoOptions.ErrorChan = errCh
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			close(called)
-			// Return an error to prevent attempting to send (which would hang without a muxer)
-			return nil, errors.New("test: callback error")
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				close(called)
+				// Return an error to prevent attempting to send (which would hang without a muxer)
+				return nil, errors.New("test: callback error")
+			},
+		),
 	)
 
 	server := NewServer(protoOptions, &cfg)
@@ -635,16 +658,24 @@ func TestCallbackResponseTypes(t *testing.T) {
 		response protocol.Message
 	}{
 		{
-			name:     "BlockAnnouncement response",
-			response: NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02}),
+			name: "BlockAnnouncement response",
+			response: NewMsgBlockAnnouncement(
+				testAnnouncementEra,
+				cbor.RawMessage{0x82, 0x01, 0x02},
+			),
 		},
 		{
-			name:     "BlockOffer response",
-			response: NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345),
+			name: "BlockOffer response",
+			response: NewMsgBlockOffer(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				12345,
+			),
 		},
 		{
-			name:     "BlockTxsOffer response",
-			response: NewMsgBlockTxsOffer(pcommon.NewPoint(12345, testPointHash(0x01))),
+			name: "BlockTxsOffer response",
+			response: NewMsgBlockTxsOffer(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+			),
 		},
 		{
 			name: "VotesOffer response",
@@ -657,9 +688,11 @@ func TestCallbackResponseTypes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := NewConfig(
-				WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-					return tc.response, nil
-				}),
+				WithRequestNextFunc(
+					func(ctx CallbackContext) (protocol.Message, error) {
+						return tc.response, nil
+					},
+				),
 			)
 
 			// Test that we can invoke the callback and get the expected response
@@ -763,15 +796,17 @@ func TestServerCancelsRequestOutstandingAtQuit(t *testing.T) {
 	sourceStarted := make(chan struct{})
 	sawQuit := make(chan struct{})
 	_, conn := newQuitTestServer(t, NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			close(sourceStarted)
-			select {
-			case <-ctx.QuitChan:
-				close(sawQuit)
-			case <-time.After(5 * time.Second):
-			}
-			return nil, errors.New("canceled")
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				close(sourceStarted)
+				select {
+				case <-ctx.QuitChan:
+					close(sawQuit)
+				case <-time.After(5 * time.Second):
+				}
+				return nil, errors.New("canceled")
+			},
+		),
 	))
 
 	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
@@ -840,7 +875,10 @@ func TestServerReleasesNotificationReturnedAfterQuit(t *testing.T) {
 	sourceStarted := make(chan struct{})
 	release := make(chan struct{})
 	released := make(chan error, 1)
-	response := NewMsgBlockAnnouncement(testAnnouncementEra, cbor.RawMessage{0x82, 0x01, 0x02})
+	response := NewMsgBlockAnnouncement(
+		testAnnouncementEra,
+		cbor.RawMessage{0x82, 0x01, 0x02},
+	)
 	_, conn := newQuitTestServer(t, NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
 			close(sourceStarted)

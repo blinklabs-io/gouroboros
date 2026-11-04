@@ -50,7 +50,9 @@ func TestUtxoValidatePlutusScriptsUsesDeclaredBudget(t *testing.T) {
 	policyID := common.Blake2b224(plutusScript.Hash())
 	mint := common.NewMultiAsset[*big.Int](
 		map[common.Blake2b224]map[cbor.ByteString]*big.Int{
-			policyID: {cbor.NewByteString([]byte("budget-test")): big.NewInt(1)},
+			policyID: {
+				cbor.NewByteString([]byte("budget-test")): big.NewInt(1),
+			},
 		},
 	)
 	newTx := func(units common.ExUnits) *conway.ConwayTransaction {

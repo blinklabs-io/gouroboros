@@ -316,7 +316,10 @@ func (c *Config) validate() error {
 		)
 	}
 	if c.RangeTimeout < 0 {
-		return fmt.Errorf("RangeTimeout %s must be non-negative", c.RangeTimeout)
+		return fmt.Errorf(
+			"RangeTimeout %s must be non-negative",
+			c.RangeTimeout,
+		)
 	}
 	return nil
 }

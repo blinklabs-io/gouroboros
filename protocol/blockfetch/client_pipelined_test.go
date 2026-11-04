@@ -309,14 +309,26 @@ func TestBatchDoneThenCoalescedNextBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	firstDone := h.nextDone(t)
-	require.Equal(t, deliveredBlock{requestId: firstID, slot: 100}, h.nextBlock(t))
+	require.Equal(
+		t,
+		deliveredBlock{requestId: firstID, slot: 100},
+		h.nextBlock(t),
+	)
 	require.Equal(t, firstID, firstDone.requestId)
 	require.NoError(t, firstDone.err)
-	require.Equal(t, deliveredBlock{requestId: secondID, slot: 200}, h.nextBlock(t))
+	require.Equal(
+		t,
+		deliveredBlock{requestId: secondID, slot: 200},
+		h.nextBlock(t),
+	)
 	secondDone := h.nextDone(t)
 	require.Equal(t, secondID, secondDone.requestId)
 	require.NoError(t, secondDone.err)
-	require.Equal(t, deliveredBlock{requestId: thirdID, slot: 300}, h.nextBlock(t))
+	require.Equal(
+		t,
+		deliveredBlock{requestId: thirdID, slot: 300},
+		h.nextBlock(t),
+	)
 	thirdDone := h.nextDone(t)
 	require.Equal(t, thirdID, thirdDone.requestId)
 	require.NoError(t, thirdDone.err)
@@ -490,7 +502,11 @@ func TestRequestRangeExcessBatchDoneNotAppliedToNextRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.Equal(t, deliveredBlock{requestId: id1, slot: 100}, waitForBlock(t, h))
+	require.Equal(
+		t,
+		deliveredBlock{requestId: id1, slot: 100},
+		waitForBlock(t, h),
+	)
 	// The excess BatchDone surfaces a connection error right after this done
 	// is written, so both channels can be ready; tolerate the error.
 	first := waitForDone(t, h)

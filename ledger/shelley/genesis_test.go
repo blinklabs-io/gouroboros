@@ -338,7 +338,11 @@ func TestGenesisExtraConfigPoolFields(t *testing.T) {
 	require.NotNil(t, pool.LeiosKey)
 	assert.Equal(t, publicKey, pool.LeiosKey.PublicKey)
 	assert.Equal(t, proof, pool.LeiosKey.PossessionProof)
-	assert.Equal(t, common.NewBlake2b224(mustHex(t, reward)), pool.RewardAccount)
+	assert.Equal(
+		t,
+		common.NewBlake2b224(mustHex(t, reward)),
+		pool.RewardAccount,
+	)
 	assert.Equal(
 		t,
 		[]common.AddrKeyHash{common.NewBlake2b224(mustHex(t, owner))},
@@ -693,16 +697,37 @@ func TestGenesisMarshalCBORValidNetworkId(t *testing.T) {
 			},
 		}
 		cborData, err := tmpGenesis.MarshalCBOR()
-		require.NoError(t, err, "unexpected error marshaling %s genesis", testDef.networkId)
+		require.NoError(
+			t,
+			err,
+			"unexpected error marshaling %s genesis",
+			testDef.networkId,
+		)
 
 		var decoded []any
 		_, err = cbor.Decode(cborData, &decoded)
 		require.NoError(t, err, "unexpected error decoding CBOR")
-		require.Greater(t, len(decoded), 2, "decoded genesis has too few fields")
+		require.Greater(
+			t,
+			len(decoded),
+			2,
+			"decoded genesis has too few fields",
+		)
 
 		gotNetworkId, ok := decoded[2].(uint64)
-		require.True(t, ok, "expected network ID field to decode as uint64, got %T", decoded[2])
-		assert.Equal(t, testDef.expectedNetworkIdCbor, gotNetworkId, "for %s", testDef.networkId)
+		require.True(
+			t,
+			ok,
+			"expected network ID field to decode as uint64, got %T",
+			decoded[2],
+		)
+		assert.Equal(
+			t,
+			testDef.expectedNetworkIdCbor,
+			gotNetworkId,
+			"for %s",
+			testDef.networkId,
+		)
 	}
 }
 
@@ -712,8 +737,16 @@ func TestGenesisMarshalCBORSlotLength(t *testing.T) {
 		slotLength     *big.Rat
 		expectedMicros uint64
 	}{
-		{name: "integral", slotLength: big.NewRat(1, 1), expectedMicros: 1_000_000},
-		{name: "fractional", slotLength: big.NewRat(1, 4), expectedMicros: 250_000},
+		{
+			name:           "integral",
+			slotLength:     big.NewRat(1, 1),
+			expectedMicros: 1_000_000,
+		},
+		{
+			name:           "fractional",
+			slotLength:     big.NewRat(1, 4),
+			expectedMicros: 250_000,
+		},
 	}
 	for _, testDef := range testDefs {
 		t.Run(testDef.name, func(t *testing.T) {

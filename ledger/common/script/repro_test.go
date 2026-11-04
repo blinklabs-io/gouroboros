@@ -63,13 +63,21 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 	require.NoError(t, err, "decode parent TX 1")
 	pTx1, err := conway.NewConwayTransactionFromCbor(parentTx1Bytes)
 	require.NoError(t, err, "parse parent TX 1")
-	t.Logf("Parent TX 1 hash: %s (outputs: %d)", pTx1.Hash(), len(pTx1.Outputs()))
+	t.Logf(
+		"Parent TX 1 hash: %s (outputs: %d)",
+		pTx1.Hash(),
+		len(pTx1.Outputs()),
+	)
 
 	parentTx2Bytes, err := hex.DecodeString(parentTx2Hex)
 	require.NoError(t, err, "decode parent TX 2")
 	pTx2, err := conway.NewConwayTransactionFromCbor(parentTx2Bytes)
 	require.NoError(t, err, "parse parent TX 2")
-	t.Logf("Parent TX 2 hash: %s (outputs: %d)", pTx2.Hash(), len(pTx2.Outputs()))
+	t.Logf(
+		"Parent TX 2 hash: %s (outputs: %d)",
+		pTx2.Hash(),
+		len(pTx2.Outputs()),
+	)
 
 	// Step 3: Build resolved inputs
 	// Failing TX inputs:
@@ -81,15 +89,24 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 
 	resolvedInputs := []lcommon.Utxo{
 		{
-			Id:     shelley.MustNewShelleyTransactionInput(pTx1.Hash().String(), 1),
+			Id: shelley.MustNewShelleyTransactionInput(
+				pTx1.Hash().String(),
+				1,
+			),
 			Output: pTx1Outputs[1],
 		},
 		{
-			Id:     shelley.MustNewShelleyTransactionInput(pTx1.Hash().String(), 2),
+			Id: shelley.MustNewShelleyTransactionInput(
+				pTx1.Hash().String(),
+				2,
+			),
 			Output: pTx1Outputs[2],
 		},
 		{
-			Id:     shelley.MustNewShelleyTransactionInput(pTx2.Hash().String(), 2),
+			Id: shelley.MustNewShelleyTransactionInput(
+				pTx2.Hash().String(),
+				2,
+			),
 			Output: pTx2Outputs[2],
 		},
 	}
@@ -161,7 +178,12 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 				break
 			}
 		}
-		require.NotNil(t, matchingScript, "no matching script for hash %s", purpose.ScriptHash())
+		require.NotNil(
+			t,
+			matchingScript,
+			"no matching script for hash %s",
+			purpose.ScriptHash(),
+		)
 
 		// Evaluate with generous budget (mainnet maxTxExUnits: 14M mem, 10B steps)
 		budget := lcommon.ExUnits{
@@ -171,7 +193,11 @@ func TestReproPreviewV3ScriptFailure(t *testing.T) {
 		usedBudget, err := matchingScript.Evaluate(scPd, budget, evalContext)
 		if err != nil {
 			t.Errorf("script evaluation failed: %s", err)
-			t.Logf("Used budget: mem=%d, steps=%d", usedBudget.Memory, usedBudget.Steps)
+			t.Logf(
+				"Used budget: mem=%d, steps=%d",
+				usedBudget.Memory,
+				usedBudget.Steps,
+			)
 		} else {
 			t.Logf("Script PASSED. Used budget: mem=%d, steps=%d",
 				usedBudget.Memory, usedBudget.Steps)

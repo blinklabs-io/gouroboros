@@ -383,7 +383,11 @@ func checkSscProofShape(
 		}
 	}
 	if err := validateSscPayloadShape(expectedType, rest); err != nil {
-		return fmt.Errorf("%w: ssc payload shape: %w", ErrBodyProofMismatch, err)
+		return fmt.Errorf(
+			"%w: ssc payload shape: %w",
+			ErrBodyProofMismatch,
+			err,
+		)
 	}
 	return nil
 }
@@ -397,7 +401,8 @@ func validateSscPayloadShape(
 		if len(rest) != 2 {
 			return fmt.Errorf(
 				"ssc payload type %d requires 2 elements after the type, got %d",
-				sscType, len(rest),
+				sscType,
+				len(rest),
 			)
 		}
 		if err := validateSscSet(rest[0], validateSignedCommitment); err != nil {
@@ -408,7 +413,8 @@ func validateSscPayloadShape(
 		if len(rest) != 2 {
 			return fmt.Errorf(
 				"ssc payload type %d requires 2 elements after the type, got %d",
-				sscType, len(rest),
+				sscType,
+				len(rest),
 			)
 		}
 		if err := validateSscByteStringMap(
@@ -421,7 +427,8 @@ func validateSscPayloadShape(
 		if len(rest) != 2 {
 			return fmt.Errorf(
 				"ssc payload type %d requires 2 elements after the type, got %d",
-				sscType, len(rest),
+				sscType,
+				len(rest),
 			)
 		}
 		if err := validateSscSharesMap(rest[0]); err != nil {
@@ -506,7 +513,11 @@ func validateSscMap(
 	}
 	pairCount, _, _, err := decoder.DecodeMapHeader()
 	if err != nil {
-		return fmt.Errorf("%s must be a definite-length CBOR map: %w", name, err)
+		return fmt.Errorf(
+			"%s must be a definite-length CBOR map: %w",
+			name,
+			err,
+		)
 	}
 	for idx := 0; idx < pairCount; idx++ {
 		keyOffset, keyLength, err := decoder.Skip()
@@ -534,9 +545,13 @@ func validateSscMap(
 
 func validateSscSharesMap(raw cbor.RawMessage) error {
 	return validateSscByteStringMap(raw, func(value cbor.RawMessage) error {
-		return validateSscByteStringMap(value, func(inner cbor.RawMessage) error {
-			return validateSscByteStringList(inner, "share value")
-		}, "inner shares")
+		return validateSscByteStringMap(
+			value,
+			func(inner cbor.RawMessage) error {
+				return validateSscByteStringList(inner, "share value")
+			},
+			"inner shares",
+		)
 	}, "shares")
 }
 

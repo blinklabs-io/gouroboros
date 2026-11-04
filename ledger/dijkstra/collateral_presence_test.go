@@ -14,7 +14,10 @@ import (
 )
 
 func TestExplicitZeroTotalCollateralIsValidated(t *testing.T) {
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	raw, err := cbor.Encode(map[uint]any{
 		0:  cbor.NewSetType([]any{}, false),
 		1:  []any{},
@@ -26,18 +29,29 @@ func TestExplicitZeroTotalCollateralIsValidated(t *testing.T) {
 	_, err = cbor.Decode(raw, &body)
 	require.NoError(t, err)
 	require.True(t, body.TotalCollateralPresent())
-	body.TxCollateral = cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false)
-	body.TxCollateralReturn = &DijkstraTransactionOutput{Output: babbage.BabbageTransactionOutput{OutputAmount: mary.MaryTransactionOutputValue{Amount: 3_000_000}}}
+	body.TxCollateral = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input},
+		false,
+	)
+	body.TxCollateralReturn = &DijkstraTransactionOutput{
+		Output: babbage.BabbageTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{Amount: 3_000_000},
+		},
+	}
 	tx := &DijkstraTransaction{
 		Body:      body,
 		TxIsValid: true,
 		WitnessSet: DijkstraTransactionWitnessSet{
-			WsRedeemers: DijkstraRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-				{Tag: common.RedeemerTagSpend, Index: 0}: {},
-			}},
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {},
+				},
+			},
 		},
 	}
-	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: 5_000_000}}}).Build()
+	state := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: 5_000_000}}}).
+		Build()
 	_, ruleIndex := dijkstraValidationRule(
 		t,
 		"ledger/conway.UtxoValidateCollateralEqBalance",
@@ -81,20 +95,24 @@ func TestDijkstraCollateralReturnIsCheckedByOutputRules(t *testing.T) {
 		make([]byte, common.AddressHashSize),
 	)
 	require.NoError(t, err)
-	output := &DijkstraTransactionOutput{Output: &babbage.BabbageTransactionOutput{
-		OutputAddress: address,
-		OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1},
-	}}
+	output := &DijkstraTransactionOutput{
+		Output: &babbage.BabbageTransactionOutput{
+			OutputAddress: address,
+			OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1},
+		},
+	}
 	tx := &DijkstraTransaction{Body: DijkstraTransactionBody{
 		TxCollateralReturn: output,
 	}}
 	state := mockledger.NewLedgerStateBuilder().
 		WithNetworkId(uint(common.AddressNetworkTestnet)).
 		Build()
-	pp := &DijkstraProtocolParameters{ConwayProtocolParameters: conway.ConwayProtocolParameters{
-		AdaPerUtxoByte: 1,
-		MaxValueSize:   0,
-	}}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			AdaPerUtxoByte: 1,
+			MaxValueSize:   0,
+		},
+	}
 	require.Error(t, UtxoValidateWrongNetwork(tx, 0, state, pp))
 	require.Error(t, UtxoValidateOutputTooSmallUtxo(tx, 0, state, pp))
 	require.Error(t, UtxoValidateOutputTooBigUtxo(tx, 0, state, pp))
@@ -112,28 +130,42 @@ func TestDijkstraCollateralReturnIsCheckedByOutputRules(t *testing.T) {
 }
 
 func TestDijkstraInsufficientCollateralUsesNetAmount(t *testing.T) {
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
-			TxFee:        1_000_000,
-			TxCollateral: cbor.NewSetType([]shelley.ShelleyTransactionInput{input}, false),
-			TxCollateralReturn: &DijkstraTransactionOutput{Output: &babbage.BabbageTransactionOutput{
-				OutputAmount: mary.MaryTransactionOutputValue{Amount: 9_000_000},
-			}},
+			TxFee: 1_000_000,
+			TxCollateral: cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{input},
+				false,
+			),
+			TxCollateralReturn: &DijkstraTransactionOutput{
+				Output: &babbage.BabbageTransactionOutput{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: 9_000_000,
+					},
+				},
+			},
 		},
 		TxIsValid: true,
-		WitnessSet: DijkstraTransactionWitnessSet{WsRedeemers: DijkstraRedeemers{
-			Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-				{Tag: common.RedeemerTagSpend, Index: 0}: {},
+		WitnessSet: DijkstraTransactionWitnessSet{
+			WsRedeemers: DijkstraRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagSpend, Index: 0}: {},
+				},
 			},
-		}},
+		},
 	}
 	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
 		Id:     input,
 		Output: shelley.ShelleyTransactionOutput{OutputAmount: 10_000_000},
 	}}).Build()
-	pp := &DijkstraProtocolParameters{ConwayProtocolParameters: conway.ConwayProtocolParameters{
-		CollateralPercentage: 150,
-	}}
+	pp := &DijkstraProtocolParameters{
+		ConwayProtocolParameters: conway.ConwayProtocolParameters{
+			CollateralPercentage: 150,
+		},
+	}
 	require.Error(t, UtxoValidateInsufficientCollateral(tx, 0, state, pp))
 }

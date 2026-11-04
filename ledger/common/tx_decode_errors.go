@@ -115,7 +115,8 @@ func (e *TxDecodeError) Error() string {
 	}
 	fmt.Fprintf(&b, " in %s", e.Component)
 	if e.FieldKey >= 0 {
-		if name := TxFieldName(e.FieldKey); name != "" && e.Component == TxComponentBody {
+		if name := TxFieldName(e.FieldKey); name != "" &&
+			e.Component == TxComponentBody {
 			fmt.Fprintf(&b, " field %d (%s)", e.FieldKey, name)
 		} else {
 			fmt.Fprintf(&b, " field %d", e.FieldKey)

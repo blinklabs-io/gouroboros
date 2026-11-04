@@ -49,7 +49,9 @@ func TestBigIntToUtxorpcBigIntBoundaries(t *testing.T) {
 	t.Run("belowInt64", func(t *testing.T) {
 		t.Parallel()
 		// -2^63-1 is tag 3 over 2^63: -1-2^63 = -2^63-1.
-		got := common.BigIntToUtxorpcBigInt(neg(pow(63).Add(pow(63), big.NewInt(1))))
+		got := common.BigIntToUtxorpcBigInt(
+			neg(pow(63).Add(pow(63), big.NewInt(1))),
+		)
 		require.Equal(t, pow(63).Bytes(), got.GetBigNInt())
 		require.Nil(t, got.GetBigUInt())
 	})

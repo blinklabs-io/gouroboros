@@ -67,7 +67,12 @@ func TestValidateCommitteeTermBound(t *testing.T) {
 			maxTerm:      10,
 			wantError:    true,
 		},
-		{name: "expiry already past", currentEpoch: 100, expiry: 50, maxTerm: 10},
+		{
+			name:         "expiry already past",
+			currentEpoch: 100,
+			expiry:       50,
+			maxTerm:      10,
+		},
 		{name: "zero limit at current epoch", currentEpoch: 100, expiry: 100},
 		{
 			name:         "zero limit with positive remaining term",

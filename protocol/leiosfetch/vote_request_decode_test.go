@@ -149,7 +149,16 @@ func TestVotesRequestPreservesTaggedArrays(t *testing.T) {
 	testCases := map[string][]byte{
 		"outer message": {0xd8, 100, 0x82, MessageTypeVotesRequest, 0x80},
 		"vote ID list":  {0x82, MessageTypeVotesRequest, 0xd8, 100, 0x80},
-		"vote ID":       {0x82, MessageTypeVotesRequest, 0x81, 0xd8, 100, 0x82, 1, 2},
+		"vote ID": {
+			0x82,
+			MessageTypeVotesRequest,
+			0x81,
+			0xd8,
+			100,
+			0x82,
+			1,
+			2,
+		},
 	}
 	for name, wire := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -165,7 +174,11 @@ func TestVotesRequestRejectsDeepIDBeforeTypedDecode(t *testing.T) {
 	wire := append([]byte{0x82, MessageTypeVotesRequest, 0x81}, id...)
 
 	_, err := NewMsgFromCbor(MessageTypeVotesRequest, wire)
-	require.ErrorContains(t, err, "vote request: CBOR nesting exceeds maximum depth 4")
+	require.ErrorContains(
+		t,
+		err,
+		"vote request: CBOR nesting exceeds maximum depth 4",
+	)
 }
 
 func TestVotesRequestRejectsAboveRequestBudget(t *testing.T) {

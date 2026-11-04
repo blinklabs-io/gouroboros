@@ -182,7 +182,10 @@ func decodeBlockAndTxsInRange(
 	case MessageTypeLastBlockAndTxsInRange:
 		ret = newMsgLastBlockAndTxsInRangeOwned(block, txRaws)
 	default:
-		return nil, fmt.Errorf("unexpected block range response type %d", msgType)
+		return nil, fmt.Errorf(
+			"unexpected block range response type %d",
+			msgType,
+		)
 	}
 	ret.SetCbor(data)
 	return ret, nil

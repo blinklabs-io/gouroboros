@@ -122,7 +122,9 @@ func TestDijkstraBlockHeaderRequiresTenOrTwelveBodyFields(t *testing.T) {
 	}
 }
 
-func TestDijkstraBlockHeaderMarshalRejectsMalformedLeiosExtension(t *testing.T) {
+func TestDijkstraBlockHeaderMarshalRejectsMalformedLeiosExtension(
+	t *testing.T,
+) {
 	t.Parallel()
 	invalid := map[string][]cbor.RawMessage{
 		"one field":           {{0xf5}},
@@ -135,7 +137,10 @@ func TestDijkstraBlockHeaderMarshalRejectsMalformedLeiosExtension(t *testing.T) 
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var src DijkstraBlockHeader
-			_, err := cbor.Decode(dijkstraHeaderWithBodyFields(t, true, nil), &src)
+			_, err := cbor.Decode(
+				dijkstraHeaderWithBodyFields(t, true, nil),
+				&src,
+			)
 			require.NoError(t, err)
 			h := DijkstraBlockHeader{BabbageBlockHeader: src.BabbageBlockHeader}
 			h.SetCbor(nil)

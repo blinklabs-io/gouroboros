@@ -40,8 +40,15 @@ func TestVerifyRejectsIdentityKey(t *testing.T) {
 				msg,
 			)
 		}
-		if ed25519strict.Verify(identityPublicKey, []byte(msg), identitySignature) {
-			t.Errorf("strict verification accepted the identity pair for %q", msg)
+		if ed25519strict.Verify(
+			identityPublicKey,
+			[]byte(msg),
+			identitySignature,
+		) {
+			t.Errorf(
+				"strict verification accepted the identity pair for %q",
+				msg,
+			)
 		}
 	}
 }
@@ -57,7 +64,9 @@ func TestVerifyAcceptsHonestSignature(t *testing.T) {
 		t.Error("strict verification rejected an honest signature")
 	}
 	if ed25519strict.Verify(pub, []byte("a different message"), sig) {
-		t.Error("strict verification accepted a signature over a different message")
+		t.Error(
+			"strict verification accepted a signature over a different message",
+		)
 	}
 }
 

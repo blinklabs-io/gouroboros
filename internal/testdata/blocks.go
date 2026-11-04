@@ -104,13 +104,41 @@ type TestBlock struct {
 // The blocks are real mainnet blocks extracted from ledger test files.
 func GetTestBlocks() []TestBlock {
 	return []TestBlock{
-		{Name: "Byron", BlockType: ledger.BlockTypeByronMain, Cbor: MustDecodeHex(ByronBlockHex)},
-		{Name: "Shelley", BlockType: ledger.BlockTypeShelley, Cbor: MustDecodeHex(ShelleyBlockHex)},
-		{Name: "Allegra", BlockType: ledger.BlockTypeAllegra, Cbor: MustDecodeHex(AllegraBlockHex)},
-		{Name: "Mary", BlockType: ledger.BlockTypeMary, Cbor: MustDecodeHex(MaryBlockHex)},
-		{Name: "Alonzo", BlockType: ledger.BlockTypeAlonzo, Cbor: MustDecodeHex(AlonzoBlockHex)},
-		{Name: "Babbage", BlockType: ledger.BlockTypeBabbage, Cbor: MustDecodeHex(BabbageBlockHex)},
-		{Name: "Conway", BlockType: ledger.BlockTypeConway, Cbor: MustDecodeHex(ConwayBlockHex)},
+		{
+			Name:      "Byron",
+			BlockType: ledger.BlockTypeByronMain,
+			Cbor:      MustDecodeHex(ByronBlockHex),
+		},
+		{
+			Name:      "Shelley",
+			BlockType: ledger.BlockTypeShelley,
+			Cbor:      MustDecodeHex(ShelleyBlockHex),
+		},
+		{
+			Name:      "Allegra",
+			BlockType: ledger.BlockTypeAllegra,
+			Cbor:      MustDecodeHex(AllegraBlockHex),
+		},
+		{
+			Name:      "Mary",
+			BlockType: ledger.BlockTypeMary,
+			Cbor:      MustDecodeHex(MaryBlockHex),
+		},
+		{
+			Name:      "Alonzo",
+			BlockType: ledger.BlockTypeAlonzo,
+			Cbor:      MustDecodeHex(AlonzoBlockHex),
+		},
+		{
+			Name:      "Babbage",
+			BlockType: ledger.BlockTypeBabbage,
+			Cbor:      MustDecodeHex(BabbageBlockHex),
+		},
+		{
+			Name:      "Conway",
+			BlockType: ledger.BlockTypeConway,
+			Cbor:      MustDecodeHex(ConwayBlockHex),
+		},
 	}
 }
 

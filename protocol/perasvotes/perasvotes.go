@@ -142,7 +142,11 @@ func matchObjectIDsRequest(ctx any, msg protocol.Message, blocking bool) bool {
 	}
 	remaining := len(stateCtx.outstanding) - int(req.AckCount)
 	if blocking != (remaining == 0) ||
-		remaining+int(req.RequestCount) > int(stateCtx.maxObjectsUnacknowledged) {
+		remaining+int(
+			req.RequestCount,
+		) > int(
+			stateCtx.maxObjectsUnacknowledged,
+		) {
 		return false
 	}
 	for _, id := range stateCtx.outstanding[:req.AckCount] {

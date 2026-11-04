@@ -95,7 +95,11 @@ func (b *Blake2b256) UnmarshalText(text []byte) error {
 		return err
 	}
 	if len(decoded) != Blake2b256Size {
-		return fmt.Errorf("invalid blake2b-256 hash: expected %d bytes, got %d", Blake2b256Size, len(decoded))
+		return fmt.Errorf(
+			"invalid blake2b-256 hash: expected %d bytes, got %d",
+			Blake2b256Size,
+			len(decoded),
+		)
 	}
 	copy(b[:], decoded)
 	return nil
@@ -193,7 +197,11 @@ func (b *Blake2b224) UnmarshalText(text []byte) error {
 		return err
 	}
 	if len(decoded) != Blake2b224Size {
-		return fmt.Errorf("invalid blake2b-224 hash: expected %d bytes, got %d", Blake2b224Size, len(decoded))
+		return fmt.Errorf(
+			"invalid blake2b-224 hash: expected %d bytes, got %d",
+			Blake2b224Size,
+			len(decoded),
+		)
 	}
 	copy(b[:], decoded)
 	return nil
@@ -294,7 +302,11 @@ func (b *Blake2b160) UnmarshalText(text []byte) error {
 		return err
 	}
 	if len(decoded) != Blake2b160Size {
-		return fmt.Errorf("invalid blake2b-160 hash: expected %d bytes, got %d", Blake2b160Size, len(decoded))
+		return fmt.Errorf(
+			"invalid blake2b-160 hash: expected %d bytes, got %d",
+			Blake2b160Size,
+			len(decoded),
+		)
 	}
 	copy(b[:], decoded)
 	return nil
@@ -500,7 +512,10 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 			encodedAssets = append(encodedAssets, encodedName...)
 			encodedAssets = append(encodedAssets, encodedQuantity...)
 		}
-		encodedAssets = appendLedgerMapBreak(encodedAssets, uint64(len(assetNames)))
+		encodedAssets = appendLedgerMapBreak(
+			encodedAssets,
+			uint64(len(assetNames)),
+		)
 		ret = append(ret, encodedPolicy...)
 		ret = append(ret, encodedAssets...)
 	}
@@ -524,7 +539,9 @@ func (m *MultiAsset[T]) EncodedSize() (int, error) {
 		size += ledgerMapHeaderSize(len(assets))
 		for name, quantity := range assets {
 			nameLen := len(name.Bytes())
-			size += cborHeaderSize(uint64(nameLen)) + nameLen //nolint:gosec // a length is never negative
+			size += cborHeaderSize(
+				uint64(nameLen),
+			) + nameLen //nolint:gosec // a length is never negative
 			quantitySize, err := cborIntSize(quantity)
 			if err != nil {
 				return 0, err
@@ -541,7 +558,8 @@ func ledgerMapHeaderSize(n int) int {
 	if n > 23 {
 		return 2
 	}
-	return cborHeaderSize(uint64(n)) //nolint:gosec // a length is never negative
+	//nolint:gosec // a length is never negative
+	return cborHeaderSize(uint64(n))
 }
 
 // cborHeaderSize is the length of a CBOR head carrying argument n.
@@ -1193,7 +1211,10 @@ func BigIntToUtxorpcBigInt(v *big.Int) *utxorpc.BigInt {
 	if v.Sign() < 0 {
 		return &utxorpc.BigInt{
 			BigInt: &utxorpc.BigInt_BigNInt{
-				BigNInt: new(big.Int).Sub(new(big.Int).Neg(v), big.NewInt(1)).Bytes(),
+				BigNInt: new(
+					big.Int,
+				).Sub(new(big.Int).Neg(v), big.NewInt(1)).
+					Bytes(),
 			},
 		}
 	}
@@ -1487,7 +1508,9 @@ func extractByronTransactionOffsets(
 
 	// blockArray[0] = header, blockArray[1] = body, blockArray[2] = extra
 	headerOffset := arrayHeaderSize
-	bodyOffset := headerOffset + uint32(len(blockArray[0])) // #nosec G115 -- Cardano block segments are <<4GiB
+	bodyOffset := headerOffset + uint32(
+		len(blockArray[0]),
+	) // #nosec G115 -- Cardano block segments are <<4GiB
 
 	// Decode the body as a 4-element array
 	var bodyParts []cbor.RawMessage
@@ -1508,7 +1531,9 @@ func extractByronTransactionOffsets(
 	}
 
 	if len(txPayload) == 0 {
-		return &BlockTransactionOffsets{Transactions: []TransactionLocation{}}, nil
+		return &BlockTransactionOffsets{
+			Transactions: []TransactionLocation{},
+		}, nil
 	}
 
 	// Calculate the absolute offset of the tx_payload array within the block.
@@ -1556,13 +1581,19 @@ func extractByronTransactionOffsets(
 		}
 		_, pairArrayHeader, _ := cborArrayInfo(cborData[pairAbsStart:])
 		if pairArrayHeader == 0 {
-			return nil, errors.New("invalid Byron transaction pair array header")
+			return nil, errors.New(
+				"invalid Byron transaction pair array header",
+			)
 		}
 
 		bodyStart := pairPos + pairArrayHeader
-		bodyLen := uint32(len(txPair[0])) // #nosec G115 -- Cardano block segments are <<4GiB
+		bodyLen := uint32(
+			len(txPair[0]),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 		witnessStart := bodyStart + bodyLen
-		witnessLen := uint32(len(txPair[1])) // #nosec G115 -- Cardano block segments are <<4GiB
+		witnessLen := uint32(
+			len(txPair[1]),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 
 		result.Transactions[i].Body = ByteRange{
 			Offset: bodyStart,
@@ -1583,7 +1614,9 @@ func extractByronTransactionOffsets(
 			&result.Transactions[i],
 		)
 
-		pairPos += uint32(len(rawPair)) // #nosec G115 -- Cardano block segments are <<4GiB
+		pairPos += uint32(
+			len(rawPair),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 	}
 
 	return result, nil
@@ -1603,13 +1636,15 @@ func extractByronOutputOffsets(
 
 	// Byron tx body is a CBOR array: [inputs, outputs, attributes]
 	var bodyParts []cbor.RawMessage
-	if _, err := cbor.Decode(bodyData, &bodyParts); err != nil || len(bodyParts) < 2 {
+	if _, err := cbor.Decode(bodyData, &bodyParts); err != nil ||
+		len(bodyParts) < 2 {
 		return
 	}
 
 	// bodyParts[1] is the outputs array
 	var outputsRaw []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(bodyParts[1]), &outputsRaw); err != nil || len(outputsRaw) == 0 {
+	if _, err := cbor.Decode([]byte(bodyParts[1]), &outputsRaw); err != nil ||
+		len(outputsRaw) == 0 {
 		return
 	}
 
@@ -1902,7 +1937,10 @@ func extractDijkstraTransactionOffsets(
 			return nil, err
 		}
 		if err := cbor.CheckForDuplicateCBORMembers(invalidTransactions); err != nil {
-			return nil, fmt.Errorf("invalid legacy Dijkstra transaction set: %w", err)
+			return nil, fmt.Errorf(
+				"invalid legacy Dijkstra transaction set: %w",
+				err,
+			)
 		}
 	}
 	txsOffset, txsRaw, err := bodyDecoder.DecodeRaw(new(cbor.RawMessage))
@@ -2155,7 +2193,11 @@ func extractDijkstraSubTransactionOffsets(
 		}
 		if key != 23 {
 			if _, _, err := bodyDecoder.Skip(); err != nil {
-				return fmt.Errorf("skip transaction-body field %d: %w", key, err)
+				return fmt.Errorf(
+					"skip transaction-body field %d: %w",
+					key,
+					err,
+				)
 			}
 			continue
 		}
@@ -2163,11 +2205,16 @@ func extractDijkstraSubTransactionOffsets(
 		if err != nil {
 			return fmt.Errorf("decode sub-transaction set: %w", err)
 		}
-		setOffset := bodyOffset + uint32(int(headerSize)+valueOffset) // #nosec G115
+		setOffset := bodyOffset + uint32(
+			int(headerSize)+valueOffset,
+		) // #nosec G115
 		var rawTag cbor.RawTag
 		if _, err := cbor.Decode(rawSet, &rawTag); err == nil {
 			if rawTag.Number != cbor.CborTagSet {
-				return fmt.Errorf("sub-transaction set has unexpected CBOR tag %d", rawTag.Number)
+				return fmt.Errorf(
+					"sub-transaction set has unexpected CBOR tag %d",
+					rawTag.Number,
+				)
 			}
 			tagHeaderLength := len(rawSet) - len(rawTag.Content)
 			rawSet = rawTag.Content
@@ -2197,14 +2244,22 @@ func extractDijkstraSubTransactionOffsets(
 		}
 		loc.SubTransactions = make([]TransactionLocation, len(rawSubTxs))
 		for subIdx := range rawSubTxs {
-			subOffset, rawSubTx, err := setDecoder.DecodeRaw(new(cbor.RawMessage))
+			subOffset, rawSubTx, err := setDecoder.DecodeRaw(
+				new(cbor.RawMessage),
+			)
 			if err != nil {
 				return fmt.Errorf("decode sub-transaction %d: %w", subIdx, err)
 			}
-			subPos := setOffset + uint32(int(setHeaderSize)+subOffset) // #nosec G115
+			subPos := setOffset + uint32(
+				int(setHeaderSize)+subOffset,
+			) // #nosec G115
 			var components []cbor.RawMessage
 			if _, err := cbor.Decode(rawSubTx, &components); err != nil {
-				return fmt.Errorf("decode sub-transaction %d components: %w", subIdx, err)
+				return fmt.Errorf(
+					"decode sub-transaction %d components: %w",
+					subIdx,
+					err,
+				)
 			}
 			if len(components) != 3 {
 				return fmt.Errorf(
@@ -2219,35 +2274,64 @@ func extractDijkstraSubTransactionOffsets(
 			}
 			subDecoder, err := cbor.NewStreamDecoder(rawSubTx[subHeaderSize:])
 			if err != nil {
-				return fmt.Errorf("create sub-transaction %d decoder: %w", subIdx, err)
+				return fmt.Errorf(
+					"create sub-transaction %d decoder: %w",
+					subIdx,
+					err,
+				)
 			}
 			bodyRel, subBody, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
 			if err != nil {
-				return fmt.Errorf("decode sub-transaction %d body: %w", subIdx, err)
+				return fmt.Errorf(
+					"decode sub-transaction %d body: %w",
+					subIdx,
+					err,
+				)
 			}
-			witnessRel, subWitness, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
+			witnessRel, subWitness, err := subDecoder.DecodeRaw(
+				new(cbor.RawMessage),
+			)
 			if err != nil {
-				return fmt.Errorf("decode sub-transaction %d witness set: %w", subIdx, err)
+				return fmt.Errorf(
+					"decode sub-transaction %d witness set: %w",
+					subIdx,
+					err,
+				)
 			}
 			auxRel, subAux, err := subDecoder.DecodeRaw(new(cbor.RawMessage))
 			if err != nil {
-				return fmt.Errorf("decode sub-transaction %d auxiliary data: %w", subIdx, err)
+				return fmt.Errorf(
+					"decode sub-transaction %d auxiliary data: %w",
+					subIdx,
+					err,
+				)
 			}
 			subLoc := &loc.SubTransactions[subIdx]
-			subBodyOffset := subPos + uint32(int(subHeaderSize)+bodyRel)                 // #nosec G115
-			subLoc.Body = ByteRange{Offset: subBodyOffset, Length: uint32(len(subBody))} // #nosec G115
+			//nolint:gosec // sub-transaction offsets are within the block
+			subBodyOffset := subPos + uint32(int(subHeaderSize)+bodyRel)
+			//nolint:gosec // sub-transaction lengths are within the block
+			subLoc.Body = ByteRange{
+				Offset: subBodyOffset,
+				Length: uint32(len(subBody)),
+			}
+			//nolint:gosec // sub-transaction offsets are within the block
 			subLoc.Witness = ByteRange{
-				Offset: subPos + uint32(int(subHeaderSize)+witnessRel), // #nosec G115
-				Length: uint32(len(subWitness)),                        // #nosec G115
+				Offset: subPos + uint32(int(subHeaderSize)+witnessRel),
+				Length: uint32(len(subWitness)),
 			}
 			if len(subAux) != 1 || subAux[0] != 0xf6 {
+				//nolint:gosec // sub-transaction offsets are within the block
 				subLoc.Metadata = ByteRange{
-					Offset: subPos + uint32(int(subHeaderSize)+auxRel), // #nosec G115
-					Length: uint32(len(subAux)),                        // #nosec G115
+					Offset: subPos + uint32(int(subHeaderSize)+auxRel),
+					Length: uint32(len(subAux)),
 				}
 			}
 			extractOutputOffsets(subBody, subBodyOffset, subLoc)
-			extractWitnessComponentOffsets(subWitness, subLoc.Witness.Offset, subLoc)
+			extractWitnessComponentOffsets(
+				subWitness,
+				subLoc.Witness.Offset,
+				subLoc,
+			)
 		}
 		return nil
 	}
@@ -2263,7 +2347,9 @@ func extractDijkstraSubTransactionOffsets(
 // It supports Byron-era blocks (3-element: [header, body, extra]), Shelley+
 // blocks (4+ element: [header, tx_bodies, witnesses, metadata, ...]) and
 // Dijkstra blocks (2-element: [header, block_body]).
-func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error) {
+func ExtractTransactionOffsets(
+	cborData []byte,
+) (*BlockTransactionOffsets, error) {
 	blockArray, arrayHeaderSize, err := decodeBlockArrayBytes(cborData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
@@ -2292,7 +2378,9 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	if len(blockArray) < 3 {
 		// Block doesn't have separated components (e.g., Byron EBB)
 		// Return empty slice instead of nil to prevent nil pointer dereference
-		return &BlockTransactionOffsets{Transactions: []TransactionLocation{}}, nil
+		return &BlockTransactionOffsets{
+			Transactions: []TransactionLocation{},
+		}, nil
 	}
 
 	// Detect Byron-era blocks and handle them separately
@@ -2303,7 +2391,9 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	var invalidTransactions []uint
 	if len(blockArray) > 4 {
 		var err error
-		invalidTransactions, err = decodeInvalidTransactionIndices(blockArray[4])
+		invalidTransactions, err = decodeInvalidTransactionIndices(
+			blockArray[4],
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -2312,11 +2402,17 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	// blockArray[0] is the header, blockArray[1] is tx bodies, blockArray[2] is witnesses
 	// blockArray[3] is metadata (if present)
 	headerOffset := arrayHeaderSize
-	txBodiesOffset := headerOffset + uint32(len(blockArray[0]))    // #nosec G115 -- Cardano block segments are <<4GiB
-	witnessesOffset := txBodiesOffset + uint32(len(blockArray[1])) // #nosec G115 -- Cardano block segments are <<4GiB
+	txBodiesOffset := headerOffset + uint32(
+		len(blockArray[0]),
+	) // #nosec G115 -- Cardano block segments are <<4GiB
+	witnessesOffset := txBodiesOffset + uint32(
+		len(blockArray[1]),
+	) // #nosec G115 -- Cardano block segments are <<4GiB
 	var metadataOffset uint32
 	if len(blockArray) > 3 {
-		metadataOffset = witnessesOffset + uint32(len(blockArray[2])) // #nosec G115 -- Cardano block segments are <<4GiB
+		metadataOffset = witnessesOffset + uint32(
+			len(blockArray[2]),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 	}
 
 	// Parse transaction bodies array
@@ -2373,7 +2469,9 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	}
 	bodyPos := txBodiesOffset + bodiesArrayHeader
 	for i, rawBody := range txBodiesRaw {
-		bodyLen := uint32(len(rawBody)) // #nosec G115 -- Cardano block segments are <<4GiB
+		bodyLen := uint32(
+			len(rawBody),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 		result.Transactions[i].Body = ByteRange{
 			Offset: bodyPos,
 			Length: bodyLen,
@@ -2396,9 +2494,10 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 	witnessPos := witnessesOffset + witnessArrayHeader
 	for i, rawWitness := range witnessesRaw {
 		if i < len(result.Transactions) {
+			//nolint:gosec // Cardano block segments are <<4GiB
 			result.Transactions[i].Witness = ByteRange{
 				Offset: witnessPos,
-				Length: uint32(len(rawWitness)), // #nosec G115 -- Cardano block segments are <<4GiB
+				Length: uint32(len(rawWitness)),
 			}
 
 			// Extract datum, redeemer, and script offsets from witness set
@@ -2408,7 +2507,9 @@ func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error
 				&result.Transactions[i],
 			)
 		}
-		witnessPos += uint32(len(rawWitness)) // #nosec G115 -- Cardano block segments are <<4GiB
+		witnessPos += uint32(
+			len(rawWitness),
+		) // #nosec G115 -- Cardano block segments are <<4GiB
 	}
 
 	// Assign metadata offsets
@@ -2510,7 +2611,9 @@ func extractOutputOffsets(
 			// Record each output's position
 			loc.Outputs = make([]ByteRange, len(outputsRaw))
 			for j, rawOutput := range outputsRaw {
-				outputLen := uint32(len(rawOutput)) // #nosec G115 -- Cardano outputs are <<4GiB
+				outputLen := uint32(
+					len(rawOutput),
+				) // #nosec G115 -- Cardano outputs are <<4GiB
 
 				// Validate offset by checking for valid CBOR type byte.
 				// Transaction outputs are either arrays (0x80-0x9f) or maps (0xa0-0xbf).
@@ -2584,7 +2687,8 @@ func extractWitnessComponentOffsets(
 		// Check for break byte in indefinite maps
 		if indefinite {
 			pos := dec.Position()
-			if int(headerSize)+pos >= len(witnessData) || witnessData[int(headerSize)+pos] == 0xff {
+			if int(headerSize)+pos >= len(witnessData) ||
+				witnessData[int(headerSize)+pos] == 0xff {
 				break
 			}
 		}
@@ -2601,7 +2705,9 @@ func extractWitnessComponentOffsets(
 			return
 		}
 
-		absOffset := baseOffset + headerSize + uint32(valueOffset) // #nosec G115
+		absOffset := baseOffset + headerSize + uint32(
+			valueOffset,
+		) // #nosec G115
 
 		switch key {
 		case witnessKeyPlutusData:
@@ -2611,19 +2717,44 @@ func extractWitnessComponentOffsets(
 			extractRedeemerOffsets(valueBytes, absOffset, loc.Redeemers)
 
 		case witnessKeyNativeScripts:
-			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypeNativeScript, loc.Scripts)
+			extractScriptArrayOffsets(
+				valueBytes,
+				absOffset,
+				ScriptRefTypeNativeScript,
+				loc.Scripts,
+			)
 
 		case witnessKeyPlutusV1Scripts:
-			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV1, loc.Scripts)
+			extractScriptArrayOffsets(
+				valueBytes,
+				absOffset,
+				ScriptRefTypePlutusV1,
+				loc.Scripts,
+			)
 
 		case witnessKeyPlutusV2Scripts:
-			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV2, loc.Scripts)
+			extractScriptArrayOffsets(
+				valueBytes,
+				absOffset,
+				ScriptRefTypePlutusV2,
+				loc.Scripts,
+			)
 
 		case witnessKeyPlutusV3Scripts:
-			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV3, loc.Scripts)
+			extractScriptArrayOffsets(
+				valueBytes,
+				absOffset,
+				ScriptRefTypePlutusV3,
+				loc.Scripts,
+			)
 
 		case witnessKeyPlutusV4Scripts:
-			extractScriptArrayOffsets(valueBytes, absOffset, ScriptRefTypePlutusV4, loc.Scripts)
+			extractScriptArrayOffsets(
+				valueBytes,
+				absOffset,
+				ScriptRefTypePlutusV4,
+				loc.Scripts,
+			)
 		}
 	}
 }
@@ -2631,7 +2762,11 @@ func extractWitnessComponentOffsets(
 // extractDatumOffsets extracts datum hash -> offset mappings from a datum array using streaming decoding.
 // The datum structure is an array of datums: [ datum_cbor, datum_cbor, ... ]
 // Each datum's hash is computed via blake2b-256 of its CBOR encoding.
-func extractDatumOffsets(datumArrayData []byte, baseOffset uint32, result map[Blake2b256]ByteRange) {
+func extractDatumOffsets(
+	datumArrayData []byte,
+	baseOffset uint32,
+	result map[Blake2b256]ByteRange,
+) {
 	if len(datumArrayData) < 1 {
 		return
 	}
@@ -2672,16 +2807,21 @@ func extractDatumOffsets(datumArrayData []byte, baseOffset uint32, result map[Bl
 		var hash Blake2b256
 		copy(hash[:], computed[:])
 
+		//nolint:gosec // Cardano block segments are <<4GiB
 		result[hash] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(datumOffset), // #nosec G115 -- Cardano block segments are <<4GiB
-			Length: uint32(len(datumBytes)),                       // #nosec G115 -- Cardano block segments are <<4GiB
+			Offset: baseOffset + headerSize + uint32(datumOffset),
+			Length: uint32(len(datumBytes)),
 		}
 	}
 }
 
 // extractRedeemerOffsets extracts redeemer key -> offset mappings.
 // Redeemers can be either an array (Alonzo-Babbage) or map (Conway+).
-func extractRedeemerOffsets(redeemerData []byte, baseOffset uint32, result map[RedeemerKey]ByteRange) {
+func extractRedeemerOffsets(
+	redeemerData []byte,
+	baseOffset uint32,
+	result map[RedeemerKey]ByteRange,
+) {
 	if len(redeemerData) < 1 {
 		return
 	}
@@ -2704,7 +2844,11 @@ func extractRedeemerOffsets(redeemerData []byte, baseOffset uint32, result map[R
 
 // extractRedeemerMapOffsets handles the map format for redeemers using streaming decoding.
 // Map format (Conway+): {[purpose, index]: [data, exunits], ...}
-func extractRedeemerMapOffsets(redeemerData []byte, baseOffset uint32, result map[RedeemerKey]ByteRange) {
+func extractRedeemerMapOffsets(
+	redeemerData []byte,
+	baseOffset uint32,
+	result map[RedeemerKey]ByteRange,
+) {
 	count, headerSize, indefinite := cborMapInfo(redeemerData)
 	if count < 0 && !indefinite {
 		return
@@ -2719,7 +2863,8 @@ func extractRedeemerMapOffsets(redeemerData []byte, baseOffset uint32, result ma
 		// Check for break byte in indefinite maps
 		if indefinite {
 			pos := dec.Position()
-			if int(headerSize)+pos >= len(redeemerData) || redeemerData[int(headerSize)+pos] == 0xff {
+			if int(headerSize)+pos >= len(redeemerData) ||
+				redeemerData[int(headerSize)+pos] == 0xff {
 				break
 			}
 		}
@@ -2730,9 +2875,10 @@ func extractRedeemerMapOffsets(redeemerData []byte, baseOffset uint32, result ma
 			return
 		}
 
+		//nolint:gosec // tag is a small enum, index is bounded by tx size
 		key := RedeemerKey{
-			Tag:   RedeemerTag(keyPair[0]), // #nosec G115 -- redeemer tag is a small enum value
-			Index: uint32(keyPair[1]),      // #nosec G115 -- redeemer index bounded by transaction size
+			Tag:   RedeemerTag(keyPair[0]),
+			Index: uint32(keyPair[1]),
 		}
 
 		// Get value position and bytes: value is [data, exunits]
@@ -2758,16 +2904,22 @@ func extractRedeemerMapOffsets(redeemerData []byte, baseOffset uint32, result ma
 			continue
 		}
 
+		//nolint:gosec // offsets are within the block
 		result[key] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(valueOffset) + valueHeaderSize + uint32(dataOffset), // #nosec G115
-			Length: uint32(dataLen),                                                                      // #nosec G115
+			Offset: baseOffset + headerSize + uint32(valueOffset) +
+				valueHeaderSize + uint32(dataOffset),
+			Length: uint32(dataLen),
 		}
 	}
 }
 
 // extractRedeemerArrayOffsets handles the array format for redeemers (Alonzo-Babbage) using streaming decoding.
 // Array format: [[purpose, index, data, exunits], ...]
-func extractRedeemerArrayOffsets(redeemerData []byte, baseOffset uint32, result map[RedeemerKey]ByteRange) {
+func extractRedeemerArrayOffsets(
+	redeemerData []byte,
+	baseOffset uint32,
+	result map[RedeemerKey]ByteRange,
+) {
 	count, headerSize, indefinite := cborArrayInfo(redeemerData)
 	if count < 0 && !indefinite {
 		return
@@ -2782,7 +2934,8 @@ func extractRedeemerArrayOffsets(redeemerData []byte, baseOffset uint32, result 
 		// Check for break byte in indefinite arrays
 		if indefinite {
 			pos := dec.Position()
-			if int(headerSize)+pos >= len(redeemerData) || redeemerData[int(headerSize)+pos] == 0xff {
+			if int(headerSize)+pos >= len(redeemerData) ||
+				redeemerData[int(headerSize)+pos] == 0xff {
 				break
 			}
 		}
@@ -2814,8 +2967,12 @@ func extractRedeemerArrayOffsets(redeemerData []byte, baseOffset uint32, result 
 		}
 
 		key := RedeemerKey{
-			Tag:   RedeemerTag(purpose), // #nosec G115 -- redeemer tag is a small enum value
-			Index: uint32(index),        // #nosec G115 -- redeemer index bounded by transaction size
+			Tag: RedeemerTag(
+				purpose,
+			), // #nosec G115 -- redeemer tag is a small enum value
+			Index: uint32(
+				index,
+			), // #nosec G115 -- redeemer index bounded by transaction size
 		}
 
 		// Get the data element's position (parts[2])
@@ -2824,9 +2981,11 @@ func extractRedeemerArrayOffsets(redeemerData []byte, baseOffset uint32, result 
 			continue
 		}
 
+		//nolint:gosec // offsets are within the block
 		result[key] = ByteRange{
-			Offset: baseOffset + headerSize + uint32(elemOffset) + innerHeaderSize + uint32(dataOffset), // #nosec G115
-			Length: uint32(dataLen),                                                                     // #nosec G115
+			Offset: baseOffset + headerSize + uint32(elemOffset) +
+				innerHeaderSize + uint32(dataOffset),
+			Length: uint32(dataLen),
 		}
 	}
 }
@@ -2854,7 +3013,15 @@ func cborArrayInfo(data []byte) (int, uint32, bool) {
 		return int(uint16(data[1])<<8 | uint16(data[2])), 3, false
 	case additional == 26 && len(data) >= 5:
 		// 4-byte length - check for overflow before converting to int
-		len32 := uint32(data[1])<<24 | uint32(data[2])<<16 | uint32(data[3])<<8 | uint32(data[4])
+		len32 := uint32(
+			data[1],
+		)<<24 | uint32(
+			data[2],
+		)<<16 | uint32(
+			data[3],
+		)<<8 | uint32(
+			data[4],
+		)
 		if len32 > uint32(math.MaxInt32) {
 			return -1, 0, false // Too large to handle
 		}
@@ -2879,7 +3046,12 @@ func cborArrayInfo(data []byte) (int, uint32, bool) {
 // extractScriptArrayOffsets extracts script hash -> offset mappings from a script array.
 // The scriptType parameter specifies the Cardano script type prefix used in hashing:
 // 0x00 = native script, 0x01 = PlutusV1, 0x02 = PlutusV2, 0x03 = PlutusV3
-func extractScriptArrayOffsets(scriptArrayData []byte, baseOffset uint32, scriptType byte, result map[ScriptHash]ByteRange) {
+func extractScriptArrayOffsets(
+	scriptArrayData []byte,
+	baseOffset uint32,
+	scriptType byte,
+	result map[ScriptHash]ByteRange,
+) {
 	if len(scriptArrayData) < 1 {
 		return
 	}
@@ -2904,14 +3076,18 @@ func extractScriptArrayOffsets(scriptArrayData []byte, baseOffset uint32, script
 
 		// Compute script hash: blake2b-224(prefix || script_cbor)
 		// This matches the Hash() method on Script types
-		hashKey := Blake2b224Hash(slices.Concat([]byte{scriptType}, scriptBytes))
+		hashKey := Blake2b224Hash(
+			slices.Concat([]byte{scriptType}, scriptBytes),
+		)
 
+		//nolint:gosec // Cardano block segments are <<4GiB
 		result[hashKey] = ByteRange{
 			Offset: baseOffset + pos,
-			Length: uint32(len(scriptBytes)), // #nosec G115 -- Cardano block segments are <<4GiB
+			Length: uint32(len(scriptBytes)),
 		}
 
-		pos += uint32(len(scriptBytes)) // #nosec G115 -- Cardano block segments are <<4GiB
+		//nolint:gosec // Cardano block segments are <<4GiB
+		pos += uint32(len(scriptBytes))
 	}
 }
 
@@ -3003,7 +3179,15 @@ func cborMapInfo(data []byte) (int, uint32, bool) {
 		return int(uint16(data[1])<<8 | uint16(data[2])), 3, false
 	case additional == 26 && len(data) >= 5:
 		// 4-byte length - check for overflow before converting to int
-		len32 := uint32(data[1])<<24 | uint32(data[2])<<16 | uint32(data[3])<<8 | uint32(data[4])
+		len32 := uint32(
+			data[1],
+		)<<24 | uint32(
+			data[2],
+		)<<16 | uint32(
+			data[3],
+		)<<8 | uint32(
+			data[4],
+		)
 		if len32 > uint32(math.MaxInt32) {
 			return -1, 0, false // Too large to handle
 		}

@@ -75,20 +75,39 @@ func benchValidateScriptWitnessesNoScripts(b *testing.B) {
 	utxos := make([]common.Utxo, 0, 64)
 	for i := range 64 {
 		txID := []byte{byte(i + 1)}
-		input, err := mockledger.NewTransactionInputBuilder().WithTxId(txID).WithIndex(0).Build()
+		input, err := mockledger.NewTransactionInputBuilder().
+			WithTxId(txID).
+			WithIndex(0).
+			Build()
 		require.NoError(b, err)
-		utxo, err := mockledger.NewUtxoBuilder().WithTxId(txID).WithIndex(0).WithAddress(addr).WithLovelace(2_000_000).Build()
+		utxo, err := mockledger.NewUtxoBuilder().
+			WithTxId(txID).
+			WithIndex(0).
+			WithAddress(addr).
+			WithLovelace(2_000_000).
+			Build()
 		require.NoError(b, err)
 		inputs = append(inputs, input)
 		utxos = append(utxos, utxo)
 	}
-	output, err := mockledger.NewTransactionOutputBuilder().WithAddress(addr).WithLovelace(1_000_000).Build()
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(addr).
+		WithLovelace(1_000_000).
+		Build()
 	require.NoError(b, err)
-	tx, err := mockledger.NewTransactionBuilder().WithInputs(inputs...).WithOutputs(output).WithFee(10).Build()
+	tx, err := mockledger.NewTransactionBuilder().
+		WithInputs(inputs...).
+		WithOutputs(output).
+		WithFee(10).
+		Build()
 	require.NoError(b, err)
 	ls := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 
-	require.NoError(b, common.ValidateScriptWitnesses(tx, ls), "precheck failed")
+	require.NoError(
+		b,
+		common.ValidateScriptWitnesses(tx, ls),
+		"precheck failed",
+	)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -133,7 +152,10 @@ func benchValidateScriptWitnessesWithScripts(b *testing.B) {
 	utxos := make([]common.Utxo, 0, 64)
 	for i := range 64 {
 		txID := []byte{byte(i + 1)}
-		input, err := mockledger.NewTransactionInputBuilder().WithTxId(txID).WithIndex(0).Build()
+		input, err := mockledger.NewTransactionInputBuilder().
+			WithTxId(txID).
+			WithIndex(0).
+			Build()
 		require.NoError(b, err)
 		utxo, err := mockledger.NewUtxoBuilder().
 			WithTxId(txID).
@@ -169,7 +191,11 @@ func benchValidateScriptWitnessesWithScripts(b *testing.B) {
 	ls := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
 
 	// Verify the precheck passes before benchmarking.
-	require.NoError(b, common.ValidateScriptWitnesses(tx, ls), "precheck failed")
+	require.NoError(
+		b,
+		common.ValidateScriptWitnesses(tx, ls),
+		"precheck failed",
+	)
 
 	b.ReportAllocs()
 	b.ResetTimer()

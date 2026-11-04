@@ -72,16 +72,25 @@ func TestClientAcceptVersionValidation(t *testing.T) {
 					versionMap := func(magic uint32) protocol.ProtocolVersionMap {
 						switch version {
 						case 1 + protocol.ProtocolVersionDMQNtCOffset:
-							return protocol.GetProtocolVersionMapDMQNtC(magic, false)
+							return protocol.GetProtocolVersionMapDMQNtC(
+								magic,
+								false,
+							)
 						case protocol.ProtocolVersionDMQNtN1,
 							protocol.ProtocolVersionDMQNtN2:
 							return protocol.GetProtocolVersionMapDMQNtN(
-								magic, protocol.DiffusionModeInitiatorOnly, false, false,
+								magic,
+								protocol.DiffusionModeInitiatorOnly,
+								false,
+								false,
 							)
 						default:
 							return protocol.GetProtocolVersionMap(
-								mode, magic, protocol.DiffusionModeInitiatorOnly,
-								false, false,
+								mode,
+								magic,
+								protocol.DiffusionModeInitiatorOnly,
+								false,
+								false,
 							)
 						}
 					}
@@ -108,13 +117,18 @@ func TestClientAcceptVersionValidation(t *testing.T) {
 							ouroboros_mock.ConversationEntryInput{
 								ProtocolId:      handshake.ProtocolId,
 								MsgFromCborFunc: handshake.NewMsgFromCbor,
-								Message:         handshake.NewMsgProposeVersions(proposedVersions),
+								Message: handshake.NewMsgProposeVersions(
+									proposedVersions,
+								),
 							},
 							ouroboros_mock.ConversationEntryOutput{
 								ProtocolId: handshake.ProtocolId,
 								IsResponse: true,
 								Messages: []protocol.Message{
-									handshake.NewMsgAcceptVersion(version, returnedData),
+									handshake.NewMsgAcceptVersion(
+										version,
+										returnedData,
+									),
 								},
 							},
 						},

@@ -149,7 +149,8 @@ func RunPoolDepositRuleCases(t *testing.T, f PoolDepositRuleFixture) {
 					func(common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
 						return reg, retirement, nil
 					},
-				).Build(),
+				).
+				Build(),
 			epoch: poolDepositRetired,
 		}
 	}
@@ -216,7 +217,12 @@ func RunPoolDepositRuleCases(t *testing.T, f PoolDepositRuleFixture) {
 			// Budgeting exactly the expected deposits must conserve value.
 			require.NoError(
 				t,
-				rule(newTx(tc.wantDeposits, tc.registrations), 0, ls, f.Pparams),
+				rule(
+					newTx(tc.wantDeposits, tc.registrations),
+					0,
+					ls,
+					f.Pparams,
+				),
 				"%s: budgeting %d pool deposit(s) should conserve value",
 				f.Era,
 				tc.wantDeposits,

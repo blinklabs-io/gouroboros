@@ -231,11 +231,13 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 func TestHandleRequestNextCallbackIsCalled(t *testing.T) {
 	called := false
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext, count uint64) ([]Vote, error) {
-			called = true
-			assert.Equal(t, uint64(2), count)
-			return nil, errors.New("test: stopping before send")
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext, count uint64) ([]Vote, error) {
+				called = true
+				assert.Equal(t, uint64(2), count)
+				return nil, errors.New("test: stopping before send")
+			},
+		),
 	)
 	server := &Server{
 		config:          &cfg,
@@ -290,9 +292,11 @@ func TestHandleRequestNextInvalidCount(t *testing.T) {
 
 func TestHandleRequestNextWrongVoteCount(t *testing.T) {
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext, count uint64) ([]Vote, error) {
-			return []Vote{testVote()}, nil
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext, count uint64) ([]Vote, error) {
+				return []Vote{testVote()}, nil
+			},
+		),
 	)
 	server := &Server{
 		config:          &cfg,
@@ -322,10 +326,12 @@ func TestServerMessageHandlerUnexpectedType(t *testing.T) {
 func TestServerMessageHandlerRequestNext(t *testing.T) {
 	called := false
 	cfg := NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext, count uint64) ([]Vote, error) {
-			called = true
-			return nil, errors.New("test: callback error")
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext, count uint64) ([]Vote, error) {
+				called = true
+				return nil, errors.New("test: callback error")
+			},
+		),
 	)
 	server := NewServer(
 		protocol.ProtocolOptions{ConnectionId: testConnectionId()},
@@ -358,8 +364,16 @@ func TestNewNormalizesZeroValueConfig(t *testing.T) {
 	)
 
 	require.NotNil(t, leiosVotes)
-	assert.Equal(t, DefaultRequestNextCount, leiosVotes.Client.config.RequestNextCount)
-	assert.Equal(t, DefaultRequestNextCount, leiosVotes.Server.config.RequestNextCount)
+	assert.Equal(
+		t,
+		DefaultRequestNextCount,
+		leiosVotes.Client.config.RequestNextCount,
+	)
+	assert.Equal(
+		t,
+		DefaultRequestNextCount,
+		leiosVotes.Server.config.RequestNextCount,
+	)
 }
 
 func TestNewPanicsOnInvalidConfig(t *testing.T) {

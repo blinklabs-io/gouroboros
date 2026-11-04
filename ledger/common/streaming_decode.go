@@ -371,7 +371,11 @@ func (d *StreamingBlockDecoder) extractOutputOffsets(
 
 			// Calculate the absolute offset of the outputs array
 			// #nosec G115 -- Cardano tx body offsets are well under 4GiB
-			outputsArrayOffset := bodyOffset + uint32(headerSize) + uint32(valueStart)
+			outputsArrayOffset := bodyOffset + uint32(
+				headerSize,
+			) + uint32(
+				valueStart,
+			)
 			_, outputsArrayHeader, _ := cborArrayInfo(
 				bodyData[int(headerSize)+valueStart:],
 			)
@@ -384,7 +388,10 @@ func (d *StreamingBlockDecoder) extractOutputOffsets(
 
 			// Record each output's position
 			if d.offsets.Transactions[txIndex].Outputs == nil {
-				d.offsets.Transactions[txIndex].Outputs = make([]ByteRange, len(outputsRaw))
+				d.offsets.Transactions[txIndex].Outputs = make(
+					[]ByteRange,
+					len(outputsRaw),
+				)
 			}
 
 			for j, rawOutput := range outputsRaw {
@@ -472,7 +479,11 @@ func ExtractOutputCbor(
 
 	txLoc := offsets.Transactions[txIndex]
 	if outputIndex >= len(txLoc.Outputs) {
-		return nil, fmt.Errorf("output index %d out of range for transaction %d", outputIndex, txIndex)
+		return nil, fmt.Errorf(
+			"output index %d out of range for transaction %d",
+			outputIndex,
+			txIndex,
+		)
 	}
 
 	outputRange := txLoc.Outputs[outputIndex]

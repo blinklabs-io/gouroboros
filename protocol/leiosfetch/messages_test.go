@@ -483,9 +483,13 @@ func TestDecode(t *testing.T) {
 			// Set the raw CBOR so the comparison should succeed
 			test.Message.SetCbor(encoded)
 
-			assert.True(t, reflect.DeepEqual(decoded, test.Message),
+			assert.True(
+				t,
+				reflect.DeepEqual(decoded, test.Message),
 				"CBOR did not decode to expected message object\n  got: %#v\n  wanted: %#v",
-				decoded, test.Message)
+				decoded,
+				test.Message,
+			)
 		})
 	}
 }
@@ -592,7 +596,11 @@ func TestMsgVotesTypedHelpers(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, decodedVotes, len(votes))
 	assert.Equal(t, votes[0].SlotNo, decodedVotes[0].SlotNo)
-	assert.Equal(t, votes[0].EndorserBlockHash, decodedVotes[0].EndorserBlockHash)
+	assert.Equal(
+		t,
+		votes[0].EndorserBlockHash,
+		decodedVotes[0].EndorserBlockHash,
+	)
 	assert.Equal(t, votes[0].VoterId, decodedVotes[0].VoterId)
 	assert.Equal(t, votes[0].VoteSignature, decodedVotes[0].VoteSignature)
 	assert.Equal(t, []byte(msg.VotesRaw[0]), decodedVotes[0].Cbor())

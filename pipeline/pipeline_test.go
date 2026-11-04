@@ -151,7 +151,10 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 
 func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 	raw := getValidBlockCbor(t)
-	p := NewBlockPipeline(WithTrustedDecodeOnly(), WithMaxRawCborBytes(2*uint64(len(raw))))
+	p := NewBlockPipeline(
+		WithTrustedDecodeOnly(),
+		WithMaxRawCborBytes(2*uint64(len(raw))),
+	)
 	forwardGate := make(chan struct{})
 	var releaseForward sync.Once
 	p.testResultsForward = func() { <-forwardGate }
@@ -214,7 +217,9 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 	second.Release()
 }
 
-func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(t *testing.T) {
+func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(
+	t *testing.T,
+) {
 	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(
 		WithTrustedDecodeOnly(),

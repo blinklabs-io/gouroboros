@@ -80,7 +80,11 @@ func TestScriptRefRejectsInvalidTagAndExtraInnerFields(t *testing.T) {
 		},
 		{
 			name: "extra inner field",
-			wire: mustEncodeScriptRefTag(t, cbor.CborTagCbor, mustEncodeScriptRefInner(t)),
+			wire: mustEncodeScriptRefTag(
+				t,
+				cbor.CborTagCbor,
+				mustEncodeScriptRefInner(t),
+			),
 		},
 	}
 	for _, test := range tests {
@@ -91,7 +95,11 @@ func TestScriptRefRejectsInvalidTagAndExtraInnerFields(t *testing.T) {
 	}
 }
 
-func mustEncodeScriptRefTag(t *testing.T, number uint64, content []byte) []byte {
+func mustEncodeScriptRefTag(
+	t *testing.T,
+	number uint64,
+	content []byte,
+) []byte {
 	t.Helper()
 	wire, err := cbor.Encode(cbor.Tag{Number: number, Content: content})
 	require.NoError(t, err)
@@ -229,7 +237,9 @@ func TestNativeScriptDecodeRejectsExtraFields(t *testing.T) {
 }
 
 func TestNativeScriptDecodeRejectsIndefiniteKeyHash(t *testing.T) {
-	indefiniteHash := append([]byte{0x5f, 0x58, 0x1c}, make([]byte, common.Blake2b224Size)...)
+	indefiniteHash := append(
+		[]byte{0x5f, 0x58, 0x1c},
+		make([]byte, common.Blake2b224Size)...)
 	indefiniteHash = append(indefiniteHash, 0xff)
 	raw, err := cbor.Encode([]any{
 		uint(0),
@@ -265,15 +275,20 @@ func TestNativeScriptRequireGuardEvaluation(t *testing.T) {
 	)
 
 	guardHash[0] ^= 0xff
-	require.False(t, script.EvaluateWithGuards(0, 0, 0, nil, []common.Credential{{
-		CredType:   common.CredentialTypeAddrKeyHash,
-		Credential: guardHash,
-	}}))
+	require.False(
+		t,
+		script.EvaluateWithGuards(0, 0, 0, nil, []common.Credential{{
+			CredType:   common.CredentialTypeAddrKeyHash,
+			Credential: guardHash,
+		}}),
+	)
 }
 
 func TestValidateNativeScriptConstructorsByEra(t *testing.T) {
 	t.Parallel()
-	invalidBeforeCBOR, err := cbor.Encode(common.NativeScriptInvalidBefore{Type: 4, Slot: 0})
+	invalidBeforeCBOR, err := cbor.Encode(
+		common.NativeScriptInvalidBefore{Type: 4, Slot: 0},
+	)
 	require.NoError(t, err)
 	var invalidBefore common.NativeScript
 	_, err = cbor.Decode(invalidBeforeCBOR, &invalidBefore)
@@ -285,10 +300,34 @@ func TestValidateNativeScriptConstructorsByEra(t *testing.T) {
 	_, err = cbor.Decode(guardCBOR, &guard)
 	require.NoError(t, err)
 
-	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{invalidBefore}, 3))
-	require.NoError(t, common.ValidateNativeScriptConstructors([]common.NativeScript{invalidBefore}, 5))
-	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{guard}, 5))
-	require.NoError(t, common.ValidateNativeScriptConstructors([]common.NativeScript{guard}, 6))
+	require.Error(
+		t,
+		common.ValidateNativeScriptConstructors(
+			[]common.NativeScript{invalidBefore},
+			3,
+		),
+	)
+	require.NoError(
+		t,
+		common.ValidateNativeScriptConstructors(
+			[]common.NativeScript{invalidBefore},
+			5,
+		),
+	)
+	require.Error(
+		t,
+		common.ValidateNativeScriptConstructors(
+			[]common.NativeScript{guard},
+			5,
+		),
+	)
+	require.NoError(
+		t,
+		common.ValidateNativeScriptConstructors(
+			[]common.NativeScript{guard},
+			6,
+		),
+	)
 
 	nestedCBOR, err := cbor.Encode(common.NativeScriptAll{
 		Type:    1,
@@ -298,7 +337,13 @@ func TestValidateNativeScriptConstructorsByEra(t *testing.T) {
 	var nested common.NativeScript
 	_, err = cbor.Decode(nestedCBOR, &nested)
 	require.NoError(t, err)
-	require.Error(t, common.ValidateNativeScriptConstructors([]common.NativeScript{nested}, 3))
+	require.Error(
+		t,
+		common.ValidateNativeScriptConstructors(
+			[]common.NativeScript{nested},
+			3,
+		),
+	)
 }
 
 func TestPlutusV3ScriptHash(t *testing.T) {
@@ -515,7 +560,19 @@ func TestNativeScriptNofKThresholdIsInt64(t *testing.T) {
 		reencoded, err := cbor.Encode(&script)
 		require.NoError(t, err)
 		require.Equal(t, scriptCbor, reencoded, "n=%d", tc.n)
-		require.Equal(t, tc.noSigner, script.Evaluate(0, 0, 0, nil), "n=%d", tc.n)
-		require.Equal(t, tc.oneSign, script.Evaluate(0, 0, 0, signedBy), "n=%d", tc.n)
+		require.Equal(
+			t,
+			tc.noSigner,
+			script.Evaluate(0, 0, 0, nil),
+			"n=%d",
+			tc.n,
+		)
+		require.Equal(
+			t,
+			tc.oneSign,
+			script.Evaluate(0, 0, 0, signedBy),
+			"n=%d",
+			tc.n,
+		)
 	}
 }

@@ -176,5 +176,9 @@ func TestRequestTxsRejectsDeepItemBeforeTypedDecode(t *testing.T) {
 	wire := append([]byte{0x82, MessageTypeRequestTxs, 0x81}, item...)
 
 	_, err := NewMsgFromCbor(MessageTypeRequestTxs, wire)
-	require.ErrorContains(t, err, "tx-submission item 0: CBOR nesting exceeds maximum depth 1")
+	require.ErrorContains(
+		t,
+		err,
+		"tx-submission item 0: CBOR nesting exceeds maximum depth 1",
+	)
 }

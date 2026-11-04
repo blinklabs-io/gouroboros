@@ -152,7 +152,9 @@ func buildBlockLimitsTestBlockWithDeclaredSize(
 		encoded, err := cbor.Encode(part)
 		require.NoError(t, err)
 		bodySize += uint64(len(encoded))
-		bodyHashes = append(bodyHashes, common.Blake2b256Hash(encoded).Bytes()...)
+		bodyHashes = append(
+			bodyHashes,
+			common.Blake2b256Hash(encoded).Bytes()...)
 	}
 	conwayHeader := signedConwayLimitsHeader(
 		t,

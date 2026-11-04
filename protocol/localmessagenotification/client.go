@@ -24,7 +24,9 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-var errReplayCacheCapacityExceeded = errors.New("dmq: replay cache capacity exceeded")
+var errReplayCacheCapacityExceeded = errors.New(
+	"dmq: replay cache capacity exceeded",
+)
 
 // Client implements the LocalMessageNotification client
 type Client struct {
@@ -208,7 +210,11 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 	}
 	if c.config.ReplyMessagesFunc != nil &&
 		(len(msgReply.Messages) == 0 || len(messages) > 0) {
-		c.config.ReplyMessagesFunc(c.callbackContext, messages, msgReply.HasMore)
+		c.config.ReplyMessagesFunc(
+			c.callbackContext,
+			messages,
+			msgReply.HasMore,
+		)
 	}
 	return nil
 }
@@ -258,7 +264,9 @@ func (c *Client) validateAndReserve(
 		maxReplayEntries = defaultMaxReplayEntries
 	}
 	if maxReplayEntries < 0 {
-		return nil, errors.New("dmq: MaxReplayEntries must be greater than zero")
+		return nil, errors.New(
+			"dmq: MaxReplayEntries must be greater than zero",
+		)
 	}
 	now := c.now()
 	c.replayState.mu.Lock()
@@ -276,17 +284,27 @@ func (c *Client) validateAndReserve(
 	}
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
-			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
+			return nil, fmt.Errorf(
+				"message %d TTL validation failed: %w",
+				i,
+				err,
+			)
 		}
 	}
-	commitAuthentication, err := c.config.Authenticator.PrepareMessages(messages)
+	commitAuthentication, err := c.config.Authenticator.PrepareMessages(
+		messages,
+	)
 	if err != nil {
 		return nil, err
 	}
 	now = c.now()
 	for i := range messages {
 		if err := c.config.TTLValidator.ValidateMessageTTLAt(&messages[i], now); err != nil {
-			return nil, fmt.Errorf("message %d TTL validation failed: %w", i, err)
+			return nil, fmt.Errorf(
+				"message %d TTL validation failed: %w",
+				i,
+				err,
+			)
 		}
 	}
 	if commitAuthentication != nil {

@@ -91,7 +91,9 @@ func TestDijkstraRequiredGuardsV4NormalizesDatum(t *testing.T) {
 		"rendered required-guards must embed the NORMALIZED guard datum",
 	)
 	require.NotContains(
-		t, renderedHex, wireDatumHex,
+		t,
+		renderedHex,
+		wireDatumHex,
 		"rendered required-guards still embeds the definite-length wire datum: "+
 			"dijkstraRequiredTopLevelGuardsV4 is handing unnormalized PlutusData to the script",
 	)

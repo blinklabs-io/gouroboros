@@ -103,7 +103,14 @@ func TestByronTransactionInputRejectsIndexAboveWord16(t *testing.T) {
 
 	// A transaction carrying such an input must not decode either.
 	body, err := cbor.Encode([]any{
-		[]any{[]any{0, cbor.WrappedCbor(mustEncode(t, []any{hash, uint64(math.MaxUint16 + 1)}))}},
+		[]any{
+			[]any{
+				0,
+				cbor.WrappedCbor(
+					mustEncode(t, []any{hash, uint64(math.MaxUint16 + 1)}),
+				),
+			},
+		},
 		[]any{},
 		map[any]any{},
 	})
