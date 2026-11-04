@@ -440,3 +440,110 @@ func TestProveMatchesLegacyProofToHash(t *testing.T) {
 		}
 	}
 }
+
+// orderTwoPoint returns the point (0, -1), of order 2.
+func orderTwoPoint(t *testing.T) *edwards25519.Point {
+	t.Helper()
+	enc := bytes.Repeat([]byte{0xff}, 32)
+	enc[0] = 0xec
+	enc[31] = 0x7f
+	p, err := new(edwards25519.Point).SetBytes(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// proveWithTorsion builds a proof that the legacy verifier accepts although
+// the public key, Gamma, or both carry the order-2 torsion point T. It draws
+// nonces until the challenge c is even, so c*T vanishes in s*B - c*Y and
+// s*H - c*Gamma. It returns the public key and proof.
+func proveWithTorsion(
+	t *testing.T,
+	rng *rand.Rand,
+	alpha []byte,
+	torsionOnY, torsionOnGamma bool,
+) ([]byte, []byte) {
+	t.Helper()
+	torsion := orderTwoPoint(t)
+	seed := make([]byte, SeedSize)
+	rng.Read(seed)
+	skHash := sha512.Sum512(seed)
+	x := edwards25519.NewScalar()
+	if _, err := x.SetBytesWithClamping(skHash[:32]); err != nil {
+		t.Fatal(err)
+	}
+	Y := new(edwards25519.Point).ScalarBaseMult(x)
+	if torsionOnY {
+		Y.Add(Y, torsion)
+	}
+	H, hBytes, err := hashToCurveElligator2(Y, alpha)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// H is a cofactor multiple, so x*H is the same for either key.
+	Gamma := new(edwards25519.Point).ScalarMult(x, H)
+	if torsionOnGamma {
+		Gamma.Add(Gamma, torsion)
+	}
+	gammaBytes := Gamma.Bytes()
+	for range 256 {
+		var kBytes [64]byte
+		rng.Read(kBytes[:])
+		k, err := edwards25519.NewScalar().SetUniformBytes(kBytes[:])
+		if err != nil {
+			t.Fatal(err)
+		}
+		U := new(edwards25519.Point).ScalarBaseMult(k)
+		V := new(edwards25519.Point).ScalarMult(k, H)
+		c := hashPoints(hBytes, gammaBytes, U.Bytes(), V.Bytes())
+		cBytes := c.Bytes()
+		if cBytes[0]&1 != 0 {
+			continue
+		}
+		s := edwards25519.NewScalar().Multiply(c, x)
+		s.Add(s, k)
+		proof := make([]byte, 0, ProofSize)
+		proof = append(proof, gammaBytes...)
+		proof = append(proof, cBytes[:16]...)
+		proof = append(proof, s.Bytes()...)
+		return Y.Bytes(), proof
+	}
+	t.Fatal("no even challenge in 256 nonces")
+	return nil, nil
+}
+
+// TestVerifyAndHashMatchesLegacyWithTorsion checks verification of keys and
+// Gammas that carry a torsion component. Negating the scalar c instead of
+// the points computes (L-c)*P, which differs from -c*P by L*P and so
+// rejects proofs the legacy verifier accepts.
+func TestVerifyAndHashMatchesLegacyWithTorsion(t *testing.T) {
+	rng := rand.New(rand.NewSource(3))
+	for _, tc := range []struct {
+		name                   string
+		torsionY, torsionGamma bool
+	}{
+		{"key", true, false},
+		{"gamma", false, true},
+		{"key and gamma", true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for range 20 {
+				alpha := make([]byte, 32)
+				rng.Read(alpha)
+				pk, proof := proveWithTorsion(t, rng, alpha, tc.torsionY, tc.torsionGamma)
+				want, err := legacyVerifyAndHash(pk, proof, alpha)
+				if err != nil {
+					t.Fatalf("legacy verifier rejected the torsion proof: %v", err)
+				}
+				got, err := VerifyAndHash(pk, proof, alpha)
+				if err != nil {
+					t.Fatalf("VerifyAndHash rejected a proof the legacy verifier accepts: %v", err)
+				}
+				if !bytes.Equal(got, want) {
+					t.Fatalf("output %x, legacy %x", got, want)
+				}
+			}
+		})
+	}
+}
