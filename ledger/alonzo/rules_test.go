@@ -1168,6 +1168,15 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 		},
 	}
 	tmpMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+			common.NewBlake2b224(make([]byte, 28)): {
+				cbor.NewByteString([]byte("token")): big.NewInt(1),
+			},
+		},
+	)
+	// An output can encode its value as [coin, {}]; mainnet transaction
+	// 93f2754c... (slot 50402184) spends such an output as collateral.
+	emptyMultiAsset := common.NewMultiAsset[common.MultiAssetTypeOutput](
 		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{},
 	)
 	utxos := []common.Utxo{
@@ -1183,6 +1192,15 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralAmount,
 					Assets: &tmpMultiAsset,
+				},
+			},
+		},
+		{
+			Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 2),
+			Output: alonzo.AlonzoTransactionOutput{
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: testCollateralAmount,
+					Assets: &emptyMultiAsset,
 				},
 			},
 		},
@@ -1246,6 +1264,29 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 					err,
 				)
 			}
+		},
+	)
+	t.Run(
+		"coin with empty asset map",
+		func(t *testing.T) {
+			testTx.Body.TxCollateral = cbor.NewSetType(
+				[]shelley.ShelleyTransactionInput{
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					shelley.MustNewShelleyTransactionInput(testInputTxId, 2),
+				},
+				false,
+			)
+			err := alonzo.UtxoValidateCollateralContainsNonAda(
+				testTx,
+				testSlot,
+				testLedgerState,
+				testProtocolParams,
+			)
+			assert.NoError(
+				t,
+				err,
+				"an empty asset map is ADA-only collateral",
+			)
 		},
 	)
 }
