@@ -1249,10 +1249,20 @@ type NativeScriptAll struct {
 	Scripts []NativeScript
 }
 
+// MarshalCBOR encodes child lists using cardano-binary's variable framing.
+func (s NativeScriptAll) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode([]any{s.Type, nativeScriptChildren(s.Scripts)})
+}
+
 type NativeScriptAny struct {
 	cbor.StructAsArray
 	Type    uint
 	Scripts []NativeScript
+}
+
+// MarshalCBOR encodes child lists using cardano-binary's variable framing.
+func (s NativeScriptAny) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode([]any{s.Type, nativeScriptChildren(s.Scripts)})
 }
 
 // NativeScriptNofK is script_n_of_k. The CDDL types n as int64 (Allegra
@@ -1262,6 +1272,28 @@ type NativeScriptNofK struct {
 	Type    uint
 	N       int64
 	Scripts []NativeScript
+}
+
+// MarshalCBOR encodes child lists using cardano-binary's variable framing.
+func (s NativeScriptNofK) MarshalCBOR() ([]byte, error) {
+	return cbor.Encode([]any{s.Type, s.N, nativeScriptChildren(s.Scripts)})
+}
+
+type nativeScriptChildren []NativeScript
+
+func (scripts nativeScriptChildren) MarshalCBOR() ([]byte, error) {
+	if len(scripts) == 0 {
+		return []byte{0x80}, nil
+	}
+	// cardano-binary uses indefinite lists above its 23-element threshold.
+	if len(scripts) <= 23 {
+		return cbor.Encode([]NativeScript(scripts))
+	}
+	items := make(cbor.IndefLengthList, len(scripts))
+	for i := range scripts {
+		items[i] = scripts[i]
+	}
+	return items.MarshalCBOR()
 }
 
 type NativeScriptInvalidBefore struct {
