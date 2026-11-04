@@ -390,19 +390,22 @@ func verify(
 	c := edwards25519.NewScalar()
 	// SetUniformBytes always succeeds with 64 bytes; it reduces mod L
 	_, _ = c.SetUniformBytes(cScalarBytes[:])
-	negC := edwards25519.NewScalar().Negate(c)
 	// SEC-9: Use SetCanonicalBytes to reject non-canonical s >= L (proof malleability)
 	s := edwards25519.NewScalar()
 	if _, err := s.SetCanonicalBytes(sScalarArr[:]); err != nil {
 		return nil, false, fmt.Errorf("non-canonical s scalar in VRF proof: %w", err)
 	}
 
+	// Negate the points rather than c: (L-c)*P equals -c*P only for
+	// prime-order P, and Y and Gamma may carry a torsion component.
 	// U = s*B - c*Y
-	U := (&edwards25519.Point{}).VarTimeDoubleScalarBaseMult(negC, Y, s)
+	negY := (&edwards25519.Point{}).Negate(Y)
+	U := (&edwards25519.Point{}).VarTimeDoubleScalarBaseMult(c, negY, s)
 	// V = s*H - c*Gamma
+	negGamma := (&edwards25519.Point{}).Negate(Gamma)
 	V := (&edwards25519.Point{}).VarTimeMultiScalarMult(
-		[]*edwards25519.Scalar{s, negC},
-		[]*edwards25519.Point{H, Gamma},
+		[]*edwards25519.Scalar{s, c},
+		[]*edwards25519.Point{H, negGamma},
 	)
 
 	cofactorGamma := (&edwards25519.Point{}).MultByCofactor(Gamma)

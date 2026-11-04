@@ -136,8 +136,8 @@ func TestAllocationRegression(t *testing.T) {
 		maxAllocs int64
 	}{
 		// Current baselines with 10% headroom:
-		// VRFVerify: 11 allocs (measured 2026-02-10)
-		{"VRFVerify", vrfVerifyOnce, 12},
+		// VRFVerify: 17 allocs (variable-time scalar multiplication)
+		{"VRFVerify", vrfVerifyOnce, 18},
 		// KESVerify: 12 allocs (measured 2026-02-10)
 		{"KESVerify", kesVerifyOnce, 14},
 		// Finite E34: 17 allocations normally, 19-20 with race instrumentation.
@@ -314,7 +314,7 @@ func TestRegressionVRF(t *testing.T) {
 		})
 		require.NoError(t, lastErr)
 		require.True(t, lastValid, "VRF Verify should succeed")
-		limit := 12.0 * multiplier // Baseline: 11 allocs
+		limit := 18.0 * multiplier // Baseline: 17 allocs
 		require.LessOrEqualf(t, allocs, limit,
 			"VRF Verify: %.0f allocs exceeds limit %.0f", allocs, limit)
 		t.Logf("VRF Verify: %.0f allocs (limit: %.0f)", allocs, limit)
@@ -333,7 +333,7 @@ func TestRegressionVRF(t *testing.T) {
 			)
 		})
 		require.NoError(t, lastErr)
-		limit := 12.0 * multiplier // Baseline: 11 allocs
+		limit := 18.0 * multiplier // Baseline: 17 allocs
 		require.LessOrEqualf(t, allocs, limit,
 			"VRF VerifyAndHash: %.0f allocs exceeds limit %.0f", allocs, limit)
 		t.Logf("VRF VerifyAndHash: %.0f allocs (limit: %.0f)", allocs, limit)
