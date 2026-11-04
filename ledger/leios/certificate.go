@@ -89,7 +89,9 @@ func VerifyDijkstraCertificate(
 		return fmt.Errorf("%w: %w", ErrMalformedCommittee, err)
 	}
 
-	var aggregatePublicKey bls12381.G2Affine
+	// Summed in Jacobian coordinates: an affine addition inverts a field
+	// element, which for a large committee costs more than the pairing.
+	var aggregateJac bls12381.G2Jac
 	var signerStake uint64
 	var committeeStake uint64
 	var signerCount int
@@ -108,21 +110,16 @@ func VerifyDijkstraCertificate(
 		if seat.Key == nil {
 			return fmt.Errorf("%w: seat %d", ErrKeylessSigner, i)
 		}
-		pub, err := decodePublicKey(seat.Key.PublicKey)
+		pub, stage, err := verifiedPossessionKey(seat.Key, leiosProofDST)
 		if err != nil {
-			return fmt.Errorf(
-				"%w: seat %d public key: %w",
-				ErrMalformedCommittee,
-				i,
-				err,
-			)
-		}
-		if err := verifySignature(
-			pub,
-			seat.Key.PublicKey,
-			seat.Key.PossessionProof,
-			leiosProofDST,
-		); err != nil {
+			if stage == keyCheckDecode {
+				return fmt.Errorf(
+					"%w: seat %d public key: %w",
+					ErrMalformedCommittee,
+					i,
+					err,
+				)
+			}
 			return fmt.Errorf("%w: seat %d: %w", ErrInvalidProof, i, err)
 		}
 		if signerStake > context.TotalActiveStake-seat.Stake {
@@ -134,9 +131,9 @@ func VerifyDijkstraCertificate(
 		signerStake += seat.Stake
 		signerCount++
 		if signerCount == 1 {
-			aggregatePublicKey = *pub
+			aggregateJac.FromAffine(pub)
 		} else {
-			aggregatePublicKey.Add(&aggregatePublicKey, pub)
+			aggregateJac.AddMixed(pub)
 		}
 	}
 	if signerCount == 0 {
@@ -159,6 +156,8 @@ func VerifyDijkstraCertificate(
 			threshold.RatString(),
 		)
 	}
+	var aggregatePublicKey bls12381.G2Affine
+	aggregatePublicKey.FromJacobian(&aggregateJac)
 	if aggregatePublicKey.IsInfinity() {
 		return fmt.Errorf(
 			"%w: aggregate public key is infinity",
@@ -210,16 +209,11 @@ func VerifyPossessionProofForDomain(
 			nil,
 		)
 	}
-	pub, err := decodePublicKey(key.PublicKey)
-	if err != nil {
+	_, stage, err := verifiedPossessionKey(&key, dst)
+	if err != nil && stage == keyCheckDecode {
 		return fmt.Errorf("%w: public key: %w", ErrInvalidProof, err)
 	}
-	if err := verifySignature(
-		pub,
-		key.PublicKey,
-		key.PossessionProof,
-		dst,
-	); err != nil {
+	if err != nil {
 		if errors.Is(err, ErrInvalidSignature) {
 			// The single-key pairing check failed; the aggregate-signature
 			// sentinel's text would misdescribe it.
