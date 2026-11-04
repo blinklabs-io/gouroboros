@@ -224,7 +224,7 @@ func EvaluatePlutusScripts(
 			redeemer := Redeemer{
 				Tag:     redeemerKey.Tag,
 				Index:   redeemerKey.Index,
-				Data:    data.NormalizeShared(redeemerValue.Data.Data),
+				Data:    redeemerValue.Data.Data,
 				ExUnits: redeemerValue.ExUnits,
 			}
 			ctx := NewScriptContextV3(txInfoV3Cached, redeemer, purpose)
