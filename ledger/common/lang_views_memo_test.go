@@ -108,3 +108,21 @@ func TestLangViewParamsMemoStaysBounded(t *testing.T) {
 		t.Fatalf("memo holds %d entries, bound is %d", n, langViewParamsMemoMax)
 	}
 }
+
+func TestLangViewParamsDistinguishesNilFromEmpty(t *testing.T) {
+	for _, order := range [][2][]int64{{nil, {}}, {{}, nil}} {
+		for _, model := range order {
+			got, err := langViewParams(2, model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, err := cbor.Encode(model)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Fatalf("model nil=%v: got %x, want %x", model == nil, got, want)
+			}
+		}
+	}
+}

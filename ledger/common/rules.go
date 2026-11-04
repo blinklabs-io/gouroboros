@@ -2082,7 +2082,11 @@ var langViewParamsMemo struct {
 func langViewParams(version uint, costModel []int64) ([]byte, error) {
 	langViewParamsMemo.Lock()
 	for _, entry := range langViewParamsMemo.entries {
-		if entry.version == version && slices.Equal(entry.costModel, costModel) {
+		// CBOR encodes a nil slice as null and an empty one as an empty
+		// array, so nil-ness is part of the key.
+		if entry.version == version &&
+			(entry.costModel == nil) == (costModel == nil) &&
+			slices.Equal(entry.costModel, costModel) {
 			langViewParamsMemo.Unlock()
 			return entry.params, nil
 		}
