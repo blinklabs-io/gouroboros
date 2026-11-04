@@ -28,6 +28,7 @@ import (
 	"math/big"
 	"math/bits"
 	"reflect"
+	"slices"
 	"sort"
 	"sync"
 
@@ -1238,7 +1239,7 @@ func collectTransactionScriptRequirements(
 		return ret, err
 	}
 
-	resolvedInputs := make(map[string]Utxo, len(tx.Inputs()))
+	resolvedInputs := make(map[transactionInputKey]Utxo, len(tx.Inputs()))
 	if ls != nil {
 		for _, input := range tx.Inputs() {
 			utxo, err := ls.UtxoById(input)
@@ -1247,7 +1248,7 @@ func collectTransactionScriptRequirements(
 				// evaluation. Preserve that error precedence here.
 				continue
 			}
-			resolvedInputs[input.String()] = utxo
+			resolvedInputs[newTransactionInputKey(input)] = utxo
 			if utxo.Output != nil && utxo.Output.ScriptRef() != nil {
 				hash, err := addAvailableScript(
 					ret.available,
@@ -1285,7 +1286,7 @@ func collectTransactionScriptRequirements(
 		return inputs[i].Index() < inputs[j].Index()
 	})
 	for index, input := range inputs {
-		utxo, ok := resolvedInputs[input.String()]
+		utxo, ok := resolvedInputs[newTransactionInputKey(input)]
 		if !ok || utxo.Output == nil {
 			continue
 		}
@@ -2012,32 +2013,15 @@ func EncodeLangViews(
 		case 0: // PlutusV1
 			// Tag is double-serialized: serialize(serialize(0)) => 0x4100.
 			tag = []byte{0x41, 0x00}
-			// Cost model uses indefinite-length list, wrapped in a bytestring
-			// This is the "double bagging" for PlutusV1 compatibility
-			indefList := make(cbor.IndefLengthList, len(costModel))
-			for i, v := range costModel {
-				indefList[i] = any(v)
-			}
-			indefBytes, indefErr := cbor.Encode(indefList)
-			if indefErr != nil {
-				return nil, indefErr
-			}
-			// Wrap the indefinite list bytes in a CBOR bytestring
-			params, err = cbor.Encode(indefBytes)
-			if err != nil {
-				return nil, err
-			}
-
 		case 1, 2, 3: // PlutusV2, PlutusV3, PlutusV4
 			// Tags are single-byte CBOR encodings for small unsigned ints.
 			tag = []byte{byte(version)}
-			// Cost model uses definite-length list (no bytestring wrapper)
-			params, err = cbor.Encode(costModel)
-			if err != nil {
-				return nil, err
-			}
 		default:
 			return nil, fmt.Errorf("unsupported Plutus version for lang views: %d", version)
+		}
+		params, err = langViewParams(version, costModel)
+		if err != nil {
+			return nil, err
 		}
 
 		views = append(views, langView{tag: tag, params: params})
@@ -2069,6 +2053,80 @@ func EncodeLangViews(
 	}
 
 	return result, nil
+}
+
+// langViewParamsMemoMax bounds langViewParamsMemo. A chain has a handful of
+// distinct cost models in force at once, so this is never reached in practice;
+// a full memo is emptied rather than evicted from.
+const langViewParamsMemoMax = 16
+
+type langViewParamsEntry struct {
+	version   uint
+	costModel []int64
+	params    []byte
+}
+
+// langViewParamsMemo holds encoded language-view parameters by content. Every
+// script data hash check encodes the cost models of the languages its
+// transaction uses, and the cost models change only with the protocol
+// parameters, so the encoding is almost always one already made.
+var langViewParamsMemo struct {
+	sync.Mutex
+	entries []langViewParamsEntry
+}
+
+// langViewParams returns the encoded language-view parameters of costModel for
+// version: for PlutusV1 an indefinite-length list wrapped in a byte string
+// ("double bagging"), for later versions a definite-length list. The result is
+// shared and must not be modified.
+func langViewParams(version uint, costModel []int64) ([]byte, error) {
+	langViewParamsMemo.Lock()
+	for _, entry := range langViewParamsMemo.entries {
+		// CBOR encodes a nil slice as null and an empty one as an empty
+		// array, so nil-ness is part of the key.
+		if entry.version == version &&
+			(entry.costModel == nil) == (costModel == nil) &&
+			slices.Equal(entry.costModel, costModel) {
+			langViewParamsMemo.Unlock()
+			return entry.params, nil
+		}
+	}
+	langViewParamsMemo.Unlock()
+
+	var params []byte
+	if version == 0 {
+		indefList := make(cbor.IndefLengthList, len(costModel))
+		for i, v := range costModel {
+			indefList[i] = any(v)
+		}
+		indefBytes, err := cbor.Encode(indefList)
+		if err != nil {
+			return nil, err
+		}
+		params, err = cbor.Encode(indefBytes)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		var err error
+		params, err = cbor.Encode(costModel)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	langViewParamsMemo.Lock()
+	if len(langViewParamsMemo.entries) >= langViewParamsMemoMax {
+		langViewParamsMemo.entries = nil
+	}
+	langViewParamsMemo.entries = append(langViewParamsMemo.entries,
+		langViewParamsEntry{
+			version:   version,
+			costModel: slices.Clone(costModel),
+			params:    params,
+		})
+	langViewParamsMemo.Unlock()
+	return params, nil
 }
 
 // ShortLex compares byte slices by length first, then lexicographically
