@@ -104,7 +104,9 @@ func (c *Client) Stop() error {
 // Notification callback function specified in the protocol config
 func (c *Client) Sync() error {
 	if c.config.NotificationFunc == nil {
-		return errors.New("you must configure NotificationFunc to receive notifications")
+		return errors.New(
+			"you must configure NotificationFunc to receive notifications",
+		)
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()

@@ -46,11 +46,22 @@ func TestScriptHashMatchesBlake2b224OfTaggedBytes(t *testing.T) {
 			// memoized.
 			for range 2 {
 				if got := s.script.Hash(); got != want {
-					t.Fatalf("size %d tag %d: hash %x, want %x", size, s.tag, got, want)
+					t.Fatalf(
+						"size %d tag %d: hash %x, want %x",
+						size,
+						s.tag,
+						got,
+						want,
+					)
 				}
 			}
 			if other, ok := seen[want]; ok {
-				t.Fatalf("size %d: tags %d and %d share a hash", size, other, s.tag)
+				t.Fatalf(
+					"size %d: tags %d and %d share a hash",
+					size,
+					other,
+					s.tag,
+				)
 			}
 			seen[want] = s.tag
 		}
@@ -67,7 +78,11 @@ func TestScriptHashMemoIgnoresLaterChangesToTheBytes(t *testing.T) {
 	// A caller reusing its buffer must not change what the memo holds.
 	raw[0] ^= 0xff
 	if got := PlutusV3Script(original).Hash(); got != want {
-		t.Fatalf("hash after the caller changed its buffer %x, want %x", got, want)
+		t.Fatalf(
+			"hash after the caller changed its buffer %x, want %x",
+			got,
+			want,
+		)
 	}
 	if got := PlutusV3Script(raw).Hash(); got == want {
 		t.Fatal("changed bytes must hash differently")
@@ -84,7 +99,11 @@ func TestScriptHashMemoStaysBounded(t *testing.T) {
 		held := scriptHashMemo.bytes
 		scriptHashMemo.RUnlock()
 		if held > scriptHashMemoMaxBytes {
-			t.Fatalf("memo holds %d bytes, over its %d limit", held, scriptHashMemoMaxBytes)
+			t.Fatalf(
+				"memo holds %d bytes, over its %d limit",
+				held,
+				scriptHashMemoMaxBytes,
+			)
 		}
 	}
 }
@@ -108,7 +127,9 @@ func BenchmarkPlutusV3ScriptHash(b *testing.B) {
 
 func TestScriptHashMemoSkipsScriptsLargerThanTheMemo(t *testing.T) {
 	raw := scriptBytes(scriptHashMemoMaxBytes+1, 7)
-	want := ScriptHash(Blake2b224Hash(append([]byte{ScriptRefTypePlutusV3}, raw...)))
+	want := ScriptHash(
+		Blake2b224Hash(append([]byte{ScriptRefTypePlutusV3}, raw...)),
+	)
 	if got := PlutusV3Script(raw).Hash(); got != want {
 		t.Fatalf("hash %x, want %x", got, want)
 	}
@@ -117,6 +138,10 @@ func TestScriptHashMemoSkipsScriptsLargerThanTheMemo(t *testing.T) {
 	_, kept := scriptHashMemo.hashes[ScriptRefTypePlutusV3][string(raw)]
 	scriptHashMemo.RUnlock()
 	if kept || held > scriptHashMemoMaxBytes {
-		t.Fatalf("memo kept the oversized script (kept %v, %d bytes held)", kept, held)
+		t.Fatalf(
+			"memo kept the oversized script (kept %v, %d bytes held)",
+			kept,
+			held,
+		)
 	}
 }

@@ -73,7 +73,9 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 	if s.config.ObjectIDsFunc == nil {
-		return errors.New("peras object IDs function must be configured on the server")
+		return errors.New(
+			"peras object IDs function must be configured on the server",
+		)
 	}
 	ids, err := s.config.ObjectIDsFunc(
 		s.callbackContext,
@@ -100,7 +102,9 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 
 func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 	if s.config.ObjectsFunc == nil {
-		return errors.New("peras objects function must be configured on the server")
+		return errors.New(
+			"peras objects function must be configured on the server",
+		)
 	}
 	objects, err := s.config.ObjectsFunc(s.callbackContext, msg.ObjectIDs)
 	if err != nil {
@@ -124,10 +128,16 @@ func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 			return err
 		}
 		if _, ok := requested[id]; !ok {
-			return fmt.Errorf("peras objects function returned unrequested vote %v", id)
+			return fmt.Errorf(
+				"peras objects function returned unrequested vote %v",
+				id,
+			)
 		}
 		if _, ok := seen[id]; ok {
-			return fmt.Errorf("peras objects function returned duplicate vote %v", id)
+			return fmt.Errorf(
+				"peras objects function returned duplicate vote %v",
+				id,
+			)
 		}
 		seen[id] = struct{}{}
 	}

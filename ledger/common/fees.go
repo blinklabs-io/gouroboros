@@ -45,7 +45,9 @@ func CalculateExecutionUnitsFee(
 					return 0, errors.New("invalid execution step price")
 				}
 				if prices.MemPrice.Sign() < 0 || prices.StepPrice.Sign() < 0 {
-					return 0, errors.New("execution prices must not be negative")
+					return 0, errors.New(
+						"execution prices must not be negative",
+					)
 				}
 				pricesValidated = true
 			}

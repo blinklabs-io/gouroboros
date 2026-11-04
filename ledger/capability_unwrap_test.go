@@ -51,7 +51,12 @@ const commonStateFile = "common/state.go"
 func ledgerStateInterfaces(t *testing.T) map[string][]string {
 	t.Helper()
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, commonStateFile, nil, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(
+		fset,
+		commonStateFile,
+		nil,
+		parser.SkipObjectResolution,
+	)
 	require.NoError(t, err)
 	ret := map[string][]string{}
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -171,46 +176,54 @@ func TestOptionalCapabilityAssertionsUnwrapCachedState(t *testing.T) {
 
 	fset := token.NewFileSet()
 	var offenders []string
-	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == "testdata" || d.Name() == ".worktrees" {
-				return fs.SkipDir
+	err := filepath.WalkDir(
+		".",
+		func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") ||
-			strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
-		ast.Inspect(file, func(n ast.Node) bool {
-			assertion, ok := n.(*ast.TypeAssertExpr)
-			if !ok || assertion.Type == nil {
-				return true
+			if d.IsDir() {
+				if d.Name() == "testdata" || d.Name() == ".worktrees" {
+					return fs.SkipDir
+				}
+				return nil
 			}
-			if !capabilities[assertedInterfaceName(assertion.Type)] {
-				return true
+			if !strings.HasSuffix(path, ".go") ||
+				strings.HasSuffix(path, "_test.go") {
+				return nil
 			}
-			if isUnwrapCall(assertion.X) {
-				return true
-			}
-			offenders = append(
-				offenders,
-				fset.Position(assertion.Pos()).String()+
-					": assertion to "+
-					assertedInterfaceName(assertion.Type)+
-					" is not applied to common.UnwrapLedgerState(...)",
+			file, err := parser.ParseFile(
+				fset,
+				path,
+				nil,
+				parser.SkipObjectResolution,
 			)
-			return true
-		})
-		return nil
-	})
+			if err != nil {
+				return err
+			}
+			ast.Inspect(file, func(n ast.Node) bool {
+				assertion, ok := n.(*ast.TypeAssertExpr)
+				if !ok || assertion.Type == nil {
+					return true
+				}
+				if !capabilities[assertedInterfaceName(assertion.Type)] {
+					return true
+				}
+				if isUnwrapCall(assertion.X) {
+					return true
+				}
+				offenders = append(
+					offenders,
+					fset.Position(assertion.Pos()).String()+
+						": assertion to "+
+						assertedInterfaceName(assertion.Type)+
+						" is not applied to common.UnwrapLedgerState(...)",
+				)
+				return true
+			})
+			return nil
+		},
+	)
 	require.NoError(t, err)
 	require.Empty(
 		t,

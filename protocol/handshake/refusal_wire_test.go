@@ -40,11 +40,15 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 	defer m.Stop()
 	version := uint16(12 + protocol.ProtocolVersionNtCOffset)
 	cfg := handshake.NewConfig(
-		handshake.WithProtocolVersionMap(protocol.ProtocolVersionMap{version: nil}),
-		handshake.WithFinishedFunc(func(handshake.CallbackContext, uint16, protocol.VersionData) error {
-			t.Error("refusal must not invoke acceptance callback")
-			return nil
-		}),
+		handshake.WithProtocolVersionMap(
+			protocol.ProtocolVersionMap{version: nil},
+		),
+		handshake.WithFinishedFunc(
+			func(handshake.CallbackContext, uint16, protocol.VersionData) error {
+				t.Error("refusal must not invoke acceptance callback")
+				return nil
+			},
+		),
 	)
 	server := handshake.NewServer(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
@@ -64,7 +68,10 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 		t.Fatal("failed to construct proposal segment")
 	}
 	var wire bytes.Buffer
-	require.NoError(t, binary.Write(&wire, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(&wire, binary.BigEndian, segment.SegmentHeader),
+	)
 	wire.Write(segment.Payload)
 	_, err = peer.Write(wire.Bytes())
 	require.NoError(t, err)
@@ -89,7 +96,9 @@ func TestServerEmptyVersionDataRefusalReachesClientAsText(t *testing.T) {
 		return nil
 	}
 	serverCfg := handshake.NewConfig(
-		handshake.WithProtocolVersionMap(protocol.ProtocolVersionMap{version: nil}),
+		handshake.WithProtocolVersionMap(
+			protocol.ProtocolVersionMap{version: nil},
+		),
 		handshake.WithFinishedFunc(finished),
 	)
 	clientCfg := handshake.NewConfig(
@@ -107,8 +116,11 @@ func TestServerEmptyVersionDataRefusalReachesClientAsText(t *testing.T) {
 			t.Fatal("errors.As matched a nil decode refusal")
 		}
 		require.Equal(t, version, refusal.Version)
-		require.Equal(t,
-			"handshake failed: refused due to empty version data", refusal.Message)
+		require.Equal(
+			t,
+			"handshake failed: refused due to empty version data",
+			refusal.Message,
+		)
 	case <-time.After(5 * time.Second):
 		t.Fatal("client did not receive server refusal")
 	}
@@ -129,11 +141,15 @@ func TestServerQueryReplyReachesClientBeforeTermination(t *testing.T) {
 	data.CborQuery = true
 	replies := make(chan protocol.ProtocolVersionMap, 1)
 	clientCfg := handshake.NewConfig(
-		handshake.WithProtocolVersionMap(protocol.ProtocolVersionMap{version: data}),
-		handshake.WithQueryReplyFunc(func(_ handshake.CallbackContext, reply protocol.ProtocolVersionMap) error {
-			replies <- reply
-			return nil
-		}),
+		handshake.WithProtocolVersionMap(
+			protocol.ProtocolVersionMap{version: data},
+		),
+		handshake.WithQueryReplyFunc(
+			func(_ handshake.CallbackContext, reply protocol.ProtocolVersionMap) error {
+				replies <- reply
+				return nil
+			},
+		),
 	)
 	clientErrors := startHandshakeWirePair(t, &serverCfg, &clientCfg)
 	select {
@@ -146,7 +162,10 @@ func TestServerQueryReplyReachesClientBeforeTermination(t *testing.T) {
 	}
 }
 
-func startHandshakeWirePair(t *testing.T, serverCfg, clientCfg *handshake.Config) <-chan error {
+func startHandshakeWirePair(
+	t *testing.T,
+	serverCfg, clientCfg *handshake.Config,
+) <-chan error {
 	t.Helper()
 	serverConn, clientConn := net.Pipe()
 	serverMux := muxer.New(serverConn)

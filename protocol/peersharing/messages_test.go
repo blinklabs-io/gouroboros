@@ -191,12 +191,18 @@ func TestMsgSharePeersAcceptsMaximumAddressCount(t *testing.T) {
 }
 
 func TestMsgSharePeersAcceptsCompactWireMaximum(t *testing.T) {
-	wire, err := cbor.Encode(NewMsgSharePeers(smallPeerAddresses(MaxPeerSharingResponseCount)))
+	wire, err := cbor.Encode(
+		NewMsgSharePeers(smallPeerAddresses(MaxPeerSharingResponseCount)),
+	)
 	require.NoError(t, err)
 	require.LessOrEqual(t, len(wire), MaxPendingMessageBytes)
 	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
 	require.NoError(t, err)
-	require.Len(t, msg.(*MsgSharePeers).PeerAddresses, MaxPeerSharingResponseCount)
+	require.Len(
+		t,
+		msg.(*MsgSharePeers).PeerAddresses,
+		MaxPeerSharingResponseCount,
+	)
 }
 
 func TestMsgSharePeersBoundsIndefiniteAddressArray(t *testing.T) {
@@ -206,7 +212,11 @@ func TestMsgSharePeersBoundsIndefiniteAddressArray(t *testing.T) {
 	msg, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
 	require.Error(t, err)
 	require.Nil(t, msg)
-	require.ErrorContains(t, err, fmt.Sprintf("maximum is %d", MaxPeerSharingResponseCount))
+	require.ErrorContains(
+		t,
+		err,
+		fmt.Sprintf("maximum is %d", MaxPeerSharingResponseCount),
+	)
 }
 
 func TestMsgSharePeersPreflightPreservesWireForms(t *testing.T) {
@@ -243,9 +253,19 @@ func TestMsgSharePeersRejectsDeepAddressBeforeTypedDecode(t *testing.T) {
 	wire := append([]byte{0x82, MessageTypeSharePeers, 0x81}, address...)
 
 	_, err := NewMsgFromCbor(MessageTypeSharePeers, wire)
-	require.ErrorContains(t, err, "peer-sharing address 0: CBOR nesting exceeds maximum depth 1")
+	require.ErrorContains(
+		t,
+		err,
+		"peer-sharing address 0: CBOR nesting exceeds maximum depth 1",
+	)
 
-	taggedAddress := append(bytes.Repeat([]byte{0xc0}, 64), 0x83, 0x00, 0x00, 0x00)
+	taggedAddress := append(
+		bytes.Repeat([]byte{0xc0}, 64),
+		0x83,
+		0x00,
+		0x00,
+		0x00,
+	)
 	taggedWire := append(
 		[]byte{0x82, MessageTypeSharePeers, 0x81},
 		taggedAddress...,

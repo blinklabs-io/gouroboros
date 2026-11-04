@@ -85,7 +85,9 @@ type EpochState interface {
 // voting boundary for a slot. SlotOfNoReturn is the first slot at which
 // proposals target the following epoch rather than the current one.
 type ClassicProtocolParameterUpdateWindowState interface {
-	ProtocolParameterUpdateWindow(slot uint64) (currentEpoch, slotOfNoReturn uint64, err error)
+	ProtocolParameterUpdateWindow(
+		slot uint64,
+	) (currentEpoch, slotOfNoReturn uint64, err error)
 }
 
 // PoolState defines the interface for querying the current pool state

@@ -81,7 +81,10 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	)
 	initReceived := make(chan struct{})
 	server := NewServer(
-		protocol.ProtocolOptions{Muxer: serverMuxer, ConnectionId: connectionId},
+		protocol.ProtocolOptions{
+			Muxer:        serverMuxer,
+			ConnectionId: connectionId,
+		},
 		&Config{InitFunc: func(CallbackContext) error {
 			close(initReceived)
 			return nil
@@ -140,7 +143,10 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 		RemoteAddr: &net.UnixAddr{Name: "remote", Net: "unix"},
 	}
 	client := NewClient(
-		protocol.ProtocolOptions{Muxer: clientMuxer, ConnectionId: connectionId},
+		protocol.ProtocolOptions{
+			Muxer:        clientMuxer,
+			ConnectionId: connectionId,
+		},
 		&Config{RequestTxIdsFunc: func(
 			_ CallbackContext,
 			_ bool,
@@ -155,7 +161,10 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 	)
 	initReceived := make(chan struct{})
 	server := NewServer(
-		protocol.ProtocolOptions{Muxer: serverMuxer, ConnectionId: connectionId},
+		protocol.ProtocolOptions{
+			Muxer:        serverMuxer,
+			ConnectionId: connectionId,
+		},
 		&Config{InitFunc: func(CallbackContext) error {
 			close(initReceived)
 			return nil

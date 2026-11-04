@@ -31,7 +31,10 @@ func TestSetQueryInputsAreBoundedBeforeProtocolUse(t *testing.T) {
 			RemoteAddr: &net.TCPAddr{},
 		},
 	}, nil)
-	overflowCredentials := make([]lcommon.Credential, maxLocalStateQuerySetItems+1)
+	overflowCredentials := make(
+		[]lcommon.Credential,
+		maxLocalStateQuerySetItems+1,
+	)
 	overflowDreps := make([]lcommon.Drep, maxLocalStateQuerySetItems+1)
 	overflowPoolIDs := make([]ledger.PoolId, maxLocalStateQuerySetItems+1)
 	overflowStatuses := make([]int, maxLocalStateQuerySetItems+1)

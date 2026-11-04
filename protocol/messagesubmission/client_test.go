@@ -22,7 +22,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(t *testing.T) {
+func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(
+	t *testing.T,
+) {
 	tests := []struct {
 		name         string
 		limit        int
@@ -70,16 +72,27 @@ func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := NewConfig(WithMaxUnacknowledgedMessageIDs(tt.limit))
-			client := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
+			client := NewClient(
+				newTestProtoOptions(MessageSubmissionV2MinVersion),
+				&cfg,
+			)
 			client.pendingMessageIDs = cloneIDs(tt.pending)
 			before := client.GetPendingMessageIDs()
 
 			err := client.handleRequestMessageIds(
-				NewMsgRequestMessageIds(tt.isBlocking, tt.ackCount, tt.requestCount),
+				NewMsgRequestMessageIds(
+					tt.isBlocking,
+					tt.ackCount,
+					tt.requestCount,
+				),
 			)
 
 			assert.Equal(t, before, client.GetPendingMessageIDs())
-			require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
+			require.ErrorIs(
+				t,
+				err,
+				protocol.ErrProtocolViolationRequestExceeded,
+			)
 		})
 	}
 }
@@ -99,7 +112,10 @@ func TestHandleRequestMessageIdsAcceptsWindowBoundary(t *testing.T) {
 			callbackRequestCount = requestCount
 		}),
 	)
-	client := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
+	client := NewClient(
+		newTestProtoOptions(MessageSubmissionV2MinVersion),
+		&cfg,
+	)
 	client.pendingMessageIDs = [][]byte{[]byte("id-1"), []byte("id-2")}
 
 	err := client.handleRequestMessageIds(NewMsgRequestMessageIds(false, 1, 2))

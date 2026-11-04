@@ -36,7 +36,10 @@ func TestConwayVotingProcedureCBOR(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, definite, reencoded)
 
-	_, err = cbor.DecodeExact([]byte{0x9f, common.GovVoteYes, 0xf6, 0xff}, &procedure)
+	_, err = cbor.DecodeExact(
+		[]byte{0x9f, common.GovVoteYes, 0xf6, 0xff},
+		&procedure,
+	)
 	require.ErrorContains(
 		t,
 		err,
@@ -80,7 +83,11 @@ func TestConwayGovActionHardForkProtocolVersionMajorBound(t *testing.T) {
 			var action ConwayGovAction
 			_, err = cbor.DecodeExact(encoded, &action)
 			if test.wantErr {
-				require.Error(t, err, "Conway must reject hard fork major versions above 12")
+				require.Error(
+					t,
+					err,
+					"Conway must reject hard fork major versions above 12",
+				)
 			} else {
 				require.NoError(t, err)
 			}
@@ -127,7 +134,9 @@ func TestConwayProposalProcedureCbor(t *testing.T) {
 }
 
 func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
-	baseBytes := append([]byte{common.AddressTypeKeyKey << 4}, make([]byte, 56)...)
+	baseBytes := append(
+		[]byte{common.AddressTypeKeyKey << 4},
+		make([]byte, 56)...)
 	actionWire, err := cbor.Encode(
 		common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
 	)
@@ -137,7 +146,11 @@ func TestConwayProposalProcedureRejectsBaseAddress(t *testing.T) {
 	})
 	require.NoError(t, err)
 	var decoded ConwayProposalProcedure
-	require.ErrorContains(t, decoded.UnmarshalCBOR(wire), "invalid account address type")
+	require.ErrorContains(
+		t,
+		decoded.UnmarshalCBOR(wire),
+		"invalid account address type",
+	)
 }
 
 func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
@@ -145,7 +158,9 @@ func TestConwayProposalProcedureRejectsIndefiniteArray(t *testing.T) {
 		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
-	actionWire, err := cbor.Encode(common.InfoGovAction{Type: uint(common.GovActionTypeInfo)})
+	actionWire, err := cbor.Encode(
+		common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+	)
 	require.NoError(t, err)
 	anchorWire, err := cbor.Encode(common.GovAnchor{Url: "https://example.com"})
 	require.NoError(t, err)
@@ -172,7 +187,9 @@ func TestConwayProposalProcedureRejectsTrailingData(t *testing.T) {
 		"stake_test1uqehkck0lajq8gr28t9uxnuvgcqrc6070x3k9r8048z8y5gssrtvn",
 	)
 	require.NoError(t, err)
-	actionWire, err := cbor.Encode(common.InfoGovAction{Type: uint(common.GovActionTypeInfo)})
+	actionWire, err := cbor.Encode(
+		common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+	)
 	require.NoError(t, err)
 	anchorWire, err := cbor.Encode(common.GovAnchor{Url: "https://example.com"})
 	require.NoError(t, err)

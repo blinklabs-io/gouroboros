@@ -121,7 +121,11 @@ func TestCurrentTreasuryValueDecodedPresenceExactCBOR(t *testing.T) {
 						test.wantTreasury != nil,
 						body.CurrentTreasuryValuePresent(),
 					)
-					require.Equal(t, test.wantTreasury, body.CurrentTreasuryValue())
+					require.Equal(
+						t,
+						test.wantTreasury,
+						body.CurrentTreasuryValue(),
+					)
 					upperBound, upperPresent := body.ValidityIntervalUpperBound()
 					require.Equal(t, test.wantUpperBound, upperBound)
 					require.Equal(t, test.wantUpperPresent, upperPresent)

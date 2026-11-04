@@ -71,7 +71,10 @@ func writeTestSegment(
 	t.Helper()
 	require.NotNil(t, segment)
 	buf := &bytes.Buffer{}
-	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+	)
 	_, err := buf.Write(segment.Payload)
 	require.NoError(t, err)
 	_, err = conn.Write(buf.Bytes())
@@ -327,7 +330,10 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 		decodeTestMessageTypes(t, secondSegment.Payload),
 	)
 
-	require.NoError(t, connB.SetReadDeadline(time.Now().Add(50*time.Millisecond)))
+	require.NoError(
+		t,
+		connB.SetReadDeadline(time.Now().Add(50*time.Millisecond)),
+	)
 	extraSegment, err := readTestSegment(t, connB)
 	if err != nil {
 		require.True(t, isTimeout(err), "unexpected read error: %v", err)
@@ -377,9 +383,15 @@ func TestStateTransitions(t *testing.T) {
 
 	busyEntry := StateMap[StateBusy]
 	require.Len(t, busyEntry.Transitions, 2)
-	assert.True(t, busyEntry.Transitions[0].MatchFunc(ctx, NewMsgVote(testVote())))
+	assert.True(
+		t,
+		busyEntry.Transitions[0].MatchFunc(ctx, NewMsgVote(testVote())),
+	)
 	assert.Equal(t, uint64(1), ctx.tokens)
-	assert.True(t, busyEntry.Transitions[1].MatchFunc(ctx, NewMsgVote(testVote())))
+	assert.True(
+		t,
+		busyEntry.Transitions[1].MatchFunc(ctx, NewMsgVote(testVote())),
+	)
 	assert.Equal(t, uint64(0), ctx.tokens)
 }
 
@@ -411,10 +423,12 @@ func TestConfig(t *testing.T) {
 	requestNextCalled := false
 	voteCalled := false
 	cfg = NewConfig(
-		WithRequestNextFunc(func(ctx CallbackContext, count uint64) ([]Vote, error) {
-			requestNextCalled = true
-			return make([]Vote, count), nil
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext, count uint64) ([]Vote, error) {
+				requestNextCalled = true
+				return make([]Vote, count), nil
+			},
+		),
 		WithVoteFunc(func(ctx CallbackContext, vote Vote) error {
 			voteCalled = true
 			return nil

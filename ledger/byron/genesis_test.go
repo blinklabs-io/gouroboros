@@ -513,7 +513,11 @@ func TestNewByronGenesisFromReader(t *testing.T) {
 func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
 	t.Run("ordinary protocolMagic succeeds", func(t *testing.T) {
 		_, err := byron.NewByronGenesisFromReader(strings.NewReader(
-			genesisWithParameter(t, []string{"protocolConsts", "protocolMagic"}, 42),
+			genesisWithParameter(
+				t,
+				[]string{"protocolConsts", "protocolMagic"},
+				42,
+			),
 		))
 		require.NoError(t, err)
 	})
@@ -568,30 +572,33 @@ func TestNewByronGenesisFromReaderRejectsNonCanonicalEscapes(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("does not block on a reader left open past the genesis value", func(t *testing.T) {
-		// NewByronGenesisFromReader decodes exactly one JSON value, the
-		// same as the encoding/json Decode it wraps, and must not read
-		// to EOF: a caller's reader (a long-lived connection, a
-		// multi-document stream) may never signal EOF at all.
-		genesisJSON := []byte(byronGenesisConfig)
-		r := io.MultiReader(
-			bytes.NewReader(genesisJSON),
-			blockForever{},
-		)
-		done := make(chan error, 1)
-		go func() {
-			_, err := byron.NewByronGenesisFromReader(r)
-			done <- err
-		}()
-		select {
-		case err := <-done:
-			require.NoError(t, err)
-		case <-time.After(2 * time.Second):
-			t.Fatal(
-				"NewByronGenesisFromReader blocked reading past the genesis value",
+	t.Run(
+		"does not block on a reader left open past the genesis value",
+		func(t *testing.T) {
+			// NewByronGenesisFromReader decodes exactly one JSON value, the
+			// same as the encoding/json Decode it wraps, and must not read
+			// to EOF: a caller's reader (a long-lived connection, a
+			// multi-document stream) may never signal EOF at all.
+			genesisJSON := []byte(byronGenesisConfig)
+			r := io.MultiReader(
+				bytes.NewReader(genesisJSON),
+				blockForever{},
 			)
-		}
-	})
+			done := make(chan error, 1)
+			go func() {
+				_, err := byron.NewByronGenesisFromReader(r)
+				done <- err
+			}()
+			select {
+			case err := <-done:
+				require.NoError(t, err)
+			case <-time.After(2 * time.Second):
+				t.Fatal(
+					"NewByronGenesisFromReader blocked reading past the genesis value",
+				)
+			}
+		},
+	)
 }
 
 func genesisWithParameter(t *testing.T, path []string, value any) string {
@@ -799,7 +806,11 @@ func TestNewByronGenesisFromReaderTxFeeSummandUpperBound(t *testing.T) {
 				genesisWithParameter(t, path, tc.value),
 			))
 			if tc.wantErr {
-				require.ErrorContains(t, err, "blockVersionData.txFeePolicy.summand")
+				require.ErrorContains(
+					t,
+					err,
+					"blockVersionData.txFeePolicy.summand",
+				)
 			} else {
 				require.NoError(t, err)
 			}
@@ -871,7 +882,9 @@ func TestGenesis_FtsSeed_EmptyObject(t *testing.T) {
 
 func TestGenesisDelegateKeyHashes(t *testing.T) {
 	// Use the mainnet-like test config which has real base64-encoded public keys
-	genesis, err := byron.NewByronGenesisFromReader(strings.NewReader(byronGenesisConfig))
+	genesis, err := byron.NewByronGenesisFromReader(
+		strings.NewReader(byronGenesisConfig),
+	)
 	require.NoError(t, err, "Failed to parse genesis")
 
 	// Get genesis delegate key hashes

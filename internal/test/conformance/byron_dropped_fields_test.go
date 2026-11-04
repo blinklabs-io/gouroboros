@@ -44,7 +44,13 @@ func readByronGoldenBlock(t *testing.T, name string) (uint, []byte) {
 	_, err = cbor.Decode(raw, &wrapper)
 	require.NoError(t, err, "decode golden wrapper %s", name)
 	inner, ok := wrapper.Content.([]byte)
-	require.Truef(t, ok, "golden %s tag content is %T, want []byte", name, wrapper.Content)
+	require.Truef(
+		t,
+		ok,
+		"golden %s tag content is %T, want []byte",
+		name,
+		wrapper.Content,
+	)
 	var envelope struct {
 		cbor.StructAsArray
 		BlockType uint

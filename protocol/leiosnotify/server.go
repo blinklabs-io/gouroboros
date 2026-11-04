@@ -215,7 +215,11 @@ func (s *Server) serveRequestNext(quit *quitSignal) error {
 		s.releaseLateNotification(ctx, results, ErrRequestCanceled)
 		return s.SendMessageAndWait(NewMsgCanceled())
 	case <-s.DoneChan():
-		s.releaseLateNotification(ctx, results, protocol.ErrProtocolShuttingDown)
+		s.releaseLateNotification(
+			ctx,
+			results,
+			protocol.ErrProtocolShuttingDown,
+		)
 		return nil
 	}
 }

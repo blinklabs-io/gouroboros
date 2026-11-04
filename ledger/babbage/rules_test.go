@@ -141,14 +141,26 @@ func TestUtxoValidateTransactionNetworkId(t *testing.T) {
 		WithNetworkId(common.AddressNetworkMainnet).
 		Build()
 	validate := func(tx *babbage.BabbageTransaction) error {
-		return babbage.UtxoValidateTransactionNetworkId(tx, 0, ledgerState, &babbage.BabbageProtocolParameters{})
+		return babbage.UtxoValidateTransactionNetworkId(
+			tx,
+			0,
+			ledgerState,
+			&babbage.BabbageProtocolParameters{},
+		)
 	}
 
 	t.Run("absent identifier is accepted", func(t *testing.T) {
 		assert.NoError(t, validate(&babbage.BabbageTransaction{}))
 	})
 	t.Run("matching identifier is accepted", func(t *testing.T) {
-		assert.NoError(t, validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 1}}))
+		assert.NoError(
+			t,
+			validate(
+				&babbage.BabbageTransaction{
+					Body: babbage.BabbageTransactionBody{NetworkId: 1},
+				},
+			),
+		)
 	})
 	t.Run("mismatched identifier is rejected", func(t *testing.T) {
 		tx := &babbage.BabbageTransaction{}
@@ -157,17 +169,24 @@ func TestUtxoValidateTransactionNetworkId(t *testing.T) {
 		require.Error(t, err)
 		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
 	})
-	t.Run("explicit testnet identifier decoded from CBOR is present", func(t *testing.T) {
-		bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
-		require.NoError(t, err)
-		var body babbage.BabbageTransactionBody
-		require.NoError(t, body.UnmarshalCBOR(bodyCbor))
-		err = validate(&babbage.BabbageTransaction{Body: body})
-		require.Error(t, err)
-		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
-	})
+	t.Run(
+		"explicit testnet identifier decoded from CBOR is present",
+		func(t *testing.T) {
+			bodyCbor, err := cbor.Encode(map[uint]any{15: uint8(0)})
+			require.NoError(t, err)
+			var body babbage.BabbageTransactionBody
+			require.NoError(t, body.UnmarshalCBOR(bodyCbor))
+			err = validate(&babbage.BabbageTransaction{Body: body})
+			require.Error(t, err)
+			assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
+		},
+	)
 	t.Run("invalid identifier is rejected", func(t *testing.T) {
-		err := validate(&babbage.BabbageTransaction{Body: babbage.BabbageTransactionBody{NetworkId: 2}})
+		err := validate(
+			&babbage.BabbageTransaction{
+				Body: babbage.BabbageTransactionBody{NetworkId: 2},
+			},
+		)
 		require.Error(t, err)
 		assert.IsType(t, common.WrongTransactionNetworkIdError{}, err)
 	})
@@ -374,7 +393,9 @@ func TestUtxoValidateBadInputsUtxo(t *testing.T) {
 	utxos := []common.Utxo{
 		{Id: testGoodInput},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// Good input
@@ -448,7 +469,9 @@ func TestUtxoValidateWrongNetwork(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// Correct network
@@ -512,7 +535,9 @@ func TestUtxoValidateWrongNetworkWithdrawal(t *testing.T) {
 			TxWithdrawals: map[*common.Address]uint64{},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithNetworkId(common.AddressNetworkMainnet).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithNetworkId(common.AddressNetworkMainnet).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// Correct network
@@ -598,7 +623,9 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{
 		KeyDeposit: uint(testStakeDeposit),
@@ -656,9 +683,28 @@ func TestUtxoValidateValueNotConservedUtxo(t *testing.T) {
 			testTx.Body.TxOutputs[0].OutputAmount.Amount = testOutputExactAmount
 			credential := common.Credential{}
 			testTx.Body.TxCertificates = []common.CertificateWrapper{
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
-				{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(common.CertificateTypeStakeRegistration),
+					Certificate: &common.StakeRegistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
+				{
+					Type: uint(
+						common.CertificateTypeStakeDeregistration,
+					),
+					Certificate: &common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+				},
 			}
 			err := babbage.UtxoValidateValueNotConservedUtxo(
 				testTx,
@@ -1055,7 +1101,9 @@ func TestUtxoValidateInsufficientCollateral(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{
 		CollateralPercentage: 150,
@@ -1176,7 +1224,9 @@ func TestUtxoValidateCollateralContainsNonAda(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// Coin and assets
@@ -1321,7 +1371,9 @@ func TestUtxoValidateNoCollateralInputs(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// No collateral
@@ -1418,7 +1470,14 @@ func TestUtxoValidateExUnitsTooBigUtxo(t *testing.T) {
 				},
 			}
 			testTx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-				Redeemers: []alonzo.AlonzoRedeemer{dup, dup, dup, dup, dup, dup},
+				Redeemers: []alonzo.AlonzoRedeemer{
+					dup,
+					dup,
+					dup,
+					dup,
+					dup,
+					dup,
+				},
 			}
 			// One copy is inside the 5,000,000 / 5,000 cap and two already
 			// exceed it, so only a collapse to exactly one entry passes: an
@@ -1699,7 +1758,9 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 			},
 		},
 	}
-	testLedgerState := mockledger.NewLedgerStateBuilder().WithUtxos(utxos).Build()
+	testLedgerState := mockledger.NewLedgerStateBuilder().
+		WithUtxos(utxos).
+		Build()
 	testSlot := uint64(0)
 	testProtocolParams := &babbage.BabbageProtocolParameters{}
 	// Too much collateral return
@@ -1788,9 +1849,11 @@ func TestUtxoValidateCollateralEqBalance(t *testing.T) {
 		"unresolved collateral UTxO is rejected",
 		func(t *testing.T) {
 			// Ledger state with NO matching UTxO
-			missingUtxoLedgerState := mockledger.NewLedgerStateBuilder().WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
-				return common.Utxo{}, errors.New("not found")
-			}).Build()
+			missingUtxoLedgerState := mockledger.NewLedgerStateBuilder().
+				WithUtxoById(func(id common.TransactionInput) (common.Utxo, error) {
+					return common.Utxo{}, errors.New("not found")
+				}).
+				Build()
 			testTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
 				OutputAmount: mary.MaryTransactionOutputValue{
 					Amount: testCollateralReturnAmountBad,
@@ -1892,7 +1955,9 @@ func TestUtxoValidatePlutusScriptsRejectsRedeemerWithoutPurpose(t *testing.T) {
 				tx,
 				0,
 				mockledger.NewLedgerStateBuilder().Build(),
-				&babbage.BabbageProtocolParameters{ProtocolMajor: common.ProtocolVersionBabbage},
+				&babbage.BabbageProtocolParameters{
+					ProtocolMajor: common.ProtocolVersionBabbage,
+				},
 			)
 			var target common.ExtraRedeemerError
 			require.ErrorAs(t, err, &target)
@@ -2007,19 +2072,22 @@ func TestUtxoValidateExtraneousRedeemers_Babbage(t *testing.T) {
 		assert.IsType(t, common.ExtraneousRedeemerError{}, err)
 	})
 
-	t.Run("in-range redeemers for every supported tag pass", func(t *testing.T) {
-		tx := &babbage.BabbageTransaction{Body: baseBody()}
-		tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
-			Redeemers: []alonzo.AlonzoRedeemer{
-				{Tag: common.RedeemerTagSpend, Index: 0},
-				{Tag: common.RedeemerTagMint, Index: 0},
-				{Tag: common.RedeemerTagCert, Index: 0},
-				{Tag: common.RedeemerTagReward, Index: 0},
-			},
-		}
-		err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
-		assert.NoError(t, err)
-	})
+	t.Run(
+		"in-range redeemers for every supported tag pass",
+		func(t *testing.T) {
+			tx := &babbage.BabbageTransaction{Body: baseBody()}
+			tx.WitnessSet.WsRedeemers = alonzo.AlonzoRedeemers{
+				Redeemers: []alonzo.AlonzoRedeemer{
+					{Tag: common.RedeemerTagSpend, Index: 0},
+					{Tag: common.RedeemerTagMint, Index: 0},
+					{Tag: common.RedeemerTagCert, Index: 0},
+					{Tag: common.RedeemerTagReward, Index: 0},
+				},
+			}
+			err := babbage.UtxoValidateExtraneousRedeemers(tx, 0, nil, nil)
+			assert.NoError(t, err)
+		},
+	)
 
 	t.Run("no redeemers is valid", func(t *testing.T) {
 		tx := &babbage.BabbageTransaction{Body: baseBody()}
@@ -2060,7 +2128,10 @@ func TestUtxoValidateInsufficientCollateralRoundsUp(t *testing.T) {
 		ls := mockledger.NewLedgerStateBuilder().WithUtxos(
 			[]common.Utxo{
 				{
-					Id: shelley.MustNewShelleyTransactionInput(testInputTxId, 0),
+					Id: shelley.MustNewShelleyTransactionInput(
+						testInputTxId,
+						0,
+					),
 					Output: shelley.ShelleyTransactionOutput{
 						OutputAmount: collateral,
 					},
@@ -2134,7 +2205,9 @@ func TestBabbageBodyDecodeRejectsDijkstraOnlyReferenceScript(t *testing.T) {
 	)
 	require.NoError(t, err)
 	body := babbage.BabbageTransactionBody{
-		TxInputs: shelley.NewShelleyTransactionInputSet([]shelley.ShelleyTransactionInput{}),
+		TxInputs: shelley.NewShelleyTransactionInputSet(
+			[]shelley.ShelleyTransactionInput{},
+		),
 		TxOutputs: []babbage.BabbageTransactionOutput{{
 			OutputAddress: address,
 			TxOutScriptRef: &common.ScriptRef{
@@ -2319,7 +2392,11 @@ func TestMinFeeIncludesDeclaredExecutionUnits(t *testing.T) {
 
 	tx.Body.TxFee = baseFee
 	state := mockledger.NewLedgerStateBuilder().Build()
-	require.ErrorAs(t, babbage.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp), &shelley.FeeTooSmallUtxoError{})
+	require.ErrorAs(
+		t,
+		babbage.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp),
+		&shelley.FeeTooSmallUtxoError{},
+	)
 	tx.Body.TxFee = minFee
 	require.NoError(t, babbage.UtxoValidateFeeTooSmallUtxo(tx, 0, state, pp))
 

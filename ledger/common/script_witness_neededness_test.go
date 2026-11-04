@@ -77,11 +77,20 @@ func TestScriptWitnessRulesUseNeededPurposes(t *testing.T) {
 			}}),
 	)
 	var extraErr common.ExtraneousRedeemerError
-	require.ErrorAs(t, common.ValidateExactExtraneousRedeemers(tx, ledgerState), &extraErr)
+	require.ErrorAs(
+		t,
+		common.ValidateExactExtraneousRedeemers(tx, ledgerState),
+		&extraErr,
+	)
 	require.Equal(t, extra, extraErr.RedeemerKey)
 
-	refInput := shelley.MustNewShelleyTransactionInput(hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)), 0)
-	scriptRef, err := cbor.Encode(&common.ScriptRef{Type: common.ScriptRefTypePlutusV1, Script: plutus})
+	refInput := shelley.MustNewShelleyTransactionInput(
+		hex.EncodeToString(bytes.Repeat([]byte{0x22}, 32)),
+		0,
+	)
+	scriptRef, err := cbor.Encode(
+		&common.ScriptRef{Type: common.ScriptRefTypePlutusV1, Script: plutus},
+	)
 	require.NoError(t, err)
 	reference, err := mockledger.NewUtxoBuilder().
 		WithTxId(bytes.Repeat([]byte{0x22}, 32)).
@@ -102,7 +111,8 @@ func TestScriptWitnessRulesUseNeededPurposes(t *testing.T) {
 	tx.WithReferenceInputs(refInput).
 		WithWitnesses(mockledger.NewMockTransactionWitnessSet().
 			WithPlutusV1Scripts(plutus).
-			WithRedeemers(conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{needed: {}}}))
+			WithRedeemers(conway.ConwayRedeemers{Redeemers: map[common.RedeemerKey]common.RedeemerValue{needed: {}}}),
+		)
 	// A needed script that a reference input already supplies must not also
 	// be carried in the witness set: the reference removes it from the needed
 	// set before the extraneous check (babbageMissingScripts).

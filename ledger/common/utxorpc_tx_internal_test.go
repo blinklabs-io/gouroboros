@@ -126,7 +126,11 @@ func TestGovActionToUtxorpc(t *testing.T) {
 	hardFork.ProtocolVersion.Major = 10
 	got, err := govActionToUtxorpc(hardFork)
 	require.NoError(t, err)
-	require.Equal(t, uint32(10), got.GetHardForkInitiationAction().ProtocolVersion.Major)
+	require.Equal(
+		t,
+		uint32(10),
+		got.GetHardForkInitiationAction().ProtocolVersion.Major,
+	)
 	require.Equal(
 		t,
 		uint32(3),
@@ -171,7 +175,11 @@ func TestGovActionToUtxorpc(t *testing.T) {
 		"u",
 		got.GetNewConstitutionAction().Constitution.Anchor.Url,
 	)
-	require.Equal(t, []byte{7}, got.GetNewConstitutionAction().Constitution.Hash)
+	require.Equal(
+		t,
+		[]byte{7},
+		got.GetNewConstitutionAction().Constitution.Hash,
+	)
 
 	_, err = govActionToUtxorpc(nil)
 	require.ErrorContains(t, err, "unsupported governance action")

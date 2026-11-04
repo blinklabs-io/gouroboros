@@ -131,7 +131,9 @@ func mustDecodeHex(t *testing.T, value string) []byte {
 func syntheticConwayBlockWithTransaction(t *testing.T, txCbor []byte) []byte {
 	t.Helper()
 
-	templateBlockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ConwayBlockHex))
+	templateBlockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ConwayBlockHex),
+	)
 	require.NoError(t, err)
 
 	var blockComponents []cbor.RawMessage

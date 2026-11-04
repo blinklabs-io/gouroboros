@@ -216,7 +216,10 @@ func CalculateAdaPots(
 
 // calculateEta calculates the pool performance factor (η)
 // Following Amaru's approach: eta = min(1, blocks_produced / (epoch_length * active_slot_coeff))
-func calculateEta(totalBlocksInEpoch uint32, params RewardParameters) (*big.Rat, error) {
+func calculateEta(
+	totalBlocksInEpoch uint32,
+	params RewardParameters,
+) (*big.Rat, error) {
 	activeSlotsCoeff := params.ActiveSlotsCoeff
 	if activeSlotsCoeff == nil || activeSlotsCoeff.Sign() <= 0 {
 		return nil, errors.New("active slots coefficient must be positive")
@@ -472,7 +475,11 @@ func CalculateRewards(
 	// Second pass: split the reward pot across pools in proportion to their
 	// shares. The amounts sum to the pot exactly and do not depend on map
 	// iteration order.
-	poolRewardAmounts := apportionRewardPot(pots.Rewards, poolShares, totalShare)
+	poolRewardAmounts := apportionRewardPot(
+		pots.Rewards,
+		poolShares,
+		totalShare,
+	)
 
 	// Now distribute rewards for each pool
 	for _, poolID := range sortedPoolIDs(poolRewardAmounts) {
@@ -617,7 +624,10 @@ func calculatePoolShare(
 
 	// Calculate numerator: stake_ratio * performance * (1 - margin)
 	numerator := new(big.Rat).Mul(stakeRatio, performance)
-	numerator.Mul(numerator, new(big.Rat).Sub(one, marginRat(poolParams.Margin)))
+	numerator.Mul(
+		numerator,
+		new(big.Rat).Sub(one, marginRat(poolParams.Margin)),
+	)
 
 	// Calculate denominator: 1 + a0 * saturation
 	denominator := new(big.Rat).Mul(a0, saturation)

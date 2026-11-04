@@ -98,15 +98,26 @@ func TestAlonzoBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
 		indexes []uint
 		valid   []bool
 	}{
-		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
-		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+		{
+			name:    "duplicate index",
+			indexes: []uint{0, 0},
+			valid:   []bool{false, false},
+		},
+		{
+			name:    "descending indexes",
+			indexes: []uint{1, 0},
+			valid:   []bool{true, false},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			block := alonzo.AlonzoBlock{
-				TransactionBodies:      make([]alonzo.AlonzoTransactionBody, 2),
-				TransactionWitnessSets: make([]alonzo.AlonzoTransactionWitnessSet, 2),
-				InvalidTransactions:    tt.indexes,
+				TransactionBodies: make([]alonzo.AlonzoTransactionBody, 2),
+				TransactionWitnessSets: make(
+					[]alonzo.AlonzoTransactionWitnessSet,
+					2,
+				),
+				InvalidTransactions: tt.indexes,
 			}
 			transactions := block.Transactions()
 			for i, transaction := range transactions {
@@ -117,7 +128,9 @@ func TestAlonzoBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
 }
 
 func TestAlonzoBlock_Utxorpc(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AlonzoBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AlonzoBlockHex),
+	)
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// First validate we can parse the block
@@ -183,7 +196,9 @@ func TestAlonzoBlock_Utxorpc(t *testing.T) {
 }
 
 func BenchmarkAlonzoBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AlonzoBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AlonzoBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -198,7 +213,9 @@ func BenchmarkAlonzoBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkAlonzoBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AlonzoBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AlonzoBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -214,7 +231,9 @@ func BenchmarkAlonzoBlockSerialization(b *testing.B) {
 }
 
 func TestAlonzoBlock_Validation(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AlonzoBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AlonzoBlockHex),
+	)
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// Test that validation works by default (should pass for valid block)

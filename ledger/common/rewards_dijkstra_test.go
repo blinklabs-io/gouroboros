@@ -67,10 +67,20 @@ func TestCalculateRewardsAppliesDijkstraPledgeLeverage(t *testing.T) {
 
 	underPledged := common.PoolKeyHash{1}
 	wellPledged := common.PoolKeyHash{2}
-	snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-		underPledged: {stake: 400, pledge: 1, margin: common.NewGenesisRat(0, 1)},
-		wellPledged:  {stake: 400, pledge: 400, margin: common.NewGenesisRat(0, 1)},
-	})
+	snapshot := dijkstraRewardSnapshot(
+		map[common.PoolKeyHash]dijkstraRewardPool{
+			underPledged: {
+				stake:  400,
+				pledge: 1,
+				margin: common.NewGenesisRat(0, 1),
+			},
+			wellPledged: {
+				stake:  400,
+				pledge: 400,
+				margin: common.NewGenesisRat(0, 1),
+			},
+		},
+	)
 	pots := common.AdaPots{Rewards: 100_000}
 	baseParams := common.RewardParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{
@@ -104,9 +114,15 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 	t.Parallel()
 
 	poolID := common.PoolKeyHash{1}
-	snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-		poolID: {stake: 1_000, pledge: 0, margin: common.NewGenesisRat(0, 1)},
-	})
+	snapshot := dijkstraRewardSnapshot(
+		map[common.PoolKeyHash]dijkstraRewardPool{
+			poolID: {
+				stake:  1_000,
+				pledge: 0,
+				margin: common.NewGenesisRat(0, 1),
+			},
+		},
+	)
 	pots := common.AdaPots{Reserves: 1_000_000, Rewards: 100_000}
 	result, err := common.CalculateRewards(
 		pots,
@@ -127,18 +143,26 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 	pledged := common.PoolKeyHash{2}
 	snapshot = dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
 		zeroPledge: {stake: 500, pledge: 0, margin: common.NewGenesisRat(0, 1)},
-		pledged:    {stake: 500, pledge: 500, margin: common.NewGenesisRat(0, 1)},
+		pledged: {
+			stake:  500,
+			pledge: 500,
+			margin: common.NewGenesisRat(0, 1),
+		},
 	})
 	// A malformed all-zero-performance snapshot enters the legacy equal-share
 	// fallback; zero-pledge pools must remain excluded from that fallback.
 	snapshot.TotalBlocksInEpoch = 10
-	result, err = common.CalculateRewards(pots, snapshot, common.RewardParameters{
-		ProtocolVersion: common.ProtocolParametersProtocolVersion{
-			Major: common.ProtocolVersionDijkstra,
+	result, err = common.CalculateRewards(
+		pots,
+		snapshot,
+		common.RewardParameters{
+			ProtocolVersion: common.ProtocolParametersProtocolVersion{
+				Major: common.ProtocolVersionDijkstra,
+			},
+			PoolInfluence:     big.NewRat(3, 10),
+			MaxPledgeLeverage: big.NewRat(10, 1),
 		},
-		PoolInfluence:     big.NewRat(3, 10),
-		MaxPledgeLeverage: big.NewRat(10, 1),
-	})
+	)
 	require.NoError(t, err)
 	require.Zero(t, result.PoolRewards[zeroPledge].TotalRewards)
 	require.Equal(t, uint64(100_000), result.PoolRewards[pledged].TotalRewards)
@@ -149,10 +173,16 @@ func TestCalculateRewardsPledgeLeverageIsInactiveBeforeDijkstra(t *testing.T) {
 
 	pool1 := common.PoolKeyHash{1}
 	pool2 := common.PoolKeyHash{2}
-	snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-		pool1: {stake: 400, pledge: 1, margin: common.NewGenesisRat(0, 1)},
-		pool2: {stake: 400, pledge: 400, margin: common.NewGenesisRat(0, 1)},
-	})
+	snapshot := dijkstraRewardSnapshot(
+		map[common.PoolKeyHash]dijkstraRewardPool{
+			pool1: {stake: 400, pledge: 1, margin: common.NewGenesisRat(0, 1)},
+			pool2: {
+				stake:  400,
+				pledge: 400,
+				margin: common.NewGenesisRat(0, 1),
+			},
+		},
+	)
 	pots := common.AdaPots{Rewards: 100_000}
 	params := common.RewardParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
@@ -180,16 +210,18 @@ func TestCalculateRewardsPledgeLeverageBelowAndAtCap(t *testing.T) {
 		{name: "at cap", stake: 40, pledge: 4},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-				pool1: {
-					stake: test.stake, pledge: test.pledge,
-					margin: common.NewGenesisRat(0, 1),
+			snapshot := dijkstraRewardSnapshot(
+				map[common.PoolKeyHash]dijkstraRewardPool{
+					pool1: {
+						stake: test.stake, pledge: test.pledge,
+						margin: common.NewGenesisRat(0, 1),
+					},
+					pool2: {
+						stake: 30, pledge: 30,
+						margin: common.NewGenesisRat(0, 1),
+					},
 				},
-				pool2: {
-					stake: 30, pledge: 30,
-					margin: common.NewGenesisRat(0, 1),
-				},
-			})
+			)
 			params := common.RewardParameters{
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: common.ProtocolVersionDijkstra,
@@ -214,10 +246,20 @@ func TestCalculateRewardsPledgeLeverageKeepsGlobalSaturation(t *testing.T) {
 	t.Parallel()
 
 	poolIDs := []common.PoolKeyHash{{1}, {2}}
-	snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-		poolIDs[0]: {stake: 400, pledge: 400, margin: common.NewGenesisRat(0, 1)},
-		poolIDs[1]: {stake: 100, pledge: 100, margin: common.NewGenesisRat(0, 1)},
-	})
+	snapshot := dijkstraRewardSnapshot(
+		map[common.PoolKeyHash]dijkstraRewardPool{
+			poolIDs[0]: {
+				stake:  400,
+				pledge: 400,
+				margin: common.NewGenesisRat(0, 1),
+			},
+			poolIDs[1]: {
+				stake:  100,
+				pledge: 100,
+				margin: common.NewGenesisRat(0, 1),
+			},
+		},
+	)
 	result, err := common.CalculateRewards(
 		common.AdaPots{Rewards: 100_000},
 		snapshot,
@@ -230,8 +272,16 @@ func TestCalculateRewardsPledgeLeverageKeepsGlobalSaturation(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, uint64(50_000), result.PoolRewards[poolIDs[0]].TotalRewards)
-	require.Equal(t, uint64(50_000), result.PoolRewards[poolIDs[1]].TotalRewards)
+	require.Equal(
+		t,
+		uint64(50_000),
+		result.PoolRewards[poolIDs[0]].TotalRewards,
+	)
+	require.Equal(
+		t,
+		uint64(50_000),
+		result.PoolRewards[poolIDs[1]].TotalRewards,
+	)
 }
 
 func TestCalculateRewardsDijkstraMinPoolMargin(t *testing.T) {
@@ -244,9 +294,11 @@ func TestCalculateRewardsDijkstraMinPoolMargin(t *testing.T) {
 		floor *big.Rat,
 	) common.PoolRewards {
 		t.Helper()
-		snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-			poolID: {stake: 1_000, pledge: 1_000, margin: margin},
-		})
+		snapshot := dijkstraRewardSnapshot(
+			map[common.PoolKeyHash]dijkstraRewardPool{
+				poolID: {stake: 1_000, pledge: 1_000, margin: margin},
+			},
+		)
 		result, err := common.CalculateRewards(
 			common.AdaPots{Rewards: 100_000},
 			snapshot,
@@ -325,14 +377,16 @@ func TestDijkstraMinPoolMarginDoesNotChangePoolRewardShares(t *testing.T) {
 
 	belowFloor := common.PoolKeyHash{1}
 	aboveFloor := common.PoolKeyHash{2}
-	snapshot := dijkstraRewardSnapshot(map[common.PoolKeyHash]dijkstraRewardPool{
-		belowFloor: {
-			stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 20),
+	snapshot := dijkstraRewardSnapshot(
+		map[common.PoolKeyHash]dijkstraRewardPool{
+			belowFloor: {
+				stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 20),
+			},
+			aboveFloor: {
+				stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 5),
+			},
 		},
-		aboveFloor: {
-			stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 5),
-		},
-	})
+	)
 	pots := common.AdaPots{Rewards: 100_000}
 	params := common.RewardParameters{
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{

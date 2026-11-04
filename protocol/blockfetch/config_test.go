@@ -30,14 +30,22 @@ func TestWithByronSlotsPerEpoch(t *testing.T) {
 
 func TestNewConfigReturnsErrorForNegativeRecvQueueSize(t *testing.T) {
 	_, err := blockfetch.NewConfig(blockfetch.WithRecvQueueSize(-1))
-	require.Error(t, err, "NewConfig should return an error for negative RecvQueueSize")
+	require.Error(
+		t,
+		err,
+		"NewConfig should return an error for negative RecvQueueSize",
+	)
 }
 
 func TestNewConfigReturnsErrorForExceedingMaxRecvQueueSize(t *testing.T) {
 	_, err := blockfetch.NewConfig(
 		blockfetch.WithRecvQueueSize(blockfetch.MaxRecvQueueSize + 1),
 	)
-	require.Error(t, err, "NewConfig should return an error when RecvQueueSize exceeds maximum")
+	require.Error(
+		t,
+		err,
+		"NewConfig should return an error when RecvQueueSize exceeds maximum",
+	)
 }
 
 func TestNewConfigSucceedsWithValidOptions(t *testing.T) {

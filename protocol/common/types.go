@@ -75,7 +75,10 @@ func (p *Point) UnmarshalCBOR(data []byte) error {
 		return errors.New("Point hash must be a byte string")
 	}
 	if hashHead.Argument != 32 {
-		return fmt.Errorf("Point hash must be 32 bytes, got %d", hashHead.Argument)
+		return fmt.Errorf(
+			"Point hash must be 32 bytes, got %d",
+			hashHead.Argument,
+		)
 	}
 	hashStart := slotEnd + hashHead.EncodedSize
 	if hashStart > len(data) || len(data)-hashStart != 32 {

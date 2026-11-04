@@ -59,7 +59,11 @@ func decodeStakeSnapshotsQuery(
 	data, err := hex.DecodeString(payloadHex)
 	require.NoError(t, err)
 	msg, err := NewMsgFromCbor(MessageTypeQuery, data)
-	require.NoError(t, err, "captured stake-snapshot query must decode (issue #2917)")
+	require.NoError(
+		t,
+		err,
+		"captured stake-snapshot query must decode (issue #2917)",
+	)
 
 	msgQuery, ok := msg.(*MsgQuery)
 	require.Truef(t, ok, "expected *MsgQuery, got %T", msg)
@@ -69,10 +73,25 @@ func decodeStakeSnapshotsQuery(
 	require.Truef(t, ok, "expected *ShelleyQuery, got %T", blockQuery.Query)
 	require.Equal(t, uint(6), shelleyQuery.Era, "expected era 6 (Conway)")
 	cborQuery, ok := shelleyQuery.Query.(*ShelleyCborQuery)
-	require.Truef(t, ok, "expected *ShelleyCborQuery (GetCBOR), got %T", shelleyQuery.Query)
-	require.Equal(t, QueryTypeShelleyCbor, cborQuery.Type, "expected GetCBOR tag")
+	require.Truef(
+		t,
+		ok,
+		"expected *ShelleyCborQuery (GetCBOR), got %T",
+		shelleyQuery.Query,
+	)
+	require.Equal(
+		t,
+		QueryTypeShelleyCbor,
+		cborQuery.Type,
+		"expected GetCBOR tag",
+	)
 	snapQuery, ok := cborQuery.Query.(*ShelleyStakeSnapshotsQuery)
-	require.Truef(t, ok, "expected *ShelleyStakeSnapshotsQuery, got %T", cborQuery.Query)
+	require.Truef(
+		t,
+		ok,
+		"expected *ShelleyStakeSnapshotsQuery, got %T",
+		cborQuery.Query,
+	)
 	require.Equal(
 		t,
 		QueryTypeShelleyStakeSnapshots,
@@ -85,16 +104,30 @@ func decodeStakeSnapshotsQuery(
 func TestDecodeStakeSnapshotsQuerySpecificPool(t *testing.T) {
 	snapQuery := decodeStakeSnapshotsQuery(t, stakeSnapshotQueryOnePoolHex)
 	pools, all := snapQuery.PoolFilter()
-	require.False(t, all, "expected a specific-pool filter, not all-pools (SNothing)")
+	require.False(
+		t,
+		all,
+		"expected a specific-pool filter, not all-pools (SNothing)",
+	)
 	require.Len(t, pools, 1)
 
 	wantPool, err := hex.DecodeString(stakeSnapshotPoolIDHex)
 	require.NoError(t, err)
-	assert.Equal(t, stakeSnapshotPoolIDHex, hex.EncodeToString(pools[0][:]), "pool ID mismatch")
+	assert.Equal(
+		t,
+		stakeSnapshotPoolIDHex,
+		hex.EncodeToString(pools[0][:]),
+		"pool ID mismatch",
+	)
 	// Sanity: the requested pool must round-trip through ledger.PoolId.
 	var wantID ledger.PoolId
 	copy(wantID[:], wantPool)
-	assert.Equal(t, wantID, pools[0], "pool ID did not round-trip through ledger.PoolId")
+	assert.Equal(
+		t,
+		wantID,
+		pools[0],
+		"pool ID did not round-trip through ledger.PoolId",
+	)
 }
 
 func TestDecodeStakeSnapshotsQueryAllPools(t *testing.T) {
@@ -111,6 +144,10 @@ func TestDecodeStakeSnapshotsQueryRejectsMultipleSets(t *testing.T) {
 	data, err := hex.DecodeString(stakeSnapshotQueryTwoSetsHex)
 	require.NoError(t, err)
 	_, err = NewMsgFromCbor(MessageTypeQuery, data)
-	require.Error(t, err, "a pool filter with more than one set must be rejected")
+	require.Error(
+		t,
+		err,
+		"a pool filter with more than one set must be rejected",
+	)
 	assert.Contains(t, err.Error(), "at most one pool set")
 }

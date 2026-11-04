@@ -211,7 +211,12 @@ func TestAddressPointerComponentBounds(t *testing.T) {
 				addr, err := decode(addrBytes)
 				if test.wantErr != nil {
 					if !errors.Is(err, test.wantErr) {
-						t.Fatalf("%s: got error %v, want %v", name, err, test.wantErr)
+						t.Fatalf(
+							"%s: got error %v, want %v",
+							name,
+							err,
+							test.wantErr,
+						)
 					}
 					continue
 				}
@@ -271,7 +276,16 @@ func TestAddressPointerRoundTrip(t *testing.T) {
 		math.MaxUint32 - 1,
 		math.MaxUint32,
 	}
-	indexes := []uint64{0, 1, 127, 128, 16383, 16384, math.MaxUint16 - 1, math.MaxUint16}
+	indexes := []uint64{
+		0,
+		1,
+		127,
+		128,
+		16383,
+		16384,
+		math.MaxUint16 - 1,
+		math.MaxUint16,
+	}
 	for _, slot := range slots {
 		for _, txIndex := range indexes {
 			for _, certIndex := range indexes {
@@ -428,7 +442,21 @@ func TestAddressPointerExistingFixture(t *testing.T) {
 func FuzzAddressPointerRoundTrip(f *testing.F) {
 	f.Add([]byte{0x00, 0x00, 0x00})
 	f.Add([]byte{0x81, 0x98, 0xBD, 0x43, 0x1B, 0x03})
-	f.Add([]byte{0x8F, 0xFF, 0xFF, 0xFF, 0x7F, 0x83, 0xFF, 0x7F, 0x83, 0xFF, 0x7F})
+	f.Add(
+		[]byte{
+			0x8F,
+			0xFF,
+			0xFF,
+			0xFF,
+			0x7F,
+			0x83,
+			0xFF,
+			0x7F,
+			0x83,
+			0xFF,
+			0x7F,
+		},
+	)
 	f.Add(bytes.Repeat([]byte{0x80}, 15))
 	f.Add([]byte{0x80, 0x05, 0x00, 0x00})
 	f.Add([]byte{

@@ -224,7 +224,9 @@ type duplicateInputKey struct {
 
 // firstDuplicateInput returns the first input that repeats an earlier one,
 // compared by transaction ID and output index, or nil.
-func firstDuplicateInput(inputs []common.TransactionInput) common.TransactionInput {
+func firstDuplicateInput(
+	inputs []common.TransactionInput,
+) common.TransactionInput {
 	if len(inputs) < 2 {
 		return nil
 	}
@@ -370,7 +372,10 @@ func UtxoValidateValueNotConservedUtxo(
 		hash     string
 	}
 	keyForCredential := func(cred common.Credential) stakeCredentialKey {
-		return stakeCredentialKey{credType: cred.CredType, hash: string(cred.Credential[:])}
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     string(cred.Credential[:]),
+		}
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)
@@ -847,7 +852,9 @@ func validateMirCertificates(
 	if !ok {
 		return errors.New("pparams are not expected type")
 	}
-	allowed := common.MirTransferAllowed(versionedPparams.ProtocolMajorVersion())
+	allowed := common.MirTransferAllowed(
+		versionedPparams.ProtocolMajorVersion(),
+	)
 	type pendingKey struct {
 		source   uint
 		credType uint
@@ -1147,9 +1154,13 @@ type poolCertificateState struct {
 
 func newPoolCertificateState(ls common.LedgerState) *poolCertificateState {
 	return &poolCertificateState{
-		base:      ls,
-		current:   make(map[common.PoolKeyHash]*common.PoolRegistrationCertificate),
-		future:    make(map[common.PoolKeyHash]*common.PoolRegistrationCertificate),
+		base: ls,
+		current: make(
+			map[common.PoolKeyHash]*common.PoolRegistrationCertificate,
+		),
+		future: make(
+			map[common.PoolKeyHash]*common.PoolRegistrationCertificate,
+		),
 		vrfOwners: make(map[common.VrfKeyHash]common.PoolKeyHash),
 	}
 }

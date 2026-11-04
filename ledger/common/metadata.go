@@ -274,7 +274,9 @@ func decodeMetadatumAt(
 	switch major {
 	case cborTypeUnsigned, cborTypeNegative:
 		if indefinite {
-			return nil, 0, errors.New("invalid indefinite-length integer in metadata")
+			return nil, 0, errors.New(
+				"invalid indefinite-length integer in metadata",
+			)
 		}
 		value := new(big.Int).SetUint64(arg)
 		if major == cborTypeNegative {
@@ -439,7 +441,10 @@ func decodeCBORItemEndDepth(b []byte, offset, depth int) (int, bool) {
 			return offset + int(arg), true
 		}
 		for offset < len(b) && b[offset] != cborBreak {
-			chunkType, chunkLength, next, chunkIndefinite, err := cborItemHead(b, offset)
+			chunkType, chunkLength, next, chunkIndefinite, err := cborItemHead(
+				b,
+				offset,
+			)
 			if err != nil || chunkType != majorType || chunkIndefinite {
 				return offset, false
 			}
@@ -949,7 +954,10 @@ func (a *AlonzoAuxiliaryData) unmarshalCBOR(
 		var tmpTag cbor.RawTag
 		bytesRead, err := cbor.Decode(data, &tmpTag)
 		if err != nil {
-			return fmt.Errorf("failed to decode Alonzo auxiliary data tag: %w", err)
+			return fmt.Errorf(
+				"failed to decode Alonzo auxiliary data tag: %w",
+				err,
+			)
 		}
 		if bytesRead != len(data) {
 			return errors.New("extraneous data after Alonzo auxiliary data tag")
@@ -1004,7 +1012,11 @@ func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataMap(
 		}
 		valueEnd, ok := decodeCBORItemEnd(content, offset)
 		if !ok || valueEnd <= offset {
-			return fmt.Errorf("decode auxiliary-data field %d: %w", key, io.ErrUnexpectedEOF)
+			return fmt.Errorf(
+				"decode auxiliary-data field %d: %w",
+				key,
+				io.ErrUnexpectedEOF,
+			)
 		}
 		value := cbor.RawMessage(content[offset:valueEnd])
 		offset = valueEnd
@@ -1083,7 +1095,11 @@ func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataField(
 			}
 		}
 		if err != nil {
-			return fmt.Errorf("decode auxiliary-data Plutus V%d scripts: %w", version, err)
+			return fmt.Errorf(
+				"decode auxiliary-data Plutus V%d scripts: %w",
+				version,
+				err,
+			)
 		}
 	}
 	return nil
@@ -1189,7 +1205,9 @@ func DecodeAuxiliaryDataForEra(
 		// Direct metadata remains valid in every era.
 		end, ok := decodeCBORItemEnd(raw, 0)
 		if !ok || end != len(raw) {
-			return nil, errors.New("invalid or trailing CBOR in auxiliary-data metadata map")
+			return nil, errors.New(
+				"invalid or trailing CBOR in auxiliary-data metadata map",
+			)
 		}
 		auxData := &ShelleyAuxiliaryData{}
 		if _, err := cbor.Decode(raw, auxData); err != nil {
@@ -1216,7 +1234,8 @@ func DecodeAuxiliaryDataForEra(
 				len(components),
 			)
 		}
-		if len(components[0]) == 0 || components[0][0]&cborTypeMask != cborTypeMap {
+		if len(components[0]) == 0 ||
+			components[0][0]&cborTypeMask != cborTypeMap {
 			return nil, errors.New("Shelley-MA metadata must be a CBOR map")
 		}
 		if err := validateCBORArray(components[1], "Shelley-MA native scripts"); err != nil {
@@ -1230,7 +1249,10 @@ func DecodeAuxiliaryDataForEra(
 			auxData.nativeScripts,
 			rules.maxNativeScriptConstructor,
 		); err != nil {
-			return nil, fmt.Errorf("validate auxiliary-data native scripts: %w", err)
+			return nil, fmt.Errorf(
+				"validate auxiliary-data native scripts: %w",
+				err,
+			)
 		}
 		return auxData, nil
 
@@ -1261,7 +1283,11 @@ func (s TransactionMetadataSet) ValidateAuxiliaryDataForEra(
 ) error {
 	for index, raw := range s.data {
 		if _, err := DecodeAuxiliaryDataForEra(raw, era); err != nil {
-			return fmt.Errorf("invalid auxiliary data at index %d: %w", index, err)
+			return fmt.Errorf(
+				"invalid auxiliary data at index %d: %w",
+				index,
+				err,
+			)
 		}
 	}
 	return nil

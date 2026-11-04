@@ -90,7 +90,10 @@ func (d *ConwayGenesisDelegs) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &tmpData); err != nil {
 		return fmt.Errorf("decode Conway genesis delegs: %w", err)
 	}
-	tmpDeleg := make(map[*common.Credential]ConwayGenesisDelegatee, len(tmpData))
+	tmpDeleg := make(
+		map[*common.Credential]ConwayGenesisDelegatee,
+		len(tmpData),
+	)
 	for k, v := range tmpData {
 		var tmpCred common.Credential
 		// Wrap the key in quotes so that it can be processed as raw JSON
@@ -160,13 +163,19 @@ func (i *ConwayGenesisInitialDReps) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &tmpData); err != nil {
 		return fmt.Errorf("decode Conway genesis initial dreps: %w", err)
 	}
-	tmpDreps := make(map[*common.Credential]ConwayGenesisDRepState, len(tmpData))
+	tmpDreps := make(
+		map[*common.Credential]ConwayGenesisDRepState,
+		len(tmpData),
+	)
 	for k, v := range tmpData {
 		var tmpCred common.Credential
 		// Wrap the key in quotes so that it can be processed as raw JSON
 		tmpKeyData := slices.Concat([]byte(`"`), []byte(k), []byte(`"`))
 		if err := json.Unmarshal(tmpKeyData, &tmpCred); err != nil {
-			return fmt.Errorf("decode Conway genesis initial drep credential: %w", err)
+			return fmt.Errorf(
+				"decode Conway genesis initial drep credential: %w",
+				err,
+			)
 		}
 		tmpDreps[&tmpCred] = v
 	}

@@ -923,7 +923,10 @@ func ValidateAuxiliaryDataScriptsWellFormed(
 	); err != nil {
 		return fmt.Errorf("invalid auxiliary-data native script: %w", err)
 	}
-	return ValidateAuxiliaryDataPlutusScriptsWellFormed(auxiliaryData, protocolMajor)
+	return ValidateAuxiliaryDataPlutusScriptsWellFormed(
+		auxiliaryData,
+		protocolMajor,
+	)
 }
 
 type NativeScript struct {
@@ -1068,10 +1071,16 @@ func ValidateNativeScriptOutputConstructor(
 	if !ok {
 		return nil
 	}
-	return ValidateNativeScriptConstructors([]NativeScript{native}, maxConstructor)
+	return ValidateNativeScriptConstructors(
+		[]NativeScript{native},
+		maxConstructor,
+	)
 }
 
-func validateNativeScriptConstructor(script NativeScript, maxConstructor uint) error {
+func validateNativeScriptConstructor(
+	script NativeScript,
+	maxConstructor uint,
+) error {
 	item := script.Item()
 	if item == nil {
 		return errors.New("native script has no decoded item")
@@ -1218,7 +1227,10 @@ func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	if len(fields) != 2 {
-		return fmt.Errorf("native script pubkey must contain 2 fields, got %d", len(fields))
+		return fmt.Errorf(
+			"native script pubkey must contain 2 fields, got %d",
+			len(fields),
+		)
 	}
 	if err := validateFixedLengthByteString(
 		fields[1],

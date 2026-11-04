@@ -188,7 +188,12 @@ func TestLeiosHashConcurrent(t *testing.T) {
 			done.Wait()
 			for i, got := range results {
 				if got != want {
-					t.Fatalf("goroutine %d: LeiosHash = %s, want %s", i, got, want)
+					t.Fatalf(
+						"goroutine %d: LeiosHash = %s, want %s",
+						i,
+						got,
+						want,
+					)
 				}
 			}
 		})

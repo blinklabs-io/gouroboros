@@ -54,7 +54,15 @@ func ReadHead(data []byte, offset int) (Head, bool, error) {
 		if len(data)-offset < 5 {
 			return Head{}, false, nil
 		}
-		head.Argument = uint64(data[offset+1])<<24 | uint64(data[offset+2])<<16 | uint64(data[offset+3])<<8 | uint64(data[offset+4])
+		head.Argument = uint64(
+			data[offset+1],
+		)<<24 | uint64(
+			data[offset+2],
+		)<<16 | uint64(
+			data[offset+3],
+		)<<8 | uint64(
+			data[offset+4],
+		)
 		head.EncodedSize = 5
 	case head.Additional == 27:
 		if len(data)-offset < 9 {
@@ -125,7 +133,8 @@ func ItemLengthWithin(data []byte, maxDepth int) (int, error) {
 		if head.IsBreak {
 			return 0, errors.New("unexpected CBOR break")
 		}
-		if top.stringMajor != 0 && (head.Major != top.stringMajor || head.Indefinite) {
+		if top.stringMajor != 0 &&
+			(head.Major != top.stringMajor || head.Indefinite) {
 			return 0, errors.New("invalid CBOR indefinite string chunk")
 		}
 		if !top.indefinite {
@@ -134,7 +143,10 @@ func ItemLengthWithin(data []byte, maxDepth int) (int, error) {
 		pos += head.EncodedSize
 		push := func(f frame) error {
 			if len(frames) > maxDepth {
-				return fmt.Errorf("CBOR nesting exceeds maximum depth %d", maxDepth)
+				return fmt.Errorf(
+					"CBOR nesting exceeds maximum depth %d",
+					maxDepth,
+				)
 			}
 			frames = append(frames, f)
 			return nil

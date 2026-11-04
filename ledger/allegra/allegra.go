@@ -265,7 +265,12 @@ func (b AllegraTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func (b *AllegraTransactionBody) Inputs() []common.TransactionInput {
@@ -403,7 +408,10 @@ func (t *AllegraTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraAllegra)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraAllegra,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}

@@ -89,7 +89,10 @@ func (s *Server) handleMessage(msg protocol.Message) error {
 	return err
 }
 
-func (s *Server) handleShareRequest(proto *protocol.Protocol, msg protocol.Message) error {
+func (s *Server) handleShareRequest(
+	proto *protocol.Protocol,
+	msg protocol.Message,
+) error {
 	proto.Logger().
 		Debug("share request",
 			"component", "network",
@@ -128,7 +131,9 @@ func (s *Server) handleShareRequest(proto *protocol.Protocol, msg protocol.Messa
 	// requested count is a protocol violation the remote is entitled to
 	// reject, and one that encodes past MaxPendingMessageBytes would fail
 	// this protocol on its own outbound queue check and drop the bearer.
-	if maxPeers := min(int(msgShareRequest.Amount), MaxSharedPeers); len(peers) > maxPeers {
+	if maxPeers := min(int(msgShareRequest.Amount), MaxSharedPeers); len(
+		peers,
+	) > maxPeers {
 		proto.Logger().
 			Debug("truncating peer sharing response",
 				"component", "network",

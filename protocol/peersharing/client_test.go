@@ -136,9 +136,17 @@ func TestClientGetPeersConcurrentRequestCannotWidenLimit(t *testing.T) {
 	} {
 		select {
 		case result := <-resultChan:
-			require.ErrorIs(t, result.err, protocol.ErrProtocolShuttingDown, name)
+			require.ErrorIs(
+				t,
+				result.err,
+				protocol.ErrProtocolShuttingDown,
+				name,
+			)
 		case <-time.After(5 * time.Second):
-			t.Fatalf("%s GetPeers stayed blocked after protocol rejection", name)
+			t.Fatalf(
+				"%s GetPeers stayed blocked after protocol rejection",
+				name,
+			)
 		}
 	}
 }
@@ -246,7 +254,9 @@ func TestClientGetPeersReturnsAfterBusyTimeout(t *testing.T) {
 // TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel verifies that
 // best-effort error reporting cannot prevent the timeout from stopping the
 // protocol and releasing the caller.
-func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(t *testing.T) {
+func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(
+	t *testing.T,
+) {
 	localConn, remoteConn := net.Pipe()
 	m := muxer.New(localConn)
 	errorChan := make(chan error, 1)
@@ -310,6 +320,14 @@ func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(t *testing.T)
 // outcome).
 func TestConfigDefaultsArePermissive(t *testing.T) {
 	cfg := NewConfig()
-	require.False(t, cfg.LocalDisabled, "default Config.LocalDisabled must be false")
-	require.False(t, cfg.RemoteDisabled, "default Config.RemoteDisabled must be false")
+	require.False(
+		t,
+		cfg.LocalDisabled,
+		"default Config.LocalDisabled must be false",
+	)
+	require.False(
+		t,
+		cfg.RemoteDisabled,
+		"default Config.RemoteDisabled must be false",
+	)
 }

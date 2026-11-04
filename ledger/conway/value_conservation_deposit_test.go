@@ -33,15 +33,20 @@ func TestValueConservationFoldsStakeDepositsSequentially(t *testing.T) {
 		current        = uint64(3_000_000)
 		correctRefunds = historical + current
 	)
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	for _, credType := range []uint{common.CredentialTypeAddrKeyHash, common.CredentialTypeScriptHash} {
 		credential := common.Credential{CredType: credType}
 		credential.Credential[0] = 0x42
 		state := certificateDepositLedgerState{
 			LedgerState: mockledger.NewLedgerStateBuilder().
 				WithUtxos([]common.Utxo{{
-					Id:     input,
-					Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount},
+					Id: input,
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: inputAmount,
+					},
 				}}).
 				WithStakeRegistrations([]common.StakeRegistrationCertificate{{StakeCredential: credential}}).
 				Build(),
@@ -51,16 +56,39 @@ func TestValueConservationFoldsStakeDepositsSequentially(t *testing.T) {
 			}: historical},
 		}
 		certificates := []common.CertificateWrapper{
-			{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
-			{Type: uint(common.CertificateTypeStakeRegistration), Certificate: &common.StakeRegistrationCertificate{StakeCredential: credential}},
-			{Type: uint(common.CertificateTypeStakeDeregistration), Certificate: &common.StakeDeregistrationCertificate{StakeCredential: credential}},
+			{
+				Type: uint(common.CertificateTypeStakeDeregistration),
+				Certificate: &common.StakeDeregistrationCertificate{
+					StakeCredential: credential,
+				},
+			},
+			{
+				Type: uint(common.CertificateTypeStakeRegistration),
+				Certificate: &common.StakeRegistrationCertificate{
+					StakeCredential: credential,
+				},
+			},
+			{
+				Type: uint(common.CertificateTypeStakeDeregistration),
+				Certificate: &common.StakeDeregistrationCertificate{
+					StakeCredential: credential,
+				},
+			},
 		}
 		makeTx := func(output uint64) *conway.ConwayTransaction {
 			return &conway.ConwayTransaction{
 				TxIsValid: true,
 				Body: conway.ConwayTransactionBody{
-					TxInputs:       conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
-					TxOutputs:      []babbage.BabbageTransactionOutput{{OutputAmount: mary.MaryTransactionOutputValue{Amount: output}}},
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+					TxOutputs: []babbage.BabbageTransactionOutput{
+						{
+							OutputAmount: mary.MaryTransactionOutputValue{
+								Amount: output,
+							},
+						},
+					},
 					TxCertificates: certificates,
 				},
 			}
@@ -75,12 +103,19 @@ func TestValueConservationFoldsStakeDepositsSequentially(t *testing.T) {
 	}
 }
 
-func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *testing.T) {
+func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(
+	t *testing.T,
+) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
-	drepCredential := common.Credential{CredType: common.CredentialTypeScriptHash}
+	drepCredential := common.Credential{
+		CredType: common.CredentialTypeScriptHash,
+	}
 	drepCredential.Credential[0] = 0x24
 	const (
 		keyDeposit      = uint64(2_000_000)
@@ -114,14 +149,83 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 		deposit     uint64
 		refund      bool
 	}{
-		{"legacy stake registration", &common.StakeRegistrationCertificate{StakeCredential: credential}, false, keyDeposit, false},
-		{"explicit stake registration", &common.RegistrationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
-		{"stake registration delegation", &common.StakeRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
-		{"stake vote registration delegation", &common.StakeVoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
-		{"vote registration delegation", &common.VoteRegistrationDelegationCertificate{StakeCredential: credential, Amount: keyDeposit}, false, keyDeposit, false},
-		{"DRep registration", &common.RegistrationDrepCertificate{DrepCredential: drepCredential, Amount: uint64(drepDeposit)}, false, drepDeposit, false},
-		{"explicit stake refund", &common.DeregistrationCertificate{StakeCredential: credential, Amount: recordedStake}, false, recordedStake, true},
-		{"DRep refund", &common.DeregistrationDrepCertificate{DrepCredential: drepCredential, Amount: recordedDRep}, false, recordedDRep, true},
+		{
+			"legacy stake registration",
+			&common.StakeRegistrationCertificate{StakeCredential: credential},
+			false,
+			keyDeposit,
+			false,
+		},
+		{
+			"explicit stake registration",
+			&common.RegistrationCertificate{
+				StakeCredential: credential,
+				Amount:          keyDeposit,
+			},
+			false,
+			keyDeposit,
+			false,
+		},
+		{
+			"stake registration delegation",
+			&common.StakeRegistrationDelegationCertificate{
+				StakeCredential: credential,
+				Amount:          keyDeposit,
+			},
+			false,
+			keyDeposit,
+			false,
+		},
+		{
+			"stake vote registration delegation",
+			&common.StakeVoteRegistrationDelegationCertificate{
+				StakeCredential: credential,
+				Amount:          keyDeposit,
+			},
+			false,
+			keyDeposit,
+			false,
+		},
+		{
+			"vote registration delegation",
+			&common.VoteRegistrationDelegationCertificate{
+				StakeCredential: credential,
+				Amount:          keyDeposit,
+			},
+			false,
+			keyDeposit,
+			false,
+		},
+		{
+			"DRep registration",
+			&common.RegistrationDrepCertificate{
+				DrepCredential: drepCredential,
+				Amount:         uint64(drepDeposit),
+			},
+			false,
+			drepDeposit,
+			false,
+		},
+		{
+			"explicit stake refund",
+			&common.DeregistrationCertificate{
+				StakeCredential: credential,
+				Amount:          recordedStake,
+			},
+			false,
+			recordedStake,
+			true,
+		},
+		{
+			"DRep refund",
+			&common.DeregistrationDrepCertificate{
+				DrepCredential: drepCredential,
+				Amount:         recordedDRep,
+			},
+			false,
+			recordedDRep,
+			true,
+		},
 		{"proposal deposit", nil, true, proposalDeposit, false},
 	}
 	for _, test := range tests {
@@ -132,18 +236,41 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 			}
 			makeTx := func(output uint64) *conway.ConwayTransaction {
 				body := conway.ConwayTransactionBody{
-					TxInputs:  conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
-					TxOutputs: []babbage.BabbageTransactionOutput{{OutputAmount: mary.MaryTransactionOutputValue{Amount: output}}},
+					TxInputs: conway.NewConwayTransactionInputSet(
+						[]shelley.ShelleyTransactionInput{input},
+					),
+					TxOutputs: []babbage.BabbageTransactionOutput{
+						{
+							OutputAmount: mary.MaryTransactionOutputValue{
+								Amount: output,
+							},
+						},
+					},
 				}
 				if test.certificate != nil {
-					body.TxCertificates = []common.CertificateWrapper{{Type: uint(test.certificate.Type()), Certificate: test.certificate}}
+					body.TxCertificates = []common.CertificateWrapper{
+						{
+							Type:        uint(test.certificate.Type()),
+							Certificate: test.certificate,
+						},
+					}
 				}
 				if test.proposal {
-					body.TxProposalProcedures = []conway.ConwayProposalProcedure{{PPDeposit: test.deposit}}
+					body.TxProposalProcedures = []conway.ConwayProposalProcedure{
+						{PPDeposit: test.deposit},
+					}
 				}
 				return &conway.ConwayTransaction{Body: body, TxIsValid: false}
 			}
-			require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(makeTx(outputAmount), 0, state, params))
+			require.NoError(
+				t,
+				conway.UtxoValidateValueNotConservedUtxo(
+					makeTx(outputAmount),
+					0,
+					state,
+					params,
+				),
+			)
 			wrongBodyTx := makeTx(outputAmount)
 			if test.proposal {
 				wrongBodyTx.Body.TxProposalProcedures[0].PPDeposit = 1
@@ -165,8 +292,17 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 					certificate.Amount = 1
 				}
 			}
-			if _, legacyRegistration := test.certificate.(*common.StakeRegistrationCertificate); !legacyRegistration && !test.proposal {
-				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
+			if _, legacyRegistration := test.certificate.(*common.StakeRegistrationCertificate); !legacyRegistration &&
+				!test.proposal {
+				require.NoError(
+					t,
+					conway.UtxoValidateValueNotConservedUtxo(
+						wrongBodyTx,
+						0,
+						state,
+						params,
+					),
+				)
 			} else if test.proposal {
 				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(wrongBodyTx, 0, state, params))
 			}
@@ -176,17 +312,30 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(t *t
 			} else {
 				wrongOutput--
 			}
-			require.Error(t, conway.UtxoValidateValueNotConservedUtxo(makeTx(wrongOutput), 0, state, params))
+			require.Error(
+				t,
+				conway.UtxoValidateValueNotConservedUtxo(
+					makeTx(wrongOutput),
+					0,
+					state,
+					params,
+				),
+			)
 		})
 	}
 }
 
-func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation(t *testing.T) {
+func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation(
+	t *testing.T,
+) {
 	const (
 		inputAmount = uint64(100_000_000)
 		keyDeposit  = uint64(2_000_000)
 	)
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	state := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{{
@@ -195,33 +344,67 @@ func TestInvalidExplicitRegistrationStillUsesProtocolDepositForValueConservation
 	tx := &conway.ConwayTransaction{
 		TxIsValid: false,
 		Body: conway.ConwayTransactionBody{
-			TxInputs:       conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
-			TxOutputs:      []babbage.BabbageTransactionOutput{{OutputAmount: mary.MaryTransactionOutputValue{Amount: inputAmount - 1}}},
-			TxCertificates: []common.CertificateWrapper{{Type: uint(common.CertificateTypeRegistration), Certificate: &common.RegistrationCertificate{StakeCredential: credential, Amount: 1}}},
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
+			TxOutputs: []babbage.BabbageTransactionOutput{
+				{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: inputAmount - 1,
+					},
+				},
+			},
+			TxCertificates: []common.CertificateWrapper{
+				{
+					Type: uint(common.CertificateTypeRegistration),
+					Certificate: &common.RegistrationCertificate{
+						StakeCredential: credential,
+						Amount:          1,
+					},
+				},
+			},
 		},
 	}
-	err := conway.UtxoValidateValueNotConservedUtxo(tx, 0, state, &conway.ConwayProtocolParameters{KeyDeposit: uint(keyDeposit)})
+	err := conway.UtxoValidateValueNotConservedUtxo(
+		tx,
+		0,
+		state,
+		&conway.ConwayProtocolParameters{KeyDeposit: uint(keyDeposit)},
+	)
 	var target shelley.ValueNotConservedUtxoError
 	require.ErrorAs(t, err, &target)
 }
 
 func TestValueConservationAllowsZeroDRepDeposits(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
 	credential.Credential[0] = 0x42
 	zero := uint64(0)
 	base := mockledger.NewLedgerStateBuilder().
-		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).Build()
+		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).
+		Build()
 	registered := mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).
-		WithDRepRegistrations([]common.DRepRegistration{{Credential: credential, Deposit: &zero}}).Build()
+		WithDRepRegistrations([]common.DRepRegistration{{Credential: credential, Deposit: &zero}}).
+		Build()
 	makeTx := func(cert common.Certificate) *conway.ConwayTransaction {
 		return &conway.ConwayTransaction{
 			TxIsValid: true,
 			Body: conway.ConwayTransactionBody{
-				TxInputs:  conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
-				TxOutputs: []babbage.BabbageTransactionOutput{{OutputAmount: mary.MaryTransactionOutputValue{Amount: inputAmount}}},
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+				TxOutputs: []babbage.BabbageTransactionOutput{
+					{
+						OutputAmount: mary.MaryTransactionOutputValue{
+							Amount: inputAmount,
+						},
+					},
+				},
 				TxCertificates: []common.CertificateWrapper{{
 					Type: uint(cert.Type()), Certificate: cert,
 				}},
@@ -230,9 +413,25 @@ func TestValueConservationAllowsZeroDRepDeposits(t *testing.T) {
 	}
 	params := &conway.ConwayProtocolParameters{DRepDeposit: 0}
 	require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(
-		makeTx(&common.RegistrationDrepCertificate{DrepCredential: credential, Amount: 0}), 0, base, params,
+		makeTx(
+			&common.RegistrationDrepCertificate{
+				DrepCredential: credential,
+				Amount:         0,
+			},
+		),
+		0,
+		base,
+		params,
 	))
 	require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(
-		makeTx(&common.DeregistrationDrepCertificate{DrepCredential: credential, Amount: 0}), 0, registered, params,
+		makeTx(
+			&common.DeregistrationDrepCertificate{
+				DrepCredential: credential,
+				Amount:         0,
+			},
+		),
+		0,
+		registered,
+		params,
 	))
 }

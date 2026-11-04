@@ -261,7 +261,9 @@ func TestByronAddressAttributesEncodeAsValue(t *testing.T) {
 func TestByronAddressPreservesNonCanonicalMapLength(t *testing.T) {
 	// The attribute map decoder accepts non-shortest map lengths, while
 	// Byron-v1 byte strings inside the map must remain definite-length.
-	attrCbor, err := hex.DecodeString("b8020343c0deff014b4a1c010203040506070809")
+	attrCbor, err := hex.DecodeString(
+		"b8020343c0deff014b4a1c010203040506070809",
+	)
 	if err != nil {
 		t.Fatalf("bad test attribute hex: %v", err)
 	}
@@ -289,9 +291,21 @@ func TestByronAddressTypeUsesCanonicalSupportedValues(t *testing.T) {
 		{name: "redeem", wireType: []byte{0x02}},
 		{name: "script", wireType: []byte{0x01}, wantError: true},
 		{name: "unknown", wireType: []byte{0x03}, wantError: true},
-		{name: "above Word8", wireType: []byte{0x19, 0x01, 0x00}, wantError: true},
-		{name: "non-canonical verification-key type", wireType: []byte{0x18, 0x00}, wantError: true},
-		{name: "non-canonical redeem type", wireType: []byte{0x18, 0x02}, wantError: true},
+		{
+			name:      "above Word8",
+			wireType:  []byte{0x19, 0x01, 0x00},
+			wantError: true,
+		},
+		{
+			name:      "non-canonical verification-key type",
+			wireType:  []byte{0x18, 0x00},
+			wantError: true,
+		},
+		{
+			name:      "non-canonical redeem type",
+			wireType:  []byte{0x18, 0x02},
+			wantError: true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -330,12 +344,34 @@ func TestByronAddressKnownAttributesRequireCanonicalNestedValues(t *testing.T) {
 		attributes map[uint8][]byte
 		wantError  bool
 	}{
-		{name: "canonical derivation path", attributes: map[uint8][]byte{1: {0x41, 0x01}}},
-		{name: "canonical network magic", attributes: map[uint8][]byte{2: {0x18, 0x2a}}},
-		{name: "integer instead of nested byte string", attributes: map[uint8][]byte{1: {0x00}}, wantError: true},
-		{name: "trailing derivation path CBOR", attributes: map[uint8][]byte{1: {0x41, 0x01, 0x00}}, wantError: true},
-		{name: "non-canonical derivation path", attributes: map[uint8][]byte{1: {0x58, 0x01, 0x01}}, wantError: true},
-		{name: "non-canonical network magic", attributes: map[uint8][]byte{2: {0x18, 0x02}}, wantError: true},
+		{
+			name:       "canonical derivation path",
+			attributes: map[uint8][]byte{1: {0x41, 0x01}},
+		},
+		{
+			name:       "canonical network magic",
+			attributes: map[uint8][]byte{2: {0x18, 0x2a}},
+		},
+		{
+			name:       "integer instead of nested byte string",
+			attributes: map[uint8][]byte{1: {0x00}},
+			wantError:  true,
+		},
+		{
+			name:       "trailing derivation path CBOR",
+			attributes: map[uint8][]byte{1: {0x41, 0x01, 0x00}},
+			wantError:  true,
+		},
+		{
+			name:       "non-canonical derivation path",
+			attributes: map[uint8][]byte{1: {0x58, 0x01, 0x01}},
+			wantError:  true,
+		},
+		{
+			name:       "non-canonical network magic",
+			attributes: map[uint8][]byte{2: {0x18, 0x02}},
+			wantError:  true,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

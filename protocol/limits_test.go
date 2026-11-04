@@ -544,19 +544,34 @@ func TestProtocolStateTimeouts(t *testing.T) {
 		// Per spec, IdleTimeout is 3673s (~61 min) which exceeds 1 hour.
 		// Validate each timeout individually against spec values.
 		if chainsync.IdleTimeout != 3673*time.Second {
-			t.Errorf("IdleTimeout should be 3673s per spec, got %v", chainsync.IdleTimeout)
+			t.Errorf(
+				"IdleTimeout should be 3673s per spec, got %v",
+				chainsync.IdleTimeout,
+			)
 		}
 		if chainsync.CanAwaitTimeout != 10*time.Second {
-			t.Errorf("CanAwaitTimeout should be 10s per spec, got %v", chainsync.CanAwaitTimeout)
+			t.Errorf(
+				"CanAwaitTimeout should be 10s per spec, got %v",
+				chainsync.CanAwaitTimeout,
+			)
 		}
 		if chainsync.IntersectTimeout != 10*time.Second {
-			t.Errorf("IntersectTimeout should be 10s per spec, got %v", chainsync.IntersectTimeout)
+			t.Errorf(
+				"IntersectTimeout should be 10s per spec, got %v",
+				chainsync.IntersectTimeout,
+			)
 		}
 		if chainsync.MustReplyTimeoutMin != 135*time.Second {
-			t.Errorf("MustReplyTimeoutMin should be 135s per spec, got %v", chainsync.MustReplyTimeoutMin)
+			t.Errorf(
+				"MustReplyTimeoutMin should be 135s per spec, got %v",
+				chainsync.MustReplyTimeoutMin,
+			)
 		}
 		if chainsync.MustReplyTimeoutMax != 269*time.Second {
-			t.Errorf("MustReplyTimeoutMax should be 269s per spec, got %v", chainsync.MustReplyTimeoutMax)
+			t.Errorf(
+				"MustReplyTimeoutMax should be 269s per spec, got %v",
+				chainsync.MustReplyTimeoutMax,
+			)
 		}
 	})
 
@@ -593,12 +608,37 @@ func TestProtocolStateTimeouts(t *testing.T) {
 
 	t.Run("TxSubmission timeouts", func(t *testing.T) {
 		// Per spec: Init, Idle, and TxIdsBlocking have no timeout (0)
-		assert.Equal(t, time.Duration(0), txsubmission.InitTimeout, "InitTimeout must be 0 per spec")
-		assert.Equal(t, time.Duration(0), txsubmission.IdleTimeout, "IdleTimeout must be 0 per spec")
-		assert.Equal(t, time.Duration(0), txsubmission.TxIdsBlockingTimeout, "TxIdsBlockingTimeout must be 0 per spec")
+		assert.Equal(
+			t,
+			time.Duration(0),
+			txsubmission.InitTimeout,
+			"InitTimeout must be 0 per spec",
+		)
+		assert.Equal(
+			t,
+			time.Duration(0),
+			txsubmission.IdleTimeout,
+			"IdleTimeout must be 0 per spec",
+		)
+		assert.Equal(
+			t,
+			time.Duration(0),
+			txsubmission.TxIdsBlockingTimeout,
+			"TxIdsBlockingTimeout must be 0 per spec",
+		)
 		// NonBlocking and Txs have 10s timeouts per spec
-		assert.Equal(t, 10*time.Second, txsubmission.TxIdsNonblockingTimeout, "TxIdsNonblockingTimeout should be 10s per spec")
-		assert.Equal(t, 10*time.Second, txsubmission.TxsTimeout, "TxsTimeout should be 10s per spec")
+		assert.Equal(
+			t,
+			10*time.Second,
+			txsubmission.TxIdsNonblockingTimeout,
+			"TxIdsNonblockingTimeout should be 10s per spec",
+		)
+		assert.Equal(
+			t,
+			10*time.Second,
+			txsubmission.TxsTimeout,
+			"TxsTimeout should be 10s per spec",
+		)
 	})
 
 	t.Run("Handshake timeouts", func(t *testing.T) {

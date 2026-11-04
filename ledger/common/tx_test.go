@@ -151,7 +151,9 @@ func TestEncodeTransactionBodyOmitsEmptyVotingProcedures(t *testing.T) {
 			body := votingProceduresEncodingTransactionBody{
 				TxVotingProcedures: votingProcedures,
 			}
-			encoded, err := EncodeTransactionBodyWithValidityIntervalUpperBound(&body)
+			encoded, err := EncodeTransactionBodyWithValidityIntervalUpperBound(
+				&body,
+			)
 			require.NoError(t, err)
 			var fields map[uint]cbor.RawMessage
 			_, err = cbor.DecodeLedgerMap(encoded, &fields)

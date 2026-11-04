@@ -442,24 +442,41 @@ func validateProposalMetadataShape(raw cbor.RawMessage) error {
 func proposalMetadataTags(raw cbor.RawMessage) ([]string, error) {
 	pairs, err := cborMapRawEntries(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: update proposal metadata: %w", ErrInvalidPayload, err)
+		return nil, fmt.Errorf(
+			"%w: update proposal metadata: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	tags := make([]string, 0, len(pairs))
 	previousTag := ""
 	for index, pair := range pairs {
 		if len(pair[0]) == 0 || pair[0][0]>>5 != 3 || pair[0][0]&0x1f == 31 {
-			return nil, fmt.Errorf("%w: update proposal system tag is not definite text", ErrInvalidPayload)
+			return nil, fmt.Errorf(
+				"%w: update proposal system tag is not definite text",
+				ErrInvalidPayload,
+			)
 		}
 		var tag string
 		n, err := cbor.Decode(pair[0], &tag)
 		if err != nil {
-			return nil, fmt.Errorf("%w: decode update proposal system tag: %w", ErrInvalidPayload, err)
+			return nil, fmt.Errorf(
+				"%w: decode update proposal system tag: %w",
+				ErrInvalidPayload,
+				err,
+			)
 		}
 		if n != len(pair[0]) {
-			return nil, fmt.Errorf("%w: update proposal system tag has trailing bytes", ErrInvalidPayload)
+			return nil, fmt.Errorf(
+				"%w: update proposal system tag has trailing bytes",
+				ErrInvalidPayload,
+			)
 		}
 		if index > 0 && tag <= previousTag {
-			return nil, fmt.Errorf("%w: update proposal system tags are not strictly increasing", ErrInvalidPayload)
+			return nil, fmt.Errorf(
+				"%w: update proposal system tags are not strictly increasing",
+				ErrInvalidPayload,
+			)
 		}
 		previousTag = tag
 		if err := validateInstallerHash(tag, pair[1]); err != nil {
@@ -477,7 +494,10 @@ func validateSystemTag(tag string) error {
 	if length := utf8.RuneCountInString(tag); length > systemTagMaxLength {
 		return fmt.Errorf(
 			"%w: update proposal system tag %q is %d characters, at most %d allowed",
-			ErrInvalidPayload, tag, length, systemTagMaxLength,
+			ErrInvalidPayload,
+			tag,
+			length,
+			systemTagMaxLength,
 		)
 	}
 	for i := range len(tag) {
@@ -515,16 +535,33 @@ func validateInstallerHash(tag string, raw cbor.RawMessage) error {
 		return err
 	}
 	for _, index := range []int{0, 2, 3} {
-		if len(fields[index]) == 0 || fields[index][0]>>5 != 2 || fields[index][0]&0x1f == 31 {
-			return fmt.Errorf("%w: %s field %d is not a definite byte string", ErrInvalidPayload, label, index)
+		if len(fields[index]) == 0 || fields[index][0]>>5 != 2 ||
+			fields[index][0]&0x1f == 31 {
+			return fmt.Errorf(
+				"%w: %s field %d is not a definite byte string",
+				ErrInvalidPayload,
+				label,
+				index,
+			)
 		}
 		var value []byte
 		n, err := cbor.Decode(fields[index], &value)
 		if err != nil {
-			return fmt.Errorf("%w: decode %s field %d: %w", ErrInvalidPayload, label, index, err)
+			return fmt.Errorf(
+				"%w: decode %s field %d: %w",
+				ErrInvalidPayload,
+				label,
+				index,
+				err,
+			)
 		}
 		if n != len(fields[index]) {
-			return fmt.Errorf("%w: %s field %d has trailing bytes", ErrInvalidPayload, label, index)
+			return fmt.Errorf(
+				"%w: %s field %d has trailing bytes",
+				ErrInvalidPayload,
+				label,
+				index,
+			)
 		}
 	}
 	return nil
@@ -648,13 +685,23 @@ func (p *ByronLovelacePortion) UnmarshalCBOR(raw []byte) error {
 	var value uint64
 	n, err := cbor.Decode(raw, &value)
 	if err != nil {
-		return fmt.Errorf("%w: decode LovelacePortion: %w", ErrInvalidPayload, err)
+		return fmt.Errorf(
+			"%w: decode LovelacePortion: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	if n != len(raw) {
-		return fmt.Errorf("%w: LovelacePortion has trailing bytes", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: LovelacePortion has trailing bytes",
+			ErrInvalidPayload,
+		)
 	}
 	if value > maxByronLovelacePortion {
-		return fmt.Errorf("%w: lovelace portion exceeds maximum", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: lovelace portion exceeds maximum",
+			ErrInvalidPayload,
+		)
 	}
 	*p = ByronLovelacePortion(value)
 	return nil
@@ -671,7 +718,10 @@ type ByronSoftForkRule struct {
 func (r *ByronSoftForkRule) UnmarshalCBOR(raw []byte) error {
 	fields, err := cborRawArrayEntries(raw, true)
 	if err != nil || len(fields) != 3 {
-		return fmt.Errorf("%w: softfork rule must contain three portions", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: softfork rule must contain three portions",
+			ErrInvalidPayload,
+		)
 	}
 	var decoded ByronSoftForkRule
 	for index, target := range []*ByronLovelacePortion{
@@ -697,31 +747,57 @@ type ByronTxFeePolicy struct {
 func (p *ByronTxFeePolicy) UnmarshalCBOR(raw []byte) error {
 	fields, err := cborRawArrayEntries(raw, true)
 	if err != nil || len(fields) != 2 {
-		return fmt.Errorf("%w: transaction fee policy must contain two fields", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: transaction fee policy must contain two fields",
+			ErrInvalidPayload,
+		)
 	}
 	var tag uint8
 	if _, err := cbor.Decode(fields[0], &tag); err != nil || tag != 0 {
-		return fmt.Errorf("%w: transaction fee policy has an unsupported tag", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: transaction fee policy has an unsupported tag",
+			ErrInvalidPayload,
+		)
 	}
 	encoded, err := decodeKnownCborBytes(fields[1])
 	if err != nil {
-		return fmt.Errorf("%w: transaction fee policy is not known-CBOR TxSizeLinear: %w", ErrInvalidPayload, err)
+		return fmt.Errorf(
+			"%w: transaction fee policy is not known-CBOR TxSizeLinear: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	coefficients, err := cborRawArrayEntries(encoded, true)
 	if err != nil || len(coefficients) != 2 {
-		return fmt.Errorf("%w: TxSizeLinear must contain two coefficients", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: TxSizeLinear must contain two coefficients",
+			ErrInvalidPayload,
+		)
 	}
-	decoded := ByronTxFeePolicy{Tag: tag, SummandNano: new(big.Int), MultiplierNano: new(big.Int)}
+	decoded := ByronTxFeePolicy{
+		Tag:            tag,
+		SummandNano:    new(big.Int),
+		MultiplierNano: new(big.Int),
+	}
 	for index, target := range []*big.Int{decoded.SummandNano, decoded.MultiplierNano} {
 		if n, err := cbor.Decode(coefficients[index], target); err != nil {
-			return fmt.Errorf("%w: decode TxSizeLinear coefficient %d: %w", ErrInvalidPayload, index, err)
+			return fmt.Errorf(
+				"%w: decode TxSizeLinear coefficient %d: %w",
+				ErrInvalidPayload,
+				index,
+				err,
+			)
 		} else if n != len(coefficients[index]) {
 			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
 		}
 	}
 	roundedSummand := roundNanoToInteger(decoded.SummandNano)
-	if roundedSummand.Sign() < 0 || roundedSummand.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
-		return fmt.Errorf("%w: TxSizeLinear summand is outside the Lovelace range", ErrInvalidPayload)
+	if roundedSummand.Sign() < 0 ||
+		roundedSummand.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
+		return fmt.Errorf(
+			"%w: TxSizeLinear summand is outside the Lovelace range",
+			ErrInvalidPayload,
+		)
 	}
 	*p = decoded
 	return nil
@@ -730,12 +806,21 @@ func (p *ByronTxFeePolicy) UnmarshalCBOR(raw []byte) error {
 func validateLovelacePortion(raw cbor.RawMessage, label string) error {
 	var value uint64
 	if n, err := cbor.Decode(raw, &value); err != nil {
-		return fmt.Errorf("%w: %s is not a LovelacePortion: %w", ErrInvalidPayload, label, err)
+		return fmt.Errorf(
+			"%w: %s is not a LovelacePortion: %w",
+			ErrInvalidPayload,
+			label,
+			err,
+		)
 	} else if n != len(raw) {
 		return fmt.Errorf("%w: %s LovelacePortion has trailing bytes", ErrInvalidPayload, label)
 	}
 	if value > maxByronLovelacePortion {
-		return fmt.Errorf("%w: %s exceeds the LovelacePortion maximum", ErrInvalidPayload, label)
+		return fmt.Errorf(
+			"%w: %s exceeds the LovelacePortion maximum",
+			ErrInvalidPayload,
+			label,
+		)
 	}
 	return nil
 }
@@ -743,10 +828,20 @@ func validateLovelacePortion(raw cbor.RawMessage, label string) error {
 func validateOptionalLovelacePortion(raw cbor.RawMessage, label string) error {
 	values, err := cborRawArrayEntries(raw, true)
 	if err != nil {
-		return fmt.Errorf("%w: %s is not an optional value list: %w", ErrInvalidPayload, label, err)
+		return fmt.Errorf(
+			"%w: %s is not an optional value list: %w",
+			ErrInvalidPayload,
+			label,
+			err,
+		)
 	}
 	if len(values) > 1 {
-		return fmt.Errorf("%w: %s has %d values, expected at most one", ErrInvalidPayload, label, len(values))
+		return fmt.Errorf(
+			"%w: %s has %d values, expected at most one",
+			ErrInvalidPayload,
+			label,
+			len(values),
+		)
 	}
 	if len(values) == 1 {
 		return validateLovelacePortion(values[0], label)
@@ -768,10 +863,17 @@ func validateProtocolParametersUpdate(raw cbor.RawMessage) error {
 	}
 	softForkValues, err := cborRawArrayEntries(fields[11], true)
 	if err != nil {
-		return fmt.Errorf("%w: softForkRule is not an optional list: %w", ErrInvalidPayload, err)
+		return fmt.Errorf(
+			"%w: softForkRule is not an optional list: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	if len(softForkValues) > 1 {
-		return fmt.Errorf("%w: softForkRule has multiple values", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: softForkRule has multiple values",
+			ErrInvalidPayload,
+		)
 	}
 	if len(softForkValues) == 1 {
 		parts, err := payloadFields("softForkRule", softForkValues[0], 3)
@@ -791,31 +893,51 @@ func validateProtocolParametersUpdate(raw cbor.RawMessage) error {
 func validateTxFeePolicy(raw cbor.RawMessage) error {
 	count, offset, err := cborArrayHeader(raw)
 	if err != nil {
-		return fmt.Errorf("%w: txFeePolicy is not an optional list: %w", ErrInvalidPayload, err)
+		return fmt.Errorf(
+			"%w: txFeePolicy is not an optional list: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	if count > 1 {
-		return fmt.Errorf("%w: txFeePolicy has multiple values", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: txFeePolicy has multiple values",
+			ErrInvalidPayload,
+		)
 	}
 	if count == 0 {
 		if offset != len(raw) {
-			return fmt.Errorf("%w: trailing bytes after txFeePolicy", ErrInvalidPayload)
+			return fmt.Errorf(
+				"%w: trailing bytes after txFeePolicy",
+				ErrInvalidPayload,
+			)
 		}
 		return nil
 	}
 	policyRaw := raw[offset:]
 	policyCount, policyOffset, err := cborArrayHeader(policyRaw)
 	if err != nil || policyCount != 2 {
-		return fmt.Errorf("%w: txFeePolicy must be a two-element array", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: txFeePolicy must be a two-element array",
+			ErrInvalidPayload,
+		)
 	}
 	var tag uint64
 	firstSize, err := cbor.Decode(policyRaw[policyOffset:], &tag)
 	if err != nil || tag != 0 {
-		return fmt.Errorf("%w: txFeePolicy has an unsupported tag", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: txFeePolicy has an unsupported tag",
+			ErrInvalidPayload,
+		)
 	}
 	knownRaw := policyRaw[policyOffset+firstSize:]
 	encoded, err := decodeKnownCborBytes(knownRaw)
 	if err != nil {
-		return fmt.Errorf("%w: txFeePolicy is not a known-CBOR TxSizeLinear: %w", ErrInvalidPayload, err)
+		return fmt.Errorf(
+			"%w: txFeePolicy is not a known-CBOR TxSizeLinear: %w",
+			ErrInvalidPayload,
+			err,
+		)
 	}
 	parts, err := payloadFields("TxSizeLinear", encoded, 2)
 	if err != nil {
@@ -824,7 +946,12 @@ func validateTxFeePolicy(raw cbor.RawMessage) error {
 	var summandNano, multiplierNano big.Int
 	for index, target := range []*big.Int{&summandNano, &multiplierNano} {
 		if n, err := cbor.Decode(parts[index], target); err != nil {
-			return fmt.Errorf("%w: TxSizeLinear coefficient %d is not Nano: %w", ErrInvalidPayload, index, err)
+			return fmt.Errorf(
+				"%w: TxSizeLinear coefficient %d is not Nano: %w",
+				ErrInvalidPayload,
+				index,
+				err,
+			)
 		} else if n != len(parts[index]) {
 			return fmt.Errorf("%w: TxSizeLinear coefficient %d has trailing bytes", ErrInvalidPayload, index)
 		}
@@ -834,10 +961,16 @@ func validateTxFeePolicy(raw cbor.RawMessage) error {
 	// is an unbounded rational coefficient and has no Lovelace range check.
 	rounded := roundNanoToInteger(&summandNano)
 	if rounded.Sign() < 0 {
-		return fmt.Errorf("%w: TxSizeLinear summand is negative after rounding", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: TxSizeLinear summand is negative after rounding",
+			ErrInvalidPayload,
+		)
 	}
 	if rounded.Cmp(big.NewInt(45_000_000_000_000_000)) > 0 {
-		return fmt.Errorf("%w: TxSizeLinear summand exceeds maximum Lovelace", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: TxSizeLinear summand exceeds maximum Lovelace",
+			ErrInvalidPayload,
+		)
 	}
 	return nil
 }
@@ -1054,7 +1187,10 @@ func (b *ByronMainBlock) updateVotesCbor() ([]cbor.RawMessage, error) {
 // update in ByronUpdateProposal.ValidateSystemTags.
 func (b *ByronMainBlockBody) ValidateUpdatePayloadStructure() error {
 	if b == nil || len(b.updPayloadRaw) == 0 {
-		return fmt.Errorf("%w: update payload has no preserved CBOR", ErrInvalidPayload)
+		return fmt.Errorf(
+			"%w: update payload has no preserved CBOR",
+			ErrInvalidPayload,
+		)
 	}
 	return validateUpdatePayloadStructure(
 		b.updPayloadRaw,
@@ -1069,21 +1205,42 @@ func validateUpdatePayloadStructure(
 	decodedVotes []any,
 ) error {
 	var parts []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &parts); err != nil || len(parts) != updatePayloadElementCount {
-		return fmt.Errorf("%w: update payload must be a two-element array", ErrInvalidPayload)
+	if _, err := cbor.Decode(raw, &parts); err != nil ||
+		len(parts) != updatePayloadElementCount {
+		return fmt.Errorf(
+			"%w: update payload must be a two-element array",
+			ErrInvalidPayload,
+		)
 	}
-	if len(parts[updatePayloadVotesIndex]) == 0 || parts[updatePayloadVotesIndex][0] != 0x9f {
-		return fmt.Errorf("%w: update votes must use indefinite-list framing", ErrInvalidPayload)
+	if len(parts[updatePayloadVotesIndex]) == 0 ||
+		parts[updatePayloadVotesIndex][0] != 0x9f {
+		return fmt.Errorf(
+			"%w: update votes must use indefinite-list framing",
+			ErrInvalidPayload,
+		)
 	}
-	proposals, err := payloadEntries("update payload proposals", parts[0], len(decodedProposals), true)
+	proposals, err := payloadEntries(
+		"update payload proposals",
+		parts[0],
+		len(decodedProposals),
+		true,
+	)
 	if err != nil {
 		return err
 	}
 	if len(proposals) > 1 {
-		return fmt.Errorf("%w: update payload contains %d proposals, expected at most one", ErrInvalidPayload, len(proposals))
+		return fmt.Errorf(
+			"%w: update payload contains %d proposals, expected at most one",
+			ErrInvalidPayload,
+			len(proposals),
+		)
 	}
 	for index, proposal := range proposals {
-		fields, err := payloadFields("update proposal", proposal, updateProposalElementCount)
+		fields, err := payloadFields(
+			"update proposal",
+			proposal,
+			updateProposalElementCount,
+		)
 		if err != nil {
 			return err
 		}
@@ -1097,7 +1254,12 @@ func validateUpdatePayloadStructure(
 			return fmt.Errorf("update proposal %d parameters: %w", index, err)
 		}
 	}
-	votes, err := payloadEntries("update payload votes", parts[updatePayloadVotesIndex], len(decodedVotes), false)
+	votes, err := payloadEntries(
+		"update payload votes",
+		parts[updatePayloadVotesIndex],
+		len(decodedVotes),
+		false,
+	)
 	if err != nil {
 		return err
 	}
@@ -1111,7 +1273,9 @@ func validateUpdatePayloadStructure(
 
 func validateDelegationPayloadWire(raw []byte) error {
 	if len(raw) == 0 || raw[0] != 0x9f {
-		return errors.New("byron delegation certificates must use indefinite-list framing")
+		return errors.New(
+			"byron delegation certificates must use indefinite-list framing",
+		)
 	}
 	certificates, err := cborRawArrayEntries(raw, false)
 	if err != nil {
@@ -1196,7 +1360,10 @@ func payloadFields(
 	return fields, nil
 }
 
-func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, error) {
+func cborRawArrayEntries(
+	raw []byte,
+	requireDefinite bool,
+) ([]cbor.RawMessage, error) {
 	count, offset, indefinite, err := cborCollectionHeader(raw, 4)
 	if err != nil {
 		return nil, err
@@ -1211,7 +1378,10 @@ func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, e
 			if err != nil {
 				return nil, err
 			}
-			entries = append(entries, append(cbor.RawMessage(nil), raw[offset:end]...))
+			entries = append(
+				entries,
+				append(cbor.RawMessage(nil), raw[offset:end]...),
+			)
 			offset = end
 		}
 		if offset >= len(raw) || offset+1 != len(raw) {
@@ -1231,7 +1401,10 @@ func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, e
 		if err != nil {
 			return nil, err
 		}
-		entries = append(entries, append(cbor.RawMessage(nil), raw[offset:end]...))
+		entries = append(
+			entries,
+			append(cbor.RawMessage(nil), raw[offset:end]...),
+		)
 		offset = end
 	}
 	if offset != len(raw) {
@@ -1240,7 +1413,10 @@ func cborRawArrayEntries(raw []byte, requireDefinite bool) ([]cbor.RawMessage, e
 	return entries, nil
 }
 
-func cborCollectionHeader(raw []byte, expectedMajor byte) (uint64, int, bool, error) {
+func cborCollectionHeader(
+	raw []byte,
+	expectedMajor byte,
+) (uint64, int, bool, error) {
 	if len(raw) == 0 || raw[0]>>5 != expectedMajor {
 		return 0, 0, false, errors.New("unexpected CBOR collection type")
 	}
@@ -1281,7 +1457,10 @@ func cborItemEndAtDepth(raw []byte, offset, depth int) (int, error) {
 	}
 	major := raw[offset] >> 5
 	argument := raw[offset] & 0x1f
-	_, headerLength, indefinite, err := cborCollectionHeader(raw[offset:], major)
+	_, headerLength, indefinite, err := cborCollectionHeader(
+		raw[offset:],
+		major,
+	)
 	if err != nil && (major != 7 || argument < 28) {
 		return 0, err
 	}
@@ -1401,7 +1580,13 @@ func payloadVerificationKey(label string, raw cbor.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("%w: %s: %w", ErrInvalidPayload, label, err)
 	}
 	if len(value) != VerificationKeySize {
-		return nil, fmt.Errorf("%w: %s is %d bytes, expected %d", ErrInvalidPayload, label, len(value), VerificationKeySize)
+		return nil, fmt.Errorf(
+			"%w: %s is %d bytes, expected %d",
+			ErrInvalidPayload,
+			label,
+			len(value),
+			VerificationKeySize,
+		)
 	}
 	return append([]byte(nil), value...), nil
 }

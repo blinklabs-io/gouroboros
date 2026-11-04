@@ -120,13 +120,23 @@ func resolvedInputsForTx(tx *conway.ConwayTransaction) []lcommon.Utxo {
 	}
 	for _, in := range tx.Inputs() {
 		if !have[in.String()] {
-			panic(fmt.Sprintf("resolved inputs missing spent input %s", in.String()))
+			panic(
+				fmt.Sprintf(
+					"resolved inputs missing spent input %s",
+					in.String(),
+				),
+			)
 		}
 		have[in.String()] = false
 	}
 	for _, ri := range tx.ReferenceInputs() {
 		if !have[ri.String()] {
-			panic(fmt.Sprintf("resolved inputs missing ref input %s", ri.String()))
+			panic(
+				fmt.Sprintf(
+					"resolved inputs missing ref input %s",
+					ri.String(),
+				),
+			)
 		}
 		have[ri.String()] = false
 	}
@@ -171,7 +181,9 @@ func mustName(hexstr string) []byte {
 }
 
 func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
-	raw, err := hex.DecodeString(strings.TrimSpace(testdata.MainnetOneShotMintTxHex))
+	raw, err := hex.DecodeString(
+		strings.TrimSpace(testdata.MainnetOneShotMintTxHex),
+	)
 	if err != nil {
 		t.Fatalf("decode fixture hex: %v", err)
 	}
@@ -209,17 +221,30 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	}
 	for i, ri := range txInfoV3.Inputs {
 		if ri.Id == nil || ri.Output == nil {
-			t.Fatalf("input %d resolved to zero value: Id=%v Output=%v", i, ri.Id, ri.Output)
+			t.Fatalf(
+				"input %d resolved to zero value: Id=%v Output=%v",
+				i,
+				ri.Id,
+				ri.Output,
+			)
 		}
 	}
 	if len(txInfoV3.ReferenceInputs) != 1 {
-		t.Fatalf("expected 1 resolved reference input, got %d", len(txInfoV3.ReferenceInputs))
+		t.Fatalf(
+			"expected 1 resolved reference input, got %d",
+			len(txInfoV3.ReferenceInputs),
+		)
 	}
 	ref := txInfoV3.ReferenceInputs[0]
 	if ref.Id == nil || ref.Output == nil {
-		t.Fatalf("reference input resolved to zero value: Id=%v Output=%v", ref.Id, ref.Output)
+		t.Fatalf(
+			"reference input resolved to zero value: Id=%v Output=%v",
+			ref.Id,
+			ref.Output,
+		)
 	}
-	t.Logf("context Inputs[0] Id=%s nmemb-inputs=7 nref=1 inputs-sorted=%v",
+	t.Logf(
+		"context Inputs[0] Id=%s nmemb-inputs=7 nref=1 inputs-sorted=%v",
 		txInfoV3.Inputs[0].Id.String(),
 		txInfoV3.Inputs[0].Id.String() == "26f83e512e161c8832b426d012c87c3b7d297fbf8d9784732801a0f365c4f878#1",
 	)
@@ -230,10 +255,21 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 		t.Fatalf("Inputs[0] amount = %d, want 3457610", got)
 	}
 	assets := txInfoV3.Inputs[0].Output.Assets()
-	iag := assets.Asset(mustPolicy("5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114"), mustName("494147"))
-	titan := assets.Asset(mustPolicy("8483844875ce4d61c2aa459240f277d32081ee08fe0ad16899a0f581"), mustName("0014df10544954414e"))
-	if iag == nil || titan == nil || iag.Uint64() != 4799424 || titan.Uint64() != 94000000 {
-		t.Fatalf("Inputs[0] assets IAG=%v TITAN=%v, want 4799424/94000000", iag, titan)
+	iag := assets.Asset(
+		mustPolicy("5d16cc1a177b5d9ba9cfa9793b07e60f1fb70fea1f8aef064415d114"),
+		mustName("494147"),
+	)
+	titan := assets.Asset(
+		mustPolicy("8483844875ce4d61c2aa459240f277d32081ee08fe0ad16899a0f581"),
+		mustName("0014df10544954414e"),
+	)
+	if iag == nil || titan == nil || iag.Uint64() != 4799424 ||
+		titan.Uint64() != 94000000 {
+		t.Fatalf(
+			"Inputs[0] assets IAG=%v TITAN=%v, want 4799424/94000000",
+			iag,
+			titan,
+		)
 	}
 	t.Logf("Inputs[0] verified: 3457610 + IAG 4799424 + TITAN 94000000")
 
@@ -242,16 +278,25 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	// Constr 1 [hash]. This is the field that made post-fix die.
 	refOutPd := txInfoV3.ReferenceInputs[0].Output.ToPlutusData()
 	refOutTop, ok := refOutPd.(*data.Constr)
-	if !ok || refOutTop.Tag == nil || refOutTop.Tag.Uint64() != 0 || len(refOutTop.Fields) < 3 {
+	if !ok || refOutTop.Tag == nil || refOutTop.Tag.Uint64() != 0 ||
+		len(refOutTop.Fields) < 3 {
 		t.Fatalf("ref output PD = %v, want Constr 0 with >=3 fields", refOutPd)
 	}
 	datumOptionPd, ok := refOutTop.Fields[2].(*data.Constr)
-	if !ok || datumOptionPd.Tag == nil || datumOptionPd.Tag.Uint64() != 2 || len(datumOptionPd.Fields) != 1 {
-		t.Fatalf("ref datum option = %v, want Constr 2 with 1 field (INLINE datum)", refOutTop.Fields[2])
+	if !ok || datumOptionPd.Tag == nil || datumOptionPd.Tag.Uint64() != 2 ||
+		len(datumOptionPd.Fields) != 1 {
+		t.Fatalf(
+			"ref datum option = %v, want Constr 2 with 1 field (INLINE datum)",
+			refOutTop.Fields[2],
+		)
 	}
 	innerDatum, ok := datumOptionPd.Fields[0].(*data.Constr)
-	if !ok || innerDatum.Tag == nil || innerDatum.Tag.Uint64() != 0 || len(innerDatum.Fields) != 7 {
-		t.Fatalf("ref inline datum = %v, want Constr 0 with 7 fields", datumOptionPd.Fields[0])
+	if !ok || innerDatum.Tag == nil || innerDatum.Tag.Uint64() != 0 ||
+		len(innerDatum.Fields) != 7 {
+		t.Fatalf(
+			"ref inline datum = %v, want Constr 0 with 7 fields",
+			datumOptionPd.Fields[0],
+		)
 	}
 	t.Logf("ref inline datum verified: Constr 2 [ Constr 0 (7 fields) ]")
 
@@ -271,9 +316,15 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 		t.Fatalf("encode normalized ref datum: %v", err)
 	}
 	if !bytes.Equal(normEnc, rawEnc) {
-		t.Fatalf("babbage data.Normalize is NOT a no-op on the ref datum:\n  raw %x\n  nor %x", rawEnc, normEnc)
+		t.Fatalf(
+			"babbage data.Normalize is NOT a no-op on the ref datum:\n  raw %x\n  nor %x",
+			rawEnc,
+			normEnc,
+		)
 	}
-	t.Logf("babbage inline-datum Normalize verified a NO-OP (indefinite on wire); only the redeemer Normalize sites are live")
+	t.Logf(
+		"babbage inline-datum Normalize verified a NO-OP (indefinite on wire); only the redeemer Normalize sites are live",
+	)
 
 	// Mint purpose + redeemer.
 	mint := tx.AssetMint()
@@ -405,7 +456,8 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	if hex.EncodeToString(postSubEnc) != hex.EncodeToString(bypassSubEnc) {
 		t.Fatalf(
 			"contexts differ beyond the redeemer encoding.\n  post-sub:   %x\n  bypass-sub: %x",
-			postSubEnc, bypassSubEnc,
+			postSubEnc,
+			bypassSubEnc,
 		)
 	}
 	t.Logf("only difference is the redeemer encoding: PROVEN")
@@ -434,8 +486,14 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 		return verdict, usedExUnits, execErr
 	}
 
-	postVerdict, postUnits, postExecErr := run("post-fix (Normalize)", postCtxData)
-	bypassVerdict, bypassUnits, bypassExecErr := run("bypass  (fidelity)", bypassCtxData)
+	postVerdict, postUnits, postExecErr := run(
+		"post-fix (Normalize)",
+		postCtxData,
+	)
+	bypassVerdict, bypassUnits, bypassExecErr := run(
+		"bypass  (fidelity)",
+		bypassCtxData,
+	)
 
 	t.Logf("RESULT post-fix:  %s", postVerdict)
 	t.Logf("RESULT bypass:    %s", bypassVerdict)
@@ -466,7 +524,8 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	if bypassUnits != postUnits {
 		t.Fatalf(
 			"evaluation depends on redeemer encoding: normalized used %+v, raw used %+v",
-			postUnits, bypassUnits,
+			postUnits,
+			bypassUnits,
 		)
 	}
 
@@ -492,7 +551,8 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	if !bytes.Equal(ctorEnc, postEnc) {
 		t.Fatalf(
 			"NewScriptContextV3 did not normalize a raw redeemer:\n  got  %x\n  want %x",
-			ctorEnc, postEnc,
+			ctorEnc,
+			postEnc,
 		)
 	}
 	if _, err := plutusScript.Evaluate(

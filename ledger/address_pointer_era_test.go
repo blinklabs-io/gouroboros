@@ -65,7 +65,10 @@ func conwayBody(outputBytes []byte) []byte {
 	})
 }
 
-func decodedPointer(t *testing.T, addr common.Address) common.AddressPayloadPointer {
+func decodedPointer(
+	t *testing.T,
+	addr common.Address,
+) common.AddressPayloadPointer {
 	t.Helper()
 	ptr, ok := addr.StakingPayload().(common.AddressPayloadPointer)
 	if !ok {

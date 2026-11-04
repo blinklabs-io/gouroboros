@@ -59,7 +59,12 @@ func validateArray(
 
 // ValidateArray validates an array before a typed decoder can allocate from
 // its peer-controlled count.
-func ValidateArray(data []byte, maxCount int, label string, validateItem func(int, []byte) error) error {
+func ValidateArray(
+	data []byte,
+	maxCount int,
+	label string,
+	validateItem func(int, []byte) error,
+) error {
 	return validateArray(data, maxCount, label, validateItem)
 }
 

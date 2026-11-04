@@ -446,7 +446,12 @@ func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(b, 0, 1, 2)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		b,
+		0,
+		1,
+		2,
+	)
 }
 
 func (b *ShelleyTransactionBody) Inputs() []common.TransactionInput {
@@ -596,10 +601,16 @@ func (i *ShelleyTransactionInput) UnmarshalCBOR(data []byte) error {
 			return fmt.Errorf("decode transaction input array: %w", err)
 		}
 		if bytesRead != len(data) {
-			return fmt.Errorf("%d trailing bytes after transaction input", len(data)-bytesRead)
+			return fmt.Errorf(
+				"%d trailing bytes after transaction input",
+				len(data)-bytesRead,
+			)
 		}
 		if len(items) != 2 {
-			return fmt.Errorf("transaction input must contain two array elements, got %d", len(items))
+			return fmt.Errorf(
+				"transaction input must contain two array elements, got %d",
+				len(items),
+			)
 		}
 		hashCBOR, indexCBOR = items[0], items[1]
 	} else {
@@ -641,7 +652,8 @@ func (i *ShelleyTransactionInput) unmarshalCBORFields(
 			hashLength,
 		)
 	}
-	if hashHeaderLength > len(hashCBOR) || hashLength > len(hashCBOR)-hashHeaderLength {
+	if hashHeaderLength > len(hashCBOR) ||
+		hashLength > len(hashCBOR)-hashHeaderLength {
 		return errors.New("transaction input hash exceeds CBOR data")
 	}
 	if hashHeaderLength+hashLength != len(hashCBOR) {
@@ -1018,7 +1030,10 @@ func (t *ShelleyTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraShelley)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraShelley,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}

@@ -35,12 +35,16 @@ var (
 func TestVerifyVKeySignatureRejectsIdentityKey(t *testing.T) {
 	msg := []byte("arbitrary transaction body hash")
 	if !ed25519.Verify(identityPublicKey, msg, identitySignature) {
-		t.Fatal("crypto/ed25519 no longer accepts the identity pair; this test no longer discriminates")
+		t.Fatal(
+			"crypto/ed25519 no longer accepts the identity pair; this test no longer discriminates",
+		)
 	}
 	if err := common.VerifyVKeySignature(
 		identityPublicKey, identitySignature, msg,
 	); err == nil {
-		t.Error("VerifyVKeySignature accepted the identity key and an all-zero signature")
+		t.Error(
+			"VerifyVKeySignature accepted the identity key and an all-zero signature",
+		)
 	}
 }
 

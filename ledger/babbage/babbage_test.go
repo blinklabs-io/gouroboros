@@ -152,7 +152,9 @@ func TestBabbageBlockHeaderPreviousHashDecoding(t *testing.T) {
 	})
 }
 
-func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
+func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(
+	t *testing.T,
+) {
 	input1 := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
@@ -173,7 +175,10 @@ func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T)
 		0:  []shelley.ShelleyTransactionInput{input2, input1, input2},
 		13: collateralSet,
 		14: cbor.NewSetType([]common.Blake2b224{signer, signer}, false),
-		18: cbor.NewSetType([]shelley.ShelleyTransactionInput{input2, input1, input2}, false),
+		18: cbor.NewSetType(
+			[]shelley.ShelleyTransactionInput{input2, input1, input2},
+			false,
+		),
 	})
 	require.NoError(t, err)
 
@@ -181,8 +186,16 @@ func TestBabbageUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T)
 	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
 	assert.Equal(t, bodyCbor, body.Cbor())
 	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
-	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
-	assert.Equal(t, []common.TransactionInput{&input2, &input1}, body.ReferenceInputs())
+	assert.Equal(
+		t,
+		[]common.TransactionInput{input1, input2},
+		body.Collateral(),
+	)
+	assert.Equal(
+		t,
+		[]common.TransactionInput{&input2, &input1},
+		body.ReferenceInputs(),
+	)
 	assert.Equal(t, []common.Blake2b224{signer, signer}, body.RequiredSigners())
 	decodedCollateralWire, err := cbor.Encode(&body.TxCollateral)
 	require.NoError(t, err)
@@ -328,8 +341,16 @@ func TestBabbageBlockAlignsOrderedInvalidTransactionIndexes(t *testing.T) {
 		indexes []uint
 		valid   []bool
 	}{
-		{name: "duplicate index", indexes: []uint{0, 0}, valid: []bool{false, false}},
-		{name: "descending indexes", indexes: []uint{1, 0}, valid: []bool{true, false}},
+		{
+			name:    "duplicate index",
+			indexes: []uint{0, 0},
+			valid:   []bool{false, false},
+		},
+		{
+			name:    "descending indexes",
+			indexes: []uint{1, 0},
+			valid:   []bool{true, false},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

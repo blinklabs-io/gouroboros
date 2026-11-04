@@ -42,7 +42,9 @@ func TestResolveInputUtxoRejectsTypedNilOutput(t *testing.T) {
 	require.ErrorIs(t, err, common.ErrInputResolution)
 }
 
-func TestValidateCollateralVKeyWitnessesAcceptsByronBootstrapWitness(t *testing.T) {
+func TestValidateCollateralVKeyWitnessesAcceptsByronBootstrapWitness(
+	t *testing.T,
+) {
 	input := shelley.MustNewShelleyTransactionInput(
 		"0000000000000000000000000000000000000000000000000000000000000000", 0,
 	)
@@ -119,7 +121,8 @@ func TestValidateCollateralVKeyWitnessesRejectsNilOutput(t *testing.T) {
 		WithCollateral(input).
 		WithWitnesses(mockledger.NewMockTransactionWitnessSet().
 			WithRedeemers(redeemers).
-			WithVkeyWitnesses(common.VkeyWitness{Vkey: []byte("collateral-key")}))
+			WithVkeyWitnesses(common.VkeyWitness{Vkey: []byte("collateral-key")}),
+		)
 
 	require.NotPanics(t, func() {
 		err := common.ValidateCollateralVKeyWitnesses(tx, state)

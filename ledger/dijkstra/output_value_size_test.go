@@ -36,7 +36,9 @@ func indefiniteMapHeaderOutputValue(
 	t.Helper()
 	assets := make(map[cbor.ByteString]*big.Int, 256)
 	for i := range 256 {
-		assets[cbor.NewByteString([]byte{byte(i >> 8), byte(i)})] = big.NewInt(1)
+		assets[cbor.NewByteString([]byte{byte(i >> 8), byte(i)})] = big.NewInt(
+			1,
+		)
 	}
 	multiAsset := common.NewMultiAsset(
 		map[common.Blake2b224]map[cbor.ByteString]*big.Int{{}: assets},
@@ -64,7 +66,11 @@ func TestUtxoValidateOutputTooBigUtxoIndefiniteMapHeader(t *testing.T) {
 			tx := &DijkstraTransaction{
 				Body: DijkstraTransactionBody{
 					TxOutputs: []DijkstraTransactionOutput{
-						{Output: babbage.BabbageTransactionOutput{OutputAmount: value}},
+						{
+							Output: babbage.BabbageTransactionOutput{
+								OutputAmount: value,
+							},
+						},
 					},
 				},
 			}

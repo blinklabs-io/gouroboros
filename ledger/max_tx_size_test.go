@@ -224,13 +224,19 @@ func TestMaxTxSizeAdjustmentFollowsTheEnvelopeNotTheEra(t *testing.T) {
 			continue
 		}
 		t.Run(era.name, func(t *testing.T) {
-			t.Run("three-component envelope is not adjusted", func(t *testing.T) {
-				tx := era.newTx(unsegmentedTxCbor(int(testMaxTxSize) + 1))
-				err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
-				require.Error(t, err,
-					"nothing is re-attached to a three-component envelope, "+
-						"so one byte over the limit is over the limit")
-			})
+			t.Run(
+				"three-component envelope is not adjusted",
+				func(t *testing.T) {
+					tx := era.newTx(unsegmentedTxCbor(int(testMaxTxSize) + 1))
+					err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
+					require.Error(
+						t,
+						err,
+						"nothing is re-attached to a three-component envelope, "+
+							"so one byte over the limit is over the limit",
+					)
+				},
+			)
 			t.Run("four-component envelope is adjusted", func(t *testing.T) {
 				tx := era.newTx(segmentedTxCbor(int(testMaxTxSize) + 1))
 				err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))

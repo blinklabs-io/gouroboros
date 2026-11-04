@@ -104,7 +104,11 @@ func TestRemoteAdvertisesPeerSharing(t *testing.T) {
 	oConn := dialNode(t, addr, true)
 
 	version, vd := oConn.ProtocolVersion()
-	t.Logf("handshake: negotiated NtN version %d, peer-sharing=%v", version, vd.PeerSharing())
+	t.Logf(
+		"handshake: negotiated NtN version %d, peer-sharing=%v",
+		version,
+		vd.PeerSharing(),
+	)
 	require.Truef(t, vd.PeerSharing(),
 		"shares-on node should advertise PeerSharing, "+
 			"but handshake VersionData reports PeerSharing()=false (version=%d)",
@@ -112,7 +116,9 @@ func TestRemoteAdvertisesPeerSharing(t *testing.T) {
 	)
 
 	ps := oConn.PeerSharing()
-	require.NotNilf(t, ps,
+	require.NotNilf(
+		t,
+		ps,
 		"peer-sharing mini-protocol unavailable; negotiated NtN version %d is below 11",
 		version,
 	)
@@ -139,7 +145,11 @@ func TestRemoteDisablesPeerSharing(t *testing.T) {
 	oConn := dialNode(t, addr, true)
 
 	version, vd := oConn.ProtocolVersion()
-	t.Logf("handshake: negotiated NtN version %d, peer-sharing=%v", version, vd.PeerSharing())
+	t.Logf(
+		"handshake: negotiated NtN version %d, peer-sharing=%v",
+		version,
+		vd.PeerSharing(),
+	)
 	require.Falsef(t, vd.PeerSharing(),
 		"shares-off node should advertise NoPeerSharing, "+
 			"but handshake VersionData reports PeerSharing()=true (version=%d)",
@@ -147,13 +157,19 @@ func TestRemoteDisablesPeerSharing(t *testing.T) {
 	)
 
 	ps := oConn.PeerSharing()
-	require.NotNilf(t, ps,
+	require.NotNilf(
+		t,
+		ps,
 		"peer-sharing mini-protocol unavailable; negotiated NtN version %d is below 11",
 		version,
 	)
 
 	peers, err := ps.Client.GetPeers(5)
-	require.ErrorIs(t, err, peersharing.ErrRemotePeerSharingDisabled,
-		"expected ErrRemotePeerSharingDisabled when remote advertised NoPeerSharing")
+	require.ErrorIs(
+		t,
+		err,
+		peersharing.ErrRemotePeerSharingDisabled,
+		"expected ErrRemotePeerSharingDisabled when remote advertised NoPeerSharing",
+	)
 	require.Nil(t, peers, "expected nil peer slice on refused request")
 }

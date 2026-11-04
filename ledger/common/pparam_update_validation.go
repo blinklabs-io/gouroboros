@@ -52,7 +52,10 @@ func ValidateClassicCostModelUpdate(
 	for language := range models {
 		languages = append(languages, language)
 	}
-	sort.Slice(languages, func(i, j int) bool { return languages[i] < languages[j] })
+	sort.Slice(
+		languages,
+		func(i, j int) bool { return languages[i] < languages[j] },
+	)
 	for _, language := range languages {
 		model := models[language]
 		expected, ok := expectedLengths[language]
@@ -223,7 +226,9 @@ func ValidateProtocolParameterUpdateDomains(
 				continue
 			}
 			var units ExUnits
-			if _, err := cbor.Decode(raw, &units); err != nil || units.Memory < 0 || units.Steps < 0 {
+			if _, err := cbor.Decode(raw, &units); err != nil ||
+				units.Memory < 0 ||
+				units.Steps < 0 {
 				return nil, ProtocolParameterUpdateDomainError{
 					Field:  protocolParameterUpdateFieldName(key),
 					Reason: "memory and steps must be non-negative",

@@ -235,7 +235,11 @@ func TestPoolStateResultURLBound(t *testing.T) {
 
 	_, err = decodePoolStateResult(poolStateCBOR(t, overLimit))
 	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
-	require.Contains(t, err.Error(), "pstate pool "+strings.Repeat("01", len(testPoolOperator())))
+	require.Contains(
+		t,
+		err.Error(),
+		"pstate pool "+strings.Repeat("01", len(testPoolOperator())),
+	)
 }
 
 // TestPoolStateParamsURLBound exercises the PoolStateParams decoder on its
@@ -255,7 +259,9 @@ func TestPoolStateParamsURLBound(t *testing.T) {
 	require.Equal(t, atLimit, accepted.PoolMetadata.Url)
 
 	var rejected PoolStateParams
-	err := rejected.UnmarshalCBOR(encode(testPoolURL(queryPoolMetadataURLMaxBytes + 1)))
+	err := rejected.UnmarshalCBOR(
+		encode(testPoolURL(queryPoolMetadataURLMaxBytes + 1)),
+	)
 	require.Error(t, err)
 	require.ErrorIs(t, err, lcommon.ErrPoolMetadataURLTooLong)
 }
@@ -279,7 +285,9 @@ func TestQueryPoolMetadataURLEncodingBound(t *testing.T) {
 	var stakeResult StakePoolParamsResult
 	require.NoError(
 		t,
-		stakeResult.UnmarshalCBOR(stakePoolParamsCBOR(t, "https://pool.example/")),
+		stakeResult.UnmarshalCBOR(
+			stakePoolParamsCBOR(t, "https://pool.example/"),
+		),
 	)
 	poolParams := stakeResult.Results[testPoolId()]
 	poolParams.PoolMetadata.Url = tooLong

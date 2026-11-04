@@ -28,7 +28,11 @@ import (
 // accepted; callers can then decode the validated shape into a struct.
 func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	if expected < 0 {
-		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
+		return fmt.Errorf(
+			"%s has an invalid expected array length %d",
+			name,
+			expected,
+		)
 	}
 	arrayLength, headerLength, indefinite := cbor.ArrayInfo(data)
 	if arrayLength < 0 && !indefinite {
@@ -36,7 +40,12 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	}
 	if !indefinite {
 		if arrayLength != expected {
-			return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, arrayLength)
+			return fmt.Errorf(
+				"%s must contain %d array elements, got %d",
+				name,
+				expected,
+				arrayLength,
+			)
 		}
 		if err := cbor.ValidateExact(data); err != nil {
 			return fmt.Errorf("decode %s: %w", name, err)
@@ -46,20 +55,36 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	offset := int(headerLength)
 	for index := range expected {
 		if offset >= len(data) {
-			return fmt.Errorf("decode %s: indefinite-length array is not terminated", name)
+			return fmt.Errorf(
+				"decode %s: indefinite-length array is not terminated",
+				name,
+			)
 		}
 		if data[offset] == 0xff {
-			return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, index)
+			return fmt.Errorf(
+				"%s must contain %d array elements, got %d",
+				name,
+				expected,
+				index,
+			)
 		}
 		var item validatedCBORItem
 		itemLength, err := cbor.Decode(data[offset:], &item)
 		if err != nil {
-			return fmt.Errorf("decode %s array element %d: %w", name, index, err)
+			return fmt.Errorf(
+				"decode %s array element %d: %w",
+				name,
+				index,
+				err,
+			)
 		}
 		offset += itemLength
 	}
 	if offset >= len(data) {
-		return fmt.Errorf("decode %s: indefinite-length array is not terminated", name)
+		return fmt.Errorf(
+			"decode %s: indefinite-length array is not terminated",
+			name,
+		)
 	}
 	if data[offset] != 0xff {
 		return fmt.Errorf(
@@ -71,7 +96,11 @@ func ValidateCBORArrayLength(data []byte, expected int, name string) error {
 	}
 	offset++
 	if offset != len(data) {
-		return fmt.Errorf("decode %s: %d trailing bytes after array", name, len(data)-offset)
+		return fmt.Errorf(
+			"decode %s: %d trailing bytes after array",
+			name,
+			len(data)-offset,
+		)
 	}
 	// Include the outer array when enforcing the decoder's nesting limit.
 	if err := cbor.ValidateExact(data); err != nil {
@@ -96,7 +125,11 @@ func ValidateDefiniteCBORArrayLength(
 	name string,
 ) error {
 	if expected < 0 {
-		return fmt.Errorf("%s has an invalid expected array length %d", name, expected)
+		return fmt.Errorf(
+			"%s has an invalid expected array length %d",
+			name,
+			expected,
+		)
 	}
 	length, _, indefinite := cbor.ArrayInfo(data)
 	if length < 0 {
@@ -106,7 +139,12 @@ func ValidateDefiniteCBORArrayLength(
 		return fmt.Errorf("%s must be a definite-length CBOR array", name)
 	}
 	if length != expected {
-		return fmt.Errorf("%s must contain %d array elements, got %d", name, expected, length)
+		return fmt.Errorf(
+			"%s must contain %d array elements, got %d",
+			name,
+			expected,
+			length,
+		)
 	}
 	if err := cbor.ValidateExact(data); err != nil {
 		return fmt.Errorf("decode %s: %w", name, err)
@@ -148,14 +186,23 @@ func decodeByteStringArray(
 	var totalLength int
 	for i, expectedLength := range expectedLengths {
 		if offset >= len(data) || (indefinite && data[offset] == 0xff) {
-			return fields, fmt.Errorf("decode %s: truncated byte string array", name)
+			return fields, fmt.Errorf(
+				"decode %s: truncated byte string array",
+				name,
+			)
 		}
-		length, byteHeaderLength, indefiniteByteString, err := byteStringHeader(data[offset:])
+		length, byteHeaderLength, indefiniteByteString, err := byteStringHeader(
+			data[offset:],
+		)
 		if err != nil {
 			return fields, fmt.Errorf("decode %s field %d: %w", name, i, err)
 		}
 		if indefiniteByteString {
-			return fields, fmt.Errorf("%s field %d must be a definite-length byte string", name, i)
+			return fields, fmt.Errorf(
+				"%s field %d must be a definite-length byte string",
+				name,
+				i,
+			)
 		}
 		if expectedLength >= 0 && length != uint64(expectedLength) {
 			return fields, fmt.Errorf(
@@ -168,16 +215,30 @@ func decodeByteStringArray(
 		}
 		remaining := len(data) - offset
 		if byteHeaderLength > remaining {
-			return fields, fmt.Errorf("decode %s field %d: byte string exceeds data", name, i)
+			return fields, fmt.Errorf(
+				"decode %s field %d: byte string exceeds data",
+				name,
+				i,
+			)
 		}
 		remaining -= byteHeaderLength
-		if length > uint64(remaining) { // #nosec G115 -- remaining is non-negative and bounded by data above.
-			return fields, fmt.Errorf("decode %s field %d: byte string exceeds data", name, i)
+		if length > uint64(
+			remaining,
+		) { // #nosec G115 -- remaining is non-negative and bounded by data above.
+			return fields, fmt.Errorf(
+				"decode %s field %d: byte string exceeds data",
+				name,
+				i,
+			)
 		}
 		start := offset + byteHeaderLength
-		end := start + int(length) // #nosec G115 -- bounded by the input length above
+		end := start + int(
+			length,
+		) // #nosec G115 -- bounded by the input length above
 		ranges[i] = byteStringRange{start: start, end: end}
-		totalLength += int(length) // #nosec G115 -- disjoint fields are bounded by data
+		totalLength += int(
+			length,
+		) // #nosec G115 -- disjoint fields are bounded by data
 		offset = end
 	}
 	if indefinite {
@@ -191,7 +252,10 @@ func decodeByteStringArray(
 		offset++
 	}
 	if offset != len(data) {
-		return fields, fmt.Errorf("decode %s: trailing data after byte string array", name)
+		return fields, fmt.Errorf(
+			"decode %s: trailing data after byte string array",
+			name,
+		)
 	}
 
 	ownedData := make([]byte, totalLength)
@@ -248,7 +312,11 @@ func unmarshalFixedLengthByteString(
 	return nil
 }
 
-func validateFixedLengthByteString(cborData []byte, expected int, name string) error {
+func validateFixedLengthByteString(
+	cborData []byte,
+	expected int,
+	name string,
+) error {
 	if expected < 0 {
 		return fmt.Errorf("%s has a negative expected length", name)
 	}
@@ -257,13 +325,18 @@ func validateFixedLengthByteString(cborData []byte, expected int, name string) e
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
 	if indefinite {
-		return fmt.Errorf("decode %s: expected a definite-length byte string", name)
+		return fmt.Errorf(
+			"decode %s: expected a definite-length byte string",
+			name,
+		)
 	}
 	length, _, _, err := byteStringHeader(cborData)
 	if err != nil {
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
-	if length != uint64(expected) { // #nosec G115 -- expected is non-negative after the guard above.
+	if length != uint64(
+		expected,
+	) { // #nosec G115 -- expected is non-negative after the guard above.
 		return fmt.Errorf(
 			"invalid %s length: expected %d bytes, got %d",
 			name,
@@ -275,7 +348,8 @@ func validateFixedLengthByteString(cborData []byte, expected int, name string) e
 }
 
 func validateDefiniteTextString(cborData []byte, name string) error {
-	if len(cborData) == 0 || cborData[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
+	if len(cborData) == 0 ||
+		cborData[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
 		return fmt.Errorf("%s must be a CBOR text string", name)
 	}
 	if cborData[0]&0x1f == 0x1f {
@@ -289,8 +363,13 @@ func validateDefiniteTextString(cborData []byte, name string) error {
 		return fmt.Errorf("decode %s: text string header exceeds data", name)
 	}
 	payloadLength := len(cborData) - headerLength
-	if length != uint64(payloadLength) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
-		return fmt.Errorf("decode %s: text string length does not match data", name)
+	if length != uint64(
+		payloadLength,
+	) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+		return fmt.Errorf(
+			"decode %s: text string length does not match data",
+			name,
+		)
 	}
 	if !utf8.Valid(cborData[headerLength:]) {
 		return fmt.Errorf("%s contains invalid UTF-8", name)
@@ -310,8 +389,13 @@ func validateDefiniteByteString(cborData []byte, name string) error {
 		return fmt.Errorf("decode %s: byte string header exceeds data", name)
 	}
 	payloadLength := len(cborData) - headerLength
-	if length != uint64(payloadLength) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
-		return fmt.Errorf("decode %s: byte string length does not match data", name)
+	if length != uint64(
+		payloadLength,
+	) { // #nosec G115 -- payloadLength is non-negative after the bound check above.
+		return fmt.Errorf(
+			"decode %s: byte string length does not match data",
+			name,
+		)
 	}
 	return nil
 }
@@ -425,7 +509,10 @@ func stringHeader(data []byte, majorType uint8) (uint64, int, bool, error) {
 		case cbor.CborTypeTextString:
 			return 0, 0, false, errors.New("expected CBOR text string")
 		}
-		return 0, 0, false, fmt.Errorf("expected CBOR string type 0x%02x", majorType)
+		return 0, 0, false, fmt.Errorf(
+			"expected CBOR string type 0x%02x",
+			majorType,
+		)
 	}
 	additionalInfo := data[0] & 0x1f
 	switch additionalInfo {

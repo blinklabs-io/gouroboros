@@ -215,8 +215,11 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
 	common.AlwaysUtxoValidationRules(
-		UtxoValidateMetadata, UtxoValidateIsValidFlag, UtxoValidateRequiredVKeyWitnesses,
-		UtxoValidateSignatures, UtxoValidateProtocolParameterUpdates,
+		UtxoValidateMetadata,
+		UtxoValidateIsValidFlag,
+		UtxoValidateRequiredVKeyWitnesses,
+		UtxoValidateSignatures,
+		UtxoValidateProtocolParameterUpdates,
 		UtxoValidateCollateralVKeyWitnesses,
 		common.UtxoValidateCollateralKeyLocked,
 	),
@@ -761,7 +764,10 @@ func UtxoValidateValueNotConservedUtxo(
 		hash     string
 	}
 	keyForCredential := func(cred common.Credential) stakeCredentialKey {
-		return stakeCredentialKey{credType: cred.CredType, hash: string(cred.Credential[:])}
+		return stakeCredentialKey{
+			credType: cred.CredType,
+			hash:     string(cred.Credential[:]),
+		}
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)

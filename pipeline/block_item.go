@@ -60,7 +60,12 @@ type BlockItem struct {
 // NewBlockItem creates a new BlockItem with the given immutable fields.
 // The rawCbor slice and tip.Point.Hash are copied to prevent data corruption
 // from external modifications.
-func NewBlockItem(blockType uint, rawCbor []byte, tip pcommon.Tip, seq uint64) *BlockItem {
+func NewBlockItem(
+	blockType uint,
+	rawCbor []byte,
+	tip pcommon.Tip,
+	seq uint64,
+) *BlockItem {
 	// Copy the rawCbor slice to prevent aliasing issues.
 	// This ensures the BlockItem owns its data and is immune to
 	// modifications by the caller, which is critical for concurrent
@@ -199,7 +204,12 @@ func (b *BlockItem) IsDecoded() bool {
 }
 
 // SetValidation sets the validation result.
-func (b *BlockItem) SetValidation(valid bool, vrfOutput string, err error, duration time.Duration) {
+func (b *BlockItem) SetValidation(
+	valid bool,
+	vrfOutput string,
+	err error,
+	duration time.Duration,
+) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.valid = valid
@@ -237,7 +247,11 @@ func (b *BlockItem) VRFOutput() string {
 }
 
 // SetApplied sets the apply result.
-func (b *BlockItem) SetApplied(applied bool, err error, duration time.Duration) {
+func (b *BlockItem) SetApplied(
+	applied bool,
+	err error,
+	duration time.Duration,
+) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.applied = applied

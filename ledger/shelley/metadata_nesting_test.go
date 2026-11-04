@@ -123,7 +123,10 @@ func TestShelleyBlockRejectsMetadatumPastConfiguredLimit(t *testing.T) {
 		common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	if err == nil {
-		t.Fatalf("expected metadatum nesting depth %d to be rejected", common.MaxMetadataNestedLevels+1)
+		t.Fatalf(
+			"expected metadatum nesting depth %d to be rejected",
+			common.MaxMetadataNestedLevels+1,
+		)
 	}
 }
 
@@ -142,7 +145,11 @@ func TestShelleyBlockAcceptsIssue4351Vector(t *testing.T) {
 		common.VerifyConfig{SkipBodyHashValidation: true},
 	)
 	if err != nil {
-		t.Fatalf("decode block with metadatum depth %d: %v", issue4351Depth, err)
+		t.Fatalf(
+			"decode block with metadatum depth %d: %v",
+			issue4351Depth,
+			err,
+		)
 	}
 	md, ok := block.TransactionMetadataSet.GetMetadata(0)
 	if !ok {

@@ -25,7 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func testLeiosCertificate(t *testing.T, signersLen int) *DijkstraLeiosCertificate {
+func testLeiosCertificate(
+	t *testing.T,
+	signersLen int,
+) *DijkstraLeiosCertificate {
 	t.Helper()
 	return &DijkstraLeiosCertificate{
 		Signers:             make([]byte, signersLen),
@@ -116,7 +119,9 @@ func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 
 // An empty transaction list alongside a certificate is the legal certified
 // block shape, so the rejection is not unconditional.
-func TestDijkstraBlockBodyAcceptsCertifiedBodyWithoutTransactions(t *testing.T) {
+func TestDijkstraBlockBodyAcceptsCertifiedBodyWithoutTransactions(
+	t *testing.T,
+) {
 	body := DijkstraBlockBody{
 		LeiosCertificate: testLeiosCertificate(t, 2),
 	}
@@ -149,7 +154,9 @@ func TestDijkstraBlockBodyAcceptsTransactionsWithoutCertificate(t *testing.T) {
 
 // CIP-0164 places the exclusion on the Leios certificate only, and
 // cardano-ledger imposes no equivalent constraint on peras_certificate.
-func TestDijkstraBlockBodyAcceptsPerasCertificateWithTransactions(t *testing.T) {
+func TestDijkstraBlockBodyAcceptsPerasCertificateWithTransactions(
+	t *testing.T,
+) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},

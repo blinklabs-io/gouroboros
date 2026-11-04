@@ -389,7 +389,9 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 	resultChan := s.requestTxIdsResultChan
 	s.stateMu.Unlock()
 	if pending == nil {
-		return invalidTxSubmissionMessage("received ReplyTxIds without a pending request")
+		return invalidTxSubmissionMessage(
+			"received ReplyTxIds without a pending request",
+		)
 	}
 	nextOutstanding, err := reconcileTxIds(
 		outstanding,
@@ -432,7 +434,9 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 	resultChan := s.requestTxsResultChan
 	s.stateMu.Unlock()
 	if pending == nil {
-		return invalidTxSubmissionMessage("received ReplyTxs without a pending request")
+		return invalidTxSubmissionMessage(
+			"received ReplyTxs without a pending request",
+		)
 	}
 	orderedTxs, err := validateAndOrderTxBodies(
 		pending.requested,
@@ -460,7 +464,9 @@ func (s *Server) handleDone() error {
 	pending := s.pendingTxIds
 	if pending == nil || !pending.blocking {
 		s.stateMu.Unlock()
-		return invalidTxSubmissionMessage("received Done without a blocking TxIds request")
+		return invalidTxSubmissionMessage(
+			"received Done without a blocking TxIds request",
+		)
 	}
 	s.stopping = true
 	s.pendingTxIds = nil

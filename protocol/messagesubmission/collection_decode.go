@@ -31,7 +31,11 @@ func configuredMessageIDLimit(cfg *Config) int {
 	return min(cfg.MaxUnacknowledgedMessageIDs, maxWireMessageIDs)
 }
 
-func validateMessageSubmissionCollection(msgType uint, data []byte, maxCount int) error {
+func validateMessageSubmissionCollection(
+	msgType uint,
+	data []byte,
+	maxCount int,
+) error {
 	var maxItemDepth int
 	switch msgType {
 	case MessageTypeRequestMessages:
@@ -57,5 +61,9 @@ func validateMessageSubmissionCollection(msgType uint, data []byte, maxCount int
 	); err != nil {
 		return err
 	}
-	return cborpreflight.ValidateItemDepth(data, 4, "message-submission message")
+	return cborpreflight.ValidateItemDepth(
+		data,
+		4,
+		"message-submission message",
+	)
 }

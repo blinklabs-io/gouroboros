@@ -154,7 +154,10 @@ func TestScriptPurposeSpendingDatumNormalized(t *testing.T) {
 	}
 	purpose, ok := txInfo.Redeemers[0].Key.(script.ScriptPurposeSpending)
 	if !ok {
-		t.Fatalf("purpose = %T, want ScriptPurposeSpending", txInfo.Redeemers[0].Key)
+		t.Fatalf(
+			"purpose = %T, want ScriptPurposeSpending",
+			txInfo.Redeemers[0].Key,
+		)
 	}
 	if purpose.Datum == nil {
 		t.Fatal("spending purpose carries no datum")

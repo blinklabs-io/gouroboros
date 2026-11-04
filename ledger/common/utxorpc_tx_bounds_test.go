@@ -69,18 +69,30 @@ func TestUpdateCommitteeToUtxorpcLedgerOrder(t *testing.T) {
 	require.NoError(t, err)
 	added := got.GetUpdateCommitteeAction().NewCommitteeCredentials
 	require.Len(t, added, 2)
-	require.Equal(t, script.Credential[:], added[0].CommitteeColdCredential.GetScriptHash())
+	require.Equal(
+		t,
+		script.Credential[:],
+		added[0].CommitteeColdCredential.GetScriptHash(),
+	)
 	require.Equal(t, uint32(math.MaxUint32), added[0].ExpiresEpoch)
-	require.Equal(t, key.Credential[:], added[1].CommitteeColdCredential.GetAddrKeyHash())
+	require.Equal(
+		t,
+		key.Credential[:],
+		added[1].CommitteeColdCredential.GetAddrKeyHash(),
+	)
 }
 
 // Treasury withdrawals follow the ledger's reward-account order, which puts
 // script credentials before key credentials.
 func TestTreasuryWithdrawalToUtxorpcLedgerOrder(t *testing.T) {
 	t.Parallel()
-	key, err := NewAddressFromBytes(append([]byte{0xe1}, bytes.Repeat([]byte{0x01}, 28)...))
+	key, err := NewAddressFromBytes(
+		append([]byte{0xe1}, bytes.Repeat([]byte{0x01}, 28)...),
+	)
 	require.NoError(t, err)
-	script, err := NewAddressFromBytes(append([]byte{0xf1}, bytes.Repeat([]byte{0x02}, 28)...))
+	script, err := NewAddressFromBytes(
+		append([]byte{0xf1}, bytes.Repeat([]byte{0x02}, 28)...),
+	)
 	require.NoError(t, err)
 	got, err := govActionToUtxorpc(&TreasuryWithdrawalGovAction{
 		Withdrawals: map[*Address]uint64{&key: 1, &script: 2},

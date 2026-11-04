@@ -1307,7 +1307,9 @@ func (r *StakeDelegDepositsResult) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(data []byte) error {
+func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(
+	data []byte,
+) error {
 	var tmp struct {
 		cbor.StructAsArray
 		Inner struct {

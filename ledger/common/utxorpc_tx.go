@@ -815,10 +815,16 @@ func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 		return nil, errors.New("rational number exceeds Word64 domain")
 	}
 	if r.Num().IsInt64() && r.Num().Int64() >= math.MinInt32 &&
-		r.Num().Int64() <= math.MaxInt32 && r.Denom().Uint64() <= math.MaxUint32 {
+		r.Num().
+			Int64() <=
+			math.MaxInt32 && r.Denom().Uint64() <= math.MaxUint32 {
 		return &utxorpc.RationalNumber{
-			Numerator:   int32(r.Num().Int64()),     // #nosec G115 -- bounded above
-			Denominator: uint32(r.Denom().Uint64()), // #nosec G115 -- bounded above
+			Numerator: int32(
+				r.Num().Int64(),
+			), // #nosec G115 -- bounded above
+			Denominator: uint32(
+				r.Denom().Uint64(),
+			), // #nosec G115 -- bounded above
 		}, nil
 	}
 
@@ -872,8 +878,12 @@ func ToUtxorpcRationalNumber(r *big.Rat) (*utxorpc.RationalNumber, error) {
 		numerator.Neg(numerator)
 	}
 	return &utxorpc.RationalNumber{
-		Numerator:   int32(numerator.Int64()),     // #nosec G115 -- bounded above
-		Denominator: uint32(denominator.Uint64()), // #nosec G115 -- bounded above
+		Numerator: int32(
+			numerator.Int64(),
+		), // #nosec G115 -- bounded above
+		Denominator: uint32(
+			denominator.Uint64(),
+		), // #nosec G115 -- bounded above
 	}, nil
 }
 

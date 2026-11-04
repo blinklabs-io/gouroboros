@@ -35,7 +35,9 @@ type ProtocolParameterUpdate interface {
 // ProtocolParameterUpdateVersionValidator validates fields whose reference
 // domain depends on the active protocol version.
 type ProtocolParameterUpdateVersionValidator interface {
-	ValidateProtocolParameterUpdateVersion(ProtocolParametersProtocolVersion) error
+	ValidateProtocolParameterUpdateVersion(
+		ProtocolParametersProtocolVersion,
+	) error
 }
 
 // ProtocolParameterUpdateCostModelProvider reports cost models requiring

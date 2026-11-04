@@ -24,7 +24,9 @@ func TestBlockMetadataSetRejectsUnknownTaggedAuxiliaryField(t *testing.T) {
 		Content: fields,
 	})
 	require.NoError(t, err)
-	blockMetadata, err := cbor.Encode(map[uint]cbor.RawMessage{0: auxiliaryData})
+	blockMetadata, err := cbor.Encode(
+		map[uint]cbor.RawMessage{0: auxiliaryData},
+	)
 	require.NoError(t, err)
 
 	var set TransactionMetadataSet
@@ -132,7 +134,9 @@ func TestCIP25_NFTMetadataDecode(t *testing.T) {
 	}
 }
 
-func TestMetadataSetPreservesButEraDecoderRejectsUnknownAuxiliaryDataKeys(t *testing.T) {
+func TestMetadataSetPreservesButEraDecoderRejectsUnknownAuxiliaryDataKeys(
+	t *testing.T,
+) {
 	// {6: #6.259({0: {1: "ok"}, 6: [1]})}
 	// Key 6 inside the auxiliary-data map is a VanRossem-era extension.
 	const metadataSetHex = "a106d90103a200a101626f6b068101"
@@ -174,7 +178,12 @@ func TestDecodeAuxiliaryDataForEra(t *testing.T) {
 		{"Mary accepts array", AuxiliaryDataEraMary, arrayAux, true},
 		{"Mary rejects tag", AuxiliaryDataEraMary, taggedAux, false},
 		{"Alonzo accepts tag", AuxiliaryDataEraAlonzo, taggedAux, true},
-		{"Alonzo accepts non-minimal tag", AuxiliaryDataEraAlonzo, []byte{0xda, 0, 0, 1, 3, 0xa0}, true},
+		{
+			"Alonzo accepts non-minimal tag",
+			AuxiliaryDataEraAlonzo,
+			[]byte{0xda, 0, 0, 1, 3, 0xa0},
+			true,
+		},
 		{"Dijkstra accepts tag", AuxiliaryDataEraDijkstra, taggedAux, true},
 	}
 	for _, test := range tests {
@@ -208,16 +217,34 @@ func TestDecodeAuxiliaryDataForEraEnforcesPlutusLanguageBounds(t *testing.T) {
 	}{
 		{name: "Alonzo V1", era: AuxiliaryDataEraAlonzo, field: 2, valid: true},
 		{name: "Alonzo rejects V2", era: AuxiliaryDataEraAlonzo, field: 3},
-		{name: "Babbage V2", era: AuxiliaryDataEraBabbage, field: 3, valid: true},
+		{
+			name:  "Babbage V2",
+			era:   AuxiliaryDataEraBabbage,
+			field: 3,
+			valid: true,
+		},
 		{name: "Babbage rejects V3", era: AuxiliaryDataEraBabbage, field: 4},
 		{name: "Conway V3", era: AuxiliaryDataEraConway, field: 4, valid: true},
 		{name: "Conway rejects V4", era: AuxiliaryDataEraConway, field: 5},
-		{name: "Dijkstra V3", era: AuxiliaryDataEraDijkstra, field: 4, valid: true},
-		{name: "Dijkstra V4", era: AuxiliaryDataEraDijkstra, field: 5, valid: true},
+		{
+			name:  "Dijkstra V3",
+			era:   AuxiliaryDataEraDijkstra,
+			field: 4,
+			valid: true,
+		},
+		{
+			name:  "Dijkstra V4",
+			era:   AuxiliaryDataEraDijkstra,
+			field: 5,
+			valid: true,
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := DecodeAuxiliaryDataForEra(auxiliaryData(test.field), test.era)
+			_, err := DecodeAuxiliaryDataForEra(
+				auxiliaryData(test.field),
+				test.era,
+			)
 			if test.valid {
 				require.NoError(t, err)
 			} else {
@@ -258,7 +285,12 @@ func TestDuplicateNestedMetadataKeyDecodes(t *testing.T) {
 		require.True(t, ok, "expected outer MetaMap, got %T", md)
 		require.Len(t, outer.Pairs, 1)
 		inner, ok := outer.Pairs[0].Value.(MetaMap)
-		require.True(t, ok, "expected inner MetaMap, got %T", outer.Pairs[0].Value)
+		require.True(
+			t,
+			ok,
+			"expected inner MetaMap, got %T",
+			outer.Pairs[0].Value,
+		)
 		require.Len(
 			t,
 			inner.Pairs,

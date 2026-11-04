@@ -95,7 +95,12 @@ func TestByronEpochBoundaryBlockNullHeader(t *testing.T) {
 	// [null, [_ ], [{}]]: an EBB block whose header is CBOR null, with a
 	// shape-valid body and extra body data so only the header is at fault
 	dataBytes, err := hex.DecodeString("83f69fff81a0")
-	require.NoError(t, err, "Failed to decode hex string into CBOR bytes: %v", err)
+	require.NoError(
+		t,
+		err,
+		"Failed to decode hex string into CBOR bytes: %v",
+		err,
+	)
 	var block byron.ByronEpochBoundaryBlock
 	err = block.UnmarshalCBOR(dataBytes)
 	require.EqualError(t, err, "byron EBB block missing header")
@@ -103,7 +108,9 @@ func TestByronEpochBoundaryBlockNullHeader(t *testing.T) {
 
 func TestByronTransaction_Utxorpc(t *testing.T) {
 	// Decode the hex string to bytes
-	blockBytes, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockBytes, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	assert.NoError(t, err)
 
 	block, err := byron.NewByronMainBlockFromCbor(
@@ -200,7 +207,9 @@ func TestByronTransaction_Utxorpc(t *testing.T) {
 }
 
 func BenchmarkByronBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -215,7 +224,9 @@ func BenchmarkByronBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkByronBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}

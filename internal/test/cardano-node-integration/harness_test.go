@@ -126,7 +126,11 @@ func dialNode(
 
 func TestCardanoNodeChainSync(t *testing.T) {
 	socketPath, networkMagic := integrationConfig(t)
-	oConn, connectionErrors, rollForward := dialNode(t, socketPath, networkMagic)
+	oConn, connectionErrors, rollForward := dialNode(
+		t,
+		socketPath,
+		networkMagic,
+	)
 	client := oConn.ChainSync().Client
 
 	tip, err := client.GetCurrentTip()
@@ -153,7 +157,8 @@ func TestCardanoNodeChainSync(t *testing.T) {
 		if result.err != nil {
 			t.Fatal(result.err)
 		}
-		if len(result.block.Hash().Bytes()) != 32 || len(result.block.Cbor()) == 0 {
+		if len(result.block.Hash().Bytes()) != 32 ||
+			len(result.block.Cbor()) == 0 {
 			t.Fatalf(
 				"invalid decoded block: era %v, slot %d",
 				result.block.Era(),

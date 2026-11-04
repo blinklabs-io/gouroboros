@@ -47,7 +47,8 @@ func NewTachysBlockBuilder(
 	issuerVkey []byte,
 	selector *TachysLeaderSelector,
 ) (*BlockBuilder, error) {
-	if selector == nil || len(selector.intervals) == 0 || selector.totalStake == 0 {
+	if selector == nil || len(selector.intervals) == 0 ||
+		selector.totalStake == 0 {
 		return nil, errors.New("tachys leader selector is uninitialized")
 	}
 	return &BlockBuilder{

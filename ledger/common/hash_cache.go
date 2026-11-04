@@ -43,7 +43,11 @@ func (c *Blake2b256Cache) Get(compute func() Blake2b256) Blake2b256 {
 		state := atomic.LoadPointer(&c.state)
 		if state == nil {
 			newState := &blake2b256CacheState{}
-			if atomic.CompareAndSwapPointer(&c.state, nil, unsafe.Pointer(newState)) {
+			if atomic.CompareAndSwapPointer(
+				&c.state,
+				nil,
+				unsafe.Pointer(newState),
+			) {
 				state = unsafe.Pointer(newState)
 			} else {
 				continue
@@ -54,11 +58,18 @@ func (c *Blake2b256Cache) Get(compute func() Blake2b256) Blake2b256 {
 		case hashCacheReady:
 			return cacheState.value
 		case hashCacheEmpty:
-			if atomic.CompareAndSwapUint32(&cacheState.state, hashCacheEmpty, hashCacheComputing) {
+			if atomic.CompareAndSwapUint32(
+				&cacheState.state,
+				hashCacheEmpty,
+				hashCacheComputing,
+			) {
 				func() {
 					defer func() {
 						if recovered := recover(); recovered != nil {
-							atomic.StoreUint32(&cacheState.state, hashCacheEmpty)
+							atomic.StoreUint32(
+								&cacheState.state,
+								hashCacheEmpty,
+							)
 							panic(recovered)
 						}
 					}()

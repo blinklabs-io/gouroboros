@@ -385,7 +385,13 @@ func dijkstraRedeemersV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 		if err != nil {
 			return nil, err
 		}
-		pairs = append(pairs, [2]data.PlutusData{purposeData, data.NormalizeShared(value.Data.Data)})
+		pairs = append(
+			pairs,
+			[2]data.PlutusData{
+				purposeData,
+				data.NormalizeShared(value.Data.Data),
+			},
+		)
 	}
 	return data.NewMap(pairs), nil
 }

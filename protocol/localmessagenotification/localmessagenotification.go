@@ -224,7 +224,9 @@ func NewConfig(options ...LocalMessageNotificationOptionFunc) Config {
 
 // WithMaxReplayEntries sets the maximum accepted message IDs retained by the
 // client for replay protection.
-func WithMaxReplayEntries(maxReplayEntries int) LocalMessageNotificationOptionFunc {
+func WithMaxReplayEntries(
+	maxReplayEntries int,
+) LocalMessageNotificationOptionFunc {
 	return func(c *Config) {
 		c.MaxReplayEntries = maxReplayEntries
 	}
@@ -248,7 +250,9 @@ func WithMaxQueueSize(maxQueueSize int) LocalMessageNotificationOptionFunc {
 
 // WithMaxReplyMessages specifies the maximum number of messages a client
 // accepts in one reply
-func WithMaxReplyMessages(maxReplyMessages int) LocalMessageNotificationOptionFunc {
+func WithMaxReplyMessages(
+	maxReplyMessages int,
+) LocalMessageNotificationOptionFunc {
 	return func(c *Config) {
 		c.MaxReplyMessages = maxReplyMessages
 	}

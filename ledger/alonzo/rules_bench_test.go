@@ -41,23 +41,42 @@ func BenchmarkUtxoValidateValueNotConservedUtxo_MultiAsset(b *testing.B) {
 		}
 	}
 
-	input, err := mockledger.NewTransactionInputBuilder().WithTxId([]byte{0xaa}).WithIndex(0).Build()
+	input, err := mockledger.NewTransactionInputBuilder().
+		WithTxId([]byte{0xaa}).
+		WithIndex(0).
+		Build()
 	if err != nil {
 		b.Fatal(err)
 	}
-	utxo, err := mockledger.NewUtxoBuilder().WithTxId([]byte{0xaa}).WithIndex(0).WithAddress(addr).WithLovelace(2_000_000).WithAssets(inputAssets...).Build()
+	utxo, err := mockledger.NewUtxoBuilder().
+		WithTxId([]byte{0xaa}).
+		WithIndex(0).
+		WithAddress(addr).
+		WithLovelace(2_000_000).
+		WithAssets(inputAssets...).
+		Build()
 	if err != nil {
 		b.Fatal(err)
 	}
-	output, err := mockledger.NewTransactionOutputBuilder().WithAddress(addr).WithLovelace(1_900_000).WithAssets(outputAssets...).Build()
+	output, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(addr).
+		WithLovelace(1_900_000).
+		WithAssets(outputAssets...).
+		Build()
 	if err != nil {
 		b.Fatal(err)
 	}
-	tx, err := mockledger.NewTransactionBuilder().WithInputs(input).WithOutputs(output).WithFee(100_000).Build()
+	tx, err := mockledger.NewTransactionBuilder().
+		WithInputs(input).
+		WithOutputs(output).
+		WithFee(100_000).
+		Build()
 	if err != nil {
 		b.Fatal(err)
 	}
-	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
 	pp := &alonzo.AlonzoProtocolParameters{}
 
 	if err := alonzo.UtxoValidateValueNotConservedUtxo(tx, 0, ls, pp); err != nil {

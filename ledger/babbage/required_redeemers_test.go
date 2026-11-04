@@ -167,7 +167,9 @@ func TestBabbageUtxoValidateRequiredRedeemers(t *testing.T) {
 // Assigning the duplicate its own positional index would demand a redeemer
 // index 1 that cardano-ledger never asks for, and would reject a Babbage
 // block during sync.
-func TestBabbageUtxoValidateRequiredRedeemersDuplicateCertificates(t *testing.T) {
+func TestBabbageUtxoValidateRequiredRedeemersDuplicateCertificates(
+	t *testing.T,
+) {
 	v2 := common.PlutusV2Script{0x04, 0x05, 0x06}
 	cert := func() common.CertificateWrapper {
 		return common.CertificateWrapper{

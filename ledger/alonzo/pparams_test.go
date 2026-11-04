@@ -1423,5 +1423,9 @@ func TestAlonzoGenesisApplyExtraConfigCostModels(t *testing.T) {
 	}
 	_, err = short.ApplyExtraConfigCostModels(unchanged)
 	require.ErrorContains(t, err, "insufficient param count for PlutusV1: 165")
-	require.Equal(t, distinctCostModel(187, 2000), unchanged[alonzo.PlutusV3Key])
+	require.Equal(
+		t,
+		distinctCostModel(187, 2000),
+		unchanged[alonzo.PlutusV3Key],
+	)
 }

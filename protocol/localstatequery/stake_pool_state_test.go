@@ -204,7 +204,11 @@ func TestStakePoolStateQueryEncoding(t *testing.T) {
 			q, ok := decoded.(*ShelleyStakePoolStateQuery)
 			require.True(t, ok)
 			assert.Equal(t, QueryTypeShelleyStakePoolState, q.Type)
-			assert.Equal(t, tc.name == "one_pool_with_delegators", q.IncludeDelegators)
+			assert.Equal(
+				t,
+				tc.name == "one_pool_with_delegators",
+				q.IncludeDelegators,
+			)
 		})
 	}
 }

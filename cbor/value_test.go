@@ -108,7 +108,9 @@ var testDefs = []struct {
 		cborHex: "d81e82c24901000000000000000101",
 		expectedObject: cbor.Rat{
 			Rat: new(big.Rat).SetFrac(
-				new(big.Int).SetBytes(test.DecodeHexString("010000000000000001")),
+				new(
+					big.Int,
+				).SetBytes(test.DecodeHexString("010000000000000001")),
 				big.NewInt(1),
 			),
 		},
@@ -116,9 +118,11 @@ var testDefs = []struct {
 	},
 	// 30([1, 0]) -- zero denominator
 	{
-		cborHex:             "d81e820100",
-		expectedObject:      nil,
-		expectedDecodeError: fmt.Errorf("invalid cbor.Rat: denominator cannot be zero"),
+		cborHex:        "d81e820100",
+		expectedObject: nil,
+		expectedDecodeError: fmt.Errorf(
+			"invalid cbor.Rat: denominator cannot be zero",
+		),
 	},
 	// 258([1, 2, 3])
 	{
@@ -258,7 +262,10 @@ func TestValueDecodeMapWithUnhashableKeyIsWrapped(t *testing.T) {
 	}
 	for key, value := range valueMap {
 		if reflect.TypeOf(key).Kind() != reflect.Ptr {
-			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+			t.Fatalf(
+				"expected unhashable key to be wrapped as pointer, got: %T",
+				key,
+			)
 		}
 		if value != uint64(2) {
 			t.Fatalf("unexpected map value: %#v", value)
@@ -320,7 +327,10 @@ func TestValueDecodeMapWithNullKeyInNestedMapKey(t *testing.T) {
 	for key, value := range valueMap {
 		// The unhashable map key is wrapped as a pointer
 		if reflect.TypeOf(key).Kind() != reflect.Ptr {
-			t.Fatalf("expected unhashable key to be wrapped as pointer, got: %T", key)
+			t.Fatalf(
+				"expected unhashable key to be wrapped as pointer, got: %T",
+				key,
+			)
 		}
 		if value != uint64(100) {
 			t.Fatalf("unexpected map value: %#v", value)

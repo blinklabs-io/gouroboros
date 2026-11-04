@@ -44,8 +44,16 @@ func TestShelleyNativeScriptNofKMatchesSignedThresholdSemantics(t *testing.T) {
 		{threshold: 1, want: false},
 	} {
 		var script common.NativeScript
-		require.NoError(t, script.UnmarshalCBOR(nativeScriptThresholdCbor(t, tc.threshold)))
-		require.NoError(t, common.ValidatePreAllegraNativeScripts([]common.NativeScript{script}))
+		require.NoError(
+			t,
+			script.UnmarshalCBOR(nativeScriptThresholdCbor(t, tc.threshold)),
+		)
+		require.NoError(
+			t,
+			common.ValidatePreAllegraNativeScripts(
+				[]common.NativeScript{script},
+			),
+		)
 		require.Equal(t, tc.want, script.Evaluate(0, 0, 0, nil))
 	}
 }

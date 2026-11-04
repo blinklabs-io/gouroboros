@@ -39,7 +39,11 @@ func TestCommonDispatchersAcceptListLengthEncodings(t *testing.T) {
 			t.Run(encoding.Name, func(t *testing.T) {
 				var decoded CertificateWrapper
 				require.NoError(t, decoded.UnmarshalCBOR(encoding.Data))
-				require.IsType(t, &StakeRegistrationCertificate{}, decoded.Certificate)
+				require.IsType(
+					t,
+					&StakeRegistrationCertificate{},
+					decoded.Certificate,
+				)
 			})
 		}
 	})
@@ -83,7 +87,9 @@ func TestCommonDispatchersAcceptListLengthEncodings(t *testing.T) {
 	})
 
 	t.Run("NativeScript", func(t *testing.T) {
-		canonical, err := cbor.Encode(NativeScriptInvalidBefore{Type: 4, Slot: 5})
+		canonical, err := cbor.Encode(
+			NativeScriptInvalidBefore{Type: 4, Slot: 5},
+		)
 		require.NoError(t, err)
 		for _, encoding := range test.CanonicalAndNonShortestList(canonical) {
 			t.Run(encoding.Name, func(t *testing.T) {

@@ -101,7 +101,10 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 							t.Run(
 								era,
 								func(t *testing.T) {
-									require.NoError(t, newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub")))
+									require.NoError(
+										t,
+										newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub")),
+									)
 								},
 							)
 						}

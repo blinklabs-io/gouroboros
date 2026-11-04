@@ -34,7 +34,9 @@ func encodeIndefiniteArray(fields []cbor.RawMessage) []byte {
 }
 
 func TestByronSignedHeaderRejectsArrayEncodedVerificationKey(t *testing.T) {
-	blockBytes, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockBytes, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	require.NoError(t, err)
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
@@ -76,7 +78,9 @@ func TestByronSignedHeaderRejectsArrayEncodedVerificationKey(t *testing.T) {
 }
 
 func TestByronSignedHeaderRejectsIndefiniteFixedRecords(t *testing.T) {
-	blockBytes, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockBytes, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	require.NoError(t, err)
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
@@ -145,7 +149,13 @@ func TestByronSignedHeaderRejectsIndefiniteFixedRecords(t *testing.T) {
 			consensusFields := append([]cbor.RawMessage(nil), consensus...)
 			difficultyFields := append([]cbor.RawMessage(nil), difficulty...)
 			proofFields := append([]cbor.RawMessage(nil), bodyProof...)
-			tc.mutate(t, headerFields, consensusFields, difficultyFields, proofFields)
+			tc.mutate(
+				t,
+				headerFields,
+				consensusFields,
+				difficultyFields,
+				proofFields,
+			)
 			if tc.name == "main header" {
 				blockFields[0] = encodeIndefiniteArray(headerFields)
 			} else {
@@ -161,7 +171,9 @@ func TestByronSignedHeaderRejectsIndefiniteFixedRecords(t *testing.T) {
 }
 
 func TestByronMainHeaderRejectsIndefiniteStrings(t *testing.T) {
-	blockBytes, err := hex.DecodeString(strings.TrimSpace(testdata.ByronBlockHex))
+	blockBytes, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ByronBlockHex),
+	)
 	require.NoError(t, err)
 	var block []cbor.RawMessage
 	_, err = cbor.Decode(blockBytes, &block)
@@ -202,7 +214,9 @@ func TestByronMainHeaderRejectsIndefiniteStrings(t *testing.T) {
 		{
 			name: "extra proof",
 			mutate: func(t *testing.T, extra, _ []cbor.RawMessage) {
-				encoded, err := cbor.Encode(cbor.IndefLengthByteString{extraProof})
+				encoded, err := cbor.Encode(
+					cbor.IndefLengthByteString{extraProof},
+				)
 				require.NoError(t, err)
 				extra[3] = encoded
 			},

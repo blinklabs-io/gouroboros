@@ -161,7 +161,11 @@ func TestEncodeGeneric(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := cbor.EncodeGeneric(test.src)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "source must be a pointer to a struct")
+			assert.Contains(
+				t,
+				err.Error(),
+				"source must be a pointer to a struct",
+			)
 		})
 	}
 }

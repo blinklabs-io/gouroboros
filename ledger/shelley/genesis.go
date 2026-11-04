@@ -181,7 +181,11 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			if err := common.ValidatePoolMetadataForProtocolVersion(
 				pool.PoolMetadata, g.ProtocolParameters.ProtocolVersion.Major,
 			); err != nil {
-				return nil, fmt.Errorf("invalid pool %s metadata: %w", poolID, err)
+				return nil, fmt.Errorf(
+					"invalid pool %s metadata: %w",
+					poolID,
+					err,
+				)
 			}
 		}
 		return out, nil
@@ -228,7 +232,9 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 			)
 		}
 		if len(reward) != common.Blake2b224Size {
-			return nil, errors.New("invalid extraConfig pool reward account length")
+			return nil, errors.New(
+				"invalid extraConfig pool reward account length",
+			)
 		}
 		rewardAccount := common.Blake2b224(reward)
 
@@ -273,7 +279,9 @@ func (g *ShelleyGenesis) effectivePools() (map[string]common.PoolRegistrationCer
 		}
 
 		margin := common.NewGenesisRat(0, 1)
-		if marginJSON := bytes.TrimSpace(extraPool.Margin); len(marginJSON) > 0 &&
+		if marginJSON := bytes.TrimSpace(extraPool.Margin); len(
+			marginJSON,
+		) > 0 &&
 			!bytes.Equal(marginJSON, []byte("null")) {
 			margin, err = common.ParsePoolMarginJSON(extraPool.Margin)
 			if err != nil {
@@ -314,7 +322,10 @@ func decodeExtraPoolBlsKey(raw json.RawMessage) (*common.LeiosKey, error) {
 	}
 	publicKey, err := hex.DecodeString(key.PublicKey)
 	if err != nil {
-		return nil, fmt.Errorf("decode extraConfig pool blsKey public key: %w", err)
+		return nil, fmt.Errorf(
+			"decode extraConfig pool blsKey public key: %w",
+			err,
+		)
 	}
 	if len(publicKey) != common.LeiosBlsPublicKeySize {
 		return nil, fmt.Errorf(

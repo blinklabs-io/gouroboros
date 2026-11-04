@@ -288,7 +288,10 @@ func TestIngressBudgetBackpressureWakesOnOtherRoleRelease(t *testing.T) {
 	_, waiting, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
 	require.True(t, m.SetIngressLimit(0x02, muxer.ProtocolRoleResponder, 1000))
-	require.True(t, m.SetIngressBackpressure(0x02, muxer.ProtocolRoleResponder, true))
+	require.True(
+		t,
+		m.SetIngressBackpressure(0x02, muxer.ProtocolRoleResponder, true),
+	)
 	m.SetIngressBudget(12 * retainedSegmentCost(segmentSize))
 	m.Start()
 
@@ -347,11 +350,19 @@ func TestIngressBudgetExtensionAdmitsSolicitedIngress(t *testing.T) {
 	m.SetIngressBudget(baseBudget)
 	require.True(
 		t,
-		m.SetIngressBudgetExtension(0x01, muxer.ProtocolRoleResponder, extension),
+		m.SetIngressBudgetExtension(
+			0x01,
+			muxer.ProtocolRoleResponder,
+			extension,
+		),
 	)
 	require.False(
 		t,
-		m.SetIngressBudgetExtension(0x09, muxer.ProtocolRoleResponder, extension),
+		m.SetIngressBudgetExtension(
+			0x09,
+			muxer.ProtocolRoleResponder,
+			extension,
+		),
 	)
 	require.Equal(t, baseBudget+extension, m.IngressBudget())
 	m.Start()
@@ -415,11 +426,21 @@ func TestIngressBudgetExtensionsCannotOverflowAcrossRoles(t *testing.T) {
 	m.SetIngressBudget(100)
 	for id := uint16(1); id <= 65; id++ {
 		m.RegisterProtocol(id, muxer.ProtocolRoleResponder)
-		require.True(t, m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, math.MaxInt))
+		require.True(
+			t,
+			m.SetIngressBudgetExtension(
+				id,
+				muxer.ProtocolRoleResponder,
+				math.MaxInt,
+			),
+		)
 	}
 	require.Equal(t, math.MaxInt, m.IngressBudget())
 	for _, id := range []uint16{1, 2} {
-		require.True(t, m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, 0))
+		require.True(
+			t,
+			m.SetIngressBudgetExtension(id, muxer.ProtocolRoleResponder, 0),
+		)
 	}
 	require.Less(t, m.IngressBudget(), math.MaxInt)
 	require.Greater(t, m.IngressBudget(), 100)

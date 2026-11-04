@@ -89,9 +89,17 @@ func TestDecodePlutusProgramReusesProgramForSameKey(t *testing.T) {
 	require.NoError(t, err)
 	evalContext := programCacheTestEvalContext(t, lang.LanguageVersionV3, 10)
 
-	first, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	first, err := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	require.NoError(t, err)
-	second, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	second, err := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	require.NoError(t, err)
 	require.Same(t, first, second,
 		"an identical script, language and protocol major must reuse the"+
@@ -130,12 +138,24 @@ func TestDecodePlutusProgramCachedFailureIsKeyedByProtocolMajor(t *testing.T) {
 	oldCtx := programCacheTestEvalContext(t, lang.LanguageVersionV2, 10)
 	newCtx := programCacheTestEvalContext(t, lang.LanguageVersionV2, 11)
 
-	_, firstErr := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
+	_, firstErr := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV2,
+		oldCtx,
+	)
 	require.Error(t, firstErr)
-	_, secondErr := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, oldCtx)
+	_, secondErr := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV2,
+		oldCtx,
+	)
 	require.EqualError(t, secondErr, firstErr.Error())
 
-	program, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV2, newCtx)
+	program, err := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV2,
+		newCtx,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, program)
 }
@@ -216,12 +236,20 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 		smallDecodes++
 		return small, nil
 	}
-	_, err := cache.decodePrepared([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	_, err := cache.decodePrepared(
+		[]byte{1},
+		lang.LanguageVersionV3,
+		10,
+		decodeSmall,
+	)
 	require.NoError(t, err)
 
 	hugeTerm := make([]syn.Term[syn.DeBruijn], 0, 4096)
 	for range 4096 {
-		hugeTerm = append(hugeTerm, &syn.Delay[syn.DeBruijn]{Term: &syn.Error{}})
+		hugeTerm = append(
+			hugeTerm,
+			&syn.Delay[syn.DeBruijn]{Term: &syn.Error{}},
+		)
 	}
 	huge := prepare(&syn.Constr[syn.DeBruijn]{Fields: hugeTerm})
 	require.Greater(t, programEntrySize(huge), cache.maxBytes)
@@ -235,7 +263,12 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	}
 	require.Len(t, cache.entries, 1, "oversized entry must not be admitted")
 
-	_, err = cache.decodePrepared([]byte{1}, lang.LanguageVersionV3, 10, decodeSmall)
+	_, err = cache.decodePrepared(
+		[]byte{1},
+		lang.LanguageVersionV3,
+		10,
+		decodeSmall,
+	)
 	require.NoError(t, err)
 	require.Equal(t, 1, smallDecodes, "existing entry must survive")
 }
@@ -436,7 +469,11 @@ func TestEvaluateReusingCachedProgramIsUnchanged(t *testing.T) {
 
 	want, err := script.Evaluate(scriptContext, budget, evalContext)
 	require.NoError(t, err)
-	program, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	program, err := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	require.NoError(t, err)
 
 	const workers = 8
@@ -465,7 +502,11 @@ func TestEvaluateReusingCachedProgramIsUnchanged(t *testing.T) {
 		t.Error(err)
 	}
 
-	after, err := decodePreparedPlutusProgram(inner, lang.LanguageVersionV3, evalContext)
+	after, err := decodePreparedPlutusProgram(
+		inner,
+		lang.LanguageVersionV3,
+		evalContext,
+	)
 	require.NoError(t, err)
 	require.Same(t, program, after)
 }

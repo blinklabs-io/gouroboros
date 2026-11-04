@@ -90,7 +90,9 @@ func TestShelleyBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 
 func TestShelleyBlockUtxorpc(t *testing.T) {
 	// Decode the test block CBOR
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ShelleyBlockHex),
+	)
 	if err != nil {
 		t.Fatalf("failed to decode block hex: %v", err)
 	}
@@ -142,7 +144,9 @@ func TestShelleyBlockUtxorpc(t *testing.T) {
 }
 
 func TestShelleyBlockConstructorRejectsTrailingCBOR(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ShelleyBlockHex),
+	)
 	if err != nil {
 		t.Fatalf("decode block fixture: %v", err)
 	}
@@ -162,7 +166,9 @@ func TestShelleyBlockConstructorRejectsTrailingCBOR(t *testing.T) {
 }
 
 func BenchmarkShelleyBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ShelleyBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -177,7 +183,9 @@ func BenchmarkShelleyBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkShelleyBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.ShelleyBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.ShelleyBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}

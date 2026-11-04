@@ -273,7 +273,12 @@ func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
@@ -425,7 +430,10 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraMary)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraMary,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}
@@ -784,7 +792,9 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	}
 	if data[0]&cbor.CborTypeMask != cbor.CborTypeArray {
 		if data[0]&cbor.CborTypeMask != 0 {
-			return errors.New("mary transaction output coin must be an unsigned integer")
+			return errors.New(
+				"mary transaction output coin must be an unsigned integer",
+			)
 		}
 		if _, err := cbor.DecodeExact(data, &v.Amount); err != nil {
 			return err

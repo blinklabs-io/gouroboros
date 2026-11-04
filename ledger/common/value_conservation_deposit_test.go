@@ -31,21 +31,56 @@ import (
 
 func TestLegacyStakeRefundUsesRecordedDepositAcrossEras(t *testing.T) {
 	const inputAmount = uint64(100_000_000)
-	input := shelley.MustNewShelleyTransactionInput("d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
 	validators := []struct {
 		name string
 		call func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error
 		pp   func(uint) common.ProtocolParameters
 	}{
-		{"Shelley", shelley.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &shelley.ShelleyProtocolParameters{KeyDeposit: v} }},
-		{"Allegra", allegra.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &allegra.AllegraProtocolParameters{KeyDeposit: v} }},
-		{"Mary", mary.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &mary.MaryProtocolParameters{KeyDeposit: v} }},
-		{"Alonzo", alonzo.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &alonzo.AlonzoProtocolParameters{KeyDeposit: v} }},
-		{"Babbage", babbage.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &babbage.BabbageProtocolParameters{KeyDeposit: v} }},
-		{"Conway", conway.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters { return &conway.ConwayProtocolParameters{KeyDeposit: v} }},
-		{"Dijkstra", dijkstra.UtxoValidateValueNotConservedUtxo, func(v uint) common.ProtocolParameters {
-			return &dijkstra.DijkstraProtocolParameters{ConwayProtocolParameters: conway.ConwayProtocolParameters{KeyDeposit: v}}
-		}},
+		{
+			"Shelley",
+			shelley.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &shelley.ShelleyProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Allegra",
+			allegra.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &allegra.AllegraProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Mary",
+			mary.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &mary.MaryProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Alonzo",
+			alonzo.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &alonzo.AlonzoProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Babbage",
+			babbage.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &babbage.BabbageProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Conway",
+			conway.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters { return &conway.ConwayProtocolParameters{KeyDeposit: v} },
+		},
+		{
+			"Dijkstra",
+			dijkstra.UtxoValidateValueNotConservedUtxo,
+			func(v uint) common.ProtocolParameters {
+				return &dijkstra.DijkstraProtocolParameters{
+					ConwayProtocolParameters: conway.ConwayProtocolParameters{
+						KeyDeposit: v,
+					},
+				}
+			},
+		},
 	}
 	for _, validator := range validators {
 		for _, credType := range []uint{common.CredentialTypeAddrKeyHash, common.CredentialTypeScriptHash} {
@@ -57,39 +92,67 @@ func TestLegacyStakeRefundUsesRecordedDepositAcrossEras(t *testing.T) {
 				{"key deposit increased", 3_000_000, 2_000_000},
 				{"key deposit decreased", 2_000_000, 3_000_000},
 			} {
-				t.Run(validator.name+"/credential-"+string(rune('0'+credType))+"/"+deposits.name, func(t *testing.T) {
-					credential := common.Credential{CredType: credType}
-					credential.Credential[0] = 0x42
-					state := mockledger.NewLedgerStateBuilder().
-						WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).
-						WithStakeRegistrations([]common.StakeRegistrationCertificate{{StakeCredential: credential}}).
-						WithStakeCredentialDeposits(map[mockledger.RewardAccountKey]uint64{
-							mockledger.NewRewardAccountKey(credential): deposits.recorded,
-						}).Build()
-					output, err := mockledger.NewTransactionOutputBuilder().WithLovelace(inputAmount + deposits.recorded).Build()
-					require.NoError(t, err)
-					tx, err := mockledger.NewTransactionBuilder().
-						WithCertificates(&common.StakeDeregistrationCertificate{StakeCredential: credential}).
-						WithInputs(input).
-						WithOutputs(output).Build()
-					require.NoError(t, err)
-					require.NoError(t, validator.call(tx, 0, state, validator.pp(deposits.current)))
+				t.Run(
+					validator.name+"/credential-"+string(
+						rune('0'+credType),
+					)+"/"+deposits.name,
+					func(t *testing.T) {
+						credential := common.Credential{CredType: credType}
+						credential.Credential[0] = 0x42
+						state := mockledger.NewLedgerStateBuilder().
+							WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).
+							WithStakeRegistrations([]common.StakeRegistrationCertificate{{StakeCredential: credential}}).
+							WithStakeCredentialDeposits(map[mockledger.RewardAccountKey]uint64{
+								mockledger.NewRewardAccountKey(credential): deposits.recorded,
+							}).
+							Build()
+						output, err := mockledger.NewTransactionOutputBuilder().
+							WithLovelace(inputAmount + deposits.recorded).
+							Build()
+						require.NoError(t, err)
+						tx, err := mockledger.NewTransactionBuilder().
+							WithCertificates(&common.StakeDeregistrationCertificate{StakeCredential: credential}).
+							WithInputs(input).
+							WithOutputs(output).Build()
+						require.NoError(t, err)
+						require.NoError(
+							t,
+							validator.call(
+								tx,
+								0,
+								state,
+								validator.pp(deposits.current),
+							),
+						)
 
-					wrongOutput, err := mockledger.NewTransactionOutputBuilder().WithLovelace(inputAmount + uint64(deposits.current)).Build()
-					require.NoError(t, err)
-					wrongTx, err := mockledger.NewTransactionBuilder().
-						WithCertificates(&common.StakeDeregistrationCertificate{StakeCredential: credential}).
-						WithInputs(input).
-						WithOutputs(wrongOutput).Build()
-					require.NoError(t, err)
-					require.Error(t, validator.call(wrongTx, 0, state, validator.pp(deposits.current)))
-				})
+						wrongOutput, err := mockledger.NewTransactionOutputBuilder().
+							WithLovelace(inputAmount + uint64(deposits.current)).
+							Build()
+						require.NoError(t, err)
+						wrongTx, err := mockledger.NewTransactionBuilder().
+							WithCertificates(&common.StakeDeregistrationCertificate{StakeCredential: credential}).
+							WithInputs(input).
+							WithOutputs(wrongOutput).Build()
+						require.NoError(t, err)
+						require.Error(
+							t,
+							validator.call(
+								wrongTx,
+								0,
+								state,
+								validator.pp(deposits.current),
+							),
+						)
+					},
+				)
 			}
 		}
 	}
 }
 
-func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T) {
+func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(
+	t *testing.T,
+) {
 	const inputAmount = uint64(100_000_000)
 	input := shelley.MustNewShelleyTransactionInput(
 		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
@@ -129,11 +192,31 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 		call func(common.Transaction, uint64, common.LedgerState, common.ProtocolParameters) error
 		pp   common.ProtocolParameters
 	}{
-		{"Shelley", shelley.UtxoValidateValueNotConservedUtxo, &shelley.ShelleyProtocolParameters{KeyDeposit: 3_000_000}},
-		{"Allegra", allegra.UtxoValidateValueNotConservedUtxo, &allegra.AllegraProtocolParameters{KeyDeposit: 3_000_000}},
-		{"Mary", mary.UtxoValidateValueNotConservedUtxo, &mary.MaryProtocolParameters{KeyDeposit: 3_000_000}},
-		{"Alonzo", alonzo.UtxoValidateValueNotConservedUtxo, &alonzo.AlonzoProtocolParameters{KeyDeposit: 3_000_000}},
-		{"Babbage", babbage.UtxoValidateValueNotConservedUtxo, &babbage.BabbageProtocolParameters{KeyDeposit: 3_000_000}},
+		{
+			"Shelley",
+			shelley.UtxoValidateValueNotConservedUtxo,
+			&shelley.ShelleyProtocolParameters{KeyDeposit: 3_000_000},
+		},
+		{
+			"Allegra",
+			allegra.UtxoValidateValueNotConservedUtxo,
+			&allegra.AllegraProtocolParameters{KeyDeposit: 3_000_000},
+		},
+		{
+			"Mary",
+			mary.UtxoValidateValueNotConservedUtxo,
+			&mary.MaryProtocolParameters{KeyDeposit: 3_000_000},
+		},
+		{
+			"Alonzo",
+			alonzo.UtxoValidateValueNotConservedUtxo,
+			&alonzo.AlonzoProtocolParameters{KeyDeposit: 3_000_000},
+		},
+		{
+			"Babbage",
+			babbage.UtxoValidateValueNotConservedUtxo,
+			&babbage.BabbageProtocolParameters{KeyDeposit: 3_000_000},
+		},
 	}
 	for _, validator := range validators {
 		t.Run(validator.name, func(t *testing.T) {
@@ -143,9 +226,15 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 			require.NoError(t, err)
 			wrongTx, err := mockledger.NewTransactionBuilder().
 				WithCertificates(
-					&common.StakeDeregistrationCertificate{StakeCredential: credential},
-					&common.StakeRegistrationCertificate{StakeCredential: credential},
-					&common.StakeDeregistrationCertificate{StakeCredential: credential},
+					&common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
+					&common.StakeRegistrationCertificate{
+						StakeCredential: credential,
+					},
+					&common.StakeDeregistrationCertificate{
+						StakeCredential: credential,
+					},
 				).
 				WithInputs(input).
 				WithOutputs(wrongOutput).
@@ -156,7 +245,9 @@ func TestStakeRefundUsesEarlierInTransactionRegistrationAcrossEras(t *testing.T)
 	}
 }
 
-func TestPhase2InvalidUnregisteredStakeDeregistrationDoesNotRefundKeyDeposit(t *testing.T) {
+func TestPhase2InvalidUnregisteredStakeDeregistrationDoesNotRefundKeyDeposit(
+	t *testing.T,
+) {
 	const (
 		inputAmount = uint64(100_000_000)
 		keyDeposit  = uint(2_000_000)
@@ -209,7 +300,15 @@ func TestPhase2InvalidUnregisteredStakeDeregistrationDoesNotRefundKeyDeposit(t *
 			require.False(t, tx.IsValid())
 			require.Len(t, tx.Certificates(), 1)
 			require.NoError(t, validator.call(tx, 0, state, validator.pp))
-			require.Error(t, validator.call(buildTx(inputAmount+uint64(keyDeposit)), 0, state, validator.pp))
+			require.Error(
+				t,
+				validator.call(
+					buildTx(inputAmount+uint64(keyDeposit)),
+					0,
+					state,
+					validator.pp,
+				),
+			)
 		})
 	}
 }

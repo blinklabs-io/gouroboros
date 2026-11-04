@@ -262,7 +262,9 @@ func nativeScriptAllCbor() []byte {
 // ValidateScriptWitnesses's failure to report. hasExactSetOfRedeemers only
 // considers purposes with `Just script <- [Map.lookup sh scriptsProvided]`,
 // so reporting a missing redeemer here would mask a missing script.
-func TestValidateRequiredRedeemersUnavailableScriptPurposeSkipped(t *testing.T) {
+func TestValidateRequiredRedeemersUnavailableScriptPurposeSkipped(
+	t *testing.T,
+) {
 	// The witness set provides an unrelated script, so Available is non-empty
 	// and the walk actually runs, but nothing supplies the mint policy.
 	other := common.PlutusV3Script{0x11, 0x22}

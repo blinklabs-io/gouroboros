@@ -217,7 +217,9 @@ func TestPhase2InvalidStillRejectsNonAccountProposalAddress(t *testing.T) {
 		Body: conway.ConwayTransactionBody{
 			TxProposalProcedures: []conway.ConwayProposalProcedure{{
 				PPGovAction: conway.ConwayGovAction{
-					Action: &common.InfoGovAction{Type: uint(common.GovActionTypeInfo)},
+					Action: &common.InfoGovAction{
+						Type: uint(common.GovActionTypeInfo),
+					},
 				},
 			}},
 		},

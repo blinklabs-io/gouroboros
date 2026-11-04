@@ -62,7 +62,12 @@ func TestAlonzoRedeemersDuplicateKeyLastWins(t *testing.T) {
 	for key, value := range r.Iter() {
 		count++
 		if key.Tag != common.RedeemerTagMint || key.Index != 0 {
-			t.Errorf("Iter key = (%d, %d), want (%d, 0)", key.Tag, key.Index, common.RedeemerTagMint)
+			t.Errorf(
+				"Iter key = (%d, %d), want (%d, 0)",
+				key.Tag,
+				key.Index,
+				common.RedeemerTagMint,
+			)
 		}
 		if gotData := hex.EncodeToString(value.Data.Cbor()); gotData != "03" {
 			t.Errorf("Iter data = %s, want last entry 03", gotData)
@@ -92,8 +97,14 @@ func TestAlonzoRedeemersDuplicateKeyPreservesDistinctKeys(t *testing.T) {
 		})
 	}
 	want := []observed{
-		{key: common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 2}, data: "04"},
-		{key: common.RedeemerKey{Tag: common.RedeemerTagMint, Index: 0}, data: "03"},
+		{
+			key:  common.RedeemerKey{Tag: common.RedeemerTagSpend, Index: 2},
+			data: "04",
+		},
+		{
+			key:  common.RedeemerKey{Tag: common.RedeemerTagMint, Index: 0},
+			data: "03",
+		},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("Iter count = %d, want %d: %#v", len(got), len(want), got)

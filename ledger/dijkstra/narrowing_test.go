@@ -76,7 +76,10 @@ func TestDijkstraGuardingPurposeRejectsWireIndexAboveMaxInt32(t *testing.T) {
 
 	var ok bool
 	require.NotPanics(t, func() {
-		_, ok = dijkstraGuardingPurpose(dijkstraTxWithOneScriptGuard(), redeemerKey)
+		_, ok = dijkstraGuardingPurpose(
+			dijkstraTxWithOneScriptGuard(),
+			redeemerKey,
+		)
 	})
 	require.False(t, ok)
 }

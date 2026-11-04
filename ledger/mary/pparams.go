@@ -275,7 +275,10 @@ func (p *MaryProtocolParameters) ProtocolMajorVersion() uint {
 }
 
 func (p *MaryProtocolParameters) ProtocolParametersProtocolVersion() common.ProtocolParametersProtocolVersion {
-	return common.ProtocolParametersProtocolVersion{Major: p.ProtocolMajor, Minor: p.ProtocolMinor}
+	return common.ProtocolParametersProtocolVersion{
+		Major: p.ProtocolMajor,
+		Minor: p.ProtocolMinor,
+	}
 }
 
 // MinPoolCostValue returns the minPoolCost protocol parameter.

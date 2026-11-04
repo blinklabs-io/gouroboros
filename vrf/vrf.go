@@ -317,7 +317,11 @@ func SeedL() []byte {
 //
 // IMPORTANT: eta0 must be exactly 32 bytes and seedConstant must be
 // exactly 32 bytes.
-func MkSeedTPraos(slot int64, eta0 []byte, seedConstant []byte) ([]byte, error) {
+func MkSeedTPraos(
+	slot int64,
+	eta0 []byte,
+	seedConstant []byte,
+) ([]byte, error) {
 	if len(seedConstant) != 32 {
 		return nil, fmt.Errorf(
 			"seedConstant must be 32 bytes, got %d", len(seedConstant),
@@ -393,7 +397,10 @@ func verify(
 	// SEC-9: Use SetCanonicalBytes to reject non-canonical s >= L (proof malleability)
 	s := edwards25519.NewScalar()
 	if _, err := s.SetCanonicalBytes(sScalarArr[:]); err != nil {
-		return nil, false, fmt.Errorf("non-canonical s scalar in VRF proof: %w", err)
+		return nil, false, fmt.Errorf(
+			"non-canonical s scalar in VRF proof: %w",
+			err,
+		)
 	}
 
 	// Negate the points rather than c: (L-c)*P equals -c*P only for

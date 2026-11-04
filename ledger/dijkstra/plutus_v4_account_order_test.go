@@ -153,7 +153,11 @@ func TestDijkstraBalanceIntervalsV4FollowAccountAddressOrder(t *testing.T) {
 			}
 			_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
 			require.NoError(t, err)
-			dataMap := requireDijkstraV4Map(t, balanceIntervals, len(tc.accounts))
+			dataMap := requireDijkstraV4Map(
+				t,
+				balanceIntervals,
+				len(tc.accounts),
+			)
 			for i, account := range tc.accounts {
 				ctor := uint64(0)
 				if account.addrType == common.AddressTypeNoneScript {
@@ -238,7 +242,10 @@ func TestDijkstraAccountMapsV4AssocMapToList(t *testing.T) {
 				scriptCredential,
 				keyCredential,
 			)
-			level := dijkstraV4TestLevel(t, &DijkstraTransaction{Body: test.body})
+			level := dijkstraV4TestLevel(
+				t,
+				&DijkstraTransaction{Body: test.body},
+			)
 			context, err := dijkstraPlutusV4Context(
 				level,
 				script.ScriptPurposeGuarding{Guard: scriptCredential},

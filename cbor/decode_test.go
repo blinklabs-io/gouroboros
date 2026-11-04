@@ -38,8 +38,15 @@ func TestIsEmptyCollection(t *testing.T) {
 		{name: "non-empty map", data: []byte{0xa1, 0x00, 0x00}},
 		{name: "empty indefinite array", data: []byte{0x9f, 0xff}, empty: true},
 		{name: "empty indefinite map", data: []byte{0xbf, 0xff}, empty: true},
-		{name: "empty tagged set", data: []byte{0xd9, 0x01, 0x02, 0x80}, empty: true},
-		{name: "non-empty tagged set", data: []byte{0xd9, 0x01, 0x02, 0x81, 0x00}},
+		{
+			name:  "empty tagged set",
+			data:  []byte{0xd9, 0x01, 0x02, 0x80},
+			empty: true,
+		},
+		{
+			name: "non-empty tagged set",
+			data: []byte{0xd9, 0x01, 0x02, 0x81, 0x00},
+		},
 		{name: "scalar", data: []byte{0x00}, wantErr: true},
 		{name: "empty input", wantErr: true},
 	}
@@ -432,7 +439,11 @@ func TestDecodeGeneric(t *testing.T) {
 		dest := new(int)
 		err := cbor.DecodeGeneric(cborData, dest)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a pointer to a struct")
+		assert.Contains(
+			t,
+			err.Error(),
+			"destination must be a pointer to a struct",
+		)
 	})
 
 	t.Run("pointer to non-struct (string)", func(t *testing.T) {
@@ -440,7 +451,11 @@ func TestDecodeGeneric(t *testing.T) {
 		dest := new(string)
 		err := cbor.DecodeGeneric(cborData, dest)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "destination must be a pointer to a struct")
+		assert.Contains(
+			t,
+			err.Error(),
+			"destination must be a pointer to a struct",
+		)
 	})
 
 	cborData, _ := hex.DecodeString(validCborHex)

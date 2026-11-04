@@ -144,7 +144,9 @@ func TestLeiosEbCertificateCborRoundTrip(t *testing.T) {
 	assert.Equal(t, encoded, reencoded)
 }
 
-func TestLeiosEbCertificateSetAggregatedSignatureClearsCachedCbor(t *testing.T) {
+func TestLeiosEbCertificateSetAggregatedSignatureClearsCachedCbor(
+	t *testing.T,
+) {
 	cert := LeiosEbCertificate{
 		SlotNo:              99,
 		EndorserBlockHash:   NewBlake2b256([]byte{0x11, 0x22, 0x33}),

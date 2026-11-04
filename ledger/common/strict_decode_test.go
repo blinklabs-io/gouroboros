@@ -88,15 +88,20 @@ func TestFixedLengthByteStringDecode(t *testing.T) {
 	for _, test := range tests {
 		for _, delta := range []int{-1, 0, 1} {
 			wantErr := delta != 0
-			t.Run(test.name+map[int]string{-1: "/short", 0: "/exact", 1: "/long"}[delta], func(t *testing.T) {
-				wire, err := cbor.Encode(bytes.Repeat([]byte{0xaa}, test.size+delta))
-				require.NoError(t, err)
-				if wantErr {
-					assert.Error(t, test.decode(wire))
-				} else {
-					assert.NoError(t, test.decode(wire))
-				}
-			})
+			t.Run(
+				test.name+map[int]string{-1: "/short", 0: "/exact", 1: "/long"}[delta],
+				func(t *testing.T) {
+					wire, err := cbor.Encode(
+						bytes.Repeat([]byte{0xaa}, test.size+delta),
+					)
+					require.NoError(t, err)
+					if wantErr {
+						assert.Error(t, test.decode(wire))
+					} else {
+						assert.NoError(t, test.decode(wire))
+					}
+				},
+			)
 		}
 	}
 }
@@ -151,7 +156,9 @@ func TestExUnitsUnmarshalCBORArrayLength(t *testing.T) {
 }
 
 func TestGovActionIdUnmarshalCBORRejectsExtraFields(t *testing.T) {
-	encoded, err := cbor.Encode([]any{make([]byte, Blake2b256Size), uint16(1), uint8(0)})
+	encoded, err := cbor.Encode(
+		[]any{make([]byte, Blake2b256Size), uint16(1), uint8(0)},
+	)
 	require.NoError(t, err)
 	var id GovActionId
 	require.Error(t, id.UnmarshalCBOR(encoded))
@@ -176,7 +183,9 @@ func TestGovAnchorUnmarshalCBORRejectsInvalidUTF8(t *testing.T) {
 }
 
 func TestGovAnchorUnmarshalCBORRejectsIndefiniteArray(t *testing.T) {
-	encoded, err := cbor.Encode([]any{"https://example.com", make([]byte, Blake2b256Size)})
+	encoded, err := cbor.Encode(
+		[]any{"https://example.com", make([]byte, Blake2b256Size)},
+	)
 	require.NoError(t, err)
 
 	var anchor GovAnchor
@@ -222,19 +231,26 @@ func TestFixedHashDecodeRejectsAliasedWireValue(t *testing.T) {
 
 func TestFixedHashDecodeIndefiniteByteString(t *testing.T) {
 	for _, size := range []int{31, 32, 33} {
-		t.Run(map[int]string{31: "short", 32: "exact", 33: "long"}[size], func(t *testing.T) {
-			firstChunkSize := size / 2
-			secondChunkSize := size - firstChunkSize
-			wire := []byte{0x5f, byte(0x40 + firstChunkSize)}
-			wire = append(wire, bytes.Repeat([]byte{0xaa}, firstChunkSize)...)
-			wire = append(wire, byte(0x40+secondChunkSize))
-			wire = append(wire, bytes.Repeat([]byte{0xbb}, secondChunkSize)...)
-			wire = append(wire, 0xff)
+		t.Run(
+			map[int]string{31: "short", 32: "exact", 33: "long"}[size],
+			func(t *testing.T) {
+				firstChunkSize := size / 2
+				secondChunkSize := size - firstChunkSize
+				wire := []byte{0x5f, byte(0x40 + firstChunkSize)}
+				wire = append(
+					wire,
+					bytes.Repeat([]byte{0xaa}, firstChunkSize)...)
+				wire = append(wire, byte(0x40+secondChunkSize))
+				wire = append(
+					wire,
+					bytes.Repeat([]byte{0xbb}, secondChunkSize)...)
+				wire = append(wire, 0xff)
 
-			var hash Blake2b256
-			_, err := cbor.Decode(wire, &hash)
-			assert.Error(t, err)
-		})
+				var hash Blake2b256
+				_, err := cbor.Decode(wire, &hash)
+				assert.Error(t, err)
+			},
+		)
 	}
 }
 
@@ -292,14 +308,19 @@ func TestFixedLengthRawArrayFields(t *testing.T) {
 	for _, test := range tests {
 		for _, delta := range []int{-1, 0, 1} {
 			wantErr := delta != 0
-			t.Run(test.name+map[int]string{-1: "/short", 0: "/exact", 1: "/long"}[delta], func(t *testing.T) {
-				err := test.decode(bytes.Repeat([]byte{0xbb}, test.size+delta))
-				if wantErr {
-					assert.Error(t, err)
-				} else {
-					assert.NoError(t, err)
-				}
-			})
+			t.Run(
+				test.name+map[int]string{-1: "/short", 0: "/exact", 1: "/long"}[delta],
+				func(t *testing.T) {
+					err := test.decode(
+						bytes.Repeat([]byte{0xbb}, test.size+delta),
+					)
+					if wantErr {
+						assert.Error(t, err)
+					} else {
+						assert.NoError(t, err)
+					}
+				},
+			)
 		}
 	}
 }
@@ -320,7 +341,9 @@ func TestMultiAssetWireBounds(t *testing.T) {
 			encoded, err := cbor.Encode(
 				map[cbor.ByteString]map[cbor.ByteString]*big.Int{
 					cbor.NewByteString(bytes.Repeat([]byte{0x11}, test.policySize)): {
-						cbor.NewByteString(bytes.Repeat([]byte{0x22}, test.assetSize)): big.NewInt(1),
+						cbor.NewByteString(bytes.Repeat([]byte{0x22}, test.assetSize)): big.NewInt(
+							1,
+						),
 					},
 				},
 			)

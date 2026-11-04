@@ -122,12 +122,32 @@ func TestTransactionConstructorsRejectTrailingCBOR(t *testing.T) {
 		txCborHex string
 	}{
 		{name: "Byron", txType: ledger.TxTypeByron, txCborHex: byronTxCborHex},
-		{name: "Shelley", txType: ledger.TxTypeShelley, txCborHex: shelleyTxCborHex},
-		{name: "Allegra", txType: ledger.TxTypeAllegra, txCborHex: allegraTxCborHex},
+		{
+			name:      "Shelley",
+			txType:    ledger.TxTypeShelley,
+			txCborHex: shelleyTxCborHex,
+		},
+		{
+			name:      "Allegra",
+			txType:    ledger.TxTypeAllegra,
+			txCborHex: allegraTxCborHex,
+		},
 		{name: "Mary", txType: ledger.TxTypeMary, txCborHex: maryTxCborHex},
-		{name: "Alonzo", txType: ledger.TxTypeAlonzo, txCborHex: alonzoTxCborHex},
-		{name: "Babbage", txType: ledger.TxTypeBabbage, txCborHex: babbageTxCborHex},
-		{name: "Conway", txType: ledger.TxTypeConway, txCborHex: conwayTxCborHex},
+		{
+			name:      "Alonzo",
+			txType:    ledger.TxTypeAlonzo,
+			txCborHex: alonzoTxCborHex,
+		},
+		{
+			name:      "Babbage",
+			txType:    ledger.TxTypeBabbage,
+			txCborHex: babbageTxCborHex,
+		},
+		{
+			name:      "Conway",
+			txType:    ledger.TxTypeConway,
+			txCborHex: conwayTxCborHex,
+		},
 	}
 	for _, testDef := range testDefs {
 		t.Run(testDef.name, func(t *testing.T) {
@@ -154,8 +174,16 @@ func TestTransactionConstructorsRejectExtraComponents(t *testing.T) {
 		txType    uint
 		txCborHex string
 	}{
-		{name: "Shelley", txType: ledger.TxTypeShelley, txCborHex: shelleyTxCborHex},
-		{name: "Allegra", txType: ledger.TxTypeAllegra, txCborHex: allegraTxCborHex},
+		{
+			name:      "Shelley",
+			txType:    ledger.TxTypeShelley,
+			txCborHex: shelleyTxCborHex,
+		},
+		{
+			name:      "Allegra",
+			txType:    ledger.TxTypeAllegra,
+			txCborHex: allegraTxCborHex,
+		},
 		{name: "Mary", txType: ledger.TxTypeMary, txCborHex: maryTxCborHex},
 	}
 	for _, testDef := range testDefs {
@@ -271,8 +299,11 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 		guards any
 	}{
 		{
-			name:   "credential_guards",
-			guards: cbor.NewSetType([]common.Credential{guardCredential}, false),
+			name: "credential_guards",
+			guards: cbor.NewSetType(
+				[]common.Credential{guardCredential},
+				false,
+			),
 		},
 		{
 			name:   "key_hash_guards_in_three_part_tx",
@@ -292,12 +323,18 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 				nil,
 			})
 			if err != nil {
-				t.Fatalf("unexpected error encoding Dijkstra transaction: %s", err)
+				t.Fatalf(
+					"unexpected error encoding Dijkstra transaction: %s",
+					err,
+				)
 			}
 
 			txType, err := ledger.DetermineTransactionType(txCbor)
 			if err != nil {
-				t.Fatalf("unexpected error determining transaction type: %s", err)
+				t.Fatalf(
+					"unexpected error determining transaction type: %s",
+					err,
+				)
 			}
 			if txType != ledger.TxTypeDijkstra {
 				t.Fatalf(
@@ -310,7 +347,9 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 	}
 }
 
-func TestDetermineTransactionTypeConwayRequiredSignersNotDijkstra(t *testing.T) {
+func TestDetermineTransactionTypeConwayRequiredSignersNotDijkstra(
+	t *testing.T,
+) {
 	var signer common.Blake2b224
 	for i := range signer {
 		signer[i] = byte(i + 1)
@@ -343,7 +382,9 @@ func TestDetermineTransactionTypeConwayRequiredSignersNotDijkstra(t *testing.T) 
 	}
 }
 
-func TestDetermineTransactionTypePreDijkstraTransactionsNotDijkstra(t *testing.T) {
+func TestDetermineTransactionTypePreDijkstraTransactionsNotDijkstra(
+	t *testing.T,
+) {
 	testDefs := []struct {
 		name      string
 		txCborHex string

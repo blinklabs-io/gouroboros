@@ -112,7 +112,11 @@ func (s *DecodeStage) Process(ctx context.Context, item *BlockItem) error {
 		SkipBodyHashValidation: s.SkipBodyHashValidation,
 	}
 
-	block, err := ledger.NewBlockFromCbor(item.BlockType(), item.RawCbor(), config)
+	block, err := ledger.NewBlockFromCbor(
+		item.BlockType(),
+		item.RawCbor(),
+		config,
+	)
 	duration := time.Since(start)
 
 	if err != nil {

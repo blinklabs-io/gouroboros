@@ -68,7 +68,8 @@ func TestByronMainnetRedeemWitnessValidatesWireTransactionHash(t *testing.T) {
 	if tx.Body.Id() != tx.Body.WireId() {
 		t.Fatalf(
 			"Id %s differs from WireId %s for a canonically encoded transaction",
-			tx.Body.Id(), tx.Body.WireId(),
+			tx.Body.Id(),
+			tx.Body.WireId(),
 		)
 	}
 	if err := tx.ValidateVKeyWitnesses(MainnetProtocolMagic); err != nil {
@@ -185,7 +186,9 @@ func TestByronTransactionVKeyWitnessUsesLegacyVerifier(t *testing.T) {
 	}
 }
 
-func TestByronTransactionVKeyWitnessUsesDomainSeparatedSigningData(t *testing.T) {
+func TestByronTransactionVKeyWitnessUsesDomainSeparatedSigningData(
+	t *testing.T,
+) {
 	for _, tc := range []struct {
 		name        string
 		constructor uint64
@@ -248,7 +251,9 @@ func TestByronTransactionVKeyWitnessUsesDomainSeparatedSigningData(t *testing.T)
 				t.Fatalf("valid Byron witness rejected: %v", err)
 			}
 			if err := tx.ValidateVKeyWitnesses(protocolMagic + 1); err == nil {
-				t.Fatal("accepted witness signed for a different protocol magic")
+				t.Fatal(
+					"accepted witness signed for a different protocol magic",
+				)
 			}
 		})
 	}

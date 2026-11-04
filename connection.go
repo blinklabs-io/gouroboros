@@ -479,18 +479,30 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 	}
 	if c.blockFetch != nil {
 		if c.blockFetch.Client != nil {
-			protocols = append(protocols, c.blockFetch.Client.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.blockFetch.Client.ProtocolInstance(),
+			)
 		}
 		if c.blockFetch.Server != nil {
-			protocols = append(protocols, c.blockFetch.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.blockFetch.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.txSubmission != nil {
 		if c.txSubmission.Client != nil {
-			protocols = append(protocols, c.txSubmission.Client.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.txSubmission.Client.ProtocolInstance(),
+			)
 		}
 		if c.txSubmission.Server != nil {
-			protocols = append(protocols, c.txSubmission.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.txSubmission.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.keepAlive != nil {
@@ -530,7 +542,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.peerSharing.Client.Protocol)
 		}
 		if c.peerSharing.Server != nil {
-			protocols = append(protocols, c.peerSharing.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.peerSharing.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.leiosNotify != nil {
@@ -538,7 +553,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.leiosNotify.Client.Protocol)
 		}
 		if c.leiosNotify.Server != nil {
-			protocols = append(protocols, c.leiosNotify.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.leiosNotify.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.leiosFetch != nil {
@@ -546,7 +564,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.leiosFetch.Client.Protocol)
 		}
 		if c.leiosFetch.Server != nil {
-			protocols = append(protocols, c.leiosFetch.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.leiosFetch.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.leiosVotes != nil {
@@ -554,7 +575,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.leiosVotes.Client.Protocol)
 		}
 		if c.leiosVotes.Server != nil {
-			protocols = append(protocols, c.leiosVotes.Server.ProtocolInstance())
+			protocols = append(
+				protocols,
+				c.leiosVotes.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.perasVotes != nil {
@@ -567,18 +591,30 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 	}
 	if c.localMessageSubmission != nil {
 		if c.localMessageSubmission.Client != nil {
-			protocols = append(protocols, c.localMessageSubmission.Client.Protocol)
+			protocols = append(
+				protocols,
+				c.localMessageSubmission.Client.Protocol,
+			)
 		}
 		if c.localMessageSubmission.Server != nil {
-			protocols = append(protocols, c.localMessageSubmission.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localMessageSubmission.Server.Protocol,
+			)
 		}
 	}
 	if c.localMessageNotification != nil {
 		if c.localMessageNotification.Client != nil {
-			protocols = append(protocols, c.localMessageNotification.Client.Protocol)
+			protocols = append(
+				protocols,
+				c.localMessageNotification.Client.Protocol,
+			)
 		}
 		if c.localMessageNotification.Server != nil {
-			protocols = append(protocols, c.localMessageNotification.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localMessageNotification.Server.Protocol,
+			)
 		}
 	}
 	return protocols

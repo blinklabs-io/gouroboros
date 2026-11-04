@@ -32,15 +32,33 @@ func TestPlutusV3ReferenceInputDisjointnessStartsAtPV11(t *testing.T) {
 		inputs:          []common.TransactionInput{input},
 		referenceInputs: []common.TransactionInput{input},
 	}
-	require.NoError(t, script.ValidatePlutusV3ReferenceInputs(tx, common.ProtocolVersionPlomin))
-	require.Error(t, script.ValidatePlutusV3ReferenceInputs(tx, common.ProtocolVersionVanRossem))
+	require.NoError(
+		t,
+		script.ValidatePlutusV3ReferenceInputs(
+			tx,
+			common.ProtocolVersionPlomin,
+		),
+	)
+	require.Error(
+		t,
+		script.ValidatePlutusV3ReferenceInputs(
+			tx,
+			common.ProtocolVersionVanRossem,
+		),
+	)
 	tx.referenceInputs = []common.TransactionInput{
 		shelley.MustNewShelleyTransactionInput(
 			"0100000000000000000000000000000000000000000000000000000000000000",
 			1,
 		),
 	}
-	require.NoError(t, script.ValidatePlutusV3ReferenceInputs(tx, common.ProtocolVersionVanRossem))
+	require.NoError(
+		t,
+		script.ValidatePlutusV3ReferenceInputs(
+			tx,
+			common.ProtocolVersionVanRossem,
+		),
+	)
 }
 
 type protocolVersionTestTransaction struct {

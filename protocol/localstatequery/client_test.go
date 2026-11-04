@@ -113,7 +113,10 @@ func runTest(
 		select {
 		case err, ok := <-ouroborosErrChan:
 			if ok && err != nil &&
-				!strings.Contains(err.Error(), "peer closed the connection while reading header: EOF") {
+				!strings.Contains(
+					err.Error(),
+					"peer closed the connection while reading header: EOF",
+				) {
 				t.Errorf("received unexpected Ouroboros error: %s", err)
 			}
 		case <-time.After(10 * time.Second):
@@ -210,41 +213,108 @@ func TestGetChainBlockNo(t *testing.T) {
 	}{
 		{name: "origin", wire: test.DecodeHexString("8100")},
 		{name: "first block", wire: test.DecodeHexString("820100")},
-		{name: "ordinary block", wire: test.DecodeHexString("8201182a"), want: 42},
-		{name: "maximum int64 block", wire: test.DecodeHexString("82011b7fffffffffffffff"), want: 1<<63 - 1},
+		{
+			name: "ordinary block",
+			wire: test.DecodeHexString("8201182a"),
+			want: 42,
+		},
+		{
+			name: "maximum int64 block",
+			wire: test.DecodeHexString("82011b7fffffffffffffff"),
+			want: 1<<63 - 1,
+		},
 		{name: "empty result", wire: test.DecodeHexString("80"), wantErr: true},
-		{name: "origin with extra value", wire: test.DecodeHexString("820000"), wantErr: true},
-		{name: "at with missing block number", wire: test.DecodeHexString("8101"), wantErr: true},
-		{name: "unknown variant", wire: test.DecodeHexString("820200"), wantErr: true},
-		{name: "negative block number", wire: test.DecodeHexString("820120"), wantErr: true},
-		{name: "outside int64 API range", wire: test.DecodeHexString("82011b8000000000000000"), wantErr: true},
-		{name: "null origin", wire: test.DecodeHexString("81f6"), wantErr: true},
-		{name: "null block number", wire: test.DecodeHexString("8201f6"), wantErr: true},
-		{name: "null discriminator", wire: test.DecodeHexString("82f600"), wantErr: true},
-		{name: "noninteger value", wire: test.DecodeHexString("8201f93c00"), wantErr: true},
-		{name: "noninteger discriminator", wire: test.DecodeHexString("82f93c0000"), wantErr: true},
-		{name: "array discriminator", wire: test.DecodeHexString("828000"), wantErr: true},
-		{name: "map discriminator", wire: test.DecodeHexString("82a000"), wantErr: true},
+		{
+			name:    "origin with extra value",
+			wire:    test.DecodeHexString("820000"),
+			wantErr: true,
+		},
+		{
+			name:    "at with missing block number",
+			wire:    test.DecodeHexString("8101"),
+			wantErr: true,
+		},
+		{
+			name:    "unknown variant",
+			wire:    test.DecodeHexString("820200"),
+			wantErr: true,
+		},
+		{
+			name:    "negative block number",
+			wire:    test.DecodeHexString("820120"),
+			wantErr: true,
+		},
+		{
+			name:    "outside int64 API range",
+			wire:    test.DecodeHexString("82011b8000000000000000"),
+			wantErr: true,
+		},
+		{
+			name:    "null origin",
+			wire:    test.DecodeHexString("81f6"),
+			wantErr: true,
+		},
+		{
+			name:    "null block number",
+			wire:    test.DecodeHexString("8201f6"),
+			wantErr: true,
+		},
+		{
+			name:    "null discriminator",
+			wire:    test.DecodeHexString("82f600"),
+			wantErr: true,
+		},
+		{
+			name:    "noninteger value",
+			wire:    test.DecodeHexString("8201f93c00"),
+			wantErr: true,
+		},
+		{
+			name:    "noninteger discriminator",
+			wire:    test.DecodeHexString("82f93c0000"),
+			wantErr: true,
+		},
+		{
+			name:    "array discriminator",
+			wire:    test.DecodeHexString("828000"),
+			wantErr: true,
+		},
+		{
+			name:    "map discriminator",
+			wire:    test.DecodeHexString("82a000"),
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			conversation := append(
-				append([]ouroboros_mock.ConversationEntry{}, conversationHandshakeAcquire...),
-				ouroboros_mock.ConversationEntryInput{ProtocolId: localstatequery.ProtocolId, MessageType: localstatequery.MessageTypeQuery},
+				append(
+					[]ouroboros_mock.ConversationEntry{},
+					conversationHandshakeAcquire...),
+				ouroboros_mock.ConversationEntryInput{
+					ProtocolId:  localstatequery.ProtocolId,
+					MessageType: localstatequery.MessageTypeQuery,
+				},
 				ouroboros_mock.ConversationEntryOutput{
 					ProtocolId: localstatequery.ProtocolId, IsResponse: true,
-					Messages: []protocol.Message{localstatequery.NewMsgResult(tt.wire)},
+					Messages: []protocol.Message{
+						localstatequery.NewMsgResult(tt.wire),
+					},
 				},
 			)
-			runTest(t, conversation, func(t *testing.T, oConn *ouroboros.Connection) {
-				got, err := oConn.LocalStateQuery().Client.GetChainBlockNo()
-				if tt.wantErr {
-					require.Error(t, err)
-					return
-				}
-				require.NoError(t, err)
-				require.Equal(t, tt.want, got)
-			})
+			runTest(
+				t,
+				conversation,
+				func(t *testing.T, oConn *ouroboros.Connection) {
+					got, err := oConn.LocalStateQuery().Client.GetChainBlockNo()
+					if tt.wantErr {
+						require.Error(t, err)
+						return
+					}
+					require.NoError(t, err)
+					require.Equal(t, tt.want, got)
+				},
+			)
 		})
 	}
 }
@@ -419,7 +489,11 @@ func TestGetConstitution(t *testing.T) {
 
 func TestGetDRepStateEmptyWrapper(t *testing.T) {
 	cborData, err := cbor.Encode([]any{})
-	require.NoError(t, err, "unexpected error encoding empty DRep state wrapper")
+	require.NoError(
+		t,
+		err,
+		"unexpected error encoding empty DRep state wrapper",
+	)
 
 	conversation := append(
 		conversationConwayEra,
@@ -701,7 +775,11 @@ func TestGetCommitteeMembersStateEmpty(t *testing.T) {
 		Epoch:     520,
 	}
 	cborData, err := cbor.Encode(expectedResult)
-	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+	require.NoError(
+		t,
+		err,
+		"unexpected error encoding CommitteeMembersStateResult",
+	)
 
 	conversation := append(
 		conversationConwayEra,
@@ -752,9 +830,11 @@ func TestGetCommitteeMembersStateAuthorized(t *testing.T) {
 			Status:     localstatequery.HotCredAuthorized,
 			Credential: &hotCred,
 		},
-		Status:          localstatequery.MemberStatusActive,
-		Expiry:          &expiry,
-		NextEpochChange: localstatequery.NextEpochChangeValue{Change: localstatequery.NextEpochNoChange},
+		Status: localstatequery.MemberStatusActive,
+		Expiry: &expiry,
+		NextEpochChange: localstatequery.NextEpochChangeValue{
+			Change: localstatequery.NextEpochNoChange,
+		},
 	}
 	threshold := &cbor.Rat{Rat: big.NewRat(2, 3)}
 	expectedResult := localstatequery.CommitteeMembersStateResult{
@@ -765,7 +845,11 @@ func TestGetCommitteeMembersStateAuthorized(t *testing.T) {
 		Epoch:     520,
 	}
 	cborData, err := cbor.Encode(expectedResult)
-	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+	require.NoError(
+		t,
+		err,
+		"unexpected error encoding CommitteeMembersStateResult",
+	)
 
 	conversation := append(
 		conversationConwayEra,
@@ -796,12 +880,20 @@ func TestGetCommitteeMembersStateAuthorized(t *testing.T) {
 
 			member, ok := committeeState.Members[coldCred]
 			require.True(t, ok, "expected cold credential key in result")
-			assert.Equal(t, localstatequery.HotCredAuthorized, member.HotCredStatus.Status)
+			assert.Equal(
+				t,
+				localstatequery.HotCredAuthorized,
+				member.HotCredStatus.Status,
+			)
 			require.NotNil(t, member.HotCredStatus.Credential)
 			assert.Equal(t, localstatequery.MemberStatusActive, member.Status)
 			require.NotNil(t, member.Expiry)
 			assert.Equal(t, uint64(600), *member.Expiry)
-			assert.Equal(t, localstatequery.NextEpochNoChange, member.NextEpochChange.Change)
+			assert.Equal(
+				t,
+				localstatequery.NextEpochNoChange,
+				member.NextEpochChange.Change,
+			)
 			assert.Equal(t, uint64(520), committeeState.Epoch)
 		},
 	)
@@ -834,7 +926,11 @@ func TestGetCommitteeMembersStateNotAuthorized(t *testing.T) {
 		Epoch:     521,
 	}
 	cborData, err := cbor.Encode(expectedResult)
-	require.NoError(t, err, "unexpected error encoding CommitteeMembersStateResult")
+	require.NoError(
+		t,
+		err,
+		"unexpected error encoding CommitteeMembersStateResult",
+	)
 
 	conversation := append(
 		conversationConwayEra,
@@ -865,11 +961,19 @@ func TestGetCommitteeMembersStateNotAuthorized(t *testing.T) {
 
 			member, ok := committeeState.Members[coldCred]
 			require.True(t, ok, "expected cold credential key in result")
-			assert.Equal(t, localstatequery.HotCredNotAuthorized, member.HotCredStatus.Status)
+			assert.Equal(
+				t,
+				localstatequery.HotCredNotAuthorized,
+				member.HotCredStatus.Status,
+			)
 			assert.Nil(t, member.HotCredStatus.Credential)
 			assert.Equal(t, localstatequery.MemberStatusExpired, member.Status)
 			assert.Nil(t, member.Expiry)
-			assert.Equal(t, localstatequery.NextEpochTermAdjusted, member.NextEpochChange.Change)
+			assert.Equal(
+				t,
+				localstatequery.NextEpochTermAdjusted,
+				member.NextEpochChange.Change,
+			)
 			require.NotNil(t, member.NextEpochChange.AdjustedEpoch)
 			assert.Equal(t, uint64(700), *member.NextEpochChange.AdjustedEpoch)
 			assert.Nil(t, committeeState.Threshold)
@@ -1024,7 +1128,11 @@ func TestGetDRepStatePreConway(t *testing.T) {
 		func(t *testing.T, oConn *ouroboros.Connection) {
 			_, err := oConn.LocalStateQuery().Client.GetDRepState(nil)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "GetDRepState requires Conway era or later")
+			assert.Contains(
+				t,
+				err.Error(),
+				"GetDRepState requires Conway era or later",
+			)
 		},
 	)
 }
@@ -1228,21 +1336,27 @@ func TestGetProposalsSingleProposal(t *testing.T) {
 					p.Id.GovActionIdx, govActionId.GovActionIdx)
 			}
 			if len(p.CommitteeVotes) != 1 {
-				t.Fatalf("expected 1 committee vote, got %d", len(p.CommitteeVotes))
+				t.Fatalf(
+					"expected 1 committee vote, got %d",
+					len(p.CommitteeVotes),
+				)
 			}
-			if v, ok := p.CommitteeVotes[committeeCred]; !ok || v != lcommon.Vote(lcommon.GovVoteYes) {
+			if v, ok := p.CommitteeVotes[committeeCred]; !ok ||
+				v != lcommon.Vote(lcommon.GovVoteYes) {
 				t.Fatalf("unexpected committee vote: %v", p.CommitteeVotes)
 			}
 			if len(p.DRepVotes) != 1 {
 				t.Fatalf("expected 1 DRep vote, got %d", len(p.DRepVotes))
 			}
-			if v, ok := p.DRepVotes[drepCred]; !ok || v != lcommon.Vote(lcommon.GovVoteNo) {
+			if v, ok := p.DRepVotes[drepCred]; !ok ||
+				v != lcommon.Vote(lcommon.GovVoteNo) {
 				t.Fatalf("unexpected DRep vote: %v", p.DRepVotes)
 			}
 			if len(p.SPOVotes) != 1 {
 				t.Fatalf("expected 1 SPO vote, got %d", len(p.SPOVotes))
 			}
-			if v, ok := p.SPOVotes[spoKey]; !ok || v != lcommon.Vote(lcommon.GovVoteAbstain) {
+			if v, ok := p.SPOVotes[spoKey]; !ok ||
+				v != lcommon.Vote(lcommon.GovVoteAbstain) {
 				t.Fatalf("unexpected SPO vote: %v", p.SPOVotes)
 			}
 			if p.ProposedIn != 100 {
@@ -1306,7 +1420,11 @@ func TestFilteredVoteDelegateesResultDecode(t *testing.T) {
 	// Decode into FilteredVoteDelegateesResult
 	var result localstatequery.FilteredVoteDelegateesResult
 	_, err = cbor.Decode(cborData, &result)
-	require.NoError(t, err, "unexpected error decoding FilteredVoteDelegateesResult")
+	require.NoError(
+		t,
+		err,
+		"unexpected error decoding FilteredVoteDelegateesResult",
+	)
 
 	require.Len(t, result, 1, "expected 1 entry in result")
 	drep, ok := result[stakeCred]
@@ -1357,7 +1475,9 @@ func TestGetFilteredVoteDelegatees(t *testing.T) {
 		t,
 		conversation,
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			result, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(nil)
+			result, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(
+				nil,
+			)
 			require.NoError(t, err, "received unexpected error")
 			require.NotNil(t, result)
 
@@ -1367,7 +1487,12 @@ func TestGetFilteredVoteDelegatees(t *testing.T) {
 			drep, ok := resultMap[stakeCred]
 			require.True(t, ok, "expected stake credential key in result")
 			assert.Equal(t, 0, drep.Type, "expected DRep type 0 (AddrKeyHash)")
-			assert.Equal(t, drepCredBytes, drep.Credential, "DRep credential mismatch")
+			assert.Equal(
+				t,
+				drepCredBytes,
+				drep.Credential,
+				"DRep credential mismatch",
+			)
 		},
 	)
 }
@@ -1378,7 +1503,9 @@ func TestGetFilteredVoteDelegateesPreConway(t *testing.T) {
 		t,
 		conversationCurrentEra, // Era 5 (Babbage)
 		func(t *testing.T, oConn *ouroboros.Connection) {
-			_, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(nil)
+			_, err := oConn.LocalStateQuery().Client.GetFilteredVoteDelegatees(
+				nil,
+			)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "Conway era or later")
 		},

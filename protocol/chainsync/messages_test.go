@@ -57,7 +57,9 @@ func TestFindIntersectRejectsPointFieldsBeforeTypedDecode(t *testing.T) {
 		"short hash":    {0x82, 0x00, 0x58, 0x1f},
 	} {
 		t.Run(name, func(t *testing.T) {
-			wire := append([]byte{0x82, MessageTypeFindIntersect, 0x81}, point...)
+			wire := append(
+				[]byte{0x82, MessageTypeFindIntersect, 0x81},
+				point...)
 			wire = append(wire, make([]byte, 32)...)
 			_, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
 			require.Error(t, err)
@@ -67,7 +69,9 @@ func TestFindIntersectRejectsPointFieldsBeforeTypedDecode(t *testing.T) {
 
 func TestFindIntersectRejectsPointCountAboveAllocationBudget(t *testing.T) {
 	const count = maxFindIntersectDecodedPoints + 1
-	wire := append([]byte{0x82, MessageTypeFindIntersect, 0x9a, 0, 2, 0, 2}, bytes.Repeat([]byte{0x80}, count)...)
+	wire := append(
+		[]byte{0x82, MessageTypeFindIntersect, 0x9a, 0, 2, 0, 2},
+		bytes.Repeat([]byte{0x80}, count)...)
 	_, err := NewMsgFromCborNtN(MessageTypeFindIntersect, wire)
 	require.Error(t, err)
 	result := testing.Benchmark(func(b *testing.B) {

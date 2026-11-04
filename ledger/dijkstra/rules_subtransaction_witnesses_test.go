@@ -693,7 +693,8 @@ func TestDijkstraRejectsNativePurposeRedeemersWithGlobalScripts(t *testing.T) {
 									},
 								)
 								if !extraNative {
-									if validator.name == "Plutus rule" && !txIsValid {
+									if validator.name == "Plutus rule" &&
+										!txIsValid {
 										var unexpected common.UnexpectedPlutusScriptSuccessError
 										require.ErrorAs(t, err, &unexpected)
 									} else {

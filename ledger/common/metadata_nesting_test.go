@@ -197,7 +197,10 @@ func TestMetadatumNestingBound(t *testing.T) {
 		nestedListMetadatum(common.MaxMetadataNestedLevels + 1),
 	)
 	if err == nil {
-		t.Fatalf("expected depth %d to be rejected", common.MaxMetadataNestedLevels+1)
+		t.Fatalf(
+			"expected depth %d to be rejected",
+			common.MaxMetadataNestedLevels+1,
+		)
 	}
 	if !strings.Contains(err.Error(), "nesting exceeds") {
 		t.Fatalf("unexpected error: %v", err)

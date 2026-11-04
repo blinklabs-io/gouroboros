@@ -206,7 +206,8 @@ func TestCalculateRollingNonceNeutral(t *testing.T) {
 	if result != expected {
 		t.Fatalf(
 			"neutral nonce should produce blake2b_256(blockVrf): got %x, want %x",
-			result, expected,
+			result,
+			expected,
 		)
 	}
 }

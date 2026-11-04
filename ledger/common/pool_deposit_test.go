@@ -49,7 +49,8 @@ func TestPoolRegistrationDepositDueAfterRetirement(t *testing.T) {
 				func(common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
 					return r, retire, nil
 				},
-			).Build()
+			).
+			Build()
 	}
 	epoch := func(n uint64) *uint64 { return &n }
 
@@ -96,13 +97,16 @@ func TestPoolRegistrationDepositDueAfterRetirement(t *testing.T) {
 		})
 	}
 
-	t.Run("without EpochState the deposit decision fails closed", func(t *testing.T) {
-		_, err := common.PoolRegistrationDepositDue(
-			build(reg, epoch(197)), 0, operator,
-		)
-		var target common.EpochStateUnavailableError
-		require.ErrorAs(t, err, &target)
-	})
+	t.Run(
+		"without EpochState the deposit decision fails closed",
+		func(t *testing.T) {
+			_, err := common.PoolRegistrationDepositDue(
+				build(reg, epoch(197)), 0, operator,
+			)
+			var target common.EpochStateUnavailableError
+			require.ErrorAs(t, err, &target)
+		},
+	)
 }
 
 func TestPoolRegistrationDepositDueThroughVerifyTransaction(t *testing.T) {
@@ -112,9 +116,12 @@ func TestPoolRegistrationDepositDueThroughVerifyTransaction(t *testing.T) {
 		LedgerState: mockledger.NewLedgerStateBuilder().
 			WithPoolCurrentState(
 				func(common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
-					return &common.PoolRegistrationCertificate{Operator: operator}, &retirementEpoch, nil
+					return &common.PoolRegistrationCertificate{
+						Operator: operator,
+					}, &retirementEpoch, nil
 				},
-			).Build(),
+			).
+			Build(),
 		epoch: retirementEpoch,
 	}
 

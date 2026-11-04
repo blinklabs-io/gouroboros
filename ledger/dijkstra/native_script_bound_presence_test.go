@@ -55,7 +55,9 @@ func TestConwayFeatureTransactionUsesSelectedBodyLowerBound(t *testing.T) {
 				Transaction: DijkstraTransaction{Body: topBody},
 				body:        &subBody,
 			}
-			lowerBound, present := common.TransactionValidityIntervalLowerBound(tx)
+			lowerBound, present := common.TransactionValidityIntervalLowerBound(
+				tx,
+			)
 			require.Zero(t, lowerBound)
 			require.Equal(t, testCase.subPresent, present)
 		})

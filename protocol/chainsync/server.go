@@ -83,11 +83,13 @@ func (s *Server) initProtocol() {
 	// NtC mode has no timeouts per spec (Table 3.9) and must not
 	// have timeouts injected.
 	if s.config != nil {
-		if entry, ok := stateMap[stateIntersect]; ok && entry.Timeout != 0 && s.config.IntersectTimeout != 0 {
+		if entry, ok := stateMap[stateIntersect]; ok && entry.Timeout != 0 &&
+			s.config.IntersectTimeout != 0 {
 			entry.Timeout = s.config.IntersectTimeout
 			stateMap[stateIntersect] = entry
 		}
-		if entry, ok := stateMap[stateIdle]; ok && entry.Timeout != 0 && s.config.IdleTimeout != 0 {
+		if entry, ok := stateMap[stateIdle]; ok && entry.Timeout != 0 &&
+			s.config.IdleTimeout != 0 {
 			entry.Timeout = s.config.IdleTimeout
 			stateMap[stateIdle] = entry
 		}

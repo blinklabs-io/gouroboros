@@ -57,7 +57,10 @@ func (c *VRFCert) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode Peras VRF proof: %w", err)
 	}
 	if len(tmp.Proof) != 80 {
-		return fmt.Errorf("peras VRF proof must be 80 bytes, got %d", len(tmp.Proof))
+		return fmt.Errorf(
+			"peras VRF proof must be 80 bytes, got %d",
+			len(tmp.Proof),
+		)
 	}
 	*c = tmp
 	return nil
@@ -191,10 +194,16 @@ func (c VoteCert) MarshalCBOR() ([]byte, error) {
 	var raw cbor.RawMessage
 	n, err := cbor.Decode(c, &raw)
 	if err != nil {
-		return nil, fmt.Errorf("invalid encoded Peras vote certificate: %w", err)
+		return nil, fmt.Errorf(
+			"invalid encoded Peras vote certificate: %w",
+			err,
+		)
 	}
 	if n != len(c) {
-		return nil, fmt.Errorf("peras vote certificate has %d trailing bytes", len(c)-n)
+		return nil, fmt.Errorf(
+			"peras vote certificate has %d trailing bytes",
+			len(c)-n,
+		)
 	}
 	return []byte(c), nil
 }
@@ -209,7 +218,10 @@ func (c *VoteCert) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("decode Peras vote certificate: %w", err)
 	}
 	if n != len(cborData) {
-		return fmt.Errorf("peras vote certificate has %d trailing bytes", len(cborData)-n)
+		return fmt.Errorf(
+			"peras vote certificate has %d trailing bytes",
+			len(cborData)-n,
+		)
 	}
 	*c = VoteCert(raw)
 	return nil

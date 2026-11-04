@@ -31,7 +31,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func encodeCertificatesAssertScript(t *testing.T, want data.PlutusData) common.PlutusV3Script {
+func encodeCertificatesAssertScript(
+	t *testing.T,
+	want data.PlutusData,
+) common.PlutusV3Script {
 	t.Helper()
 	applyBuiltin := func(fn builtin.DefaultFunction, args ...syn.Term[syn.DeBruijn]) syn.Term[syn.DeBruijn] {
 		var term syn.Term[syn.DeBruijn] = &syn.Builtin{DefaultFunction: fn}
@@ -51,9 +54,15 @@ func encodeCertificatesAssertScript(t *testing.T, want data.PlutusData) common.P
 		return term
 	}
 	ctx := syn.Term[syn.DeBruijn](&syn.Var[syn.DeBruijn]{Name: 1})
-	contextFields := applyBuiltin(builtin.SndPair, applyBuiltin(builtin.UnConstrData, ctx))
+	contextFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, ctx),
+	)
 	txInfo := applyBuiltin(builtin.HeadList, contextFields)
-	constructorFields := applyBuiltin(builtin.SndPair, applyBuiltin(builtin.UnConstrData, txInfo))
+	constructorFields := applyBuiltin(
+		builtin.SndPair,
+		applyBuiltin(builtin.UnConstrData, txInfo),
+	)
 	certificatesData := applyBuiltin(builtin.HeadList, applyBuiltin(
 		builtin.TailList, applyBuiltin(builtin.TailList, applyBuiltin(
 			builtin.TailList, applyBuiltin(builtin.TailList, applyBuiltin(
@@ -99,9 +108,15 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 				Amount:          uint64(amount.Int64()),
 			},
 			want: map[uint]data.PlutusData{
-				common.ProtocolVersionConway:   data.NewConstr(1),
-				common.ProtocolVersionPlomin:   data.NewConstr(0, data.NewInteger(amount)),
-				common.ProtocolVersionDijkstra: data.NewConstr(0, data.NewInteger(amount)),
+				common.ProtocolVersionConway: data.NewConstr(1),
+				common.ProtocolVersionPlomin: data.NewConstr(
+					0,
+					data.NewInteger(amount),
+				),
+				common.ProtocolVersionDijkstra: data.NewConstr(
+					0,
+					data.NewInteger(amount),
+				),
 			},
 		},
 		{
@@ -111,9 +126,15 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 				Amount:          uint64(amount.Int64()),
 			},
 			want: map[uint]data.PlutusData{
-				common.ProtocolVersionConway:   data.NewConstr(1),
-				common.ProtocolVersionPlomin:   data.NewConstr(0, data.NewInteger(amount)),
-				common.ProtocolVersionDijkstra: data.NewConstr(0, data.NewInteger(amount)),
+				common.ProtocolVersionConway: data.NewConstr(1),
+				common.ProtocolVersionPlomin: data.NewConstr(
+					0,
+					data.NewInteger(amount),
+				),
+				common.ProtocolVersionDijkstra: data.NewConstr(
+					0,
+					data.NewInteger(amount),
+				),
 			},
 		},
 		{
@@ -149,7 +170,8 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tx := mockledger.NewTransactionBuilder().WithCertificates(tc.certificate)
+			tx := mockledger.NewTransactionBuilder().
+				WithCertificates(tc.certificate)
 			for _, version := range versions {
 				t.Run(version.name, func(t *testing.T) {
 					info, err := script.NewTxInfoV3FromTransaction(
@@ -172,12 +194,18 @@ func TestConwayPhase2SeesCertificateAmountByProtocolVersion(t *testing.T) {
 	credential := common.Credential{Credential: common.Blake2b224{1}}
 	amount := big.NewInt(2_000_000)
 	explicit := mockledger.NewTransactionBuilder().WithCertificates(
-		&common.RegistrationCertificate{StakeCredential: credential, Amount: uint64(amount.Int64())},
+		&common.RegistrationCertificate{
+			StakeCredential: credential,
+			Amount:          uint64(amount.Int64()),
+		},
 	)
 	legacy := mockledger.NewTransactionBuilder().WithCertificates(
 		&common.StakeRegistrationCertificate{StakeCredential: credential},
 	)
-	credentialData := data.NewConstr(0, &data.ByteString{Inner: credential.Credential[:]})
+	credentialData := data.NewConstr(
+		0,
+		&data.ByteString{Inner: credential.Credential[:]},
+	)
 	wantExplicit := data.NewConstr(
 		0,
 		credentialData,
@@ -206,7 +234,12 @@ func TestConwayPhase2SeesCertificateAmountByProtocolVersion(t *testing.T) {
 		{name: "PV10 legacy amount is absent", tx: legacy, version: common.ProtocolVersionPlomin, wantData: wantAbsent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info, err := script.NewTxInfoV3FromTransaction(nil, tc.tx, nil, tc.version)
+			info, err := script.NewTxInfoV3FromTransaction(
+				nil,
+				tc.tx,
+				nil,
+				tc.version,
+			)
 			require.NoError(t, err)
 			_, err = encodeCertificatesAssertScript(t, tc.wantData).Evaluate(
 				data.NewConstr(0, info.ToPlutusData(), data.NewConstr(0), data.NewConstr(0)),

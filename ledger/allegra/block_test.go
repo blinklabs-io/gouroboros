@@ -92,7 +92,9 @@ func TestAllegraBlock_CborRoundTrip_UsingCborEncode(t *testing.T) {
 
 func TestAllegraUtxorpcBlock(t *testing.T) {
 	// Decode the block hex to bytes
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AllegraBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AllegraBlockHex),
+	)
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// Parse the block
@@ -175,7 +177,9 @@ func TestAllegraUtxorpcBlock(t *testing.T) {
 }
 
 func BenchmarkAllegraBlockDeserialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AllegraBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AllegraBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -190,7 +194,9 @@ func BenchmarkAllegraBlockDeserialization(b *testing.B) {
 }
 
 func BenchmarkAllegraBlockSerialization(b *testing.B) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AllegraBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AllegraBlockHex),
+	)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -206,7 +212,9 @@ func BenchmarkAllegraBlockSerialization(b *testing.B) {
 }
 
 func TestAllegraBlock_Validation(t *testing.T) {
-	blockCbor, err := hex.DecodeString(strings.TrimSpace(testdata.AllegraBlockHex))
+	blockCbor, err := hex.DecodeString(
+		strings.TrimSpace(testdata.AllegraBlockHex),
+	)
 	assert.NoError(t, err, "Failed to decode block hex")
 
 	// Test that validation works by default (should pass for valid block)

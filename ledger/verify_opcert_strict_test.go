@@ -40,10 +40,14 @@ func TestVerifyOpCertSignatureRejectsIdentityColdKey(t *testing.T) {
 		opCert.KesVkey, opCert.IssueNumber, opCert.KesPeriod,
 	)
 	if !ed25519.Verify(coldVkey, signable, opCert.ColdSignature) {
-		t.Fatal("crypto/ed25519 no longer accepts the identity pair; this test no longer discriminates")
+		t.Fatal(
+			"crypto/ed25519 no longer accepts the identity pair; this test no longer discriminates",
+		)
 	}
 	if err := ledger.VerifyOpCertSignature(opCert, coldVkey); err == nil {
-		t.Error("VerifyOpCertSignature accepted an identity cold key and an all-zero signature")
+		t.Error(
+			"VerifyOpCertSignature accepted an identity cold key and an all-zero signature",
+		)
 	}
 }
 

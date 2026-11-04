@@ -66,7 +66,10 @@ func writeSegment(t *testing.T, conn net.Conn, segment *muxer.Segment) {
 		return
 	}
 	buf := new(bytes.Buffer)
-	require.NoError(t, binary.Write(buf, binary.BigEndian, segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+	)
 	_, err := buf.Write(segment.Payload)
 	require.NoError(t, err)
 	_, err = conn.Write(buf.Bytes())
@@ -122,7 +125,10 @@ func TestServerInitialProposeTimeout(t *testing.T) {
 					if err == nil {
 						t.Fatal("received nil timeout error")
 					}
-					if !strings.Contains(err.Error(), "timeout waiting on transition") {
+					if !strings.Contains(
+						err.Error(),
+						"timeout waiting on transition",
+					) {
 						t.Fatalf("unexpected timeout error: %v", err)
 					}
 				case <-time.After(time.Second):
@@ -225,15 +231,17 @@ func TestServerFinishedWaitsForAcceptVersionDelivery(t *testing.T) {
 				CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
 			},
 		}),
-		handshake.WithFinishedFunc(func(handshake.CallbackContext, uint16, protocol.VersionData) error {
-			select {
-			case <-gatedConn.writeDone:
-			default:
-				callbackBeforeWrite.Store(true)
-			}
-			close(finished)
-			return nil
-		}),
+		handshake.WithFinishedFunc(
+			func(handshake.CallbackContext, uint16, protocol.VersionData) error {
+				select {
+				case <-gatedConn.writeDone:
+				default:
+					callbackBeforeWrite.Store(true)
+				}
+				close(finished)
+				return nil
+			},
+		),
 	)
 	s := handshake.NewServer(protocol.ProtocolOptions{
 		Muxer:     m,
@@ -258,7 +266,11 @@ func TestServerFinishedWaitsForAcceptVersionDelivery(t *testing.T) {
 	})
 	payload, err := cbor.Encode(proposal)
 	require.NoError(t, err)
-	writeSegment(t, peerConn, muxer.NewSegment(handshake.ProtocolId, payload, false))
+	writeSegment(
+		t,
+		peerConn,
+		muxer.NewSegment(handshake.ProtocolId, payload, false),
+	)
 
 	select {
 	case <-gatedConn.writeStarted:
@@ -315,7 +327,9 @@ func TestServerBasicHandshake(t *testing.T) {
 				MsgFromCborFunc: handshake.NewMsgFromCbor,
 				Message: handshake.NewMsgAcceptVersion(
 					(12 + protocol.ProtocolVersionNtCOffset),
-					protocol.VersionDataNtC9to14(ouroboros_mock.MockNetworkMagic),
+					protocol.VersionDataNtC9to14(
+						ouroboros_mock.MockNetworkMagic,
+					),
 				),
 			},
 		},

@@ -21,7 +21,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withRequiredEraBodyFields(t *testing.T, raw []byte, subTransaction bool) []byte {
+func withRequiredEraBodyFields(
+	t *testing.T,
+	raw []byte,
+	subTransaction bool,
+) []byte {
 	t.Helper()
 	fields := make(map[uint]cbor.RawMessage)
 	_, err := cbor.Decode(raw, &fields)

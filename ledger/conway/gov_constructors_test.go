@@ -27,7 +27,9 @@ import (
 func TestUtxoValidateBootstrapAllowedGovActionsRejectsUnknown(t *testing.T) {
 	tx := &ConwayTransaction{}
 	tx.Body.TxProposalProcedures = []ConwayProposalProcedure{{
-		PPGovAction: ConwayGovAction{Action: commontestdata.UnsupportedGovAction{}},
+		PPGovAction: ConwayGovAction{
+			Action: commontestdata.UnsupportedGovAction{},
+		},
 	}}
 	pp := &ConwayProtocolParameters{}
 	pp.ProtocolVersion.Major = common.ProtocolVersionConway
@@ -39,7 +41,11 @@ func TestNewConwayParameterChangeGovAction(t *testing.T) {
 	paramUpdate := ConwayProtocolParameterUpdate{MinFeeA: &minFeeA}
 	policyHash := make([]byte, common.Blake2b224Size)
 
-	action, err := NewConwayParameterChangeGovAction(nil, paramUpdate, policyHash)
+	action, err := NewConwayParameterChangeGovAction(
+		nil,
+		paramUpdate,
+		policyHash,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, uint(common.GovActionTypeParameterChange), action.Type)
 	assert.Nil(t, action.ActionId)
@@ -184,7 +190,11 @@ func TestNewConwayProposalProcedure(t *testing.T) {
 	_, err = cbor.Decode(cborData, &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, pp.PPDeposit, decoded.PPDeposit)
-	assert.Equal(t, pp.PPRewardAccount.String(), decoded.PPRewardAccount.String())
+	assert.Equal(
+		t,
+		pp.PPRewardAccount.String(),
+		decoded.PPRewardAccount.String(),
+	)
 	decodedAction, ok := decoded.PPGovAction.Action.(*common.InfoGovAction)
 	require.True(t, ok, "expected *common.InfoGovAction")
 	assert.Equal(t, uint(common.GovActionTypeInfo), decodedAction.Type)

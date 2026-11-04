@@ -129,7 +129,9 @@ func DetermineTransactionType(data []byte) (uint, error) {
 	tryDijkstra := func() bool {
 		if !dijkstraDecoded {
 			var err error
-			dijkstraCandidate, dijkstraTxArray, _, err = looksLikeDijkstraTransaction(data)
+			dijkstraCandidate, dijkstraTxArray, _, err = looksLikeDijkstraTransaction(
+				data,
+			)
 			dijkstraDecoded = true
 			if err != nil {
 				dijkstraCandidate = false

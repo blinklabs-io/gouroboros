@@ -132,7 +132,9 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.LeiosVotePeriodLength = genesis.LeiosVotePeriodLength
 	p.LeiosDiffusionPeriodLength = genesis.LeiosDiffusionPeriodLength
 	p.LeiosCommitteeSize = genesis.LeiosCommitteeSize
-	p.LeiosQuorumStakeThreshold = genesisRatToRat(genesis.LeiosQuorumStakeThreshold)
+	p.LeiosQuorumStakeThreshold = genesisRatToRat(
+		genesis.LeiosQuorumStakeThreshold,
+	)
 	p.MaxEndorserBlockReferencesSize = genesis.MaxEndorserBlockReferencesSize
 	p.MaxEndorserBlockTxsSize = genesis.MaxEndorserBlockTxsSize
 	p.MaxEndorserBlockExUnits = genesis.MaxEndorserBlockExUnits

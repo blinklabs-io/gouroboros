@@ -93,7 +93,9 @@ func TestRcPrototypeVotes(t *testing.T) {
 	require.Zero(t, vote.VoterId)
 	require.Len(t, vote.VoteSignature, 48)
 
-	encoded, err := NewMsgVotesOfferPrototype(votes.PrototypeVotes).MarshalCBOR()
+	encoded, err := NewMsgVotesOfferPrototype(
+		votes.PrototypeVotes,
+	).MarshalCBOR()
 	require.NoError(t, err)
 	require.Equal(t, raw, encoded)
 }

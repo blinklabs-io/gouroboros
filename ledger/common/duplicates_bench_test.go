@@ -28,8 +28,10 @@ func benchmarkDelegationCertificates(count int) []common.CertificateWrapper {
 	certificates := make([]common.CertificateWrapper, 0, count)
 	for idx := range count {
 		credential := common.Credential{
-			CredType:   common.CredentialTypeAddrKeyHash,
-			Credential: common.Blake2b224Hash([]byte(fmt.Sprintf("cred-%d", idx))),
+			CredType: common.CredentialTypeAddrKeyHash,
+			Credential: common.Blake2b224Hash(
+				[]byte(fmt.Sprintf("cred-%d", idx)),
+			),
 		}
 		certificates = append(certificates, common.CertificateWrapper{
 			Type: uint(common.CertificateTypeStakeDelegation),

@@ -68,7 +68,11 @@ func TestDijkstraLeiosCertificateRejectsWrongFieldCount(t *testing.T) {
 	require.Error(t, err)
 }
 
-func encodeAnnouncement(t *testing.T, hash []byte, size uint64) cbor.RawMessage {
+func encodeAnnouncement(
+	t *testing.T,
+	hash []byte,
+	size uint64,
+) cbor.RawMessage {
 	t.Helper()
 	raw, err := cbor.Encode([]any{hash, size})
 	require.NoError(t, err)
@@ -191,7 +195,11 @@ func TestDijkstraDecodeRealMusashiBlock(t *testing.T) {
 	assert.Equal(t, uint64(566037), header.SlotNumber())
 	assert.Equal(t, uint64(28091), header.BlockNumber())
 	_, present := header.LeiosCertified()
-	assert.True(t, present, "musashi headers carry the 12-field Leios extension")
+	assert.True(
+		t,
+		present,
+		"musashi headers carry the 12-field Leios extension",
+	)
 
 	offsets, err := common.ExtractTransactionOffsets(raw)
 	require.NoError(t, err)

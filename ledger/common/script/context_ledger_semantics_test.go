@@ -129,7 +129,10 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
 	byronInput := shelley.MustNewShelleyTransactionInput(
-		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
+		hex.EncodeToString(
+			bytes.Repeat([]byte{0x43}, common.Blake2b256Size),
+		),
+		0,
 	)
 	shelleyAddress, err := common.NewAddressFromParts(
 		common.AddressTypeKeyNone,
@@ -150,7 +153,11 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 		outputs:     []common.TransactionOutput{shelleyOutput},
 	}
 	info, err := script.NewTxInfoV1FromTransaction(
-		validitySlotState{}, tx, resolved, false, common.ProtocolVersionDijkstra,
+		validitySlotState{},
+		tx,
+		resolved,
+		false,
+		common.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
 	require.Empty(t, info.Inputs)
@@ -198,7 +205,10 @@ func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
 		WithAddress(shelleyAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
 	input := shelley.MustNewShelleyTransactionInput(
-		hex.EncodeToString(bytes.Repeat([]byte{0x43}, common.Blake2b256Size)), 0,
+		hex.EncodeToString(
+			bytes.Repeat([]byte{0x43}, common.Blake2b256Size),
+		),
+		0,
 	)
 	base := mockledger.NewTransactionBuilder()
 	base.WithInputs(input)
@@ -209,7 +219,11 @@ func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
 		outputs:     []common.TransactionOutput{byronOutput},
 	}
 	info, err := script.NewTxInfoV1FromTransaction(
-		validitySlotState{}, tx, resolved, false, common.ProtocolVersionDijkstra,
+		validitySlotState{},
+		tx,
+		resolved,
+		false,
+		common.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
 	require.Len(t, info.Inputs, 1)
@@ -247,7 +261,10 @@ func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
 	reference := shelley.MustNewShelleyTransactionInput(
-		hex.EncodeToString(bytes.Repeat([]byte{0x44}, common.Blake2b256Size)), 0,
+		hex.EncodeToString(
+			bytes.Repeat([]byte{0x44}, common.Blake2b256Size),
+		),
+		0,
 	)
 	resolved := []common.Utxo{{Id: reference, Output: byronOutput}}
 	tx := scriptContextTransaction{

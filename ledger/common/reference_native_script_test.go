@@ -371,13 +371,17 @@ func TestInvalidTransactionsRetainReferenceScriptRequirements(t *testing.T) {
 					tx.WithInputs(spendInput)
 					tx.WithReferenceInputs(refInput)
 					tx.WithWitnesses(
-						mockledger.NewMockTransactionWitnessSet().WithVkeyWitnesses(
-							common.VkeyWitness{Vkey: vkey},
-						),
+						mockledger.NewMockTransactionWitnessSet().
+							WithVkeyWitnesses(
+								common.VkeyWitness{Vkey: vkey},
+							),
 					)
 					ls := testLedgerState(map[string]common.TransactionOutput{
 						spendInput.String(): testOutput(scriptAddr, nil),
-						refInput.String():   testOutput(keyAddr, test.reference),
+						refInput.String(): testOutput(
+							keyAddr,
+							test.reference,
+						),
 					})
 
 					err := common.VerifyTransaction(tx, 0, ls, nil, rules)
@@ -387,7 +391,11 @@ func TestInvalidTransactionsRetainReferenceScriptRequirements(t *testing.T) {
 					}
 					var missing common.MissingScriptWitnessesError
 					require.ErrorAs(t, err, &missing)
-					require.Equal(t, common.ScriptHash(nativeScript.Hash()), missing.ScriptHash)
+					require.Equal(
+						t,
+						common.ScriptHash(nativeScript.Hash()),
+						missing.ScriptHash,
+					)
 				})
 			}
 		})
@@ -532,7 +540,11 @@ func TestUnneededWitnessNativeScriptIsNotEvaluated(t *testing.T) {
 				spentInput.String(): testOutput(keyAddr, nil),
 			})
 
-			nativeRule := selectRules(t, era.rules, ".UtxoValidateNativeScripts")
+			nativeRule := selectRules(
+				t,
+				era.rules,
+				".UtxoValidateNativeScripts",
+			)
 			require.NoError(
 				t,
 				common.VerifyTransaction(tx, 0, ls, nil, nativeRule),

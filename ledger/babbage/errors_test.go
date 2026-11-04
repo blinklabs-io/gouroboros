@@ -15,9 +15,11 @@ import (
 func TestCostModelsPresent_UnresolvedReferenceInputReturnsError(t *testing.T) {
 	// Create a BabbageTransaction with a single reference input so the lookup is attempted
 	var slot uint64 = 0
-	ls := mockledger.NewLedgerStateBuilder().WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
-		return common.Utxo{}, errors.New("utxo not found")
-	}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		}).
+		Build()
 	var pp common.ProtocolParameters = &babbage.BabbageProtocolParameters{}
 
 	input := shelley.MustNewShelleyTransactionInput(
@@ -43,9 +45,11 @@ func TestCostModelsPresent_UnresolvedReferenceInputReturnsError(t *testing.T) {
 func TestCostModelsPresent_UnresolvedReferenceInputUnwraps(t *testing.T) {
 	// Create a BabbageTransaction with a single reference input so the lookup is attempted
 	var slot uint64 = 0
-	ls := mockledger.NewLedgerStateBuilder().WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
-		return common.Utxo{}, errors.New("utxo not found")
-	}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxoById(func(input common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{}, errors.New("utxo not found")
+		}).
+		Build()
 	var pp common.ProtocolParameters = &babbage.BabbageProtocolParameters{}
 
 	input := shelley.MustNewShelleyTransactionInput(
@@ -108,7 +112,9 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 		Output: output,
 	}
 
-	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).Build()
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
 
 	var pp common.ProtocolParameters = &babbage.BabbageProtocolParameters{}
 
@@ -122,6 +128,9 @@ func TestCostModelsPresent_ResolvedReferenceInputChecksCostModels(
 	// A reachable but unused reference script does not require a cost model.
 	err := babbage.UtxoValidateCostModelsPresent(tx, slot, ls, pp)
 	if err != nil {
-		t.Fatalf("unused reference script should not require a cost model: %v", err)
+		t.Fatalf(
+			"unused reference script should not require a cost model: %v",
+			err,
+		)
 	}
 }

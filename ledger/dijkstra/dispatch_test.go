@@ -41,7 +41,9 @@ func TestDijkstraGovActionAcceptsIndefiniteArray(t *testing.T) {
 	var decoded DijkstraGovAction
 	require.NoError(
 		t,
-		decoded.UnmarshalCBOR([]byte{0x9f, byte(common.GovActionTypeInfo), 0xff}),
+		decoded.UnmarshalCBOR(
+			[]byte{0x9f, byte(common.GovActionTypeInfo), 0xff},
+		),
 	)
 	require.IsType(t, &common.InfoGovAction{}, decoded.Action)
 }

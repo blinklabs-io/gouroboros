@@ -237,7 +237,9 @@ func TestUpdateCommitteeGovActionAcceptsIndefiniteArray(t *testing.T) {
 	require.NoError(t, decoded.UnmarshalCBOR(indefiniteArray(t, encoded)))
 }
 
-func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(t *testing.T) {
+func TestUpdateCommitteeGovActionUnmarshalCBORRejectsNilCredEpochKey(
+	t *testing.T,
+) {
 	encoded, err := cbor.Encode(UpdateCommitteeGovAction{
 		Type:       uint(GovActionTypeUpdateCommittee),
 		CredEpochs: map[*Credential]uint64{nil: 42},
@@ -328,12 +330,19 @@ func TestUpdateCommitteeGovActionRejectsDuplicateRemovalCredentials(
 		Credentials: []Credential{credential, credential},
 		Quorum:      cbor.Rat{Rat: big.NewRat(1, 2)},
 	}
-	require.ErrorContains(t, duplicate.Validate(), "duplicate removal credential")
+	require.ErrorContains(
+		t,
+		duplicate.Validate(),
+		"duplicate removal credential",
+	)
 }
 
 func TestNewNewConstitutionGovAction(t *testing.T) {
 	dataHash := make([]byte, 32)
-	anchor, err := NewGovAnchor("https://example.com/constitution.json", dataHash)
+	anchor, err := NewGovAnchor(
+		"https://example.com/constitution.json",
+		dataHash,
+	)
 	require.NoError(t, err)
 	scriptHash := make([]byte, Blake2b224Size)
 

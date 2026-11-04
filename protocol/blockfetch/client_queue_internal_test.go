@@ -628,7 +628,9 @@ func TestRangeDeadlineCompletionCanDeliverOnRestartedProtocol(t *testing.T) {
 	case err := <-callbackDone:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("old range completion blocked delivery on the restarted protocol")
+		t.Fatal(
+			"old range completion blocked delivery on the restarted protocol",
+		)
 	}
 }
 
@@ -641,7 +643,10 @@ func TestAcceptedRangeIgnoresCallerDeadlineAfterAdmission(t *testing.T) {
 			return nil
 		},
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		250*time.Millisecond,
+	)
 	defer cancel()
 	point := pcommon.NewPoint(1, []byte{1})
 	_, err := p.client.RequestRange(ctx, RangeRequest{
@@ -656,7 +661,12 @@ func TestAcceptedRangeIgnoresCallerDeadlineAfterAdmission(t *testing.T) {
 	require.Len(t, p.client.queue, 1)
 	deadline := p.client.queue[0].deadline
 	p.client.queueMutex.Unlock()
-	require.WithinDuration(t, time.Now().Add(rangeTimeout), deadline, time.Second)
+	require.WithinDuration(
+		t,
+		time.Now().Add(rangeTimeout),
+		deadline,
+		time.Second,
+	)
 
 	select {
 	case <-p.client.ProtocolInstance().DoneChan():
@@ -721,13 +731,20 @@ func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
 	var releaseOnce sync.Once
 	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	blockPipeline := pipeline.NewBlockPipeline(
-		pipeline.WithDecodeWorkers(1), pipeline.WithValidateWorkers(1),
-		pipeline.WithBlockTypeResolver(func(context.Context, []byte) (uint, error) { return ledger.BlockTypeShelley, nil }),
+		pipeline.WithDecodeWorkers(1),
+		pipeline.WithValidateWorkers(1),
+		pipeline.WithBlockTypeResolver(
+			func(context.Context, []byte) (uint, error) { return ledger.BlockTypeShelley, nil },
+		),
 		pipeline.WithEta0(blockFetchTestShelleyEta0),
 		pipeline.WithSlotsPerKesPeriod(129600),
 		pipeline.WithVerifyConfig(verifyConfig),
-		pipeline.WithVerifyConfigProvider(func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) { return verifyConfig, nil }),
-		pipeline.WithChainContextValidator(func(context.Context, *pipeline.BlockItem) error { close(entered); <-release; return nil }),
+		pipeline.WithVerifyConfigProvider(
+			func(context.Context, *pipeline.BlockItem) (lcommon.VerifyConfig, error) { return verifyConfig, nil },
+		),
+		pipeline.WithChainContextValidator(
+			func(context.Context, *pipeline.BlockItem) error { close(entered); <-release; return nil },
+		),
 		pipeline.WithMaxRawCborBytes(2*uint64(len(wrapped.RawBlock))),
 		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
 	)
@@ -814,7 +831,9 @@ func TestBlockFetchZeroRangeLimitsUseSecureDefaults(t *testing.T) {
 	)
 }
 
-func TestRangeRequestDefaultBlockLimitAllowsInclusiveSecurityWindow(t *testing.T) {
+func TestRangeRequestDefaultBlockLimitAllowsInclusiveSecurityWindow(
+	t *testing.T,
+) {
 	require.Equal(
 		t,
 		uint64(pipeline.DefaultMaxPendingBlocks+1),

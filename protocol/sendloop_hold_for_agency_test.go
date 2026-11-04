@@ -179,9 +179,15 @@ func TestSendLoopHoldsPipelinedDequeueUntilAgencyReturns(t *testing.T) {
 
 	select {
 	case err := <-sendResult:
-		require.NoError(t, err, "the held message must send once agency returns")
+		require.NoError(
+			t,
+			err,
+			"the held message must send once agency returns",
+		)
 	case <-time.After(5 * time.Second):
-		t.Fatal("SendMessageContextAndWait never returned after agency returned")
+		t.Fatal(
+			"SendMessageContextAndWait never returned after agency returned",
+		)
 	}
 	select {
 	case <-wireChan:
@@ -254,7 +260,10 @@ func TestSendLoopDoesNotDropHeldMessageOnLaterDequeue(t *testing.T) {
 	// Done does not fit pipelined in Busy but does have a legal ordinary
 	// transition (from Idle), so it is held (waitForAgency = true) behind
 	// Req's still-unapplied deferred transition.
-	doneCtx, doneCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	doneCtx, doneCancel := context.WithTimeout(
+		context.Background(),
+		2*time.Second,
+	)
 	defer doneCancel()
 	doneResult := make(chan error, 1)
 	go func() {
@@ -580,7 +589,10 @@ func TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral(t *testing.T) {
 	sendAndWait := func(msgType uint8) chan error {
 		result := make(chan error, 1)
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(
+				context.Background(),
+				5*time.Second,
+			)
 			defer cancel()
 			result <- p.SendMessageContextAndWait(
 				ctx,

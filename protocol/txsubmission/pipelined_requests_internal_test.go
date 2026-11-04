@@ -106,7 +106,10 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 				}
 				bodies := make([]TxBody, 0, len(ids))
 				for _, id := range ids {
-					bodies = append(bodies, TxBody{EraId: 6, TxBody: txsByHash[id.TxId]})
+					bodies = append(
+						bodies,
+						TxBody{EraId: 6, TxBody: txsByHash[id.TxId]},
+					)
 				}
 				return bodies, nil
 			},

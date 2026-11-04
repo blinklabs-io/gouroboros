@@ -40,7 +40,11 @@ func dijkstraIntervalExact(amount uint64) *DijkstraAccountBalanceInterval {
 }
 
 func dijkstraIntervalAddress(t *testing.T, fill byte) *common.Address {
-	return dijkstraIntervalAddressOnNetwork(t, fill, common.AddressNetworkTestnet)
+	return dijkstraIntervalAddressOnNetwork(
+		t,
+		fill,
+		common.AddressNetworkTestnet,
+	)
 }
 
 func dijkstraIntervalAddressOnNetwork(
@@ -80,14 +84,20 @@ func dijkstraRewardAddressForCredential(
 	return &address
 }
 
-func dijkstraIntervalCredential(t *testing.T, address *common.Address) common.Credential {
+func dijkstraIntervalCredential(
+	t *testing.T,
+	address *common.Address,
+) common.Credential {
 	t.Helper()
 	credential, err := address.RewardAccountCredential()
 	require.NoError(t, err)
 	return credential
 }
 
-func dijkstraIntervalKey(t *testing.T, address *common.Address) cbor.ByteString {
+func dijkstraIntervalKey(
+	t *testing.T,
+	address *common.Address,
+) cbor.ByteString {
 	t.Helper()
 	raw, err := address.Bytes()
 	require.NoError(t, err)
@@ -127,7 +137,9 @@ func TestDijkstraAccountBalanceIntervalsAgainstLedgerState(t *testing.T) {
 	require.ErrorAs(
 		t,
 		rule(newTx(DijkstraAccountBalanceIntervals{
-			dijkstraIntervalKey(t, registered): dijkstraIntervalExact(balance + 1),
+			dijkstraIntervalKey(t, registered): dijkstraIntervalExact(
+				balance + 1,
+			),
 		}), 0, ls, pp),
 		&outsideErr,
 	)
@@ -139,18 +151,27 @@ func TestDijkstraAccountBalanceIntervalsAgainstLedgerState(t *testing.T) {
 	require.ErrorAs(
 		t,
 		rule(newTx(DijkstraAccountBalanceIntervals{
-			dijkstraIntervalKey(t, unregistered): dijkstraIntervalExact(balance),
+			dijkstraIntervalKey(t, unregistered): dijkstraIntervalExact(
+				balance,
+			),
 		}), 0, ls, pp),
 		&missingErr,
 	)
-	require.Equal(t, []common.Credential{unregisteredCredential}, missingErr.Credentials)
+	require.Equal(
+		t,
+		[]common.Credential{unregisteredCredential},
+		missingErr.Credentials,
+	)
 
 	// The lower bound is inclusive and the upper bound exclusive, so a
 	// balance equal to the upper bound is outside the interval.
 	lower := balance
 	upper := balance + 1
 	require.NoError(t, rule(newTx(DijkstraAccountBalanceIntervals{
-		dijkstraIntervalKey(t, registered): dijkstraIntervalBounds(&lower, &upper),
+		dijkstraIntervalKey(t, registered): dijkstraIntervalBounds(
+			&lower,
+			&upper,
+		),
 	}), 0, ls, pp))
 
 	atUpper := balance
@@ -158,7 +179,10 @@ func TestDijkstraAccountBalanceIntervalsAgainstLedgerState(t *testing.T) {
 	require.ErrorAs(
 		t,
 		rule(newTx(DijkstraAccountBalanceIntervals{
-			dijkstraIntervalKey(t, registered): dijkstraIntervalBounds(nil, &atUpper),
+			dijkstraIntervalKey(t, registered): dijkstraIntervalBounds(
+				nil,
+				&atUpper,
+			),
 		}), 0, ls, pp),
 		&boundErr,
 	)
@@ -188,7 +212,9 @@ func TestDijkstraAccountBalanceIntervalsCoverSubTransactions(t *testing.T) {
 		dijkstraIntervalKey(t, credential): dijkstraIntervalExact(balance),
 	}
 	unrelatedWrong := DijkstraAccountBalanceIntervals{
-		dijkstraIntervalKey(t, otherCredential): dijkstraIntervalExact(balance + 1),
+		dijkstraIntervalKey(t, otherCredential): dijkstraIntervalExact(
+			balance + 1,
+		),
 	}
 	address := credential
 
@@ -261,7 +287,9 @@ func TestDijkstraAccountBalanceIntervalsCoverSubTransactions(t *testing.T) {
 	), 0, ls, pp))
 }
 
-func TestDijkstraAccountBalanceIntervalsThreadDirectDepositAndStartingState(t *testing.T) {
+func TestDijkstraAccountBalanceIntervalsThreadDirectDepositAndStartingState(
+	t *testing.T,
+) {
 	address := dijkstraIntervalAddress(t, 0x31)
 	credential := dijkstraIntervalCredential(t, address)
 	const initial = uint64(100)
@@ -272,8 +300,12 @@ func TestDijkstraAccountBalanceIntervalsThreadDirectDepositAndStartingState(t *t
 	pp := &DijkstraProtocolParameters{}
 	rule := dijkstraRule(t, common.UtxoValidationRuleAccountBalanceIntervals)
 	key := dijkstraIntervalKey(t, address)
-	initialInterval := DijkstraAccountBalanceIntervals{key: dijkstraIntervalExact(initial)}
-	finalInterval := DijkstraAccountBalanceIntervals{key: dijkstraIntervalExact(initial + deposit)}
+	initialInterval := DijkstraAccountBalanceIntervals{
+		key: dijkstraIntervalExact(initial),
+	}
+	finalInterval := DijkstraAccountBalanceIntervals{
+		key: dijkstraIntervalExact(initial + deposit),
+	}
 
 	tx := dijkstraSingleSubTx(DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
@@ -348,7 +380,9 @@ func TestDijkstraLegacyChildWithdrawalUsesCurrentBalanceWithoutExactDrain(
 	)
 }
 
-func TestDijkstraDirectDepositsRequireCurrentNetworkAndRegisteredAccount(t *testing.T) {
+func TestDijkstraDirectDepositsRequireCurrentNetworkAndRegisteredAccount(
+	t *testing.T,
+) {
 	registered := dijkstraIntervalAddress(t, 0x41)
 	credential := dijkstraIntervalCredential(t, registered)
 	ls := mockledger.NewLedgerStateBuilder().
@@ -377,10 +411,17 @@ func TestDijkstraDirectDepositsRequireCurrentNetworkAndRegisteredAccount(t *test
 	}
 	var missingErr DirectDepositAccountsMissingError
 	require.ErrorAs(t, rule(unregisteredTx, 0, ls, pp), &missingErr)
-	require.Equal(t, []common.Credential{dijkstraIntervalCredential(t, unregistered)}, missingErr.Credentials)
+	require.Equal(
+		t,
+		[]common.Credential{dijkstraIntervalCredential(t, unregistered)},
+		missingErr.Credentials,
+	)
 
 	registeredAfterCertificate := dijkstraIntervalAddress(t, 0x43)
-	registeredCredential := dijkstraIntervalCredential(t, registeredAfterCertificate)
+	registeredCredential := dijkstraIntervalCredential(
+		t,
+		registeredAfterCertificate,
+	)
 	registeredTx := dijkstraSubUtxoTopLevelTx(nil, nil)
 	registeredTx.Body.TxCertificates = []common.CertificateWrapper{{
 		Type: uint(common.CertificateTypeStakeRegistration),

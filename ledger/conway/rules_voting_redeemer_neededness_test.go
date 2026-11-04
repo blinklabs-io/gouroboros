@@ -90,7 +90,10 @@ func TestConwayExtraneousVotingRedeemersAcceptScriptVotersAndPreserveIndexes(
 		name      string
 		voterType uint8
 	}{
-		{name: "committee script hash", voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash},
+		{
+			name:      "committee script hash",
+			voterType: common.VoterTypeConstitutionalCommitteeHotScriptHash,
+		},
 		{name: "DRep script hash", voterType: common.VoterTypeDRepScriptHash},
 	}
 	for _, test := range tests {
@@ -134,10 +137,16 @@ func TestConwayExtraneousVotingRedeemersAcceptScriptVotersAndPreserveIndexes(
 		}
 		tx := &conway.ConwayTransaction{
 			Body: conway.ConwayTransactionBody{
-				TxVotingProcedures: conwayVotingProcedures(keyVoter, scriptVoter),
+				TxVotingProcedures: conwayVotingProcedures(
+					keyVoter,
+					scriptVoter,
+				),
 			},
 			WitnessSet: conway.ConwayTransactionWitnessSet{
-				WsPlutusV1Scripts: cbor.NewSetType([]common.PlutusV1Script{script}, true),
+				WsPlutusV1Scripts: cbor.NewSetType(
+					[]common.PlutusV1Script{script},
+					true,
+				),
 				WsRedeemers: conway.ConwayRedeemers{
 					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 						{Tag: common.RedeemerTagVoting, Index: 1}: {},

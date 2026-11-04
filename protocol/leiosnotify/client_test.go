@@ -105,18 +105,26 @@ func TestClientMessageHandler(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name:        "BlockAnnouncement message",
-			msg:         NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x82, 0x01, 0x02}),
+			name: "BlockAnnouncement message",
+			msg: NewMsgBlockAnnouncement(
+				testAnnouncementEra,
+				[]byte{0x82, 0x01, 0x02},
+			),
 			expectError: false,
 		},
 		{
-			name:        "BlockOffer message",
-			msg:         NewMsgBlockOffer(pcommon.NewPoint(12345, testPointHash(0x01)), 12345),
+			name: "BlockOffer message",
+			msg: NewMsgBlockOffer(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+				12345,
+			),
 			expectError: false,
 		},
 		{
-			name:        "BlockTxsOffer message",
-			msg:         NewMsgBlockTxsOffer(pcommon.NewPoint(12345, testPointHash(0x01))),
+			name: "BlockTxsOffer message",
+			msg: NewMsgBlockTxsOffer(
+				pcommon.NewPoint(12345, testPointHash(0x01)),
+			),
 			expectError: false,
 		},
 		{
@@ -205,7 +213,12 @@ func TestStateTransitions(t *testing.T) {
 
 	for _, trans := range idleEntry.Transitions {
 		expected, ok := expectedTransitions[trans.MsgType]
-		require.True(t, ok, "unexpected transition message type: %d", trans.MsgType)
+		require.True(
+			t,
+			ok,
+			"unexpected transition message type: %d",
+			trans.MsgType,
+		)
 		assert.Equal(t, expected, trans.NewState)
 	}
 
@@ -223,7 +236,12 @@ func TestStateTransitions(t *testing.T) {
 
 	for _, trans := range busyEntry.Transitions {
 		expected, ok := expectedBusyTransitions[trans.MsgType]
-		require.True(t, ok, "unexpected transition message type: %d", trans.MsgType)
+		require.True(
+			t,
+			ok,
+			"unexpected transition message type: %d",
+			trans.MsgType,
+		)
 		assert.Equal(t, expected, trans.NewState)
 	}
 
@@ -265,10 +283,12 @@ func TestConfig(t *testing.T) {
 
 	cfg = NewConfig(
 		WithTimeout(120*time.Second),
-		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
-			requestNextCalled = true
-			return nil, nil
-		}),
+		WithRequestNextFunc(
+			func(ctx CallbackContext) (protocol.Message, error) {
+				requestNextCalled = true
+				return nil, nil
+			},
+		),
 		WithResponseSentFunc(func(
 			CallbackContext,
 			protocol.Message,
@@ -304,7 +324,10 @@ func TestClientHandleBlockAnnouncement(t *testing.T) {
 	}
 	client := NewClient(protoOptions, nil)
 
-	msg := NewMsgBlockAnnouncement(testAnnouncementEra, []byte{0x82, 0x01, 0x02})
+	msg := NewMsgBlockAnnouncement(
+		testAnnouncementEra,
+		[]byte{0x82, 0x01, 0x02},
+	)
 
 	// Start a goroutine to receive the message
 	received := make(chan protocol.Message, 1)
@@ -523,7 +546,10 @@ func TestNotificationLoopDrainsOnStop(t *testing.T) {
 		select {
 		case client.notificationChan <- NewMsgBlockAnnouncement(testAnnouncementEra, []byte{byte(i + 2)}):
 		case <-time.After(time.Second):
-			t.Fatalf("timeout sending pipelined message %d - drain blocked", i+1)
+			t.Fatalf(
+				"timeout sending pipelined message %d - drain blocked",
+				i+1,
+			)
 		}
 	}
 
@@ -534,13 +560,22 @@ func TestNotificationLoopDrainsOnStop(t *testing.T) {
 		t.Fatal("timeout waiting for notificationLoop to exit")
 	}
 
-	assert.Equal(t, int32(1), callCount.Load(), "NotificationFunc should be called exactly once")
+	assert.Equal(
+		t,
+		int32(1),
+		callCount.Load(),
+		"NotificationFunc should be called exactly once",
+	)
 
 	// Verify notificationRunning was reset
 	client.busyMutex.Lock()
 	running := client.notificationRunning
 	client.busyMutex.Unlock()
-	assert.False(t, running, "notificationRunning should be reset after loop exit")
+	assert.False(
+		t,
+		running,
+		"notificationRunning should be reset after loop exit",
+	)
 }
 
 func TestNotificationLoopExitsOnChannelClose(t *testing.T) {
@@ -580,7 +615,11 @@ func TestNotificationLoopExitsOnChannelClose(t *testing.T) {
 	client.busyMutex.Lock()
 	running := client.notificationRunning
 	client.busyMutex.Unlock()
-	assert.False(t, running, "notificationRunning should be reset after loop exit")
+	assert.False(
+		t,
+		running,
+		"notificationRunning should be reset after loop exit",
+	)
 }
 
 // Stop quits rather than sending Done: Done is the server's answer to Quit.

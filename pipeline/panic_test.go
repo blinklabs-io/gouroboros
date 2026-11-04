@@ -250,12 +250,18 @@ func TestApplyStageRunnerContainsStagePanic(t *testing.T) {
 	require.ErrorIs(t, outOfOrder.ApplyError(), ErrStagePanic)
 	select {
 	case completed := <-processedChan:
-		t.Fatalf("stage panic advanced completion to %d across an ordering gap", completed)
+		t.Fatalf(
+			"stage panic advanced completion to %d across an ordering gap",
+			completed,
+		)
 	default:
 	}
 	select {
 	case item := <-output:
-		t.Fatalf("stage panic forwarded out-of-order item %d", item.SequenceNumber())
+		t.Fatalf(
+			"stage panic forwarded out-of-order item %d",
+			item.SequenceNumber(),
+		)
 	default:
 	}
 	select {

@@ -1417,8 +1417,20 @@ func TestAddInt64Checked(t *testing.T) {
 		{"max int64 overflow", math.MaxInt64, 1, 0, false},
 		{"min int64 no overflow", math.MinInt64, 0, math.MinInt64, true},
 		{"min int64 overflow", math.MinInt64, -1, 0, false},
-		{"large values no overflow", math.MaxInt64 / 2, math.MaxInt64 / 2, math.MaxInt64 - 1, true},
-		{"large values overflow", math.MaxInt64/2 + 1, math.MaxInt64/2 + 1, 0, false},
+		{
+			"large values no overflow",
+			math.MaxInt64 / 2,
+			math.MaxInt64 / 2,
+			math.MaxInt64 - 1,
+			true,
+		},
+		{
+			"large values overflow",
+			math.MaxInt64/2 + 1,
+			math.MaxInt64/2 + 1,
+			0,
+			false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1453,7 +1465,10 @@ func TestMultiAssetUnmarshalDuplicatePolicyLastWins(t *testing.T) {
 
 	var ma MultiAsset[MultiAssetTypeMint]
 	if err := ma.UnmarshalCBOR(cborData); err != nil {
-		t.Fatalf("unexpected error decoding MultiAsset with duplicate PolicyID: %v", err)
+		t.Fatalf(
+			"unexpected error decoding MultiAsset with duplicate PolicyID: %v",
+			err,
+		)
 	}
 	assert.ErrorContains(t, ma.CheckForDuplicateKeys(), "duplicate map key")
 
@@ -1461,21 +1476,30 @@ func TestMultiAssetUnmarshalDuplicatePolicyLastWins(t *testing.T) {
 	// Last-wins: only the second entry survives, so the policy maps to {0xBB: 2}
 	// and the first entry's {0xAA: 1} is discarded entirely.
 	if len(ma.data) != 1 {
-		t.Fatalf("expected 1 policy after last-wins merge, got %d", len(ma.data))
+		t.Fatalf(
+			"expected 1 policy after last-wins merge, got %d",
+			len(ma.data),
+		)
 	}
 	inner, ok := ma.data[policy]
 	if !ok {
 		t.Fatalf("expected surviving policy %x to be present", policyBytes)
 	}
 	if len(inner) != 1 {
-		t.Fatalf("expected surviving inner asset map to have 1 entry, got %d", len(inner))
+		t.Fatalf(
+			"expected surviving inner asset map to have 1 entry, got %d",
+			len(inner),
+		)
 	}
 	last := ma.Asset(policy, []byte{0xBB})
 	if last == nil || last.Int64() != 2 {
 		t.Fatalf("expected last-wins asset 0xBB == 2, got %v", last)
 	}
 	if dropped := ma.Asset(policy, []byte{0xAA}); dropped != nil {
-		t.Fatalf("expected first duplicate asset 0xAA to be discarded, got %v", dropped)
+		t.Fatalf(
+			"expected first duplicate asset 0xAA to be discarded, got %v",
+			dropped,
+		)
 	}
 }
 
@@ -1501,7 +1525,10 @@ func TestMultiAssetUnmarshalDuplicateAssetNameLastWins(t *testing.T) {
 
 	var ma MultiAsset[MultiAssetTypeMint]
 	if err := ma.UnmarshalCBOR(cborData); err != nil {
-		t.Fatalf("unexpected error decoding MultiAsset with duplicate AssetName: %v", err)
+		t.Fatalf(
+			"unexpected error decoding MultiAsset with duplicate AssetName: %v",
+			err,
+		)
 	}
 	assert.ErrorContains(t, ma.CheckForDuplicateKeys(), "duplicate map key")
 
@@ -1516,7 +1543,10 @@ func TestMultiAssetUnmarshalDuplicateAssetNameLastWins(t *testing.T) {
 	// Last-wins: the duplicate AssetName collapses to a single entry with the
 	// second value.
 	if len(inner) != 1 {
-		t.Fatalf("expected 1 inner asset after last-wins merge, got %d", len(inner))
+		t.Fatalf(
+			"expected 1 inner asset after last-wins merge, got %d",
+			len(inner),
+		)
 	}
 	last := ma.Asset(policy, []byte{0xCC})
 	if last == nil || last.Int64() != 9 {
@@ -1618,7 +1648,9 @@ func TestMultiAssetLedgerSerializedSizeAdjustment(t *testing.T) {
 			id[0], id[1] = byte(p>>8), byte(p)
 			assets := map[cbor.ByteString]*big.Int{}
 			for a := range assetsPerPolicy {
-				assets[cbor.NewByteString([]byte{byte(a >> 8), byte(a)})] = big.NewInt(1)
+				assets[cbor.NewByteString([]byte{byte(a >> 8), byte(a)})] = big.NewInt(
+					1,
+				)
 			}
 			data[id] = assets
 		}

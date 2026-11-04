@@ -409,7 +409,9 @@ func TestVerifyTransactionRequiresReferencePlutusV4GuardRedeemer(t *testing.T) {
 					witnesses.WsRedeemers = DijkstraRedeemers{
 						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
 							redeemerKey: {
-								Data: common.Datum{Data: data.NewInteger(big.NewInt(1))},
+								Data: common.Datum{
+									Data: data.NewInteger(big.NewInt(1)),
+								},
 								ExUnits: common.ExUnits{
 									Steps:  10_000_000,
 									Memory: 10_000_000,
@@ -917,28 +919,68 @@ func TestSupplementalDatumsChecksEachSubtransactionLevel(t *testing.T) {
 	}}).Build()
 	subtransaction := DijkstraSubTransaction{
 		Body: DijkstraSubTransactionBody{
-			TxInputs: conway.NewConwayTransactionInputSet([]shelley.ShelleyTransactionInput{input}),
+			TxInputs: conway.NewConwayTransactionInputSet(
+				[]shelley.ShelleyTransactionInput{input},
+			),
 		},
 		WitnessSet: DijkstraTransactionWitnessSet{
-			WsPlutusV1Scripts: cbor.NewSetType([]common.PlutusV1Script{v1}, true),
+			WsPlutusV1Scripts: cbor.NewSetType(
+				[]common.PlutusV1Script{v1},
+				true,
+			),
 		},
 	}
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
-			TxSubTransactions: cbor.NewSetType([]DijkstraSubTransaction{subtransaction}, true),
+			TxSubTransactions: cbor.NewSetType(
+				[]DijkstraSubTransaction{subtransaction},
+				true,
+			),
 		},
 		TxIsValid: false,
 	}
 	var missing conway.MissingDatumForSpendingScriptError
-	require.ErrorAs(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()), &missing)
+	require.ErrorAs(
+		t,
+		UtxoValidateSupplementalDatums(
+			tx,
+			0,
+			state,
+			dijkstraGuardTestPParams(),
+		),
+		&missing,
+	)
 
 	tx.WitnessSet.WsPlutusData = cbor.NewSetType([]common.Datum{datum}, true)
-	require.ErrorAs(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()), &missing)
+	require.ErrorAs(
+		t,
+		UtxoValidateSupplementalDatums(
+			tx,
+			0,
+			state,
+			dijkstraGuardTestPParams(),
+		),
+		&missing,
+	)
 	tx.WitnessSet = DijkstraTransactionWitnessSet{}
 
-	subtransaction.WitnessSet.WsPlutusData = cbor.NewSetType([]common.Datum{datum}, true)
-	tx.Body.TxSubTransactions = cbor.NewSetType([]DijkstraSubTransaction{subtransaction}, true)
-	require.NoError(t, UtxoValidateSupplementalDatums(tx, 0, state, dijkstraGuardTestPParams()))
+	subtransaction.WitnessSet.WsPlutusData = cbor.NewSetType(
+		[]common.Datum{datum},
+		true,
+	)
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{subtransaction},
+		true,
+	)
+	require.NoError(
+		t,
+		UtxoValidateSupplementalDatums(
+			tx,
+			0,
+			state,
+			dijkstraGuardTestPParams(),
+		),
+	)
 }
 
 func TestVerifyTransactionChecksSubtransactionScriptIntegrity(t *testing.T) {

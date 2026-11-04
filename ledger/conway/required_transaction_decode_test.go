@@ -21,7 +21,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestConwayTransactionDecodeRejectsInvalidBodyAndWitnessFields(t *testing.T) {
+func TestConwayTransactionDecodeRejectsInvalidBodyAndWitnessFields(
+	t *testing.T,
+) {
 	for _, test := range []struct {
 		name     string
 		body     map[uint]any

@@ -63,8 +63,14 @@ func rcKey(t *testing.T, publicKey, proof string) *common.LeiosKey {
 
 func TestVerifyPossessionProofRcPrototypeKeys(t *testing.T) {
 	t.Parallel()
-	require.NoError(t, leios.VerifyPossessionProof(*rcKey(t, rcSeat0PublicKey, rcSeat0Proof)))
-	require.NoError(t, leios.VerifyPossessionProof(*rcKey(t, rcSeat1PublicKey, rcSeat1Proof)))
+	require.NoError(
+		t,
+		leios.VerifyPossessionProof(*rcKey(t, rcSeat0PublicKey, rcSeat0Proof)),
+	)
+	require.NoError(
+		t,
+		leios.VerifyPossessionProof(*rcKey(t, rcSeat1PublicKey, rcSeat1Proof)),
+	)
 }
 
 func TestVerifyDijkstraCertificateRcPrototypeCertificate(t *testing.T) {

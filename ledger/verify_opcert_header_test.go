@@ -83,12 +83,16 @@ func TestExtractOpCertFromHeaderRejectsUnsupportedAndNilHeaders(t *testing.T) {
 
 type unsupportedBlockHeader struct{}
 
-func (unsupportedBlockHeader) Hash() common.Blake2b256          { return common.Blake2b256{} }
-func (unsupportedBlockHeader) PrevHash() common.Blake2b256      { return common.Blake2b256{} }
-func (unsupportedBlockHeader) BlockNumber() uint64              { return 0 }
-func (unsupportedBlockHeader) SlotNumber() uint64               { return 0 }
-func (unsupportedBlockHeader) IssuerVkey() common.IssuerVkey    { return common.IssuerVkey{} }
-func (unsupportedBlockHeader) BlockBodySize() uint64            { return 0 }
-func (unsupportedBlockHeader) Era() common.Era                  { return common.Era{} }
-func (unsupportedBlockHeader) Cbor() []byte                     { return nil }
+func (unsupportedBlockHeader) Hash() common.Blake2b256 { return common.Blake2b256{} }
+
+func (unsupportedBlockHeader) PrevHash() common.Blake2b256 { return common.Blake2b256{} }
+func (unsupportedBlockHeader) BlockNumber() uint64         { return 0 }
+func (unsupportedBlockHeader) SlotNumber() uint64          { return 0 }
+
+func (unsupportedBlockHeader) IssuerVkey() common.IssuerVkey { return common.IssuerVkey{} }
+func (unsupportedBlockHeader) BlockBodySize() uint64         { return 0 }
+
+func (unsupportedBlockHeader) Era() common.Era { return common.Era{} }
+func (unsupportedBlockHeader) Cbor() []byte    { return nil }
+
 func (unsupportedBlockHeader) BlockBodyHash() common.Blake2b256 { return common.Blake2b256{} }

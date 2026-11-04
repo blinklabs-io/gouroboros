@@ -135,7 +135,11 @@ func TestLeiosMinCertificationSlotTruncatesSlotLengthToMilliseconds(
 	require.NoError(t, err)
 	require.Equal(t, uint64(103), slot)
 	_, err = LeiosMinCertificationSlot(time.Microsecond*999, 1000, 0, 0, 100)
-	require.Error(t, err, "a slot shorter than one millisecond truncates to zero")
+	require.Error(
+		t,
+		err,
+		"a slot shorter than one millisecond truncates to zero",
+	)
 }
 
 func TestValidateLeiosCertificateTiming(t *testing.T) {

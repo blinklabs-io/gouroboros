@@ -220,8 +220,16 @@ func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
 		sscType uint64
 		primary []byte
 	}{
-		{"commitments", byron.SscTypeCommitments, goldenSscBytes(t, goldenCommitmentsMapHex)},
-		{"openings", byron.SscTypeOpenings, goldenSscBytes(t, goldenOpeningsMapHex)},
+		{
+			"commitments",
+			byron.SscTypeCommitments,
+			goldenSscBytes(t, goldenCommitmentsMapHex),
+		},
+		{
+			"openings",
+			byron.SscTypeOpenings,
+			goldenSscBytes(t, goldenOpeningsMapHex),
+		},
 		{"shares", byron.SscTypeShares, goldenSscBytes(t, goldenSharesMapHex)},
 		{"certificates", byron.SscTypeCertificates, nil},
 	}
@@ -231,7 +239,10 @@ func TestByronSscGoldenVectorsAcceptedByValidateBodyProof(t *testing.T) {
 			var proofFields []any
 			if tc.primary == nil {
 				payloadFields = []any{tc.sscType, cbor.RawMessage(certs)}
-				proofFields = []any{tc.sscType, certState.CertificatesHash().Bytes()}
+				proofFields = []any{
+					tc.sscType,
+					certState.CertificatesHash().Bytes(),
+				}
 			} else {
 				payloadFields = []any{
 					tc.sscType, cbor.RawMessage(tc.primary), cbor.RawMessage(certs),

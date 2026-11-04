@@ -57,7 +57,11 @@ func TestWrappedHeaderUnmarshalRejectsNonByteTagContent(t *testing.T) {
 	var wrapped WrappedHeader
 	err = wrapped.UnmarshalCBOR(data)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "wrapped header tag content must be []byte")
+	require.Contains(
+		t,
+		err.Error(),
+		"wrapped header tag content must be []byte",
+	)
 }
 
 func TestWrappedHeaderUnmarshalRejectsNonByteByronTagContent(t *testing.T) {
@@ -75,7 +79,11 @@ func TestWrappedHeaderUnmarshalRejectsNonByteByronTagContent(t *testing.T) {
 	var wrapped WrappedHeader
 	err = wrapped.UnmarshalCBOR(data)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "wrapped byron header tag content must be []byte")
+	require.Contains(
+		t,
+		err.Error(),
+		"wrapped byron header tag content must be []byte",
+	)
 }
 
 func TestHandleRollForwardNtNRejectsUnknownHeaderEra(t *testing.T) {

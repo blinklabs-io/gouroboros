@@ -117,7 +117,9 @@ func TestRepeatedDoneDoesNotStallSharedMuxer(t *testing.T) {
 		require.True(t, ok, "muxer error channel closed before probe delivery")
 		require.NoError(t, err)
 	case <-time.After(2 * time.Second):
-		t.Fatal("shared muxer stalled after repeated peer-sharing Done messages")
+		t.Fatal(
+			"shared muxer stalled after repeated peer-sharing Done messages",
+		)
 	}
 	require.NoError(t, <-writeDone)
 	select {

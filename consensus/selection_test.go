@@ -1119,9 +1119,15 @@ func TestMixedCandidateSetIsTransitive(t *testing.T) {
 	for _, x := range candidates {
 		for _, y := range candidates {
 			for _, z := range candidates {
-				xy := sign(selector.CompareWithDensity(x, y, fork, tipBlockNumber))
-				yz := sign(selector.CompareWithDensity(y, z, fork, tipBlockNumber))
-				xz := sign(selector.CompareWithDensity(x, z, fork, tipBlockNumber))
+				xy := sign(
+					selector.CompareWithDensity(x, y, fork, tipBlockNumber),
+				)
+				yz := sign(
+					selector.CompareWithDensity(y, z, fork, tipBlockNumber),
+				)
+				xz := sign(
+					selector.CompareWithDensity(x, z, fork, tipBlockNumber),
+				)
 				if xy > 0 && yz > 0 {
 					require.Positive(
 						t, xz,
@@ -1151,7 +1157,15 @@ func TestMixedCandidateSetSelectionIsOrderIndependent(t *testing.T) {
 	b := NewWindowedChainTip(1002, 100, vrfByte(0x22), []uint64{1001, 1002})
 	c := NewSimpleChainTipWithDensity(1010, 100, vrfByte(0x33), 5, 10)
 
-	assertSelectionIsOrderIndependent(t, selector, fork, tipBlockNumber, a, b, c)
+	assertSelectionIsOrderIndependent(
+		t,
+		selector,
+		fork,
+		tipBlockNumber,
+		a,
+		b,
+		c,
+	)
 }
 
 // TestWindowedCandidateSetSelectionIsOrderIndependent is the control for the
@@ -1172,7 +1186,15 @@ func TestWindowedCandidateSetSelectionIsOrderIndependent(t *testing.T) {
 		1010, 100, vrfByte(0x33), []uint64{1002, 1004, 1006, 1008, 1010},
 	)
 
-	assertSelectionIsOrderIndependent(t, selector, fork, tipBlockNumber, a, b, c)
+	assertSelectionIsOrderIndependent(
+		t,
+		selector,
+		fork,
+		tipBlockNumber,
+		a,
+		b,
+		c,
+	)
 }
 
 // vrfByte returns a VRF output distinguishable from any other produced here.

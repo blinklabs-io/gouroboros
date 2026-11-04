@@ -218,7 +218,9 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 	t *testing.T,
 ) {
 	pp := govOverlayPparams()
-	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("drep-tombstone-pool")))
+	pool := common.PoolKeyHash(
+		common.Blake2b224Hash([]byte("drep-tombstone-pool")),
+	)
 	stake := common.Credential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.Blake2b224Hash([]byte("drep-tombstone-stake")),
@@ -290,45 +292,50 @@ func TestUtxoValidateDelegationPreservesDRepDeregistrationTombstone(
 		}
 		drepDeposit := pp.DRepDeposit
 		for _, tc := range assignments {
-			t.Run(tc.name+"/credential-type-"+string(rune('0'+credType)), func(t *testing.T) {
-				stateBuilder := mockledger.NewLedgerStateBuilder().
-					WithDRepRegistrations([]common.DRepRegistration{{
-						Credential: drep,
-						Deposit:    &drepDeposit,
-					}}).
-					WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
-					Build()
-				initialState := stateBuilder
-				if tc.name == "vote delegation" ||
-					tc.name == "stake plus vote delegation" {
-					initialState = mockledger.NewLedgerStateBuilder().
+			t.Run(
+				tc.name+"/credential-type-"+string(rune('0'+credType)),
+				func(t *testing.T) {
+					stateBuilder := mockledger.NewLedgerStateBuilder().
 						WithDRepRegistrations([]common.DRepRegistration{{
 							Credential: drep,
 							Deposit:    &drepDeposit,
 						}}).
-						WithStakeCredentialRegistered(stake.Credential, true).
 						WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
 						Build()
-				}
-				tx := &conway.ConwayTransaction{
-					Body: conway.ConwayTransactionBody{
-						TxCertificates: []common.CertificateWrapper{
-							{Certificate: &common.DeregistrationDrepCertificate{
-								DrepCredential: drep,
-								Amount:         uint64(drepDeposit),
-							}},
-							{Certificate: tc.build(drep)},
+					initialState := stateBuilder
+					if tc.name == "vote delegation" ||
+						tc.name == "stake plus vote delegation" {
+						initialState = mockledger.NewLedgerStateBuilder().
+							WithDRepRegistrations([]common.DRepRegistration{{
+								Credential: drep,
+								Deposit:    &drepDeposit,
+							}}).
+							WithStakeCredentialRegistered(stake.Credential, true).
+							WithPools([]*common.PoolRegistrationCertificate{{Operator: pool}}).
+							Build()
+					}
+					tx := &conway.ConwayTransaction{
+						Body: conway.ConwayTransactionBody{
+							TxCertificates: []common.CertificateWrapper{
+								{
+									Certificate: &common.DeregistrationDrepCertificate{
+										DrepCredential: drep,
+										Amount:         uint64(drepDeposit),
+									},
+								},
+								{Certificate: tc.build(drep)},
+							},
 						},
-					},
-					TxIsValid: true,
-				}
-				err := conway.UtxoValidateDelegation(
-					tx, 0, initialState, pp,
-				)
-				var target conway.DelegateVoteToUnregisteredDRepError
-				require.ErrorAs(t, err, &target)
-				require.Equal(t, drep, target.DRepCredential)
-			})
+						TxIsValid: true,
+					}
+					err := conway.UtxoValidateDelegation(
+						tx, 0, initialState, pp,
+					)
+					var target conway.DelegateVoteToUnregisteredDRepError
+					require.ErrorAs(t, err, &target)
+					require.Equal(t, drep, target.DRepCredential)
+				},
+			)
 		}
 	}
 
@@ -373,7 +380,9 @@ func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
 	t *testing.T,
 ) {
 	pp := govOverlayPparams()
-	pool := common.PoolKeyHash(common.Blake2b224Hash([]byte("drep-register-pool")))
+	pool := common.PoolKeyHash(
+		common.Blake2b224Hash([]byte("drep-register-pool")),
+	)
 	stake := common.Credential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.Blake2b224Hash([]byte("drep-register-stake")),
@@ -440,7 +449,10 @@ func TestUtxoValidateDelegationAllowsDRepRegistrationThenAssignment(
 				},
 				TxIsValid: true,
 			}
-			require.NoError(t, conway.UtxoValidateDelegation(tx, 0, initialState, pp))
+			require.NoError(
+				t,
+				conway.UtxoValidateDelegation(tx, 0, initialState, pp),
+			)
 		})
 	}
 }
@@ -530,7 +542,10 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 		LedgerState: base,
 		available:   true,
 		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
-			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+			return &common.CommitteeMember{
+				ColdKey: coldHash,
+				HotKey:  &hotKey,
+			}, nil
 		},
 	}
 	voter := common.Voter{
@@ -545,7 +560,12 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 	require.ErrorAs(t, err, &unknown)
 	require.NoError(
 		t,
-		conway.UtxoValidateUnknownVoters(tx, 0, pendingState, govOverlayPparams()),
+		conway.UtxoValidateUnknownVoters(
+			tx,
+			0,
+			pendingState,
+			govOverlayPparams(),
+		),
 	)
 
 	electedState := committeeCredentialLedgerState{
@@ -557,7 +577,10 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 			Build(),
 		available: true,
 		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
-			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+			return &common.CommitteeMember{
+				ColdKey: coldHash,
+				HotKey:  &hotKey,
+			}, nil
 		},
 		hotColdLookup: func(common.Credential) ([]common.Credential, error) {
 			return []common.Credential{{
@@ -569,7 +592,10 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 			return true, nil
 		},
 	}
-	require.NoError(t, conway.UtxoValidateUnknownVoters(tx, 0, electedState, pv11))
+	require.NoError(
+		t,
+		conway.UtxoValidateUnknownVoters(tx, 0, electedState, pv11),
+	)
 
 	// An authorization can still be present when its cold credential has no
 	// elected committee term. PV11 resolves that hot credential as an unknown
@@ -584,7 +610,10 @@ func TestUtxoValidateUnknownVotersRequiresElectedCommitteeAtPV11(t *testing.T) {
 			Build(),
 		available: true,
 		hotLookup: func(common.Credential) (*common.CommitteeMember, error) {
-			return &common.CommitteeMember{ColdKey: coldHash, HotKey: &hotKey}, nil
+			return &common.CommitteeMember{
+				ColdKey: coldHash,
+				HotKey:  &hotKey,
+			}, nil
 		},
 		hotColdLookup: func(common.Credential) ([]common.Credential, error) {
 			return []common.Credential{{
@@ -829,7 +858,9 @@ func TestUtxoValidateProposalReturnAccountsRejectsInTxStakeDeregistration(
 		mkCertWrapper(
 			uint(common.CertificateTypeStakeDeregistration),
 			&common.StakeDeregistrationCertificate{
-				CertType:        uint(common.CertificateTypeStakeDeregistration),
+				CertType: uint(
+					common.CertificateTypeStakeDeregistration,
+				),
 				StakeCredential: credential,
 			},
 		),

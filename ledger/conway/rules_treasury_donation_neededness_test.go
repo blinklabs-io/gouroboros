@@ -49,7 +49,9 @@ func TestConwayDonationRestrictionUsesNeededPlutusScripts(t *testing.T) {
 			Id: spent,
 			Output: babbage.BabbageTransactionOutput{
 				OutputAddress: address,
-				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 2_000_000},
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: 2_000_000,
+				},
 			},
 		},
 		{
@@ -70,7 +72,9 @@ func TestConwayDonationRestrictionUsesNeededPlutusScripts(t *testing.T) {
 			),
 			TxOutputs: []babbage.BabbageTransactionOutput{{
 				OutputAddress: address,
-				OutputAmount:  mary.MaryTransactionOutputValue{Amount: 1_999_999},
+				OutputAmount: mary.MaryTransactionOutputValue{
+					Amount: 1_999_999,
+				},
 			}},
 			TxDonation: 1,
 		},

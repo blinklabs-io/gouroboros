@@ -90,7 +90,12 @@ func TestShelleyTransactionBody_MarshalCBOR_PreservesWireBytes(t *testing.T) {
 		"expected a single protocol param update",
 	)
 	update, ok := body.Update.ProtocolParamUpdates[genesisHash]
-	require.True(t, ok, "expected update entry for genesis hash %s", genesisHash)
+	require.True(
+		t,
+		ok,
+		"expected update entry for genesis hash %s",
+		genesisHash,
+	)
 	require.NotNil(t, update.MinFeeA, "expected MinFeeA to be set")
 	assert.Equal(t, uint(44), *update.MinFeeA)
 	assert.Nil(t, update.MinFeeB, "expected MinFeeB to remain unset")

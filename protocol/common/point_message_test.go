@@ -26,7 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPointMessageDecodersPreserveValidFormsAndRejectMalformed(t *testing.T) {
+func TestPointMessageDecodersPreserveValidFormsAndRejectMalformed(
+	t *testing.T,
+) {
 	t.Parallel()
 	decoders := []struct {
 		name   string
@@ -37,14 +39,22 @@ func TestPointMessageDecodersPreserveValidFormsAndRejectMalformed(t *testing.T) 
 		{
 			"chainsync_ntn", chainsync.MessageTypeFindIntersect,
 			func(kind uint, data []byte) (protocol.Message, error) {
-				return chainsync.NewMsgFromCbor(protocol.ProtocolModeNodeToNode, kind, data)
+				return chainsync.NewMsgFromCbor(
+					protocol.ProtocolModeNodeToNode,
+					kind,
+					data,
+				)
 			},
 			func(p any) []any { return []any{uint64(4), []any{p}} },
 		},
 		{
 			"chainsync_ntc", chainsync.MessageTypeFindIntersect,
 			func(kind uint, data []byte) (protocol.Message, error) {
-				return chainsync.NewMsgFromCbor(protocol.ProtocolModeNodeToClient, kind, data)
+				return chainsync.NewMsgFromCbor(
+					protocol.ProtocolModeNodeToClient,
+					kind,
+					data,
+				)
 			},
 			func(p any) []any { return []any{uint64(4), []any{p}} },
 		},

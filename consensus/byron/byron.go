@@ -165,15 +165,21 @@ func (c *ByronConfig) SlotLeader(slot uint64) (int, []byte) {
 //   - Slot duration
 //   - Security parameter (K)
 //   - Genesis delegate key hashes (sorted for OBFT slot leader assignment)
-func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, error) {
+func NewByronConfigFromGenesis(
+	genesis *ledgerbyron.ByronGenesis,
+) (ByronConfig, error) {
 	if genesis.BlockVersionData.SlotDuration < 0 {
 		return ByronConfig{}, fmt.Errorf(
 			"invalid slot duration: %d (must be non-negative)",
 			genesis.BlockVersionData.SlotDuration,
 		)
 	}
-	maxSlotDurationMilliseconds := uint64(math.MaxInt64 / int64(time.Millisecond))
-	if uint64(genesis.BlockVersionData.SlotDuration) > maxSlotDurationMilliseconds {
+	maxSlotDurationMilliseconds := uint64(
+		math.MaxInt64 / int64(time.Millisecond),
+	)
+	if uint64(
+		genesis.BlockVersionData.SlotDuration,
+	) > maxSlotDurationMilliseconds {
 		return ByronConfig{}, fmt.Errorf(
 			"invalid slot duration: %d milliseconds overflows time.Duration",
 			genesis.BlockVersionData.SlotDuration,
@@ -181,16 +187,27 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	}
 	// Validate security parameter K
 	if genesis.ProtocolConsts.K <= 0 {
-		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d (must be positive)", genesis.ProtocolConsts.K)
+		return ByronConfig{}, fmt.Errorf(
+			"invalid security parameter K: %d (must be positive)",
+			genesis.ProtocolConsts.K,
+		)
 	}
 	if uint64(genesis.ProtocolConsts.K) > math.MaxUint64/10 {
-		return ByronConfig{}, fmt.Errorf("invalid security parameter K: %d overflows slots per epoch", genesis.ProtocolConsts.K)
+		return ByronConfig{}, fmt.Errorf(
+			"invalid security parameter K: %d overflows slots per epoch",
+			genesis.ProtocolConsts.K,
+		)
 	}
 
 	// Validate protocol magic fits in uint32
 	// int64 cast: on 32-bit targets untyped math.MaxUint32 overflows int
-	if genesis.ProtocolConsts.ProtocolMagic < 0 || int64(genesis.ProtocolConsts.ProtocolMagic) > math.MaxUint32 {
-		return ByronConfig{}, fmt.Errorf("invalid protocol magic: %d (must be 0 to %d)", genesis.ProtocolConsts.ProtocolMagic, uint32(math.MaxUint32))
+	if genesis.ProtocolConsts.ProtocolMagic < 0 ||
+		int64(genesis.ProtocolConsts.ProtocolMagic) > math.MaxUint32 {
+		return ByronConfig{}, fmt.Errorf(
+			"invalid protocol magic: %d (must be 0 to %d)",
+			genesis.ProtocolConsts.ProtocolMagic,
+			uint32(math.MaxUint32),
+		)
 	}
 	// #nosec G115 -- ProtocolMagic is validated to fit in uint32 above
 	protocolMagic := uint32(genesis.ProtocolConsts.ProtocolMagic)
@@ -294,7 +311,9 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 				issuerHash.String(),
 			)
 		}
-		delegateKey, err := base64.StdEncoding.DecodeString(delegation.DelegatePk)
+		delegateKey, err := base64.StdEncoding.DecodeString(
+			delegation.DelegatePk,
+		)
 		if err != nil {
 			return ByronConfig{}, fmt.Errorf(
 				"decode delegate verification key for genesis key %s: %w",
@@ -381,7 +400,9 @@ func NewByronConfigFromGenesis(genesis *ledgerbyron.ByronGenesis) (ByronConfig, 
 	activeGenesisDelegations := initialDelegationState.ActiveDelegations()
 
 	// Slot duration is in milliseconds in the genesis file
-	slotDuration := time.Duration(genesis.BlockVersionData.SlotDuration) * time.Millisecond
+	slotDuration := time.Duration(
+		genesis.BlockVersionData.SlotDuration,
+	) * time.Millisecond
 
 	// Extract fee policy
 	feePolicy := ByronTxFeePolicy{

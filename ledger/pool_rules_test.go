@@ -545,39 +545,42 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		))
 	})
 
-	t.Run("existing pool cannot re-register twice with one pending VRF key", func(t *testing.T) {
-		currentVrf := vrfKeyHash(0x04)
-		current := &common.PoolRegistrationCertificate{
-			CertType:   uint(common.CertificateTypePoolRegistration),
-			Operator:   registeringPool,
-			VrfKeyHash: currentVrf,
-			Margin:     common.NewGenesisRat(0, 1),
-		}
-		pending := poolRegCertWire(
-			t,
-			registeringPool,
-			sharedVrf,
-			0,
-			common.AddressNetworkMainnet,
-		)
-		ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
-			WithNetworkId(common.AddressNetworkMainnet).
-			WithPools([]*common.PoolRegistrationCertificate{current}).
-			WithVrfKeyInUseFunc(func(
-				hash common.Blake2b256,
-			) (bool, common.PoolKeyHash, error) {
-				return hash == currentVrf, registeringPool, nil
-			}).
-			Build())
-		err := shelley.UtxoValidatePoolCertificates(
-			poolCertTx(pending, pending), 0, ls, pparams,
-		)
-		var target shelley.VrfKeyHashAlreadyRegisteredError
-		require.ErrorAs(t, err, &target)
-		assert.Equal(t, registeringPool, target.PoolKeyHash)
-		assert.Equal(t, sharedVrf, target.VrfKeyHash)
-		assert.Equal(t, registeringPool, target.RegisteredBy)
-	})
+	t.Run(
+		"existing pool cannot re-register twice with one pending VRF key",
+		func(t *testing.T) {
+			currentVrf := vrfKeyHash(0x04)
+			current := &common.PoolRegistrationCertificate{
+				CertType:   uint(common.CertificateTypePoolRegistration),
+				Operator:   registeringPool,
+				VrfKeyHash: currentVrf,
+				Margin:     common.NewGenesisRat(0, 1),
+			}
+			pending := poolRegCertWire(
+				t,
+				registeringPool,
+				sharedVrf,
+				0,
+				common.AddressNetworkMainnet,
+			)
+			ls := withFuturePoolState(mockledger.NewLedgerStateBuilder().
+				WithNetworkId(common.AddressNetworkMainnet).
+				WithPools([]*common.PoolRegistrationCertificate{current}).
+				WithVrfKeyInUseFunc(func(
+					hash common.Blake2b256,
+				) (bool, common.PoolKeyHash, error) {
+					return hash == currentVrf, registeringPool, nil
+				}).
+				Build())
+			err := shelley.UtxoValidatePoolCertificates(
+				poolCertTx(pending, pending), 0, ls, pparams,
+			)
+			var target shelley.VrfKeyHashAlreadyRegisteredError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, registeringPool, target.PoolKeyHash)
+			assert.Equal(t, sharedVrf, target.VrfKeyHash)
+			assert.Equal(t, registeringPool, target.RegisteredBy)
+		},
+	)
 
 	t.Run("VRF lookup error propagates", func(t *testing.T) {
 		wantErr := errors.New("vrf lookup failed")
@@ -649,42 +652,45 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		assert.Equal(t, otherPool, target.RegisteredBy)
 	})
 
-	t.Run("own future VRF key differs from current and is rejected", func(t *testing.T) {
-		currentVrf := vrfKeyHash(0x04)
-		current := &common.PoolRegistrationCertificate{
-			Operator:   registeringPool,
-			VrfKeyHash: currentVrf,
-		}
-		cert := poolRegCertWire(
-			t,
-			registeringPool,
-			sharedVrf,
-			0,
-			common.AddressNetworkMainnet,
-		)
-		ls := futurePoolLedgerState{
-			LedgerState: mockledger.NewLedgerStateBuilder().
-				WithNetworkId(common.AddressNetworkMainnet).
-				WithPoolCurrentState(func(
-					operator common.PoolKeyHash,
-				) (*common.PoolRegistrationCertificate, *uint64, error) {
-					if operator == registeringPool {
-						return current, nil, nil
-					}
-					return nil, nil, nil
-				}).
-				Build(),
-			lookup: func(common.Blake2b256) (bool, common.PoolKeyHash, error) {
-				return true, registeringPool, nil
-			},
-		}
-		err := shelley.UtxoValidatePoolCertificates(
-			poolCertTx(cert), 0, ls, pparams,
-		)
-		var target shelley.VrfKeyHashAlreadyRegisteredError
-		require.ErrorAs(t, err, &target)
-		assert.Equal(t, registeringPool, target.RegisteredBy)
-	})
+	t.Run(
+		"own future VRF key differs from current and is rejected",
+		func(t *testing.T) {
+			currentVrf := vrfKeyHash(0x04)
+			current := &common.PoolRegistrationCertificate{
+				Operator:   registeringPool,
+				VrfKeyHash: currentVrf,
+			}
+			cert := poolRegCertWire(
+				t,
+				registeringPool,
+				sharedVrf,
+				0,
+				common.AddressNetworkMainnet,
+			)
+			ls := futurePoolLedgerState{
+				LedgerState: mockledger.NewLedgerStateBuilder().
+					WithNetworkId(common.AddressNetworkMainnet).
+					WithPoolCurrentState(func(
+						operator common.PoolKeyHash,
+					) (*common.PoolRegistrationCertificate, *uint64, error) {
+						if operator == registeringPool {
+							return current, nil, nil
+						}
+						return nil, nil, nil
+					}).
+					Build(),
+				lookup: func(common.Blake2b256) (bool, common.PoolKeyHash, error) {
+					return true, registeringPool, nil
+				},
+			}
+			err := shelley.UtxoValidatePoolCertificates(
+				poolCertTx(cert), 0, ls, pparams,
+			)
+			var target shelley.VrfKeyHashAlreadyRegisteredError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, registeringPool, target.RegisteredBy)
+		},
+	)
 
 	currentVrf := vrfKeyHash(0x04)
 	replacementVrf := vrfKeyHash(0x05)
@@ -742,17 +748,20 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		)
 	}
 
-	t.Run("later re-registration releases prior transaction key", func(t *testing.T) {
-		reserve := registration(registeringPool, sharedVrf)
-		replace := registration(registeringPool, replacementVrf)
-		claimReleased := registration(otherPool, sharedVrf)
-		require.NoError(t, shelley.UtxoValidatePoolCertificates(
-			poolCertTx(reserve, replace, claimReleased),
-			0,
-			unreservedFutureState(),
-			pparams,
-		))
-	})
+	t.Run(
+		"later re-registration releases prior transaction key",
+		func(t *testing.T) {
+			reserve := registration(registeringPool, sharedVrf)
+			replace := registration(registeringPool, replacementVrf)
+			claimReleased := registration(otherPool, sharedVrf)
+			require.NoError(t, shelley.UtxoValidatePoolCertificates(
+				poolCertTx(reserve, replace, claimReleased),
+				0,
+				unreservedFutureState(),
+				pparams,
+			))
+		},
+	)
 
 	t.Run("new pool retains active key", func(t *testing.T) {
 		activate := registration(registeringPool, currentVrf)
@@ -773,16 +782,19 @@ func TestUtxoValidatePoolCertificatesVrfKeyHash(t *testing.T) {
 		require.Equal(t, registeringPool, target.RegisteredBy)
 	})
 
-	t.Run("re-registration can restore inherited future key in one tx", func(t *testing.T) {
-		replace := registration(registeringPool, replacementVrf)
-		restore := registration(registeringPool, sharedVrf)
-		require.NoError(t, shelley.UtxoValidatePoolCertificates(
-			poolCertTx(replace, restore),
-			0,
-			inheritedFutureState(),
-			pparams,
-		))
-	})
+	t.Run(
+		"re-registration can restore inherited future key in one tx",
+		func(t *testing.T) {
+			replace := registration(registeringPool, replacementVrf)
+			restore := registration(registeringPool, sharedVrf)
+			require.NoError(t, shelley.UtxoValidatePoolCertificates(
+				poolCertTx(replace, restore),
+				0,
+				inheritedFutureState(),
+				pparams,
+			))
+		},
+	)
 }
 
 // registeredPoolLedgerState returns a ledger state in which pool 0x01 is
@@ -1453,25 +1465,28 @@ func TestUtxoValidatePoolCertificatesMetadataHashTooBig(t *testing.T) {
 		WithNetworkId(common.AddressNetworkMainnet).
 		Build()
 
-	t.Run("oversized hash is rejected from major version 5", func(t *testing.T) {
-		cert := poolRegCertWireWithMetadata(
-			t,
-			poolKeyHash(0x01),
-			vrfKeyHash(0x02),
-			common.Blake2b256Size+1,
-		)
-		err := shelley.UtxoValidatePoolCertificates(
-			poolCertTx(cert),
-			0,
-			ls,
-			alonzoPparams(340_000_000),
-		)
-		var target shelley.PoolMetadataHashTooBigError
-		require.ErrorAs(t, err, &target)
-		assert.Equal(t, poolKeyHash(0x01), target.PoolKeyHash)
-		assert.Equal(t, common.Blake2b256Size+1, target.Supplied)
-		assert.Equal(t, common.Blake2b256Size, target.Max)
-	})
+	t.Run(
+		"oversized hash is rejected from major version 5",
+		func(t *testing.T) {
+			cert := poolRegCertWireWithMetadata(
+				t,
+				poolKeyHash(0x01),
+				vrfKeyHash(0x02),
+				common.Blake2b256Size+1,
+			)
+			err := shelley.UtxoValidatePoolCertificates(
+				poolCertTx(cert),
+				0,
+				ls,
+				alonzoPparams(340_000_000),
+			)
+			var target shelley.PoolMetadataHashTooBigError
+			require.ErrorAs(t, err, &target)
+			assert.Equal(t, poolKeyHash(0x01), target.PoolKeyHash)
+			assert.Equal(t, common.Blake2b256Size+1, target.Supplied)
+			assert.Equal(t, common.Blake2b256Size, target.Max)
+		},
+	)
 
 	t.Run("oversized hash is accepted at major version 4", func(t *testing.T) {
 		cert := poolRegCertWireWithMetadata(

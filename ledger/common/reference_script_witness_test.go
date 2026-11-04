@@ -89,11 +89,21 @@ func TestReferenceSuppliedScriptWitnessIsExtraneous(t *testing.T) {
 		explicit  bool
 		wantErr   bool
 	}{
-		{name: "reference and witness", ref: true, explicit: true, wantErr: true},
+		{
+			name:     "reference and witness",
+			ref:      true,
+			explicit: true,
+			wantErr:  true,
+		},
 		{name: "reference only", ref: true},
 		{name: "witness only", explicit: true},
 		// A reference script for a different hash leaves the witness needed.
-		{name: "unrelated reference and witness", ref: true, unrelated: true, explicit: true},
+		{
+			name:      "unrelated reference and witness",
+			ref:       true,
+			unrelated: true,
+			explicit:  true,
+		},
 	}
 	eras := []struct {
 		name  string

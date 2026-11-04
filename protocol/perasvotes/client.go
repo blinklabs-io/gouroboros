@@ -163,7 +163,9 @@ func (c *Client) requestObjects(
 	ids []VoteID,
 ) ([]VoteObject, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("peras object request must contain at least one ID")
+		return nil, errors.New(
+			"peras object request must contain at least one ID",
+		)
 	}
 	if err := c.SendMessageContext(ctx, NewMsgRequestObjects(ids)); err != nil {
 		return nil, err

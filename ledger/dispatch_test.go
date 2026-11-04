@@ -358,7 +358,9 @@ func TestConwayLedgerDoesNotDecodeShelleyUtxowTag(t *testing.T) {
 	// Conway/Rules/Ledger.hs at cardano-ledger
 	// 2c33b4f858c0e62b300d121996a479f505d8c0e5 uses tag 1, not tag 0.
 	raw := []byte{0x82, 0x00, 0x82, 0x00, 0x81, 0x04}
-	wire, err := cbor.Encode([]any{[]any{EraIdConway, []any{cbor.RawMessage(raw)}}})
+	wire, err := cbor.Encode(
+		[]any{[]any{EraIdConway, []any{cbor.RawMessage(raw)}}},
+	)
 	require.NoError(t, err)
 	decoded, err := NewShelleyTxValidationErrorFromCbor(wire)
 	require.NoError(t, err)

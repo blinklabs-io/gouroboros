@@ -203,27 +203,36 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 		require.NoError(t, validate(withPending, reserves(-5)))
 	})
 
-	t.Run("negative delta with no pending rewards is rejected", func(t *testing.T) {
-		require.ErrorAs(t, validate(noPending, reserves(-1)), &target)
-	})
+	t.Run(
+		"negative delta with no pending rewards is rejected",
+		func(t *testing.T) {
+			require.ErrorAs(t, validate(noPending, reserves(-1)), &target)
+		},
+	)
 
-	t.Run("negative delta without pending rewards state is unavailable", func(t *testing.T) {
-		var unavailable shelley.PendingInstantaneousRewardsUnavailableError
-		require.ErrorAs(
-			t,
-			validate(mockledger.NewLedgerStateBuilder().Build(), reserves(-1)),
-			&unavailable,
-		)
-		assert.Equal(t, uint(0), unavailable.Source)
-		require.NotNil(t, unavailable.Delta)
-		assert.Equal(t, "-1", unavailable.Delta.String())
-		assert.Contains(t, unavailable.Error(), "delta -1")
-		require.NoError(t, validate(
-			mockledger.NewLedgerStateBuilder().Build(),
-			reserves(4),
-			reserves(-4),
-		))
-	})
+	t.Run(
+		"negative delta without pending rewards state is unavailable",
+		func(t *testing.T) {
+			var unavailable shelley.PendingInstantaneousRewardsUnavailableError
+			require.ErrorAs(
+				t,
+				validate(
+					mockledger.NewLedgerStateBuilder().Build(),
+					reserves(-1),
+				),
+				&unavailable,
+			)
+			assert.Equal(t, uint(0), unavailable.Source)
+			require.NotNil(t, unavailable.Delta)
+			assert.Equal(t, "-1", unavailable.Delta.String())
+			assert.Contains(t, unavailable.Error(), "delta -1")
+			require.NoError(t, validate(
+				mockledger.NewLedgerStateBuilder().Build(),
+				reserves(4),
+				reserves(-4),
+			))
+		},
+	)
 
 	t.Run("pending rewards in the other pot do not count", func(t *testing.T) {
 		treasury := mirCert(1, map[*common.Credential]*big.Int{
@@ -232,19 +241,25 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 		require.ErrorAs(t, validate(withPending, treasury), &target)
 	})
 
-	t.Run("earlier certificates in the transaction accumulate", func(t *testing.T) {
-		require.NoError(t, validate(withPending, reserves(-3), reserves(-2)))
-		require.ErrorAs(
-			t,
-			validate(withPending, reserves(-3), reserves(-3)),
-			&target,
-		)
-		require.NoError(t, validate(
-			mockledger.NewLedgerStateBuilder().Build(),
-			reserves(4),
-			reserves(-4),
-		))
-	})
+	t.Run(
+		"earlier certificates in the transaction accumulate",
+		func(t *testing.T) {
+			require.NoError(
+				t,
+				validate(withPending, reserves(-3), reserves(-2)),
+			)
+			require.ErrorAs(
+				t,
+				validate(withPending, reserves(-3), reserves(-3)),
+				&target,
+			)
+			require.NoError(t, validate(
+				mockledger.NewLedgerStateBuilder().Build(),
+				reserves(4),
+				reserves(-4),
+			))
+		},
+	)
 
 	t.Run("earlier transactions in the block accumulate", func(t *testing.T) {
 		block := common.NewBlockLedgerState(noPending)

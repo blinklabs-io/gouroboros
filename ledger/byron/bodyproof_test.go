@@ -180,7 +180,9 @@ func TestByronMainBlockRejectsMalformedExtraWitnessDespiteMatchingProof(
 		originalHash,
 		func() []byte {
 			h := common.Blake2b256Hash(
-				encodeIndefiniteWitnessList([][]byte{originalTwit0, originalTwit1}),
+				encodeIndefiniteWitnessList(
+					[][]byte{originalTwit0, originalTwit1},
+				),
 			)
 			return h[:]
 		}(),
@@ -411,7 +413,11 @@ func TestByronMainBlockSkipBodyHashValidation(t *testing.T) {
 func testnetByronEbb(t *testing.T) []byte {
 	t.Helper()
 	ebbPath := filepath.Join(
-		"..", "..", "protocol", "chainsync", "testdata",
+		"..",
+		"..",
+		"protocol",
+		"chainsync",
+		"testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 	)
 	hexData, err := os.ReadFile(ebbPath)
@@ -434,13 +440,22 @@ func withEbbBodyProof(
 	var block []cbor.RawMessage
 	_, err := cbor.Decode(blockCbor, &block)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(block), 1, "byron EBB is [header, body, extra]")
+	require.GreaterOrEqual(
+		t,
+		len(block),
+		1,
+		"byron EBB is [header, body, extra]",
+	)
 
 	var header []cbor.RawMessage
 	_, err = cbor.Decode(block[0], &header)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(header), 3,
-		"byron EBB header is [protocol_magic, prev_block, body_proof, consensus_data, extra_data]")
+	require.GreaterOrEqual(
+		t,
+		len(header),
+		3,
+		"byron EBB header is [protocol_magic, prev_block, body_proof, consensus_data, extra_data]",
+	)
 
 	header[2] = newProof
 	newHeader, err := cbor.Encode(header)
@@ -466,9 +481,15 @@ func TestByronEpochBoundaryBlockBodyProofValidates(t *testing.T) {
 // its body, so replacing the stakeholder list outright must still decode
 // and validate, provided the replacement is otherwise well-formed (the
 // indefinite-length form #2493 requires).
-func TestByronEpochBoundaryBlockAcceptsSubstitutedStakeholderList(t *testing.T) {
+func TestByronEpochBoundaryBlockAcceptsSubstitutedStakeholderList(
+	t *testing.T,
+) {
 	ebbPath := filepath.Join(
-		"..", "..", "protocol", "chainsync", "testdata",
+		"..",
+		"..",
+		"protocol",
+		"chainsync",
+		"testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 	)
 	hexData, err := os.ReadFile(ebbPath)

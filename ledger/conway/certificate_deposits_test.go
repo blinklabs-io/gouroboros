@@ -513,25 +513,28 @@ func TestCertificateDeregistrationStateProductionPath(t *testing.T) {
 					pp,
 				))
 			})
-			t.Run("legacy refund of the parameter is not conserved", func(t *testing.T) {
-				// Balancing against the current parameter while state records a
-				// larger deposit must fail value conservation, which proves the
-				// refund is taken from ledger state.
-				tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
-				err := runCertificateDepositProductionRules(
-					t,
-					tx,
-					buildState(true, 0, uint64(pp.KeyDeposit)+1),
-					pp,
-				)
-				var target shelley.ValueNotConservedUtxoError
-				require.True(
-					t,
-					errors.As(err, &target),
-					"unexpected error: %v",
-					err,
-				)
-			})
+			t.Run(
+				"legacy refund of the parameter is not conserved",
+				func(t *testing.T) {
+					// Balancing against the current parameter while state records a
+					// larger deposit must fail value conservation, which proves the
+					// refund is taken from ledger state.
+					tx := buildLegacyDeregistration(uint64(pp.KeyDeposit))
+					err := runCertificateDepositProductionRules(
+						t,
+						tx,
+						buildState(true, 0, uint64(pp.KeyDeposit)+1),
+						pp,
+					)
+					var target shelley.ValueNotConservedUtxoError
+					require.True(
+						t,
+						errors.As(err, &target),
+						"unexpected error: %v",
+						err,
+					)
+				},
+			)
 			t.Run("unregistered", func(t *testing.T) {
 				tx := buildDeregistration(0, 0)
 				err := runCertificateDepositProductionRules(
@@ -744,7 +747,10 @@ func TestDRepDeregistrationThenAssignmentRejectedByFullRules(t *testing.T) {
 	drepDeposit := pp.DRepDeposit
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{
-			Id: shelley.MustNewShelleyTransactionInput(certificateDepositTxId, 0),
+			Id: shelley.MustNewShelleyTransactionInput(
+				certificateDepositTxId,
+				0,
+			),
 			Output: shelley.ShelleyTransactionOutput{
 				OutputAmount: certificateDepositInputAmount,
 			},
@@ -772,10 +778,15 @@ func TestDRepUpdateRequiresSequentialRegistration(t *testing.T) {
 		common.CredentialTypeScriptHash,
 	} {
 		fixture := newCertificateDepositCredentialFixture(t, credType)
-		credentialCbor := []any{fixture.credential.CredType, fixture.credential.Credential.Bytes()}
+		credentialCbor := []any{
+			fixture.credential.CredType,
+			fixture.credential.Credential.Bytes(),
+		}
 		update, err := cbor.Encode([]any{uint64(18), credentialCbor, nil})
 		require.NoError(t, err)
-		registration, err := cbor.Encode([]any{uint64(16), credentialCbor, pp.DRepDeposit, nil})
+		registration, err := cbor.Encode(
+			[]any{uint64(16), credentialCbor, pp.DRepDeposit, nil},
+		)
 		require.NoError(t, err)
 		run := func(state common.LedgerState, certificates ...[]byte) error {
 			tx := certificateDepositTransaction(t, fixture, certificates, 0, 0)

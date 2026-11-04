@@ -42,12 +42,19 @@ func TestExtractBlockHeaderCborPreservesSupportedHeaders(t *testing.T) {
 
 			header[0] ^= 0xff
 			require.False(t, bytes.Equal(header, fields[0]))
-			require.Equal(t, []byte(fields[0]), fixture.Cbor[1:1+len(fields[0])])
+			require.Equal(
+				t,
+				[]byte(fields[0]),
+				fixture.Cbor[1:1+len(fields[0])],
+			)
 		})
 	}
 	t.Run("Byron EBB", func(t *testing.T) {
 		hexData, err := os.ReadFile(filepath.Join(
-			"..", "protocol", "chainsync", "testdata",
+			"..",
+			"protocol",
+			"chainsync",
+			"testdata",
 			"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 		))
 		require.NoError(t, err)

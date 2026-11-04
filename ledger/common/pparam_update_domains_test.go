@@ -65,27 +65,103 @@ func TestClassicProtocolParameterUpdateDomains(t *testing.T) {
 		wantError  bool
 		postAlonzo bool
 	}{
-		{name: "Word32 body size width", field: 2, value: uint64(math.MaxUint32) + 1, wantError: true},
-		{name: "Word32 transaction size width", field: 3, value: uint64(math.MaxUint32) + 1, wantError: true},
-		{name: "Word16 header size width", field: 4, value: uint64(math.MaxUint16) + 1, wantError: true},
-		{name: "MaxEpoch must be unsigned", field: 7, value: int64(-1), wantError: true},
+		{
+			name:      "Word32 body size width",
+			field:     2,
+			value:     uint64(math.MaxUint32) + 1,
+			wantError: true,
+		},
+		{
+			name:      "Word32 transaction size width",
+			field:     3,
+			value:     uint64(math.MaxUint32) + 1,
+			wantError: true,
+		},
+		{
+			name:      "Word16 header size width",
+			field:     4,
+			value:     uint64(math.MaxUint16) + 1,
+			wantError: true,
+		},
+		{
+			name:      "MaxEpoch must be unsigned",
+			field:     7,
+			value:     int64(-1),
+			wantError: true,
+		},
 		{
 			name:      "Word32 maximum epoch width",
 			field:     7,
 			value:     uint64(math.MaxUint32) + 1,
 			wantError: true,
 		},
-		{name: "Word16 desired pool count width", field: 8, value: uint64(math.MaxUint16) + 1, wantError: true},
+		{
+			name:      "Word16 desired pool count width",
+			field:     8,
+			value:     uint64(math.MaxUint16) + 1,
+			wantError: true,
+		},
 		{name: "negative A0", field: 9, value: negative, wantError: true},
-		{name: "unit interval upper bound", field: 10, value: unitOutside, wantError: true},
-		{name: "unit interval endpoint", field: 10, value: &cbor.Rat{Rat: big.NewRat(1, 1)}},
-		{name: "bounded rational numerator", field: 9, value: tooWideRatio, wantError: true},
-		{name: "protocol major Word16 width", field: 14, value: common.ProtocolParametersProtocolVersion{Major: uint(math.MaxUint16) + 1}, wantError: true},
-		{name: "Word32 value size width", field: 22, value: uint64(math.MaxUint32) + 1, wantError: true, postAlonzo: true},
-		{name: "Word16 collateral percentage width", field: 23, value: uint64(math.MaxUint16) + 1, wantError: true, postAlonzo: true},
-		{name: "Word16 collateral input count width", field: 24, value: uint64(math.MaxUint16) + 1, wantError: true, postAlonzo: true},
-		{name: "negative execution price", field: 19, value: []any{negative, &cbor.Rat{Rat: big.NewRat(1, 2)}}, wantError: true, postAlonzo: true},
-		{name: "negative execution budget", field: 20, value: []any{int64(-1), int64(0)}, wantError: true, postAlonzo: true},
+		{
+			name:      "unit interval upper bound",
+			field:     10,
+			value:     unitOutside,
+			wantError: true,
+		},
+		{
+			name:  "unit interval endpoint",
+			field: 10,
+			value: &cbor.Rat{Rat: big.NewRat(1, 1)},
+		},
+		{
+			name:      "bounded rational numerator",
+			field:     9,
+			value:     tooWideRatio,
+			wantError: true,
+		},
+		{
+			name:  "protocol major Word16 width",
+			field: 14,
+			value: common.ProtocolParametersProtocolVersion{
+				Major: uint(math.MaxUint16) + 1,
+			},
+			wantError: true,
+		},
+		{
+			name:       "Word32 value size width",
+			field:      22,
+			value:      uint64(math.MaxUint32) + 1,
+			wantError:  true,
+			postAlonzo: true,
+		},
+		{
+			name:       "Word16 collateral percentage width",
+			field:      23,
+			value:      uint64(math.MaxUint16) + 1,
+			wantError:  true,
+			postAlonzo: true,
+		},
+		{
+			name:       "Word16 collateral input count width",
+			field:      24,
+			value:      uint64(math.MaxUint16) + 1,
+			wantError:  true,
+			postAlonzo: true,
+		},
+		{
+			name:       "negative execution price",
+			field:      19,
+			value:      []any{negative, &cbor.Rat{Rat: big.NewRat(1, 2)}},
+			wantError:  true,
+			postAlonzo: true,
+		},
+		{
+			name:       "negative execution budget",
+			field:      20,
+			value:      []any{int64(-1), int64(0)},
+			wantError:  true,
+			postAlonzo: true,
+		},
 	}
 	for era, newDecoder := range newDecoders {
 		for _, test := range tests {
@@ -93,7 +169,9 @@ func TestClassicProtocolParameterUpdateDomains(t *testing.T) {
 				continue
 			}
 			t.Run(era+"/"+test.name, func(t *testing.T) {
-				encoded, err := cbor.Encode(map[uint64]any{test.field: test.value})
+				encoded, err := cbor.Encode(
+					map[uint64]any{test.field: test.value},
+				)
 				require.NoError(t, err)
 				decoder := newDecoder()
 				err = decoder.UnmarshalCBOR(encoded)

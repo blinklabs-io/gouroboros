@@ -48,7 +48,10 @@ func ExtractBlockHeaderCbor(data []byte) ([]byte, error) {
 	// Current Byron through Dijkstra blocks contain at most seven outer
 	// fields. Rejecting larger arrays keeps this pre-decode boundary bounded.
 	if fieldCount > 7 {
-		return nil, fmt.Errorf("block has %d fields, expected at most 7", fieldCount)
+		return nil, fmt.Errorf(
+			"block has %d fields, expected at most 7",
+			fieldCount,
+		)
 	}
 	offset, length, err := decoder.Skip()
 	if err != nil {
@@ -90,7 +93,10 @@ func NewBlockFromCbor(
 	case BlockTypeDijkstra:
 		block, err = NewDijkstraBlockFromCbor(data, cfg)
 	default:
-		return nil, fmt.Errorf("unknown node-to-client block type: %d", blockType)
+		return nil, fmt.Errorf(
+			"unknown node-to-client block type: %d",
+			blockType,
+		)
 	}
 	if err != nil {
 		return nil, err
@@ -189,6 +195,8 @@ func NewBlockFromCborWithOffsets(
 //
 // Use NewBlockFromCborWithOffsets when you also need to decode the block,
 // as it is more efficient than decoding and extracting offsets separately.
-func ExtractTransactionOffsets(cborData []byte) (*BlockTransactionOffsets, error) {
+func ExtractTransactionOffsets(
+	cborData []byte,
+) (*BlockTransactionOffsets, error) {
 	return common.ExtractTransactionOffsets(cborData)
 }

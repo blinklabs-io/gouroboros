@@ -420,7 +420,11 @@ func (b DijkstraBlockBody) MarshalCBOR() ([]byte, error) {
 		}
 		data, err := marshalDijkstraBlockTransaction(&tx)
 		if err != nil {
-			return nil, fmt.Errorf("encode Dijkstra transaction %d: %w", idx, err)
+			return nil, fmt.Errorf(
+				"encode Dijkstra transaction %d: %w",
+				idx,
+				err,
+			)
 		}
 		rawTxs[idx] = data
 	}
@@ -604,14 +608,19 @@ func validateLeiosHeaderExtension(ext []cbor.RawMessage) error {
 	// Decoding null into a bool yields false without error, so check the
 	// simple-value byte directly.
 	if len(ext[0]) != 1 || (ext[0][0] != 0xf4 && ext[0][0] != 0xf5) {
-		return errors.New("invalid Dijkstra leios_certified header field: not a CBOR bool")
+		return errors.New(
+			"invalid Dijkstra leios_certified header field: not a CBOR bool",
+		)
 	}
 	if isCborNull(ext[1]) {
 		return nil
 	}
 	var pair []cbor.RawMessage
 	if _, err := cbor.Decode(ext[1], &pair); err != nil {
-		return fmt.Errorf("invalid Dijkstra leios_announcement header field: %w", err)
+		return fmt.Errorf(
+			"invalid Dijkstra leios_announcement header field: %w",
+			err,
+		)
 	}
 	if len(pair) != 2 {
 		return fmt.Errorf(
@@ -632,7 +641,10 @@ func validateLeiosHeaderExtension(ext []cbor.RawMessage) error {
 	}
 	var size uint64
 	if _, err := cbor.Decode(pair[1], &size); err != nil {
-		return fmt.Errorf("invalid Dijkstra announced_eb_size header field: %w", err)
+		return fmt.Errorf(
+			"invalid Dijkstra announced_eb_size header field: %w",
+			err,
+		)
 	}
 	if size > maxLeiosAnnouncedEbSize {
 		return fmt.Errorf(
@@ -687,7 +699,9 @@ func (h *DijkstraBlockHeader) MarshalCBOR() ([]byte, error) {
 		// Never encode a header that UnmarshalCBOR would reject.
 		return nil, err
 	}
-	bodyElems = append(bodyElems[:babbageHeaderBodyFieldCount:babbageHeaderBodyFieldCount], ext...)
+	bodyElems = append(
+		bodyElems[:babbageHeaderBodyFieldCount:babbageHeaderBodyFieldCount],
+		ext...)
 	return cbor.Encode([]any{bodyElems, top[1]})
 }
 
@@ -909,7 +923,8 @@ func (i *DijkstraAccountBalanceInterval) UnmarshalCBOR(cborData []byte) error {
 		return nil
 	}
 	var bounds []cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &bounds); err != nil || len(bounds) != 2 {
+	if _, err := cbor.Decode(cborData, &bounds); err != nil ||
+		len(bounds) != 2 {
 		return errors.New(
 			"invalid Dijkstra account balance interval encoding",
 		)
@@ -1098,10 +1113,18 @@ func validateDijkstraAccountAddressMapKeys[V any](
 	for address := range values {
 		parsed, err := common.NewAddressFromBytes(address.Bytes())
 		if err != nil {
-			return fmt.Errorf("%s contains an invalid reward account: %w", field, err)
+			return fmt.Errorf(
+				"%s contains an invalid reward account: %w",
+				field,
+				err,
+			)
 		}
 		if _, err := parsed.RewardAccountCredential(); err != nil {
-			return fmt.Errorf("%s contains an invalid reward account: %w", field, err)
+			return fmt.Errorf(
+				"%s contains an invalid reward account: %w",
+				field,
+				err,
+			)
 		}
 		key := string(address.Bytes())
 		if _, ok := seen[key]; ok {
@@ -2563,7 +2586,9 @@ func NewDijkstraTransactionFromCborComponents(
 	}
 	for idx := range decoded {
 		if !slices.Equal(decoded[idx], txArray[idx]) {
-			return nil, errors.New("transaction components do not match CBOR data")
+			return nil, errors.New(
+				"transaction components do not match CBOR data",
+			)
 		}
 	}
 	return newDijkstraTransactionFromCborComponents(data, decoded, true)
@@ -2589,7 +2614,9 @@ func newDijkstraTransactionFromCbor(
 // newDijkstraBlockTransactionFromCbor decodes the Dijkstra block_transaction
 // form. Unlike mempool_transaction, its validity flag is mandatory and is the
 // final array element.
-func newDijkstraBlockTransactionFromCbor(data []byte) (*DijkstraTransaction, error) {
+func newDijkstraBlockTransactionFromCbor(
+	data []byte,
+) (*DijkstraTransaction, error) {
 	var txArray []cbor.RawMessage
 	if _, err := cbor.Decode(data, &txArray); err != nil {
 		return nil, err
@@ -2609,7 +2636,10 @@ func newDijkstraBlockTransactionFromCbor(data []byte) (*DijkstraTransaction, err
 		return nil, fmt.Errorf("failed to decode transaction body: %w", err)
 	}
 	if _, err := cbor.Decode(txArray[1], &ret.WitnessSet); err != nil {
-		return nil, fmt.Errorf("failed to decode transaction witness set: %w", err)
+		return nil, fmt.Errorf(
+			"failed to decode transaction witness set: %w",
+			err,
+		)
 	}
 	if err := decodeAuxiliaryDataInto(
 		txArray[2], &ret.TxMetadata, &ret.auxData,
@@ -2682,7 +2712,10 @@ func decodeAuxiliaryDataInto(
 	if isCborNull(raw) {
 		return nil
 	}
-	aux, err := common.DecodeAuxiliaryDataForEra(raw, common.AuxiliaryDataEraDijkstra)
+	aux, err := common.DecodeAuxiliaryDataForEra(
+		raw,
+		common.AuxiliaryDataEraDijkstra,
+	)
 	if err != nil {
 		return fmt.Errorf("decode Dijkstra auxiliary data: %w", err)
 	}

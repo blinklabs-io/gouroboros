@@ -279,7 +279,8 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	if a.ParamUpdate.PerasTargetCommitteeSize != nil {
 		fields = append(fields, "PerasTargetCommitteeSize")
 	}
-	if a.ParamUpdate.PerasBootstrapRoundSet || a.ParamUpdate.PerasBootstrapRound != nil {
+	if a.ParamUpdate.PerasBootstrapRoundSet ||
+		a.ParamUpdate.PerasBootstrapRound != nil {
 		fields = append(fields, "PerasBootstrapRound")
 	}
 	if a.ParamUpdate.PerasQuorumThresholdSafetyMargin != nil {

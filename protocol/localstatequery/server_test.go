@@ -80,7 +80,11 @@ func TestAcquisitionWireMatrix(t *testing.T) {
 			name: "reacquire failure " + failure.Error(),
 			steps: []acquisitionStep{
 				{target: AcquireVolatileTip{}},
-				{target: AcquireImmutableTip{}, reacquire: true, failure: failure},
+				{
+					target:    AcquireImmutableTip{},
+					reacquire: true,
+					failure:   failure,
+				},
 				{target: AcquireVolatileTip{}},
 				{target: AcquireSpecificPoint{Point: point}, reacquire: true},
 			},
@@ -164,7 +168,13 @@ func testAcquisitionSequence(t *testing.T, steps []acquisitionStep) {
 		select {
 		case observation := <-observations:
 			require.Equal(t, step.target, observation.target, "step %d", i)
-			require.Equal(t, step.reacquire, observation.reacquire, "step %d", i)
+			require.Equal(
+				t,
+				step.reacquire,
+				observation.reacquire,
+				"step %d",
+				i,
+			)
 		case <-time.After(2 * time.Second):
 			t.Fatalf("missing acquisition callback at step %d", i)
 		}

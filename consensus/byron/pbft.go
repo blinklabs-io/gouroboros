@@ -130,7 +130,10 @@ func ValidatePBFTHeaderCrypto(
 		config.SlotsPerEpoch,
 	)
 	if err != nil {
-		return PBFTIssuer{}, fmt.Errorf("convert Byron PBFT header slot: %w", err)
+		return PBFTIssuer{}, fmt.Errorf(
+			"convert Byron PBFT header slot: %w",
+			err,
+		)
 	}
 	input := &ValidateHeaderInput{
 		Slot:           slot,
@@ -225,7 +228,9 @@ func validatePBFTDelegateBlockSignature(
 		signed,
 		blockSignature,
 	) {
-		return errors.New("byron PBFT delegate block signature verification failed")
+		return errors.New(
+			"byron PBFT delegate block signature verification failed",
+		)
 	}
 	return nil
 }

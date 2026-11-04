@@ -30,7 +30,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) {
+func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(
+	t *testing.T,
+) {
 	input1 := shelley.MustNewShelleyTransactionInput(
 		"0101010101010101010101010101010101010101010101010101010101010101",
 		0,
@@ -55,7 +57,11 @@ func TestAlonzoUntaggedInputSetsCoalesceBeforeDuplicateValidation(t *testing.T) 
 	require.NoError(t, body.UnmarshalCBOR(bodyCbor))
 	assert.Equal(t, bodyCbor, body.Cbor())
 	assert.Equal(t, []common.TransactionInput{input2, input1}, body.Inputs())
-	assert.Equal(t, []common.TransactionInput{input1, input2}, body.Collateral())
+	assert.Equal(
+		t,
+		[]common.TransactionInput{input1, input2},
+		body.Collateral(),
+	)
 	assert.Equal(t, []common.Blake2b224{signer, signer}, body.RequiredSigners())
 
 	tx := &AlonzoTransaction{Body: body}

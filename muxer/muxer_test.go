@@ -676,8 +676,14 @@ func TestDiffusionModes(t *testing.T) {
 			defer m.Stop()
 
 			// Register protocols for both roles
-			_, recvInitiator, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
-			_, recvResponder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
+			_, recvInitiator, _ := m.RegisterProtocol(
+				0x01,
+				muxer.ProtocolRoleInitiator,
+			)
+			_, recvResponder, _ := m.RegisterProtocol(
+				0x01,
+				muxer.ProtocolRoleResponder,
+			)
 
 			// Start the muxer
 			m.Start()
@@ -705,7 +711,10 @@ func TestDiffusionModes(t *testing.T) {
 							)
 						}
 					case <-time.After(time.Second):
-						t.Fatalf("timed out waiting for error containing %q", tt.errorContains)
+						t.Fatalf(
+							"timed out waiting for error containing %q",
+							tt.errorContains,
+						)
 					}
 				} else {
 					expectedReceiver := recvResponder
@@ -928,7 +937,11 @@ func TestConnectionClosedError(t *testing.T) {
 	// Test Unwrap() method
 	unwrapped := err.Unwrap()
 	if unwrapped != innerErr {
-		t.Errorf("expected unwrapped error to be %v, got %v", innerErr, unwrapped)
+		t.Errorf(
+			"expected unwrapped error to be %v, got %v",
+			innerErr,
+			unwrapped,
+		)
 	}
 
 	// Test errors.Is() works through Unwrap
@@ -1034,7 +1047,10 @@ func TestProtocolRoleConstants(t *testing.T) {
 
 	// Verify protocol role constants
 	if muxer.ProtocolRoleNone != 0 {
-		t.Errorf("expected ProtocolRoleNone to be 0, got %d", muxer.ProtocolRoleNone)
+		t.Errorf(
+			"expected ProtocolRoleNone to be 0, got %d",
+			muxer.ProtocolRoleNone,
+		)
 	}
 	if muxer.ProtocolRoleInitiator != 1 {
 		t.Errorf(
@@ -1056,7 +1072,10 @@ func TestDiffusionModeConstants(t *testing.T) {
 
 	// Verify diffusion mode constants
 	if muxer.DiffusionModeNone != 0 {
-		t.Errorf("expected DiffusionModeNone to be 0, got %d", muxer.DiffusionModeNone)
+		t.Errorf(
+			"expected DiffusionModeNone to be 0, got %d",
+			muxer.DiffusionModeNone,
+		)
 	}
 	if muxer.DiffusionModeInitiator != 1 {
 		t.Errorf(

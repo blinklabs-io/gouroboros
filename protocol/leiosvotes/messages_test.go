@@ -33,10 +33,12 @@ type testDefinition struct {
 
 func testVote() Vote {
 	return Vote{
-		SlotNo:            12345,
-		EndorserBlockHash: lcommon.NewBlake2b256([]byte{0x01, 0x02, 0x03, 0x04}),
-		VoterId:           42,
-		VoteSignature:     testSignature(0xaa),
+		SlotNo: 12345,
+		EndorserBlockHash: lcommon.NewBlake2b256(
+			[]byte{0x01, 0x02, 0x03, 0x04},
+		),
+		VoterId:       42,
+		VoteSignature: testSignature(0xaa),
 	}
 }
 

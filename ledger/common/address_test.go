@@ -43,7 +43,9 @@ func TestAddressFormatterInitWiring(t *testing.T) {
 	want := "addr1v887yfpftg5z660dmf063hj0zv0zh8xjrfkfyd2e07j076cecha5k"
 
 	// Build a CBOR map {0: <addr bytes>} and parse to a diagnostic tree.
-	wrapped := append([]byte{0xa1, 0x00, 0x58, byte(len(addrBytes))}, addrBytes...)
+	wrapped := append(
+		[]byte{0xa1, 0x00, 0x58, byte(len(addrBytes))},
+		addrBytes...)
 	node, err := cbor.ParseDiagnostic(wrapped)
 	require.NoError(t, err)
 
@@ -858,8 +860,10 @@ func TestCIP0019_MalformedAddressBytes(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name:        "truncated script hash",
-			input:       append([]byte{0x11}, make([]byte, 20)...), // type 1, needs 28 bytes
+			name: "truncated script hash",
+			input: append(
+				[]byte{0x11},
+				make([]byte, 20)...), // type 1, needs 28 bytes
 			expectError: true,
 			errorMsg:    "invalid payment payload",
 		},
@@ -1099,22 +1103,28 @@ func TestCIP0019_ReservedAddressTypes(t *testing.T) {
 	stakingHash := make([]byte, 28)
 
 	for reservedType := uint8(9); reservedType <= 13; reservedType++ {
-		t.Run(fmt.Sprintf("reserved type %d with payload", reservedType), func(t *testing.T) {
-			header := (reservedType << 4) | AddressNetworkMainnet
-			addrBytes := append([]byte{header}, paymentHash...)
-			addrBytes = append(addrBytes, stakingHash...)
+		t.Run(
+			fmt.Sprintf("reserved type %d with payload", reservedType),
+			func(t *testing.T) {
+				header := (reservedType << 4) | AddressNetworkMainnet
+				addrBytes := append([]byte{header}, paymentHash...)
+				addrBytes = append(addrBytes, stakingHash...)
 
-			_, err := NewAddressFromBytes(addrBytes)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid address type")
-		})
+				_, err := NewAddressFromBytes(addrBytes)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid address type")
+			},
+		)
 
-		t.Run(fmt.Sprintf("reserved type %d single byte header", reservedType), func(t *testing.T) {
-			header := (reservedType << 4) | AddressNetworkMainnet
-			_, err := NewAddressFromBytes([]byte{header})
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid address type")
-		})
+		t.Run(
+			fmt.Sprintf("reserved type %d single byte header", reservedType),
+			func(t *testing.T) {
+				header := (reservedType << 4) | AddressNetworkMainnet
+				_, err := NewAddressFromBytes([]byte{header})
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid address type")
+			},
+		)
 	}
 }
 
@@ -1125,15 +1135,18 @@ func TestCIP0019_RawBytesInvalidNetworkId(t *testing.T) {
 	stakingHash := make([]byte, 28)
 
 	for _, invalidNetworkId := range []uint8{2, 15} {
-		t.Run(fmt.Sprintf("network id %d", invalidNetworkId), func(t *testing.T) {
-			header := (AddressTypeKeyKey << 4) | invalidNetworkId
-			addrBytes := append([]byte{header}, paymentHash...)
-			addrBytes = append(addrBytes, stakingHash...)
+		t.Run(
+			fmt.Sprintf("network id %d", invalidNetworkId),
+			func(t *testing.T) {
+				header := (AddressTypeKeyKey << 4) | invalidNetworkId
+				addrBytes := append([]byte{header}, paymentHash...)
+				addrBytes = append(addrBytes, stakingHash...)
 
-			_, err := NewAddressFromBytes(addrBytes)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "invalid network ID")
-		})
+				_, err := NewAddressFromBytes(addrBytes)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid network ID")
+			},
+		)
 	}
 }
 
@@ -1187,11 +1200,16 @@ func TestCIP0019_ByronAddressCRC32Validation(t *testing.T) {
 }
 
 func TestByronAddressRejectsIndefiniteTag24ByteString(t *testing.T) {
-	encoded, err := hex.DecodeString("82d818584283581caf56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3aa101581e581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f001a3a858621")
+	encoded, err := hex.DecodeString(
+		"82d818584283581caf56de241bcca83d72c51e74d18487aa5bc68b45e2caa170fa329d3aa101581e581cea1425ccdd649b25af5deb7e6335da2eb8167353a55e77925122e95f001a3a858621",
+	)
 	require.NoError(t, err)
 	taggedPayload, err := byronAddressArrayField(encoded, 0, 2)
 	require.NoError(t, err)
-	_, tagHeaderSize, err := addressCBORArgument(taggedPayload, taggedPayload[0]&0x1f)
+	_, tagHeaderSize, err := addressCBORArgument(
+		taggedPayload,
+		taggedPayload[0]&0x1f,
+	)
 	require.NoError(t, err)
 	var tag cbor.Tag
 	_, err = cbor.Decode(taggedPayload, &tag)
@@ -1213,7 +1231,9 @@ func TestByronAddressRejectsIndefiniteTag24ByteString(t *testing.T) {
 }
 
 func TestByronAddressAttributesRejectTaggedIntegerKeys(t *testing.T) {
-	err := validateByronAddressAttributeWire([]byte{0xa1, 0xd8, 0x64, 0x03, 0x41, 0x00})
+	err := validateByronAddressAttributeWire(
+		[]byte{0xa1, 0xd8, 0x64, 0x03, 0x41, 0x00},
+	)
 	require.ErrorContains(t, err, "must be an unsigned integer")
 }
 
@@ -1356,13 +1376,17 @@ func TestCIP0019_PointerAddressEdgeCases(t *testing.T) {
 				result := []byte{byte(val & 0x7F)}
 				val /= 128
 				for val > 0 {
-					result = append([]byte{byte((val & 0x7F) | 0x80)}, result...)
+					result = append(
+						[]byte{byte((val & 0x7F) | 0x80)},
+						result...)
 					val /= 128
 				}
 				return result
 			}
 
-			header := byte((AddressTypeKeyPointer << 4) | (AddressNetworkMainnet & AddressHeaderNetworkMask))
+			header := byte(
+				(AddressTypeKeyPointer << 4) | (AddressNetworkMainnet & AddressHeaderNetworkMask),
+			)
 			data := []byte{header}
 			data = append(data, paymentHash...)
 			data = append(data, encodeVarUint(tt.slot)...)
@@ -1820,12 +1844,15 @@ func TestPopulateFromBytesRejectsInvalidNetworkId(t *testing.T) {
 		AddressNetworkTestnet,
 		AddressNetworkMainnet,
 	} {
-		t.Run(fmt.Sprintf("valid network id %d", networkId), func(t *testing.T) {
-			header := byte(AddressTypeKeyKey<<4) | networkId
-			addrBytes := append([]byte{header}, payload...)
-			_, err := NewAddressFromBytes(addrBytes)
-			require.NoError(t, err)
-		})
+		t.Run(
+			fmt.Sprintf("valid network id %d", networkId),
+			func(t *testing.T) {
+				header := byte(AddressTypeKeyKey<<4) | networkId
+				addrBytes := append([]byte{header}, payload...)
+				_, err := NewAddressFromBytes(addrBytes)
+				require.NoError(t, err)
+			},
+		)
 	}
 }
 
@@ -1985,5 +2012,9 @@ func TestNewAddressFromBytesRejectsTrailingBytes(t *testing.T) {
 	)
 	address = append(address, 0xff)
 	_, err := NewAddressFromBytes(address)
-	require.EqualError(t, err, "invalid address data: 1 unexpected trailing byte(s)")
+	require.EqualError(
+		t,
+		err,
+		"invalid address data: 1 unexpected trailing byte(s)",
+	)
 }

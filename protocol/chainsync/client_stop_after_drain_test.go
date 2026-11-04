@@ -35,7 +35,12 @@ type doneSpyHandler struct {
 	done chan struct{}
 }
 
-func (h doneSpyHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h doneSpyHandler) Enabled(
+	context.Context,
+	slog.Level,
+) bool {
+	return true
+}
 
 func (h doneSpyHandler) Handle(_ context.Context, r slog.Record) error {
 	if r.Message == "done" {
@@ -198,7 +203,11 @@ func TestStopAfterDrainSendsDoneAfterRepliesAndAllowsRestart(t *testing.T) {
 	// received MsgDone and returned to StIdle.
 	h.client.Start()
 	require.NoError(t, h.client.Sync([]pcommon.Point{h.findPoint}))
-	require.Equal(t, []pcommon.Point{h.findPoint}, recv(t, h.finds, "FindIntersect after restart"))
+	require.Equal(
+		t,
+		[]pcommon.Point{h.findPoint},
+		recv(t, h.finds, "FindIntersect after restart"),
+	)
 	require.Equal(t, 3, recv(t, h.requests, "request 3"))
 	require.Equal(t, 4, recv(t, h.requests, "request 4"))
 	require.Equal(t, 5, recv(t, h.requests, "request after restart"))

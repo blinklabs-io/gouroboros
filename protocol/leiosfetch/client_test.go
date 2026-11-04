@@ -451,7 +451,12 @@ func TestStateTransitions(t *testing.T) {
 
 	for _, trans := range idleEntry.Transitions {
 		expected, ok := expectedTransitions[trans.MsgType]
-		require.True(t, ok, "unexpected transition message type: %d", trans.MsgType)
+		require.True(
+			t,
+			ok,
+			"unexpected transition message type: %d",
+			trans.MsgType,
+		)
 		assert.Equal(t, expected, trans.NewState)
 	}
 
@@ -503,22 +508,30 @@ func TestConfig(t *testing.T) {
 		WithTimeout(30*time.Second),
 		WithMaxBlockRangeResponses(12),
 		WithMaxBlockRangeResponseBytes(4096),
-		WithBlockRequestFunc(func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
-			blockRequestCalled = true
-			return nil, nil
-		}),
-		WithBlockTxsRequestFunc(func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
-			blockTxsRequestCalled = true
-			return nil, nil
-		}),
-		WithVotesRequestFunc(func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
-			votesRequestCalled = true
-			return nil, nil
-		}),
-		WithBlockRangeRequestFunc(func(ctx CallbackContext, start, end pcommon.Point) error {
-			blockRangeRequestCalled = true
-			return nil
-		}),
+		WithBlockRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point) (protocol.Message, error) {
+				blockRequestCalled = true
+				return nil, nil
+			},
+		),
+		WithBlockTxsRequestFunc(
+			func(ctx CallbackContext, point pcommon.Point, bitmaps map[uint16]uint64) (protocol.Message, error) {
+				blockTxsRequestCalled = true
+				return nil, nil
+			},
+		),
+		WithVotesRequestFunc(
+			func(ctx CallbackContext, voteIds []MsgVotesRequestVoteId) (protocol.Message, error) {
+				votesRequestCalled = true
+				return nil, nil
+			},
+		),
+		WithBlockRangeRequestFunc(
+			func(ctx CallbackContext, start, end pcommon.Point) error {
+				blockRangeRequestCalled = true
+				return nil
+			},
+		),
 	)
 
 	assert.Equal(t, 30*time.Second, cfg.Timeout)
@@ -533,13 +546,21 @@ func TestConfig(t *testing.T) {
 	_, _ = cfg.BlockRequestFunc(CallbackContext{}, pcommon.NewPoint(0, nil))
 	assert.True(t, blockRequestCalled)
 
-	_, _ = cfg.BlockTxsRequestFunc(CallbackContext{}, pcommon.NewPoint(0, nil), nil)
+	_, _ = cfg.BlockTxsRequestFunc(
+		CallbackContext{},
+		pcommon.NewPoint(0, nil),
+		nil,
+	)
 	assert.True(t, blockTxsRequestCalled)
 
 	_, _ = cfg.VotesRequestFunc(CallbackContext{}, nil)
 	assert.True(t, votesRequestCalled)
 
-	_ = cfg.BlockRangeRequestFunc(CallbackContext{}, pcommon.Point{}, pcommon.Point{})
+	_ = cfg.BlockRangeRequestFunc(
+		CallbackContext{},
+		pcommon.Point{},
+		pcommon.Point{},
+	)
 	assert.True(t, blockRangeRequestCalled)
 }
 

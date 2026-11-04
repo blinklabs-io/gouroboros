@@ -123,7 +123,9 @@ func TestRulesConformanceVectors(t *testing.T) {
 		t.Fatalf("failed to extract embedded testdata: %v", err)
 	}
 
-	sm := epochAwareStateManager{StateManager: conformance.NewMockStateManager()}
+	sm := epochAwareStateManager{
+		StateManager: conformance.NewMockStateManager(),
+	}
 	harness := conformance.NewHarness(sm, conformance.HarnessConfig{
 		TestdataRoot: testdataRoot,
 		Debug:        false,
@@ -178,7 +180,11 @@ func TestRulesConformanceVectors(t *testing.T) {
 		}
 		vector, err := conformance.DecodeTestVector(result.Path)
 		if err != nil {
-			t.Errorf("decode vector %s for coverage report: %v", result.Path, err)
+			t.Errorf(
+				"decode vector %s for coverage report: %v",
+				result.Path,
+				err,
+			)
 			continue
 		}
 		for _, event := range vector.Events {
@@ -228,7 +234,12 @@ func TestRulesConformanceVectors(t *testing.T) {
 	if failures != 0 {
 		for _, result := range results {
 			if !result.Success {
-				t.Errorf("vector %s failed at event %d: %v", result.Title, result.FailedEvent, result.Error)
+				t.Errorf(
+					"vector %s failed at event %d: %v",
+					result.Title,
+					result.FailedEvent,
+					result.Error,
+				)
 			}
 		}
 		t.Fatalf(
@@ -239,7 +250,9 @@ func TestRulesConformanceVectors(t *testing.T) {
 	}
 }
 
-func coverageKeyForResult(result conformance.VectorResult) conformance.CoverageKey {
+func coverageKeyForResult(
+	result conformance.VectorResult,
+) conformance.CoverageKey {
 	corpusPath := filepath.ToSlash(result.Path)
 	if result.Title != "" {
 		corpusPath += " " + result.Title

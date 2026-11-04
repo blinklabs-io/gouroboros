@@ -35,7 +35,10 @@ func TestVerifyNonceVrf(t *testing.T) {
 
 	result := common.VrfResult{Proof: proof, Output: output}
 	require.NoError(t, verifyNonceVrf(result, publicKey, slot, eta0))
-	require.Error(t, verifyNonceVrf(result, publicKey, slot, bytes.Repeat([]byte{0x92}, 32)))
+	require.Error(
+		t,
+		verifyNonceVrf(result, publicKey, slot, bytes.Repeat([]byte{0x92}, 32)),
+	)
 
 	result.Output = bytes.Clone(result.Output)
 	result.Output[0] ^= 0x80

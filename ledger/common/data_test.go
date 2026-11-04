@@ -384,7 +384,9 @@ func TestDatumMarshalCBORPreservesOriginalBytes(t *testing.T) {
 }
 
 func TestDatumDecodeRejectsOversizedByteStringLeaf(t *testing.T) {
-	orig, err := hex.DecodeString("d8799f5841" + strings.Repeat("ab", 65) + "ff")
+	orig, err := hex.DecodeString(
+		"d8799f5841" + strings.Repeat("ab", 65) + "ff",
+	)
 	require.NoError(t, err)
 
 	var d common.Datum

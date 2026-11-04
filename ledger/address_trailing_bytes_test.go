@@ -323,7 +323,10 @@ func TestGeneralAddressDecodersRejectTrailingBytes(t *testing.T) {
 }
 
 func TestAlonzoOutputReusePreservesDatumHash(t *testing.T) {
-	addrCbor := trailerAddressCbor(t, mainnetTrailerAddress[:len(mainnetTrailerAddress)-2])
+	addrCbor := trailerAddressCbor(
+		t,
+		mainnetTrailerAddress[:len(mainnetTrailerAddress)-2],
+	)
 	withDatum := mustEncodeCbor([]any{
 		cbor.RawMessage(addrCbor),
 		uint64(1_000_000),
@@ -342,7 +345,11 @@ func TestAlonzoOutputReusePreservesDatumHash(t *testing.T) {
 		t.Fatalf("encode reused output: %v", err)
 	}
 	if !bytes.Equal(encoded, withDatum) {
-		t.Fatalf("reused output lost datum hash: got %x, want %x", encoded, withDatum)
+		t.Fatalf(
+			"reused output lost datum hash: got %x, want %x",
+			encoded,
+			withDatum,
+		)
 	}
 }
 

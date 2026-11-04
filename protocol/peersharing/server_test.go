@@ -40,14 +40,21 @@ func readPeerSharingSegment(t *testing.T, conn net.Conn) *muxer.Segment {
 	return &muxer.Segment{SegmentHeader: header, Payload: payload}
 }
 
-func writePeerSharingSegment(t *testing.T, conn net.Conn, segment *muxer.Segment) {
+func writePeerSharingSegment(
+	t *testing.T,
+	conn net.Conn,
+	segment *muxer.Segment,
+) {
 	t.Helper()
 	if segment == nil {
 		t.Fatal("expected non-nil muxer segment")
 		return
 	}
 	buf := &bytes.Buffer{}
-	require.NoError(t, binary.Write(buf, binary.BigEndian, &segment.SegmentHeader))
+	require.NoError(
+		t,
+		binary.Write(buf, binary.BigEndian, &segment.SegmentHeader),
+	)
 	_, err := buf.Write(segment.Payload)
 	require.NoError(t, err)
 	_, err = conn.Write(buf.Bytes())
@@ -74,7 +81,10 @@ func responsePeerCount(t *testing.T, segment *muxer.Segment) int {
 	return len(peers)
 }
 
-func testPeerSharingServer(t *testing.T, cfg *Config) (net.Conn, *bytes.Buffer) {
+func testPeerSharingServer(
+	t *testing.T,
+	cfg *Config,
+) (net.Conn, *bytes.Buffer) {
 	t.Helper()
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -116,7 +126,9 @@ func testPeerSharingServer(t *testing.T, cfg *Config) (net.Conn, *bytes.Buffer) 
 	return connB, logs
 }
 
-func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(t *testing.T) {
+func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(
+	t *testing.T,
+) {
 	called := false
 	cfg := NewConfig(
 		WithLocalDisabled(true),
@@ -135,7 +147,11 @@ func TestServerDisabledRequestReturnsEmptyResponseAndRemainsUsable(t *testing.T)
 		require.Equal(t, uint16(ProtocolId), segment.GetProtocolId())
 		require.Equal(t, 0, responsePeerCount(t, segment))
 	}
-	require.False(t, called, "disabled peer sharing must not invoke the callback")
+	require.False(
+		t,
+		called,
+		"disabled peer sharing must not invoke the callback",
+	)
 }
 
 func TestServerUnconfiguredRequestReturnsEmptyResponse(t *testing.T) {
@@ -153,7 +169,11 @@ func TestServerDisabledRequestLogsNegotiationViolation(t *testing.T) {
 	sendPeerSharingRequest(t, connB, 5)
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	_ = readPeerSharingSegment(t, connB)
-	require.Contains(t, logs.String(), "peer sharing request violates negotiated mode")
+	require.Contains(
+		t,
+		logs.String(),
+		"peer sharing request violates negotiated mode",
+	)
 	require.Contains(t, logs.String(), "local_disabled=true")
 	require.Contains(t, logs.String(), "protocol=peer-sharing")
 	require.Contains(t, logs.String(), "role=server")

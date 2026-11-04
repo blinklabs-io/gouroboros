@@ -136,7 +136,9 @@ func TestByronFixedRecordsRejectIndefiniteArrays(t *testing.T) {
 	require.Error(t, update.UnmarshalCBOR([]byte{0x9f, 0xff}))
 }
 
-func TestByronProtocolParameterUpdateRejectsChunkedNaturalBignums(t *testing.T) {
+func TestByronProtocolParameterUpdateRejectsChunkedNaturalBignums(
+	t *testing.T,
+) {
 	fields := make([]cbor.RawMessage, 14)
 	for index := range fields {
 		fields[index] = cbor.RawMessage{0x80}
@@ -149,10 +151,16 @@ func TestByronProtocolParameterUpdateRejectsChunkedNaturalBignums(t *testing.T) 
 
 func TestByronOrdinaryStringsRequireDefiniteFraming(t *testing.T) {
 	require.NoError(t, requireByronByteString([]byte{0x41, 0x00}, "bytes"))
-	require.Error(t, requireByronByteString([]byte{0x5f, 0x41, 0x00, 0xff}, "bytes"))
+	require.Error(
+		t,
+		requireByronByteString([]byte{0x5f, 0x41, 0x00, 0xff}, "bytes"),
+	)
 	require.Error(t, requireByronByteString([]byte{0x41, 0x00, 0x00}, "bytes"))
 	require.NoError(t, requireByronTextString([]byte{0x61, 'a'}, "text"))
-	require.Error(t, requireByronTextString([]byte{0x7f, 0x61, 'a', 0xff}, "text"))
+	require.Error(
+		t,
+		requireByronTextString([]byte{0x7f, 0x61, 'a', 0xff}, "text"),
+	)
 }
 
 func TestByronItemScannerSkipsSimpleValuesAndFloats(t *testing.T) {

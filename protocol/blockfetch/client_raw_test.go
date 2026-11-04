@@ -615,7 +615,10 @@ func TestGetBlockRangeRawFuncMultiBlockContinuity(t *testing.T) {
 						"raw callback received blocks out of order or altered",
 					)
 				case <-time.After(5 * time.Second):
-					require.Fail(t, "BlockRawFunc was not called within timeout")
+					require.Fail(
+						t,
+						"BlockRawFunc was not called within timeout",
+					)
 				}
 			}
 			select {

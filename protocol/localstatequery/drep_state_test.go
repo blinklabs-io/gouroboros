@@ -57,7 +57,11 @@ func TestDRepStateResultWireBytes(t *testing.T) {
 	//   a1 8200 581c <28 hash> 84 16 80 1a1dcd6500 d9010280
 	want := "a18200581c" + drepCredHash + "8416801a1dcd6500d9010280"
 	if got := hex.EncodeToString(data); got != want {
-		t.Fatalf("DRepState wire mismatch (no anchor/delegators):\n  got:  %s\n  want: %s", got, want)
+		t.Fatalf(
+			"DRepState wire mismatch (no anchor/delegators):\n  got:  %s\n  want: %s",
+			got,
+			want,
+		)
 	}
 }
 
@@ -70,7 +74,10 @@ func TestDRepStateResultRoundTrip(t *testing.T) {
 	cred := StakeCredential{Tag: 0, Bytes: drepHash}
 
 	var delegHash ledger.Blake2b224
-	copy(delegHash[:], mustHex(t, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"))
+	copy(
+		delegHash[:],
+		mustHex(t, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"),
+	)
 	deleg := StakeCredential{Tag: 1, Bytes: delegHash}
 
 	anchor := lcommon.GovAnchor{Url: "https://drep.example.com"}

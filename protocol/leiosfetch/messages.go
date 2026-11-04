@@ -287,7 +287,11 @@ func (m *MsgBlockTxs) unmarshalCBORWithLimit(
 	if _, err := cbor.Decode(fields[0], &messageType); err != nil {
 		return err
 	}
-	txs, err := cborpreflight.ArrayItems(fields[1], maxTxCount, "block transactions")
+	txs, err := cborpreflight.ArrayItems(
+		fields[1],
+		maxTxCount,
+		"block transactions",
+	)
 	if err != nil {
 		return err
 	}

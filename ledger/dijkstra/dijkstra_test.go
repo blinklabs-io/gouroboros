@@ -122,7 +122,10 @@ func TestDijkstraTransactionBodiesUnmarshalCBORCertificateTypes(t *testing.T) {
 
 func TestDijkstraObserveRedeemerRoundTrip(t *testing.T) {
 	redeemerMap := map[common.RedeemerKey]any{
-		{Tag: common.RedeemerTagObserve, Index: 2}: []any{uint64(0), []uint64{0, 0}},
+		{Tag: common.RedeemerTagObserve, Index: 2}: []any{
+			uint64(0),
+			[]uint64{0, 0},
+		},
 	}
 	encoded, err := cbor.Encode(redeemerMap)
 	require.NoError(t, err)
@@ -160,7 +163,9 @@ func TestDijkstraObserveRedeemerRoundTrip(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported redeemer tag 7")
 }
 
-func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *testing.T) {
+func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(
+	t *testing.T,
+) {
 	testCases := []struct {
 		name     string
 		required []uint
@@ -212,7 +217,11 @@ func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *test
 					fields[key] = nil
 					encoded, err := cbor.Encode(fields)
 					require.NoError(t, err)
-					require.ErrorContains(t, tc.decode(encoded), "must not be null")
+					require.ErrorContains(
+						t,
+						tc.decode(encoded),
+						"must not be null",
+					)
 				})
 			}
 			for _, key := range tc.empty {
@@ -248,12 +257,18 @@ func TestDijkstraTransactionBodiesRequireFieldsAndRejectEmptyCollections(t *test
 			}
 			encoded, err := cbor.Encode(base)
 			require.NoError(t, err)
-			require.NoError(t, tc.decode(encoded), "present empty outputs are legal")
+			require.NoError(
+				t,
+				tc.decode(encoded),
+				"present empty outputs are legal",
+			)
 		})
 	}
 }
 
-func TestDijkstraTransactionBodiesRequirePositiveTreasuryDonation(t *testing.T) {
+func TestDijkstraTransactionBodiesRequirePositiveTreasuryDonation(
+	t *testing.T,
+) {
 	for _, tc := range []struct {
 		name   string
 		fields map[uint]any
@@ -275,21 +290,28 @@ func TestDijkstraTransactionBodiesRequirePositiveTreasuryDonation(t *testing.T) 
 		},
 	} {
 		for _, donation := range []uint64{0, 1, math.MaxUint64} {
-			t.Run(fmt.Sprintf("%s/donation_%d", tc.name, donation), func(t *testing.T) {
-				fields := make(map[uint]any, len(tc.fields)+1)
-				for key, value := range tc.fields {
-					fields[key] = value
-				}
-				fields[22] = donation
-				encoded, err := cbor.Encode(fields)
-				require.NoError(t, err)
-				err = tc.decode(encoded)
-				if donation == 0 {
-					require.ErrorContains(t, err, "field 22 must be positive")
-				} else {
+			t.Run(
+				fmt.Sprintf("%s/donation_%d", tc.name, donation),
+				func(t *testing.T) {
+					fields := make(map[uint]any, len(tc.fields)+1)
+					for key, value := range tc.fields {
+						fields[key] = value
+					}
+					fields[22] = donation
+					encoded, err := cbor.Encode(fields)
 					require.NoError(t, err)
-				}
-			})
+					err = tc.decode(encoded)
+					if donation == 0 {
+						require.ErrorContains(
+							t,
+							err,
+							"field 22 must be positive",
+						)
+					} else {
+						require.NoError(t, err)
+					}
+				},
+			)
 		}
 	}
 }
@@ -302,19 +324,26 @@ func TestDijkstraWitnessSetRejectsEmptyFields(t *testing.T) {
 			if tagged {
 				value = cbor.Set([]any{})
 			}
-			t.Run(fmt.Sprintf("empty_%d/tagged_%t", key, tagged), func(t *testing.T) {
-				t.Parallel()
-				encoded, err := cbor.Encode(map[uint]any{key: value})
-				require.NoError(t, err)
-				var witnesses DijkstraTransactionWitnessSet
-				require.Error(t, witnesses.UnmarshalCBOR(encoded))
-			})
+			t.Run(
+				fmt.Sprintf("empty_%d/tagged_%t", key, tagged),
+				func(t *testing.T) {
+					t.Parallel()
+					encoded, err := cbor.Encode(map[uint]any{key: value})
+					require.NoError(t, err)
+					var witnesses DijkstraTransactionWitnessSet
+					require.Error(t, witnesses.UnmarshalCBOR(encoded))
+				},
+			)
 		}
 	}
 	encoded, err := cbor.Encode(map[uint]any{5: map[uint]any{}})
 	require.NoError(t, err)
 	var witnesses DijkstraTransactionWitnessSet
-	require.ErrorContains(t, witnesses.UnmarshalCBOR(encoded), "must not be empty")
+	require.ErrorContains(
+		t,
+		witnesses.UnmarshalCBOR(encoded),
+		"must not be empty",
+	)
 }
 
 func TestDijkstraWitnessSetDecodesPlutusV4ScriptsAtKey8(t *testing.T) {
@@ -328,7 +357,11 @@ func TestDijkstraWitnessSetDecodesPlutusV4ScriptsAtKey8(t *testing.T) {
 		require.NoError(t, err)
 		var witnesses DijkstraTransactionWitnessSet
 		require.NoError(t, witnesses.UnmarshalCBOR(encoded))
-		require.Equal(t, []common.PlutusV4Script{script}, witnesses.PlutusV4Scripts())
+		require.Equal(
+			t,
+			[]common.PlutusV4Script{script},
+			witnesses.PlutusV4Scripts(),
+		)
 		require.Equal(t, encoded, witnesses.Cbor())
 		reencoded, err := cbor.Encode(witnesses)
 		require.NoError(t, err)
@@ -373,7 +406,11 @@ func TestDijkstraWitnessSetEncodesPlutusV4ScriptsAtKey8(t *testing.T) {
 		require.Contains(t, fields, uint(8))
 		var decoded DijkstraTransactionWitnessSet
 		require.NoError(t, decoded.UnmarshalCBOR(encoded))
-		require.Equal(t, []common.PlutusV4Script{script}, decoded.PlutusV4Scripts())
+		require.Equal(
+			t,
+			[]common.PlutusV4Script{script},
+			decoded.PlutusV4Scripts(),
+		)
 	}
 }
 
@@ -647,7 +684,14 @@ func testDijkstraOutputWithAssetsCbor(t *testing.T, assets []byte) []byte {
 //	[ [transaction], leios_cert/nil, peras_cert/nil ]
 func minimalBlockBodyParts(valid bool) []any {
 	return []any{
-		[]any{[]any{minimalTxParts()[0], minimalTxParts()[1], minimalTxParts()[2], valid}},
+		[]any{
+			[]any{
+				minimalTxParts()[0],
+				minimalTxParts()[1],
+				minimalTxParts()[2],
+				valid,
+			},
+		},
 		nil,
 		nil,
 	}
@@ -821,10 +865,16 @@ func TestDijkstraBlockBodyAppliesInvalidTransactionIndices(t *testing.T) {
 	require.NoError(t, err)
 
 	var blockBody DijkstraBlockBody
-	require.ErrorContains(t, blockBody.UnmarshalCBOR(bodyCbor), "expected 3 components")
+	require.ErrorContains(
+		t,
+		blockBody.UnmarshalCBOR(bodyCbor),
+		"expected 3 components",
+	)
 }
 
-func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(t *testing.T) {
+func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(
+	t *testing.T,
+) {
 	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{1}))
 	require.NoError(t, err)
 
@@ -836,7 +886,9 @@ func TestDijkstraBlockBodyRejectsLegacyInvalidTransactionIndexOutOfRange(t *test
 	)
 }
 
-func TestDijkstraBlockBodyRejectsDuplicateLegacyInvalidTransactionIndex(t *testing.T) {
+func TestDijkstraBlockBodyRejectsDuplicateLegacyInvalidTransactionIndex(
+	t *testing.T,
+) {
 	bodyCbor, err := cbor.Encode(minimalLegacyBlockBodyParts([]uint64{0, 0}))
 	require.NoError(t, err)
 
@@ -1146,7 +1198,11 @@ func TestDijkstraLeiosCertificateValidatesCommitteeBitfield(t *testing.T) {
 		AggregatedSignature: make([]byte, common.LeiosBlsSignatureSize),
 	}
 	require.NoError(t, cert.Validate(9))
-	require.ErrorContains(t, cert.Validate(8), "must be 1 bytes for committee size 8")
+	require.ErrorContains(
+		t,
+		cert.Validate(8),
+		"must be 1 bytes for committee size 8",
+	)
 
 	cert.Signers[1] = 0x01
 	require.ErrorContains(t, cert.Validate(9), "non-zero unused bits")
@@ -1430,7 +1486,10 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 					[]any{body, tc.witnesses, tc.auxiliaryB},
 				}
 				bodyValue := map[uint]any{
-					0:  cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
+					0: cbor.NewSetType(
+						[]shelley.ShelleyTransactionInput{},
+						true,
+					),
 					1:  []any{},
 					2:  uint64(0),
 					23: subTransactions,
@@ -1450,16 +1509,24 @@ func TestDijkstraTransactionBodyRejectsSubTransactionsWithDuplicateBodyID(
 	}
 }
 
-func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(t *testing.T) {
+func TestDijkstraTransactionBodyRejectsExplicitlyEmptySubTransactions(
+	t *testing.T,
+) {
 	for _, value := range []any{[]any{}, cbor.NewSetType([]any{}, true)} {
 		bodyCbor, err := cbor.Encode(map[uint]any{23: value})
 		require.NoError(t, err)
 		var body DijkstraTransactionBody
-		require.ErrorContains(t, body.UnmarshalCBOR(bodyCbor), "must not be empty")
+		require.ErrorContains(
+			t,
+			body.UnmarshalCBOR(bodyCbor),
+			"must not be empty",
+		)
 	}
 }
 
-func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(t *testing.T) {
+func TestDijkstraTransactionBodyAcceptsDistinctSubTransactionBodies(
+	t *testing.T,
+) {
 	subBody := func(ttl uint64) map[uint]any {
 		return map[uint]any{
 			0: cbor.NewSetType([]shelley.ShelleyTransactionInput{}, true),
@@ -1794,7 +1861,11 @@ func testShelleyInput() shelley.ShelleyTransactionInput {
 	}
 }
 
-func withDijkstraRequiredFields(t *testing.T, encoded []byte, subTransaction bool) []byte {
+func withDijkstraRequiredFields(
+	t *testing.T,
+	encoded []byte,
+	subTransaction bool,
+) []byte {
 	t.Helper()
 	fields := make(map[uint]cbor.RawMessage)
 	_, err := cbor.Decode(encoded, &fields)
@@ -1934,7 +2005,9 @@ func TestDijkstraTransactionBodyBalanceIntervalsRejectsEmptyMap(t *testing.T) {
 	require.ErrorContains(t, err, "must not be empty")
 }
 
-func TestDijkstraAccountBalanceIntervalMarshalCBORRejectsAllNilBounds(t *testing.T) {
+func TestDijkstraAccountBalanceIntervalMarshalCBORRejectsAllNilBounds(
+	t *testing.T,
+) {
 	_, err := DijkstraAccountBalanceInterval{}.MarshalCBOR()
 	require.ErrorContains(t, err, "requires a lower or upper bound")
 }
@@ -1947,7 +2020,9 @@ func TestDijkstraAccountBalanceIntervalMarshalCBORRejectsAllNilBounds(t *testing
 // empty key 26/24. Both types are documented as deliberately having no
 // MarshalCBOR for exactly this reason; this test would fail if one were
 // added back without also solving the omitempty problem.
-func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.T) {
+func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(
+	t *testing.T,
+) {
 	body := DijkstraTransactionBody{TxFee: 1}
 	encoded, err := body.MarshalCBOR()
 	require.NoError(t, err)
@@ -1976,7 +2051,9 @@ func TestDijkstraTransactionBodyOmitsNilAccountBalanceIntervalsField(t *testing.
 // from CBOR can never produce these malformed states (UnmarshalCBOR already
 // rejects them); this covers a caller that builds one of these exported map
 // types directly and encodes it without ever decoding first.
-func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testing.T) {
+func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(
+	t *testing.T,
+) {
 	t.Run("transaction body: all-nil-bounds interval", func(t *testing.T) {
 		guard := testGuardCredential()
 		address := dijkstraRewardAddressForCredential(t, guard)
@@ -2005,19 +2082,24 @@ func TestDijkstraBodyMarshalCBORRejectsMalformedDirectlyConstructedMaps(t *testi
 		require.ErrorContains(t, err, "must not be nil")
 	})
 
-	t.Run("sub-transaction body: required guard datum missing Plutus data", func(t *testing.T) {
-		guard := testGuardCredential()
-		body := DijkstraSubTransactionBody{
-			TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
-				&guard: {},
-			},
-		}
-		_, err := body.MarshalCBOR()
-		require.ErrorContains(t, err, "missing Plutus data")
-	})
+	t.Run(
+		"sub-transaction body: required guard datum missing Plutus data",
+		func(t *testing.T) {
+			guard := testGuardCredential()
+			body := DijkstraSubTransactionBody{
+				TxRequiredTopLevelGuards: DijkstraRequiredTopLevelGuards{
+					&guard: {},
+				},
+			}
+			_, err := body.MarshalCBOR()
+			require.ErrorContains(t, err, "missing Plutus data")
+		},
+	)
 }
 
-func TestDijkstraTransactionBodyBalanceIntervalsRejectsInvalidRewardAccount(t *testing.T) {
+func TestDijkstraTransactionBodyBalanceIntervalsRejectsInvalidRewardAccount(
+	t *testing.T,
+) {
 	bodyCbor, err := cbor.Encode(map[uint]any{
 		26: map[cbor.ByteString]*DijkstraAccountBalanceInterval{
 			cbor.NewByteString([]byte{0x01}): {Exact: new(uint64)},
@@ -2259,7 +2341,11 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 	require.Equal(t, uint16(102), decoded.PerasCertBoost)
 	require.Equal(t, uint16(103), decoded.PerasTargetCommitteeSize)
 	require.Equal(t, uint32(104), *decoded.PerasBootstrapRound)
-	require.Equal(t, big.NewRat(1, 4), decoded.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(
+		t,
+		big.NewRat(1, 4),
+		decoded.PerasQuorumThresholdSafetyMargin.Rat,
+	)
 	require.Equal(t, uint64(105), decoded.RefInputsCostPerMultiAssetPolicy)
 	require.Equal(t, uint64(106), decoded.RefInputsCostPerDatumByte)
 }
@@ -2324,7 +2410,11 @@ func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
 	var leiosDecoded DijkstraProtocolParameters
 	require.NoError(t, leiosDecoded.UnmarshalCBOR(leios))
 	require.Equal(t, uint32(3000), leiosDecoded.RefScriptCostStride)
-	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), leiosDecoded.PerasHealingFactor.Rat)
+	require.Equal(
+		t,
+		expectedDefaultDijkstraPerasHealingFactor(),
+		leiosDecoded.PerasHealingFactor.Rat,
+	)
 	require.Zero(t, leiosDecoded.PerasQuorumThresholdSafetyMargin.Rat.Sign())
 	_, err = leiosDecoded.MarshalCBOR()
 	require.NoError(t, err)
@@ -2343,7 +2433,9 @@ func TestDijkstraProtocolParametersDecodesLegacyArray(t *testing.T) {
 }
 
 func TestDijkstraProtocolParametersDecodesCardanoLedgerVector(t *testing.T) {
-	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+	encoded, err := os.ReadFile(
+		"testdata/cardano_ledger_dijkstra_current_pparams.cbor",
+	)
 	require.NoError(t, err)
 	var response []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &response)
@@ -2364,8 +2456,12 @@ func TestDijkstraProtocolParametersDecodesCardanoLedgerVector(t *testing.T) {
 	require.Equal(t, []byte(response[0]), roundTrip)
 }
 
-func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(t *testing.T) {
-	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(
+	t *testing.T,
+) {
+	encoded, err := os.ReadFile(
+		"testdata/cardano_ledger_dijkstra_current_pparams.cbor",
+	)
 	require.NoError(t, err)
 	var response []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &response)
@@ -2393,8 +2489,12 @@ func TestDijkstraProtocolParametersRejectsNullCurrentPerasIntervals(t *testing.T
 	}
 }
 
-func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(t *testing.T) {
-	encoded, err := os.ReadFile("testdata/cardano_ledger_dijkstra_current_pparams.cbor")
+func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(
+	t *testing.T,
+) {
+	encoded, err := os.ReadFile(
+		"testdata/cardano_ledger_dijkstra_current_pparams.cbor",
+	)
 	require.NoError(t, err)
 	var response []cbor.RawMessage
 	_, err = cbor.Decode(encoded, &response)
@@ -2412,7 +2512,11 @@ func TestDijkstraProtocolParametersMarshalDefaultsMissingPerasIntervals(t *testi
 	require.NoError(t, err)
 	var healingRoundTrip DijkstraProtocolParameters
 	require.NoError(t, healingRoundTrip.UnmarshalCBOR(encoded))
-	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), healingRoundTrip.PerasHealingFactor.Rat)
+	require.Equal(
+		t,
+		expectedDefaultDijkstraPerasHealingFactor(),
+		healingRoundTrip.PerasHealingFactor.Rat,
+	)
 
 	missingSafetyMargin := valid
 	missingSafetyMargin.PerasQuorumThresholdSafetyMargin = nil
@@ -2428,7 +2532,11 @@ func TestDijkstraGenesisDefaultsMissingPerasIntervals(t *testing.T) {
 	require.NoError(t, err)
 	var params DijkstraProtocolParameters
 	require.NoError(t, params.UpdateFromGenesis(&genesis))
-	require.Equal(t, expectedDefaultDijkstraPerasHealingFactor(), params.PerasHealingFactor.Rat)
+	require.Equal(
+		t,
+		expectedDefaultDijkstraPerasHealingFactor(),
+		params.PerasHealingFactor.Rat,
+	)
 	require.Zero(t, params.PerasQuorumThresholdSafetyMargin.Rat.Sign())
 }
 
@@ -2561,7 +2669,9 @@ func TestDijkstraProtocolParameterUpdateDecodesConwayAndDijkstraFields(
 	require.Equal(t, 0, pparams.RefScriptCostMultiplier.Cmp(big.NewRat(2, 1)))
 }
 
-func TestDijkstraProtocolParameterUpdateCostModelLanguageIDDomain(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateCostModelLanguageIDDomain(
+	t *testing.T,
+) {
 	for _, tc := range []struct {
 		name    string
 		id      uint
@@ -2623,7 +2733,9 @@ func TestProtocolParameterUpdateFixedWidthIntegerDomains(t *testing.T) {
 				{name: "maximum plus one", value: tc.max + 1, wantErr: true},
 			} {
 				t.Run(tcValue.name, func(t *testing.T) {
-					encoded, err := cbor.Encode(map[int]any{tc.tag: tcValue.value})
+					encoded, err := cbor.Encode(
+						map[int]any{tc.tag: tcValue.value},
+					)
 					require.NoError(t, err)
 					var conwayUpdate conway.ConwayProtocolParameterUpdate
 					err = conwayUpdate.UnmarshalCBOR(encoded)
@@ -2647,13 +2759,19 @@ func TestProtocolParameterUpdateFixedWidthIntegerDomains(t *testing.T) {
 		tooLarge := uint(math.MaxUint32)
 		tooLarge++
 		conwayParams := conway.ConwayProtocolParameters{}
-		require.Error(t, conwayParams.ApplyUpdate(&conway.ConwayProtocolParameterUpdate{
-			MaxBlockBodySize: &tooLarge,
-		}))
+		require.Error(
+			t,
+			conwayParams.ApplyUpdate(&conway.ConwayProtocolParameterUpdate{
+				MaxBlockBodySize: &tooLarge,
+			}),
+		)
 		dijkstraParams := DijkstraProtocolParameters{}
-		require.Error(t, dijkstraParams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
-			MaxBlockBodySize: &tooLarge,
-		}))
+		require.Error(
+			t,
+			dijkstraParams.ApplyUpdate(&DijkstraProtocolParameterUpdate{
+				MaxBlockBodySize: &tooLarge,
+			}),
+		)
 		require.Zero(t, conwayParams.MaxBlockBodySize)
 		require.Zero(t, dijkstraParams.MaxBlockBodySize)
 	}
@@ -2773,7 +2891,9 @@ func TestDijkstraApplyUpdateAcceptsNonNegativeMaxPledgeLeverage(t *testing.T) {
 	require.Equal(t, big.NewRat(3, 1), params.MaxPledgeLeverage.Rat)
 }
 
-func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateRejectsNullForNonNullableFields(
+	t *testing.T,
+) {
 	tags := []int{0, 1, 5, 6, 14, 16, 17, 18, 20, 21, 25, 26, 30, 31}
 	for tag := 34; tag <= 56; tag++ {
 		if tag != 38 && tag != 53 {
@@ -2799,58 +2919,168 @@ func TestDijkstraProtocolParameterUpdateDomains(t *testing.T) {
 		field map[int]any
 		valid bool
 	}{
-		{name: "positive stride multiplier", field: map[int]any{37: ratio(1, 1)}, valid: true},
-		{name: "positive leverage update", field: map[int]any{38: ratio(0, 1)}, valid: true},
-		{name: "negative leverage update", field: map[int]any{38: ratio(-1, 1)}},
+		{
+			name:  "positive stride multiplier",
+			field: map[int]any{37: ratio(1, 1)},
+			valid: true,
+		},
+		{
+			name:  "positive leverage update",
+			field: map[int]any{38: ratio(0, 1)},
+			valid: true,
+		},
+		{
+			name:  "negative leverage update",
+			field: map[int]any{38: ratio(-1, 1)},
+		},
 		{name: "zero stride multiplier", field: map[int]any{37: ratio(0, 1)}},
-		{name: "negative stride multiplier", field: map[int]any{37: ratio(-1, 1)}},
-		{name: "min pool margin zero", field: map[int]any{39: ratio(0, 1)}, valid: true},
-		{name: "min pool margin one", field: map[int]any{39: ratio(1, 1)}, valid: true},
-		{name: "min pool margin below zero", field: map[int]any{39: ratio(-1, 1)}},
-		{name: "min pool margin above one", field: map[int]any{39: ratio(2, 1)}},
-		{name: "quorum threshold zero", field: map[int]any{44: ratio(0, 1)}, valid: true},
-		{name: "quorum threshold one", field: map[int]any{44: ratio(1, 1)}, valid: true},
-		{name: "quorum threshold below zero", field: map[int]any{44: ratio(-1, 1)}},
-		{name: "quorum threshold above one", field: map[int]any{44: ratio(2, 1)}},
-		{name: "positive Peras healing factor", field: map[int]any{50: ratio(1, 1)}, valid: true},
-		{name: "zero Peras healing factor", field: map[int]any{50: ratio(0, 1)}},
-		{name: "negative Peras healing factor", field: map[int]any{50: ratio(-1, 1)}},
-		{name: "Peras safety margin zero", field: map[int]any{54: ratio(0, 1)}, valid: true},
-		{name: "Peras safety margin one", field: map[int]any{54: ratio(1, 1)}, valid: true},
-		{name: "Peras safety margin below zero", field: map[int]any{54: ratio(-1, 1)}},
-		{name: "Peras safety margin above one", field: map[int]any{54: ratio(2, 1)}},
-		{name: "negative endorser memory", field: map[int]any{47: []int64{-1, 0}}},
-		{name: "negative endorser steps", field: map[int]any{47: []int64{0, -1}}},
-		{name: "zero endorser ex-units", field: map[int]any{47: []int64{0, 0}}, valid: true},
-		{name: "maximum endorser ex-units", field: map[int]any{47: []int64{math.MaxInt64, math.MaxInt64}}, valid: true},
+		{
+			name:  "negative stride multiplier",
+			field: map[int]any{37: ratio(-1, 1)},
+		},
+		{
+			name:  "min pool margin zero",
+			field: map[int]any{39: ratio(0, 1)},
+			valid: true,
+		},
+		{
+			name:  "min pool margin one",
+			field: map[int]any{39: ratio(1, 1)},
+			valid: true,
+		},
+		{
+			name:  "min pool margin below zero",
+			field: map[int]any{39: ratio(-1, 1)},
+		},
+		{
+			name:  "min pool margin above one",
+			field: map[int]any{39: ratio(2, 1)},
+		},
+		{
+			name:  "quorum threshold zero",
+			field: map[int]any{44: ratio(0, 1)},
+			valid: true,
+		},
+		{
+			name:  "quorum threshold one",
+			field: map[int]any{44: ratio(1, 1)},
+			valid: true,
+		},
+		{
+			name:  "quorum threshold below zero",
+			field: map[int]any{44: ratio(-1, 1)},
+		},
+		{
+			name:  "quorum threshold above one",
+			field: map[int]any{44: ratio(2, 1)},
+		},
+		{
+			name:  "positive Peras healing factor",
+			field: map[int]any{50: ratio(1, 1)},
+			valid: true,
+		},
+		{
+			name:  "zero Peras healing factor",
+			field: map[int]any{50: ratio(0, 1)},
+		},
+		{
+			name:  "negative Peras healing factor",
+			field: map[int]any{50: ratio(-1, 1)},
+		},
+		{
+			name:  "Peras safety margin zero",
+			field: map[int]any{54: ratio(0, 1)},
+			valid: true,
+		},
+		{
+			name:  "Peras safety margin one",
+			field: map[int]any{54: ratio(1, 1)},
+			valid: true,
+		},
+		{
+			name:  "Peras safety margin below zero",
+			field: map[int]any{54: ratio(-1, 1)},
+		},
+		{
+			name:  "Peras safety margin above one",
+			field: map[int]any{54: ratio(2, 1)},
+		},
+		{
+			name:  "negative endorser memory",
+			field: map[int]any{47: []int64{-1, 0}},
+		},
+		{
+			name:  "negative endorser steps",
+			field: map[int]any{47: []int64{0, -1}},
+		},
+		{
+			name:  "zero endorser ex-units",
+			field: map[int]any{47: []int64{0, 0}},
+			valid: true,
+		},
+		{
+			name:  "maximum endorser ex-units",
+			field: map[int]any{47: []int64{math.MaxInt64, math.MaxInt64}},
+			valid: true,
+		},
 		{name: "inherited negative a0", field: map[int]any{9: ratio(-1, 1)}},
-		{name: "inherited rho above unit interval", field: map[int]any{10: ratio(2, 1)}},
-		{name: "inherited tau below unit interval", field: map[int]any{11: ratio(-1, 1)}},
-		{name: "inherited negative execution memory price", field: map[int]any{19: []any{ratio(-1, 1), ratio(1, 1)}}},
-		{name: "inherited negative execution step price", field: map[int]any{19: []any{ratio(1, 1), ratio(-1, 1)}}},
-		{name: "inherited null execution price", field: map[int]any{0: uint(1), 19: []any{nil, ratio(1, 1)}}},
-		{name: "inherited negative tx ex-units", field: map[int]any{20: []int64{-1, 0}}},
-		{name: "inherited negative block ex-units", field: map[int]any{21: []int64{0, -1}}},
-		{name: "inherited pool threshold above unit interval", field: map[int]any{25: conway.PoolVotingThresholds{
-			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
-			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
-			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
-			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
-			PpSecurityGroup:       cbor.Rat{Rat: big.NewRat(2, 1)},
-		}}},
-		{name: "inherited DRep threshold below unit interval", field: map[int]any{26: conway.DRepVotingThresholds{
-			MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
-			CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
-			CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
-			UpdateToConstitution:  cbor.Rat{Rat: big.NewRat(1, 2)},
-			HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
-			PpNetworkGroup:        cbor.Rat{Rat: big.NewRat(1, 2)},
-			PpEconomicGroup:       cbor.Rat{Rat: big.NewRat(1, 2)},
-			PpTechnicalGroup:      cbor.Rat{Rat: big.NewRat(1, 2)},
-			PpGovGroup:            cbor.Rat{Rat: big.NewRat(1, 2)},
-			TreasuryWithdrawal:    cbor.Rat{Rat: big.NewRat(-1, 2)},
-		}}},
-		{name: "inherited negative ref-script fee", field: map[int]any{33: ratio(-1, 1)}},
+		{
+			name:  "inherited rho above unit interval",
+			field: map[int]any{10: ratio(2, 1)},
+		},
+		{
+			name:  "inherited tau below unit interval",
+			field: map[int]any{11: ratio(-1, 1)},
+		},
+		{
+			name:  "inherited negative execution memory price",
+			field: map[int]any{19: []any{ratio(-1, 1), ratio(1, 1)}},
+		},
+		{
+			name:  "inherited negative execution step price",
+			field: map[int]any{19: []any{ratio(1, 1), ratio(-1, 1)}},
+		},
+		{
+			name:  "inherited null execution price",
+			field: map[int]any{0: uint(1), 19: []any{nil, ratio(1, 1)}},
+		},
+		{
+			name:  "inherited negative tx ex-units",
+			field: map[int]any{20: []int64{-1, 0}},
+		},
+		{
+			name:  "inherited negative block ex-units",
+			field: map[int]any{21: []int64{0, -1}},
+		},
+		{
+			name: "inherited pool threshold above unit interval",
+			field: map[int]any{25: conway.PoolVotingThresholds{
+				MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
+				CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
+				CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
+				HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
+				PpSecurityGroup:       cbor.Rat{Rat: big.NewRat(2, 1)},
+			}},
+		},
+		{
+			name: "inherited DRep threshold below unit interval",
+			field: map[int]any{26: conway.DRepVotingThresholds{
+				MotionNoConfidence:    cbor.Rat{Rat: big.NewRat(1, 2)},
+				CommitteeNormal:       cbor.Rat{Rat: big.NewRat(1, 2)},
+				CommitteeNoConfidence: cbor.Rat{Rat: big.NewRat(1, 2)},
+				UpdateToConstitution:  cbor.Rat{Rat: big.NewRat(1, 2)},
+				HardForkInitiation:    cbor.Rat{Rat: big.NewRat(1, 2)},
+				PpNetworkGroup:        cbor.Rat{Rat: big.NewRat(1, 2)},
+				PpEconomicGroup:       cbor.Rat{Rat: big.NewRat(1, 2)},
+				PpTechnicalGroup:      cbor.Rat{Rat: big.NewRat(1, 2)},
+				PpGovGroup:            cbor.Rat{Rat: big.NewRat(1, 2)},
+				TreasuryWithdrawal:    cbor.Rat{Rat: big.NewRat(-1, 2)},
+			}},
+		},
+		{
+			name:  "inherited negative ref-script fee",
+			field: map[int]any{33: ratio(-1, 1)},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2876,7 +3106,9 @@ func TestDijkstraProtocolParameterUpdateRejectsOutOfRangeRatios(t *testing.T) {
 
 	max := new(big.Int).SetUint64(math.MaxUint64)
 	valid := DijkstraProtocolParameterUpdate{
-		RefScriptCostMultiplier: &cbor.Rat{Rat: new(big.Rat).SetFrac(max, big.NewInt(1))},
+		RefScriptCostMultiplier: &cbor.Rat{
+			Rat: new(big.Rat).SetFrac(max, big.NewInt(1)),
+		},
 	}
 	require.NoError(t, validateDijkstraProtocolParameterUpdateDomains(&valid))
 
@@ -2909,7 +3141,9 @@ func TestDijkstraProtocolParameterUpdateRejectsOutOfRangeRatios(t *testing.T) {
 	require.NoError(t, maxBounded.UnmarshalCBOR(maxBoundedComponents))
 }
 
-func TestDijkstraProtocolParameterUpdateNullEncodingChangedParameters(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateNullEncodingChangedParameters(
+	t *testing.T,
+) {
 	var absent DijkstraProtocolParameterUpdate
 	absentWire, err := absent.MarshalCBOR()
 	require.NoError(t, err)
@@ -3007,7 +3241,13 @@ func TestDijkstraProtocolParameterUpdateDecodesLeiosFields(t *testing.T) {
 func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
 	announcement, vote, diffusion := uint32(1000), uint32(2000), uint32(3000)
 	committee := uint16(42)
-	references, txs, refScripts := uint32(500000), uint32(12000000), uint32(1048576)
+	references, txs, refScripts := uint32(
+		500000,
+	), uint32(
+		12000000,
+	), uint32(
+		1048576,
+	)
 	exUnits := common.ExUnits{Memory: 123, Steps: 456}
 	update := DijkstraProtocolParameterUpdate{
 		LeiosAnnouncementPeriodLength:    &announcement,
@@ -3031,7 +3271,9 @@ func TestDijkstraProtocolParameterUpdateEncodesLeiosFields(t *testing.T) {
 	}
 }
 
-func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(
+	t *testing.T,
+) {
 	encoded, err := cbor.Encode(map[uint]any{
 		49: uint32(10),
 		50: &cbor.Rat{Rat: big.NewRat(3, 2)},
@@ -3052,7 +3294,11 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t
 	require.Equal(t, uint16(12), *update.PerasTargetCommitteeSize)
 	require.True(t, update.PerasBootstrapRoundSet)
 	require.Equal(t, uint32(13), *update.PerasBootstrapRound)
-	require.Equal(t, big.NewRat(1, 4), update.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(
+		t,
+		big.NewRat(1, 4),
+		update.PerasQuorumThresholdSafetyMargin.Rat,
+	)
 	require.Equal(t, uint64(14), *update.RefInputsCostPerMultiAssetPolicy)
 	require.Equal(t, uint64(15), *update.RefInputsCostPerDatumByte)
 
@@ -3072,11 +3318,26 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t
 	}
 	wantPlutus := data.NewMap([][2]data.PlutusData{
 		{data.NewInteger(big.NewInt(49)), data.NewInteger(big.NewInt(10))},
-		{data.NewInteger(big.NewInt(50)), data.NewList(data.NewInteger(big.NewInt(3)), data.NewInteger(big.NewInt(2)))},
+		{
+			data.NewInteger(big.NewInt(50)),
+			data.NewList(
+				data.NewInteger(big.NewInt(3)),
+				data.NewInteger(big.NewInt(2)),
+			),
+		},
 		{data.NewInteger(big.NewInt(51)), data.NewInteger(big.NewInt(11))},
 		{data.NewInteger(big.NewInt(52)), data.NewInteger(big.NewInt(12))},
-		{data.NewInteger(big.NewInt(53)), data.NewConstr(0, data.NewInteger(big.NewInt(13)))},
-		{data.NewInteger(big.NewInt(54)), data.NewList(data.NewInteger(big.NewInt(1)), data.NewInteger(big.NewInt(4)))},
+		{
+			data.NewInteger(big.NewInt(53)),
+			data.NewConstr(0, data.NewInteger(big.NewInt(13))),
+		},
+		{
+			data.NewInteger(big.NewInt(54)),
+			data.NewList(
+				data.NewInteger(big.NewInt(1)),
+				data.NewInteger(big.NewInt(4)),
+			),
+		},
 		{data.NewInteger(big.NewInt(55)), data.NewInteger(big.NewInt(14))},
 		{data.NewInteger(big.NewInt(56)), data.NewInteger(big.NewInt(15))},
 	})
@@ -3093,7 +3354,9 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(t
 	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
 }
 
-func TestDijkstraProtocolParameterUpdateClearsPerasBootstrapRound(t *testing.T) {
+func TestDijkstraProtocolParameterUpdateClearsPerasBootstrapRound(
+	t *testing.T,
+) {
 	encoded, err := cbor.Encode(map[uint]any{53: nil})
 	require.NoError(t, err)
 	var update DijkstraProtocolParameterUpdate
@@ -3224,7 +3487,11 @@ func TestDijkstraGenesisDecodesLeiosProtocolParameters(t *testing.T) {
 	require.Equal(t, 0, params.LeiosQuorumStakeThreshold.Cmp(big.NewRat(3, 4)))
 	require.Equal(t, uint32(500000), params.MaxEndorserBlockReferencesSize)
 	require.Equal(t, uint32(12000000), params.MaxEndorserBlockTxsSize)
-	require.Equal(t, common.ExUnits{Memory: 123, Steps: 456}, params.MaxEndorserBlockExUnits)
+	require.Equal(
+		t,
+		common.ExUnits{Memory: 123, Steps: 456},
+		params.MaxEndorserBlockExUnits,
+	)
 	require.Equal(t, uint32(1048576), params.MaxRefScriptSizePerEndorserBlock)
 	require.Equal(t, []int64{4000, 5000, 6000}, params.CostModels[3])
 }
@@ -3249,7 +3516,11 @@ func TestDijkstraGenesisDecodesPerasAndReferenceInputParameters(t *testing.T) {
 	require.Equal(t, uint16(11), params.PerasCertBoost)
 	require.Equal(t, uint16(12), params.PerasTargetCommitteeSize)
 	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
-	require.Equal(t, big.NewRat(1, 4), params.PerasQuorumThresholdSafetyMargin.Rat)
+	require.Equal(
+		t,
+		big.NewRat(1, 4),
+		params.PerasQuorumThresholdSafetyMargin.Rat,
+	)
 	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
 	require.Equal(t, uint64(15), params.RefInputsCostPerDatumByte)
 }
@@ -3319,7 +3590,9 @@ func TestDijkstraGenesisRejectsInvalidRewardParameters(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(test.genesis))
+			genesis, err := NewDijkstraGenesisFromReader(
+				strings.NewReader(test.genesis),
+			)
 			require.NoError(t, err)
 
 			params := DijkstraProtocolParameters{

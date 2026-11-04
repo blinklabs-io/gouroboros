@@ -143,7 +143,11 @@ func TestValidateEBBBodyHashMalformedProof(t *testing.T) {
 func testnetByronEbb(t *testing.T) []byte {
 	t.Helper()
 	ebbPath := filepath.Join(
-		"..", "..", "protocol", "chainsync", "testdata",
+		"..",
+		"..",
+		"protocol",
+		"chainsync",
+		"testdata",
 		"byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
 	)
 	hexData, err := os.ReadFile(ebbPath)

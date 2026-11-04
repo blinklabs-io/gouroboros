@@ -204,7 +204,9 @@ func (a *ConwayParameterChangeGovAction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if len(fields[1]) == 1 && fields[1][0] == 0xf7 {
-		return errors.New("parameter change previous action ID cannot be CBOR undefined")
+		return errors.New(
+			"parameter change previous action ID cannot be CBOR undefined",
+		)
 	}
 	if err := common.ValidateNullOrFixedLengthByteStringCBOR(
 		fields[3],

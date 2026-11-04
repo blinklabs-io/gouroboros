@@ -201,7 +201,9 @@ func (v *HeaderValidator) validatePBFTActiveDelegate(
 	input *ValidateHeaderInput,
 ) (common.Blake2b224, error) {
 	if len(input.BlockSig) < 2 {
-		return common.Blake2b224{}, errors.New("invalid Byron PBFT signature shape")
+		return common.Blake2b224{}, errors.New(
+			"invalid Byron PBFT signature shape",
+		)
 	}
 	signatureType, err := extractUint64(input.BlockSig[0])
 	if err != nil {
@@ -372,7 +374,9 @@ func (v *HeaderValidator) validateSimpleSignature(
 	if len(input.GenesisIssuerKey) > 0 {
 		if len(input.GenesisIssuerKey) != 64 ||
 			!bytes.Equal(input.GenesisIssuerKey[:32], input.IssuerPubKey) {
-			return errors.New("simple-signature key does not match genesis issuer key")
+			return errors.New(
+				"simple-signature key does not match genesis issuer key",
+			)
 		}
 	}
 	if len(input.IssuerPubKey) != ed25519.PublicKeySize {
@@ -461,7 +465,9 @@ func (v *HeaderValidator) validateSimpleSignature(
 
 // domainSeparateMainBlock applies Byron's SignMainBlock domain and network
 // magic to a serialized ToSign value.
-func (v *HeaderValidator) domainSeparateMainBlock(toSign []byte) ([]byte, error) {
+func (v *HeaderValidator) domainSeparateMainBlock(
+	toSign []byte,
+) ([]byte, error) {
 	pmBytes, err := cbor.Encode(v.config.ProtocolMagic)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode protocol magic: %w", err)
@@ -995,7 +1001,10 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 		return nil, err
 	}
 	if len(fields) != 4 {
-		return nil, fmt.Errorf("extra header data is not a 4-element array, got %d elements", len(fields))
+		return nil, fmt.Errorf(
+			"extra header data is not a 4-element array, got %d elements",
+			len(fields),
+		)
 	}
 	var protocolVersion byron.ByronBlockVersion
 	if _, err := cbor.Decode(fields[0], &protocolVersion); err != nil {
@@ -1006,18 +1015,24 @@ func canonicalByronExtraHeader(raw cbor.RawMessage) ([]byte, error) {
 		return nil, fmt.Errorf("decode software version: %w", err)
 	}
 	// The reference decoder requires fields[2] to be an empty attributes map.
-	if len(fields[2]) == 0 || fields[2][0]&cbor.CborTypeMask != cbor.CborTypeMap {
+	if len(fields[2]) == 0 ||
+		fields[2][0]&cbor.CborTypeMask != cbor.CborTypeMap {
 		return nil, errors.New("extra header attributes must be a CBOR map")
 	}
 	if fields[2][0] == 0xbf {
-		return nil, errors.New("extra header attributes must use a definite-length map")
+		return nil, errors.New(
+			"extra header attributes must use a definite-length map",
+		)
 	}
 	var attributes map[any]any
 	if _, err := cbor.Decode(fields[2], &attributes); err != nil {
 		return nil, fmt.Errorf("decode extra header attributes: %w", err)
 	}
 	if len(attributes) != 0 {
-		return nil, fmt.Errorf("extra header attributes must be empty, got %d entries", len(attributes))
+		return nil, fmt.Errorf(
+			"extra header attributes must be empty, got %d entries",
+			len(attributes),
+		)
 	}
 	if _, err := cbor.Decode(fields[3], new([]byte)); err != nil {
 		return nil, fmt.Errorf("decode extra-data proof: %w", err)
@@ -1137,7 +1152,8 @@ func genesisIssuerVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("decode Byron signature type: %w", err)
 		}
-		if signatureType == byronSigTypeHeavy || signatureType == byronSigTypeLight {
+		if signatureType == byronSigTypeHeavy ||
+			signatureType == byronSigTypeLight {
 			inner, ok := input.BlockSig[1].([]any)
 			if !ok || len(inner) == 0 {
 				return nil, errors.New("invalid Byron proxy signature payload")
@@ -1148,7 +1164,9 @@ func genesisIssuerVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
 			}
 			issuerKey, ok := certificate[1].([]byte)
 			if !ok || len(issuerKey) != 64 {
-				return nil, errors.New("invalid Byron extended genesis issuer key")
+				return nil, errors.New(
+					"invalid Byron extended genesis issuer key",
+				)
 			}
 			return issuerKey, nil
 		}

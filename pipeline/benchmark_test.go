@@ -29,7 +29,9 @@ import (
 // BenchmarkDecodeStage benchmarks CBOR decode throughput for different eras.
 func BenchmarkDecodeStage(b *testing.B) {
 	blocks := testdata.GetTestBlocks()
-	stage := pipeline.NewDecodeStage(true) // Skip body hash validation for pure decode perf
+	stage := pipeline.NewDecodeStage(
+		true,
+	) // Skip body hash validation for pure decode perf
 
 	for _, block := range blocks {
 		b.Run(block.Name, func(b *testing.B) {
@@ -40,7 +42,12 @@ func BenchmarkDecodeStage(b *testing.B) {
 
 			b.ResetTimer()
 			for b.Loop() {
-				item := pipeline.NewBlockItem(block.BlockType, block.Cbor, pcommon.Tip{}, 0)
+				item := pipeline.NewBlockItem(
+					block.BlockType,
+					block.Cbor,
+					pcommon.Tip{},
+					0,
+				)
 				err := stage.Process(ctx, item)
 				if err != nil {
 					b.Fatalf("decode %s block error: %v", block.Name, err)
@@ -65,7 +72,12 @@ func BenchmarkDecodeStage(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; b.Loop(); i++ {
 			block := blocks[i%blockCount]
-			item := pipeline.NewBlockItem(block.BlockType, block.Cbor, pcommon.Tip{}, 0)
+			item := pipeline.NewBlockItem(
+				block.BlockType,
+				block.Cbor,
+				pcommon.Tip{},
+				0,
+			)
 			err := stage.Process(ctx, item)
 			if err != nil {
 				b.Fatalf("decode %s block error: %v", block.Name, err)
@@ -118,7 +130,12 @@ func BenchmarkStageWorkerPool(b *testing.B) {
 			wg.Go(func() {
 				for i := 0; i < b.N; i++ {
 					block := blocks[i%len(blocks)]
-					item := pipeline.NewBlockItem(block.BlockType, block.Cbor, pcommon.Tip{}, uint64(i))
+					item := pipeline.NewBlockItem(
+						block.BlockType,
+						block.Cbor,
+						pcommon.Tip{},
+						uint64(i),
+					)
 					select {
 					case input <- item:
 					case <-ctx.Done():

@@ -209,7 +209,11 @@ func TestVerifyBlockDijkstraLeiosAnnouncedSize(t *testing.T) {
 				h.LeiosHeaderExtension = leiosHeaderExtension(t, false, &size)
 			},
 		)
-		return decodeDijkstraWiringBlock(t, header, dijkstra.DijkstraBlockBody{})
+		return decodeDijkstraWiringBlock(
+			t,
+			header,
+			dijkstra.DijkstraBlockBody{},
+		)
 	}
 
 	valid, errs := verifyLeiosWiringBlock(

@@ -68,9 +68,12 @@ func TestBlockDecodersRejectOutOfRangeAuxiliaryDataIndexes(t *testing.T) {
 			name: "Shelley",
 			raw:  testdata.ShelleyBlockHex,
 			decode: func(data []byte) error {
-				_, err := shelley.NewShelleyBlockFromCbor(data, common.VerifyConfig{
-					SkipBodyHashValidation: true,
-				})
+				_, err := shelley.NewShelleyBlockFromCbor(
+					data,
+					common.VerifyConfig{
+						SkipBodyHashValidation: true,
+					},
+				)
 				return err
 			},
 		},
@@ -78,9 +81,12 @@ func TestBlockDecodersRejectOutOfRangeAuxiliaryDataIndexes(t *testing.T) {
 			name: "Allegra",
 			raw:  testdata.AllegraBlockHex,
 			decode: func(data []byte) error {
-				_, err := allegra.NewAllegraBlockFromCbor(data, common.VerifyConfig{
-					SkipBodyHashValidation: true,
-				})
+				_, err := allegra.NewAllegraBlockFromCbor(
+					data,
+					common.VerifyConfig{
+						SkipBodyHashValidation: true,
+					},
+				)
 				return err
 			},
 		},
@@ -98,9 +104,12 @@ func TestBlockDecodersRejectOutOfRangeAuxiliaryDataIndexes(t *testing.T) {
 			name: "Alonzo",
 			raw:  testdata.AlonzoBlockHex,
 			decode: func(data []byte) error {
-				_, err := alonzo.NewAlonzoBlockFromCbor(data, common.VerifyConfig{
-					SkipBodyHashValidation: true,
-				})
+				_, err := alonzo.NewAlonzoBlockFromCbor(
+					data,
+					common.VerifyConfig{
+						SkipBodyHashValidation: true,
+					},
+				)
 				return err
 			},
 		},
@@ -108,9 +117,12 @@ func TestBlockDecodersRejectOutOfRangeAuxiliaryDataIndexes(t *testing.T) {
 			name: "Babbage",
 			raw:  testdata.BabbageBlockHex,
 			decode: func(data []byte) error {
-				_, err := babbage.NewBabbageBlockFromCbor(data, common.VerifyConfig{
-					SkipBodyHashValidation: true,
-				})
+				_, err := babbage.NewBabbageBlockFromCbor(
+					data,
+					common.VerifyConfig{
+						SkipBodyHashValidation: true,
+					},
+				)
 				return err
 			},
 		},
@@ -118,9 +130,12 @@ func TestBlockDecodersRejectOutOfRangeAuxiliaryDataIndexes(t *testing.T) {
 			name: "Conway",
 			raw:  testdata.ConwayBlockHex,
 			decode: func(data []byte) error {
-				_, err := conway.NewConwayBlockFromCbor(data, common.VerifyConfig{
-					SkipBodyHashValidation: true,
-				})
+				_, err := conway.NewConwayBlockFromCbor(
+					data,
+					common.VerifyConfig{
+						SkipBodyHashValidation: true,
+					},
+				)
 				return err
 			},
 		},

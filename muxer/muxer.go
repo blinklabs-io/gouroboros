@@ -1468,7 +1468,8 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from initiator when we're not configured as a responder
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator && !msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator &&
+			!msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from initiator when not configured as a responder",
@@ -1477,7 +1478,8 @@ func (m *Muxer) readLoop() {
 			return
 		}
 		// Check for message from responder when we're not configured as an initiator
-		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder && msg.IsResponse() {
+		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeResponder &&
+			msg.IsResponse() {
 			m.sendError(
 				errors.New(
 					"received message from responder when not configured as an initiator",

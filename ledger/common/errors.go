@@ -63,7 +63,10 @@ func (e NotAllowedSupplementalDatumsError) Error() string {
 	for i, hash := range e.DatumHashes {
 		hashes[i] = hex.EncodeToString(hash[:])
 	}
-	return "not allowed supplemental datums in witness set: " + strings.Join(hashes, ", ")
+	return "not allowed supplemental datums in witness set: " + strings.Join(
+		hashes,
+		", ",
+	)
 }
 
 // TxOut preserves an opaque transaction output embedded in a ledger failure.
@@ -84,7 +87,10 @@ type PtrPresentInCollateralReturn struct {
 }
 
 func (e *PtrPresentInCollateralReturn) Error() string {
-	return fmt.Sprintf("PtrPresentInCollateralReturn (Output %s)", e.Output.String())
+	return fmt.Sprintf(
+		"PtrPresentInCollateralReturn (Output %s)",
+		e.Output.String(),
+	)
 }
 
 // WrongTransactionNetworkIdError reports a transaction-body network ID that
@@ -667,7 +673,10 @@ func (e ProtocolParameterUpdateVersionError) Error() string {
 
 func (e ProtocolParameterUpdateCostModelError) Error() string {
 	if e.Unknown {
-		return fmt.Sprintf("protocol parameter update contains unknown cost model language %d", e.Language)
+		return fmt.Sprintf(
+			"protocol parameter update contains unknown cost model language %d",
+			e.Language,
+		)
 	}
 	return fmt.Sprintf(
 		"protocol parameter update cost model language %d has %d parameters, expected %d",
@@ -684,7 +693,10 @@ type ProtocolParameterUpdateDelegateError struct {
 }
 
 func (e ProtocolParameterUpdateDelegateError) Error() string {
-	return fmt.Sprintf("protocol parameter update key %s is not a current genesis delegate", e.Delegate)
+	return fmt.Sprintf(
+		"protocol parameter update key %s is not a current genesis delegate",
+		e.Delegate,
+	)
 }
 
 // ProtocolParameterUpdateWitnessError indicates that an update lacks a
@@ -694,7 +706,10 @@ type ProtocolParameterUpdateWitnessError struct {
 }
 
 func (e ProtocolParameterUpdateWitnessError) Error() string {
-	return fmt.Sprintf("protocol parameter update is missing witness for genesis delegate %s", e.Delegate)
+	return fmt.Sprintf(
+		"protocol parameter update is missing witness for genesis delegate %s",
+		e.Delegate,
+	)
 }
 
 // ProtocolParameterUpdateEpochError identifies an update targeting the wrong
@@ -711,7 +726,13 @@ func (e ProtocolParameterUpdateEpochError) Error() string {
 	if e.ForNextEpoch {
 		period = "next"
 	}
-	return fmt.Sprintf("protocol parameter update targets epoch %d, expected %s epoch %d (current epoch %d)", e.Proposed, period, e.Expected, e.Current)
+	return fmt.Sprintf(
+		"protocol parameter update targets epoch %d, expected %s epoch %d (current epoch %d)",
+		e.Proposed,
+		period,
+		e.Expected,
+		e.Current,
+	)
 }
 
 // MIRInsufficientGenesisSigsError indicates that a move instantaneous rewards

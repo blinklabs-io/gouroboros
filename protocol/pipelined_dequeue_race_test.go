@@ -248,12 +248,19 @@ func TestSendLoopRejectsIneligibleMessagesBatchedBehindPipelinedMessages(
 	case <-time.After(5 * time.Second):
 		t.Fatal("sendLoop never reached the first pipelined dequeue")
 	}
-	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeBatchDone}))
+	require.NoError(
+		t,
+		p.SendMessage(&MessageBase{MessageType: msgTypeBatchDone}),
+	)
 	close(proceed)
 
 	select {
 	case err := <-errorChan:
-		require.ErrorContains(t, err, "message type 3 is not allowed while pipelined in state Busy")
+		require.ErrorContains(
+			t,
+			err,
+			"message type 3 is not allowed while pipelined in state Busy",
+		)
 	case <-time.After(5 * time.Second):
 		t.Fatal("sendLoop transmitted a message that is not pipelined in Busy")
 	}

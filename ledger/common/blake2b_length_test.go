@@ -99,9 +99,18 @@ func TestNativeScriptPubkeyDecodeRejectsWrongLengthRecursively(t *testing.T) {
 		name string
 		wrap func(any) any
 	}{
-		{name: "all", wrap: func(child any) any { return []any{uint(1), []any{child}} }},
-		{name: "any", wrap: func(child any) any { return []any{uint(2), []any{child}} }},
-		{name: "n-of-k", wrap: func(child any) any { return []any{uint(3), int64(1), []any{child}} }},
+		{
+			name: "all",
+			wrap: func(child any) any { return []any{uint(1), []any{child}} },
+		},
+		{
+			name: "any",
+			wrap: func(child any) any { return []any{uint(2), []any{child}} },
+		},
+		{
+			name: "n-of-k",
+			wrap: func(child any) any { return []any{uint(3), int64(1), []any{child}} },
+		},
 	}
 	for _, constructor := range constructors {
 		t.Run(constructor.name, func(t *testing.T) {

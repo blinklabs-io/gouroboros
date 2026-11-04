@@ -64,7 +64,10 @@ func headerMemoryFixtures(t testing.TB) []headerMemoryFixture {
 
 // headerParts returns the stored CBOR of a decoded header's body and the
 // decoded byte-string fields that are retained alongside it.
-func headerParts(t testing.TB, h ledger.BlockHeader) ([]byte, map[string][]byte) {
+func headerParts(
+	t testing.TB,
+	h ledger.BlockHeader,
+) ([]byte, map[string][]byte) {
 	t.Helper()
 	shelleyParts := func(s *shelley.ShelleyBlockHeader) ([]byte, map[string][]byte) {
 		b := &s.Body

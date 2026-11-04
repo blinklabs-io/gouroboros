@@ -186,7 +186,9 @@ func TestTachysHeaderValidationKeepsCryptographicChecks(t *testing.T) {
 
 	config := testNetworkConfig()
 	denominator := new(big.Int).SetUint64(10_000_000_000_000_000_000)
-	config.ActiveSlotCoeff.Rat = new(big.Rat).SetFrac(big.NewInt(1), denominator)
+	config.ActiveSlotCoeff.Rat = new(
+		big.Rat,
+	).SetFrac(big.NewInt(1), denominator)
 	tachysValidator, err := NewTachysHeaderValidator(config, selector)
 	require.NoError(t, err)
 	praosValidator := NewHeaderValidator(config)
@@ -224,7 +226,8 @@ func TestTachysHeaderValidationKeepsCryptographicChecks(t *testing.T) {
 		EpochNonce:           epochNonce[:],
 		PoolStake:            1,
 		TotalStake:           1,
-		RegisteredVrfKeyHash: common.Blake2b256Hash(vrfSigner.PublicKey()).Bytes(),
+		RegisteredVrfKeyHash: common.Blake2b256Hash(vrfSigner.PublicKey()).
+			Bytes(),
 	}
 
 	praosResult := praosValidator.ValidateHeader(input)
@@ -252,17 +255,27 @@ func TestTachysHeaderValidationKeepsCryptographicChecks(t *testing.T) {
 	invalidVRF.VrfProof[0] ^= 0xff
 	invalidVRFResult := tachysValidator.ValidateHeader(&invalidVRF)
 	require.False(t, invalidVRFResult.Valid)
-	require.ErrorContains(t, invalidVRFResult.Errors[0], "VRF verification failed")
+	require.ErrorContains(
+		t,
+		invalidVRFResult.Errors[0],
+		"VRF verification failed",
+	)
 
 	invalidKES := *input
 	invalidKES.KesSignature = append([]byte(nil), input.KesSignature...)
 	invalidKES.KesSignature[0] ^= 0xff
 	invalidKESResult := tachysValidator.ValidateHeader(&invalidKES)
 	require.False(t, invalidKESResult.Valid)
-	require.ErrorContains(t, invalidKESResult.Errors[0], "KES signature verification failed")
+	require.ErrorContains(
+		t,
+		invalidKESResult.Errors[0],
+		"KES signature verification failed",
+	)
 
 	invalidOpCert := *input
-	invalidOpCert.OpCertSignature = append([]byte(nil), input.OpCertSignature...)
+	invalidOpCert.OpCertSignature = append(
+		[]byte(nil),
+		input.OpCertSignature...)
 	invalidOpCert.OpCertSignature[0] ^= 0xff
 	invalidOpCertResult := tachysValidator.ValidateHeader(&invalidOpCert)
 	require.False(t, invalidOpCertResult.Valid)

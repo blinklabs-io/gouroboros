@@ -99,7 +99,10 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 		}
 		converted := uint(val)
 		if uint64(converted) != val {
-			return fmt.Errorf("invalid transaction index %d overflows uint", val)
+			return fmt.Errorf(
+				"invalid transaction index %d overflows uint",
+				val,
+			)
 		}
 		result = append(result, converted)
 	}
@@ -301,7 +304,11 @@ type BabbageBlockHeaderBody struct {
 	ProtoVersion  BabbageProtoVersion
 }
 
-func validateFixedLengthByteString(data []byte, expected int, name string) error {
+func validateFixedLengthByteString(
+	data []byte,
+	expected int,
+	name string,
+) error {
 	if len(data) == 0 || data[0]&cbor.CborTypeMask != cbor.CborTypeByteString {
 		return fmt.Errorf("%s must be a CBOR byte string", name)
 	}
@@ -313,7 +320,12 @@ func validateFixedLengthByteString(data []byte, expected int, name string) error
 		return fmt.Errorf("decode %s: %w", name, err)
 	}
 	if len(decoded) != expected {
-		return fmt.Errorf("%s must be %d bytes, got %d", name, expected, len(decoded))
+		return fmt.Errorf(
+			"%s must be %d bytes, got %d",
+			name,
+			expected,
+			len(decoded),
+		)
 	}
 	return nil
 }
@@ -388,7 +400,10 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("protocol version major exceeds uint32 maximum")
 	}
 	if len(tmp.VrfKey) != 32 {
-		return fmt.Errorf("vrf verification key must be 32 bytes, got %d", len(tmp.VrfKey))
+		return fmt.Errorf(
+			"vrf verification key must be 32 bytes, got %d",
+			len(tmp.VrfKey),
+		)
 	}
 	if len(tmp.VrfResult.Proof) != 80 {
 		return fmt.Errorf(
@@ -400,10 +415,16 @@ func (b *BabbageBlockHeaderBody) UnmarshalCBOR(cborData []byte) error {
 		return errors.New("block body size exceeds uint32 maximum")
 	}
 	if len(tmp.OpCert.HotVkey) != 32 {
-		return fmt.Errorf("operational certificate hot key must be 32 bytes, got %d", len(tmp.OpCert.HotVkey))
+		return fmt.Errorf(
+			"operational certificate hot key must be 32 bytes, got %d",
+			len(tmp.OpCert.HotVkey),
+		)
 	}
 	if len(tmp.OpCert.Signature) != 64 {
-		return fmt.Errorf("operational certificate signature must be 64 bytes, got %d", len(tmp.OpCert.Signature))
+		return fmt.Errorf(
+			"operational certificate signature must be 64 bytes, got %d",
+			len(tmp.OpCert.Signature),
+		)
 	}
 	if tmp.ProtoVersion.Minor > uint64(1<<32-1) {
 		return errors.New("protocol version minor exceeds uint32 maximum")
@@ -464,7 +485,10 @@ func (h *BabbageBlockHeader) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	if len(tmp.Signature) != 448 {
-		return fmt.Errorf("header body signature must be 448 bytes, got %d", len(tmp.Signature))
+		return fmt.Errorf(
+			"header body signature must be 448 bytes, got %d",
+			len(tmp.Signature),
+		)
 	}
 	*h = BabbageBlockHeader(tmp)
 	h.SetCbor(cborData)
@@ -598,7 +622,12 @@ func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
-	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(&b, 0, 1, 2)
+	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
+		&b,
+		0,
+		1,
+		2,
+	)
 }
 
 func coalesceUntaggedTransactionInputs(
@@ -838,7 +867,10 @@ func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 			return err
 		}
 		if rawTag.Number != cbor.CborTagCbor {
-			return fmt.Errorf("inline datum must use CBOR tag %d", cbor.CborTagCbor)
+			return fmt.Errorf(
+				"inline datum must use CBOR tag %d",
+				cbor.CborTagCbor,
+			)
 		}
 		if err := validateDefiniteByteString(rawTag.Content, "inline datum CBOR"); err != nil {
 			return err
@@ -1215,7 +1247,10 @@ func (w *BabbageTransactionWitnessSet) MarshalCBOR() ([]byte, error) {
 	// Convert WsPlutusData to IndefLengthList
 	var plutusDataIndefList cbor.IndefLengthList
 	if len(w.WsPlutusData.Items) > 0 {
-		plutusDataIndefList = make(cbor.IndefLengthList, len(w.WsPlutusData.Items))
+		plutusDataIndefList = make(
+			cbor.IndefLengthList,
+			len(w.WsPlutusData.Items),
+		)
 		for i, datum := range w.WsPlutusData.Items {
 			plutusDataIndefList[i] = datum
 		}
@@ -1321,7 +1356,10 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 		// 0xF6 is CBOR null
 
 		// Decode auxiliary data using the transaction era's consensus rules.
-		auxData, err := common.DecodeAuxiliaryDataForEra(metadataRaw, common.AuxiliaryDataEraBabbage)
+		auxData, err := common.DecodeAuxiliaryDataForEra(
+			metadataRaw,
+			common.AuxiliaryDataEraBabbage,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to decode auxiliary data: %w", err)
 		}
