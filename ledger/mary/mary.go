@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -823,14 +824,33 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 // length of MarshalCBOR output where a multi-asset map has more than 23
 // entries.
 func (v *MaryTransactionOutputValue) LedgerSerializedSize() (int, error) {
-	encoded, err := v.MarshalCBOR()
+	amountSize := cborUintSize(v.Amount)
+	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
+		return amountSize, nil
+	}
+	assetsSize, err := v.Assets.EncodedSize()
 	if err != nil {
 		return 0, err
 	}
-	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
-		return len(encoded), nil
+	// A two-element array head, the coin, then the multi-asset map.
+	return 1 + amountSize + assetsSize +
+		v.Assets.LedgerSerializedSizeAdjustment(), nil
+}
+
+// cborUintSize is the length of the CBOR encoding of n.
+func cborUintSize(n uint64) int {
+	switch {
+	case n < 24:
+		return 1
+	case n <= math.MaxUint8:
+		return 2
+	case n <= math.MaxUint16:
+		return 3
+	case n <= math.MaxUint32:
+		return 5
+	default:
+		return 9
 	}
-	return len(encoded) + v.Assets.LedgerSerializedSizeAdjustment(), nil
 }
 
 func NewMaryBlockFromCbor(

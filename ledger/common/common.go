@@ -508,6 +508,79 @@ func (m *MultiAsset[T]) MarshalCBOR() ([]byte, error) {
 	return ret, nil
 }
 
+// EncodedSize returns the length of MarshalCBOR's encoding without building
+// it. The maximum output value size check measures every output of every
+// transaction, so encoding each value only to take its length is most of that
+// rule's cost.
+func (m *MultiAsset[T]) EncodedSize() (int, error) {
+	if m.data == nil {
+		encoded, err := m.MarshalCBOR()
+		return len(encoded), err
+	}
+	size := ledgerMapHeaderSize(len(m.data))
+	for _, assets := range m.data {
+		// A policy ID is a 28-byte byte string.
+		size += cborHeaderSize(Blake2b224Size) + Blake2b224Size
+		size += ledgerMapHeaderSize(len(assets))
+		for name, quantity := range assets {
+			nameLen := len(name.Bytes())
+			size += cborHeaderSize(uint64(nameLen)) + nameLen //nolint:gosec // a length is never negative
+			quantitySize, err := cborIntSize(quantity)
+			if err != nil {
+				return 0, err
+			}
+			size += quantitySize
+		}
+	}
+	return size, nil
+}
+
+// ledgerMapHeaderSize is the number of bytes appendLedgerMapHeader and
+// appendLedgerMapBreak write for a map of n entries.
+func ledgerMapHeaderSize(n int) int {
+	if n > 23 {
+		return 2
+	}
+	return cborHeaderSize(uint64(n)) //nolint:gosec // a length is never negative
+}
+
+// cborHeaderSize is the length of a CBOR head carrying argument n.
+func cborHeaderSize(n uint64) int {
+	switch {
+	case n < 24:
+		return 1
+	case n <= math.MaxUint8:
+		return 2
+	case n <= math.MaxUint16:
+		return 3
+	case n <= math.MaxUint32:
+		return 5
+	default:
+		return 9
+	}
+}
+
+// cborIntSize is the length of the CBOR encoding of an asset quantity.
+func cborIntSize[T int64 | uint64 | *big.Int](quantity T) (int, error) {
+	switch q := any(quantity).(type) {
+	case uint64:
+		return cborHeaderSize(q), nil
+	case int64:
+		if q < 0 {
+			return cborHeaderSize(uint64(-(q + 1))), nil //nolint:gosec // -(q+1) >= 0 for q < 0
+		}
+		return cborHeaderSize(uint64(q)), nil
+	case *big.Int:
+		// The encoder writes a non-negative quantity that fits in 64 bits as
+		// a plain unsigned integer. Anything else is rare enough to encode.
+		if q != nil && q.Sign() >= 0 && q.IsUint64() {
+			return cborHeaderSize(q.Uint64()), nil
+		}
+	}
+	encoded, err := cbor.Encode(quantity)
+	return len(encoded), err
+}
+
 // LedgerSerializedSizeAdjustment returns the byte count to add to the CBOR
 // encoding length written by MarshalCBOR to obtain the size cardano-ledger
 // measures for this value. MultiAsset.MarshalCBOR already uses the ledger's

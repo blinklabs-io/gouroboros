@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/plutigo/cek"
@@ -659,6 +660,15 @@ func validatePlutusScriptWellFormed(
 		return ScriptHash{}, nil
 	}
 	scriptHash := script.Hash()
+	key := wellFormedScriptKey{
+		hash:           scriptHash,
+		language:       ledgerLanguage,
+		rejectTrailing: rejectTrailing,
+		protocolMajor:  protocolMajor,
+	}
+	if wellFormedScriptKnown(key) {
+		return scriptHash, nil
+	}
 	innerScript, err := decodePlutusScript(
 		script.RawScriptBytes(),
 		rejectTrailing,
@@ -673,7 +683,48 @@ func validatePlutusScriptWellFormed(
 	if err != nil {
 		return scriptHash, fmt.Errorf("decode Plutus program: %w", err)
 	}
+	rememberWellFormedScript(key)
 	return scriptHash, nil
+}
+
+// wellFormedScriptsMax bounds wellFormedScripts. A full set is emptied rather
+// than evicted from.
+const wellFormedScriptsMax = 16384
+
+// wellFormedScriptKey identifies a well-formedness check by everything its
+// outcome depends on. The script hash covers the language tag and the exact
+// script bytes, so equal hashes mean the same script.
+type wellFormedScriptKey struct {
+	hash           ScriptHash
+	language       lang.LanguageVersion
+	rejectTrailing bool
+	protocolMajor  uint
+}
+
+// wellFormedScripts records scripts that passed the well-formedness check.
+// Every validation decodes each witness and output reference script in full to
+// check it, and the same scripts recur in transaction after transaction, and
+// again each time block forging revalidates a mempool transaction. Failures
+// are never recorded.
+var wellFormedScripts = struct {
+	sync.RWMutex
+	keys map[wellFormedScriptKey]struct{}
+}{keys: make(map[wellFormedScriptKey]struct{})}
+
+func wellFormedScriptKnown(key wellFormedScriptKey) bool {
+	wellFormedScripts.RLock()
+	_, ok := wellFormedScripts.keys[key]
+	wellFormedScripts.RUnlock()
+	return ok
+}
+
+func rememberWellFormedScript(key wellFormedScriptKey) {
+	wellFormedScripts.Lock()
+	if len(wellFormedScripts.keys) >= wellFormedScriptsMax {
+		wellFormedScripts.keys = make(map[wellFormedScriptKey]struct{})
+	}
+	wellFormedScripts.keys[key] = struct{}{}
+	wellFormedScripts.Unlock()
 }
 
 func plutusWitnessScripts(witnesses TransactionWitnessSet) []Script {
