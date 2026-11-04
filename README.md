@@ -231,6 +231,17 @@ This is not an exhaustive list of existing and planned features, but it covers t
     - [X] Deserialize from CBOR
     - [X] Retrieve staking key
 
+## Native script encoding
+
+Constructed native scripts use the Haskell `cardano-binary` framing rule:
+child lists with up to 23 elements have a definite length, and lists with
+24 or more elements have an indefinite length. This applies to `all`, `any`,
+and threshold containers at every nesting level.
+
+Decoded native scripts retain their original CBOR bytes for serialization
+and hashing. Reconstructing a script from its fields can change its hash
+and address if its original encoding used a different framing.
+
 ## Testing
 
 gOuroboros includes automated tests that cover various aspects of its

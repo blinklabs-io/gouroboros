@@ -17,8 +17,10 @@ package common_test
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -29,6 +31,101 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNativeScriptHaskellFraming(t *testing.T) {
+	var leaf common.NativeScript
+	_, err := cbor.Decode([]byte{0x82, 0x04, 0x00}, &leaf)
+	require.NoError(t, err)
+	for _, width := range []struct {
+		count  int
+		header string
+		end    string
+	}{
+		{0, "80", ""},
+		{1, "81", ""},
+		{23, "97", ""},
+		{24, "9f", "ff"},
+		{25, "9f", "ff"},
+	} {
+		children := make([]common.NativeScript, width.count)
+		for i := range children {
+			children[i] = leaf
+		}
+		for _, variant := range []struct {
+			name   string
+			value  any
+			prefix string
+		}{
+			{"all", &common.NativeScriptAll{Type: 1, Scripts: children}, "8201"},
+			{"any", &common.NativeScriptAny{Type: 2, Scripts: children}, "8202"},
+			{"nofk", &common.NativeScriptNofK{
+				Type: 3, N: -1, Scripts: children,
+			}, "830320"},
+		} {
+			t.Run(fmt.Sprintf("%s/%d", variant.name, width.count), func(t *testing.T) {
+				expected, err := hex.DecodeString(variant.prefix + width.header +
+					strings.Repeat("820400", width.count) + width.end)
+				require.NoError(t, err)
+				var encoded []byte
+				for _, value := range []any{
+					variant.value,
+					reflect.ValueOf(variant.value).Elem().Interface(),
+				} {
+					encoded, err = cbor.Encode(value)
+					require.NoError(t, err)
+					require.Equal(t, expected, encoded)
+				}
+				var decoded common.NativeScript
+				_, err = cbor.Decode(encoded, &decoded)
+				require.NoError(t, err)
+				require.Equal(t, common.Blake2b224Hash(
+					append([]byte{0}, expected...),
+				), decoded.Hash())
+				parent, err := cbor.Encode(common.NativeScriptAll{
+					Type: 1, Scripts: []common.NativeScript{decoded},
+				})
+				require.NoError(t, err)
+				require.Equal(t, append([]byte{0x82, 0x01, 0x81}, expected...), parent)
+			})
+		}
+	}
+	for _, empty := range []any{
+		common.NativeScriptAll{Type: 1},
+		common.NativeScriptAny{Type: 2},
+		common.NativeScriptNofK{Type: 3},
+	} {
+		encoded, err := cbor.Encode(empty)
+		require.NoError(t, err)
+		require.Equal(t, byte(0x80), encoded[len(encoded)-1])
+	}
+}
+
+func TestNativeScriptPreservesImportedFraming(t *testing.T) {
+	for _, wire := range []string{
+		"82019818" + strings.Repeat("820400", 24),
+		"82019f" + strings.Repeat("820400", 24) + "ff",
+		"82019f820400ff",
+	} {
+		raw, err := hex.DecodeString(wire)
+		require.NoError(t, err)
+		var script common.NativeScript
+		_, err = cbor.Decode(raw, &script)
+		require.NoError(t, err)
+		require.Equal(t, common.Blake2b224Hash(
+			append([]byte{0}, raw...),
+		), script.Hash())
+		for _, value := range []any{script, &script} {
+			encoded, err := cbor.Encode(value)
+			require.NoError(t, err)
+			require.Equal(t, raw, encoded)
+		}
+		parent, err := cbor.Encode(common.NativeScriptAny{
+			Type: 2, Scripts: []common.NativeScript{script},
+		})
+		require.NoError(t, err)
+		require.Equal(t, append([]byte{0x82, 0x02, 0x81}, raw...), parent)
+	}
+}
 
 func TestScriptRefDecodeEncode(t *testing.T) {
 	// 24_0(<<[3, h'480123456789abcdef']>>)
