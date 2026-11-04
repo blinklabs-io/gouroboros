@@ -203,31 +203,38 @@ func UtxoValidateNoDuplicateInputs(
 	pp common.ProtocolParameters,
 ) error {
 	// Check regular inputs
-	seen := make(map[string]bool)
-	for _, input := range tx.Inputs() {
-		key := input.String()
-		if seen[key] {
-			return DuplicateInputError{Input: input, InputType: "regular"}
-		}
-		seen[key] = true
+	if input := firstDuplicateInput(tx.Inputs()); input != nil {
+		return DuplicateInputError{Input: input, InputType: "regular"}
 	}
 	// Check collateral inputs
-	seen = make(map[string]bool)
-	for _, input := range tx.Collateral() {
-		key := input.String()
-		if seen[key] {
-			return DuplicateInputError{Input: input, InputType: "collateral"}
-		}
-		seen[key] = true
+	if input := firstDuplicateInput(tx.Collateral()); input != nil {
+		return DuplicateInputError{Input: input, InputType: "collateral"}
 	}
 	// Check reference inputs
-	seen = make(map[string]bool)
-	for _, input := range tx.ReferenceInputs() {
-		key := input.String()
-		if seen[key] {
-			return DuplicateInputError{Input: input, InputType: "reference"}
+	if input := firstDuplicateInput(tx.ReferenceInputs()); input != nil {
+		return DuplicateInputError{Input: input, InputType: "reference"}
+	}
+	return nil
+}
+
+type duplicateInputKey struct {
+	id    common.Blake2b256
+	index uint32
+}
+
+// firstDuplicateInput returns the first input that repeats an earlier one,
+// compared by transaction ID and output index, or nil.
+func firstDuplicateInput(inputs []common.TransactionInput) common.TransactionInput {
+	if len(inputs) < 2 {
+		return nil
+	}
+	seen := make(map[duplicateInputKey]struct{}, len(inputs))
+	for _, input := range inputs {
+		key := duplicateInputKey{id: input.Id(), index: input.Index()}
+		if _, ok := seen[key]; ok {
+			return input
 		}
-		seen[key] = true
+		seen[key] = struct{}{}
 	}
 	return nil
 }

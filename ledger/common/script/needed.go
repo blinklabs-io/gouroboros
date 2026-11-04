@@ -444,14 +444,14 @@ func ScriptPurposes(
 			Purpose: purpose,
 		})
 	}
-	byId := make(map[string]lcommon.Utxo, len(resolvedInputs))
+	byId := make(map[transactionInputKey]lcommon.Utxo, len(resolvedInputs))
 	for _, utxo := range resolvedInputs {
 		if utxo.Id != nil {
-			byId[utxo.Id.String()] = utxo
+			byId[transactionInputKey{txID: utxo.Id.Id(), index: utxo.Id.Index()}] = utxo
 		}
 	}
 	for idx, input := range SortInputs(body.Inputs()) {
-		utxo, ok := byId[input.String()]
+		utxo, ok := byId[transactionInputKey{txID: input.Id(), index: input.Index()}]
 		if !ok || utxo.Output == nil {
 			continue
 		}
