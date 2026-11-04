@@ -138,7 +138,8 @@ func NewTxScriptView(
 	// Only the scoped state itself is trusted: an adapter above it may
 	// resolve UTxOs differently, and a view built through it must not be
 	// shared with rules that see the scoped state directly.
-	if memo, ok := ls.(lcommon.TransactionScopedMemoizer); ok && tx != nil {
+	memo, ok := ls.(lcommon.TransactionScopedMemoizer)
+	if ok && tx != nil && lcommon.IsTransactionScopedLedgerState(ls) {
 		value, err := memo.TransactionScopedMemo(
 			tx,
 			txScriptViewMemoKey{},

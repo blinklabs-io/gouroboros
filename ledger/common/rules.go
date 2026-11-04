@@ -146,14 +146,19 @@ type cachedLedgerState struct {
 	// several rules would otherwise each derive again. See
 	// TransactionScopedMemo.
 	memoMu sync.Mutex
-	memo   []transactionScopedMemoEntry
+	memo   []*transactionScopedMemoEntry
 }
 
+// transactionScopedMemoEntry holds tx itself, not its address, so the
+// transaction stays reachable for as long as the memo does and a later
+// allocation can never be mistaken for it. done is closed once value and err
+// are set, so concurrent callers for the same entry wait for one build.
 type transactionScopedMemoEntry struct {
 	key   any
-	tx    uintptr
+	tx    Transaction
 	value any
 	err   error
+	done  chan struct{}
 }
 
 // TransactionScopedMemoizer is implemented by the ledger state that
@@ -204,33 +209,45 @@ func newTransactionScopedLedgerState(
 	}
 }
 
+// IsTransactionScopedLedgerState reports whether ledgerState is the state
+// NewTransactionScopedLedgerState returns. An adapter that merely forwards
+// TransactionScopedMemoizer is not, because it may resolve UTxOs differently
+// from the state it forwards to.
+func IsTransactionScopedLedgerState(ledgerState LedgerState) bool {
+	_, ok := ledgerState.(*cachedLedgerState)
+	return ok
+}
+
 // TransactionScopedMemo implements TransactionScopedMemoizer. build runs
-// with the memo unlocked, so it may itself use the memo.
+// with the memo unlocked, so it may itself use the memo under another key.
+// Concurrent callers for one transaction and key share a single build. A key
+// that is not comparable is never memoized.
 func (c *cachedLedgerState) TransactionScopedMemo(
 	tx Transaction,
 	key any,
 	build func() (any, error),
 ) (any, error) {
 	txValue := reflect.ValueOf(tx)
-	if tx == nil || txValue.Kind() != reflect.Pointer || txValue.IsNil() {
+	if tx == nil || txValue.Kind() != reflect.Pointer || txValue.IsNil() ||
+		(key != nil && !reflect.ValueOf(key).Comparable()) {
 		return build()
 	}
-	id := txValue.Pointer()
 	c.memoMu.Lock()
 	for _, entry := range c.memo {
-		if entry.tx == id && entry.key == key {
+		if entry.tx == tx && entry.key == key {
 			c.memoMu.Unlock()
+			<-entry.done
 			return entry.value, entry.err
 		}
 	}
+	entry := &transactionScopedMemoEntry{
+		key: key, tx: tx, done: make(chan struct{}),
+	}
+	c.memo = append(c.memo, entry)
 	c.memoMu.Unlock()
-	value, err := build()
-	c.memoMu.Lock()
-	c.memo = append(c.memo, transactionScopedMemoEntry{
-		key: key, tx: id, value: value, err: err,
-	})
-	c.memoMu.Unlock()
-	return value, err
+	defer close(entry.done)
+	entry.value, entry.err = build()
+	return entry.value, entry.err
 }
 
 // LedgerStateUnwrapper exposes the provider beneath a validation-time

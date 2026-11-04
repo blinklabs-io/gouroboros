@@ -16,6 +16,8 @@ package common_test
 
 import (
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -23,6 +25,18 @@ import (
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
+
+// inputCountingTransaction counts Inputs calls, which every build of a script
+// view makes, to show whether a view was rebuilt.
+type inputCountingTransaction struct {
+	common.Transaction
+	inputs atomic.Int32
+}
+
+func (t *inputCountingTransaction) Inputs() []common.TransactionInput {
+	t.inputs.Add(1)
+	return t.Transaction.Inputs()
+}
 
 type memoKeyA struct{}
 
@@ -98,9 +112,10 @@ func TestTxScriptViewThroughScopedStateMatchesUnscoped(t *testing.T) {
 		),
 	)
 	want, wantErr := script.NewTxScriptView(tx, ls)
+	counted := &inputCountingTransaction{Transaction: tx}
 	scoped := common.NewTransactionScopedLedgerState(ls)
 	for range 2 {
-		got, err := script.NewTxScriptView(tx, scoped)
+		got, err := script.NewTxScriptView(counted, scoped)
 		require.Equal(t, want, got)
 		if wantErr == nil {
 			require.NoError(t, err)
@@ -108,4 +123,83 @@ func TestTxScriptViewThroughScopedStateMatchesUnscoped(t *testing.T) {
 			require.EqualError(t, err, wantErr.Error())
 		}
 	}
+	// Building the view reads the inputs, so a memo hit reads them once.
+	firstBuild := counted.inputs.Load()
+	require.NotZero(t, firstBuild)
+	_, _ = script.NewTxScriptView(counted, scoped)
+	require.Equal(t, firstBuild, counted.inputs.Load())
+}
+
+func TestTransactionScopedMemoNonComparableKeyIsNotMemoized(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	builds := 0
+	for range 3 {
+		require.NotPanics(t, func() {
+			_, err := memo.TransactionScopedMemo(
+				tx,
+				[]int{1},
+				func() (any, error) { builds++; return nil, nil },
+			)
+			require.NoError(t, err)
+		})
+	}
+	require.Equal(t, 3, builds)
+}
+
+func TestTransactionScopedMemoConcurrentCallersShareOneBuild(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	var builds atomic.Int32
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			value, err := memo.TransactionScopedMemo(
+				tx,
+				memoKeyA{},
+				func() (any, error) {
+					builds.Add(1)
+					<-release
+					return "built", nil
+				},
+			)
+			require.NoError(t, err)
+			require.Equal(t, "built", value)
+		}()
+	}
+	close(release)
+	wg.Wait()
+	require.Equal(t, int32(1), builds.Load())
+}
+
+type forwardingMemoizer struct {
+	common.LedgerState
+	common.TransactionScopedMemoizer
+}
+
+func TestIsTransactionScopedLedgerState(t *testing.T) {
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	scoped := common.NewTransactionScopedLedgerState(ls)
+	require.False(t, common.IsTransactionScopedLedgerState(ls))
+	require.True(t, common.IsTransactionScopedLedgerState(scoped))
+	adapter := forwardingMemoizer{
+		LedgerState:               scoped,
+		TransactionScopedMemoizer: scoped.(common.TransactionScopedMemoizer),
+	}
+	require.False(t, common.IsTransactionScopedLedgerState(adapter))
 }
