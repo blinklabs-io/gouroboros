@@ -348,13 +348,19 @@ func validateDijkstraBlockCertificates(
 			err,
 		)
 	}
-	if err := leios.VerifyDijkstraCertificate(
+	if err := leios.VerifyDijkstraCertificateForDomain(
 		dijkstraBlock.BlockBody.LeiosCertificate.Signers,
 		dijkstraBlock.BlockBody.LeiosCertificate.AggregatedSignature,
 		pparams.LeiosCommitteeSize,
 		pparams.LeiosQuorumStakeThreshold.Rat,
 		context,
+		common.DijkstraBlsProofDomainFor(ledgerState),
 	); err != nil {
+		var configErr *common.ValidationError
+		if errors.As(err, &configErr) &&
+			configErr.Type == common.ValidationErrorTypeConfiguration {
+			return err
+		}
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"invalid Dijkstra Leios certificate",

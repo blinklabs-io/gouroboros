@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
 	"github.com/stretchr/testify/require"
 )
 
@@ -163,4 +164,115 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		require.ErrorAs(t, err, &validationErr)
 		require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
 	})
+}
+
+type dijkstraLeiosDomainState struct {
+	dijkstraLeiosTestState
+	domain common.DijkstraBlsProofDomain
+}
+
+func (s dijkstraLeiosDomainState) DijkstraBlsProofDomain() common.DijkstraBlsProofDomain {
+	return s.domain
+}
+
+func TestValidateDijkstraBlockCertificatesUsesLedgerProofDomain(t *testing.T) {
+	t.Parallel()
+
+	const legacyDST = "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_"
+	sign := func(message []byte, secret *big.Int) []byte {
+		hash, err := bls12381.HashToG1(message, []byte(legacyDST))
+		require.NoError(t, err)
+		var sig bls12381.G1Affine
+		sig.ScalarMultiplication(&hash, secret)
+		encoded := sig.Bytes()
+		return encoded[:]
+	}
+	secret := big.NewInt(23)
+	var public bls12381.G2Affine
+	public.ScalarMultiplicationBase(secret)
+	encodedPublic := public.Bytes()
+	blockHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	message := append([]byte{0x58, 0x20}, blockHash[:]...)
+	state := dijkstraLeiosTestState{
+		context: common.DijkstraLeiosCertificateContext{
+			AnnouncingBlockHash: blockHash,
+			TotalActiveStake:    1,
+			Committee: []common.DijkstraLeiosCommitteeMember{{
+				Stake: 1,
+				Key: &common.LeiosKey{
+					PublicKey:       encodedPublic[:],
+					PossessionProof: sign(encodedPublic[:], secret),
+				},
+			}},
+		},
+	}
+	block := &dijkstra.DijkstraBlock{
+		BlockHeader: &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf5}},
+		},
+		BlockBody: dijkstra.DijkstraBlockBody{
+			LeiosCertificate: &dijkstra.DijkstraLeiosCertificate{
+				Signers:             []byte{0x80},
+				AggregatedSignature: sign(message, secret),
+			},
+		},
+	}
+	params := &dijkstra.DijkstraProtocolParameters{
+		LeiosCommitteeSize:        1,
+		LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+
+	require.NoError(t, validateDijkstraBlockCertificates(
+		block, params,
+		dijkstraLeiosDomainState{
+			state, common.DijkstraBlsProofDomainLegacySig,
+		},
+	))
+	require.Error(t, validateDijkstraBlockCertificates(block, params, state))
+}
+
+func TestValidateDijkstraBlockCertificatesInvalidDomainIsConfigurationError(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	blockHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	state := dijkstraLeiosDomainState{
+		dijkstraLeiosTestState: dijkstraLeiosTestState{
+			context: common.DijkstraLeiosCertificateContext{
+				AnnouncingBlockHash: blockHash,
+				TotalActiveStake:    1,
+				Committee: []common.DijkstraLeiosCommitteeMember{{
+					Stake: 1,
+					Key:   &common.LeiosKey{},
+				}},
+			},
+		},
+		domain: common.DijkstraBlsProofDomain(0xff),
+	}
+	block := &dijkstra.DijkstraBlock{
+		BlockHeader: &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf5}},
+		},
+		BlockBody: dijkstra.DijkstraBlockBody{
+			LeiosCertificate: &dijkstra.DijkstraLeiosCertificate{
+				Signers:             []byte{0x80},
+				AggregatedSignature: make([]byte, 48),
+			},
+		},
+	}
+	params := &dijkstra.DijkstraProtocolParameters{
+		LeiosCommitteeSize:        1,
+		LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(1, 1)},
+	}
+
+	err := validateDijkstraBlockCertificates(block, params, state)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	if validationErr == nil {
+		t.Fatal("expected validation error")
+	}
+	require.Equal(
+		t, common.ValidationErrorTypeConfiguration, validationErr.Type,
+	)
 }

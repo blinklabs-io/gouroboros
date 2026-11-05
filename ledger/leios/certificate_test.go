@@ -112,3 +112,50 @@ func signLeiosTestMessage(
 	encoded := signature.Bytes()
 	return encoded[:]
 }
+
+func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
+	secret := big.NewInt(19)
+	var public bls12381.G2Affine
+	public.ScalarMultiplicationBase(secret)
+	encodedPublic := public.Bytes()
+	legacyKey := &common.LeiosKey{
+		PublicKey: encodedPublic[:],
+		PossessionProof: signLeiosTestMessage(
+			t, secret, encodedPublic[:], leiosSignatureDST,
+		),
+	}
+	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	message := append([]byte{0x58, 0x20}, messageHash[:]...)
+	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
+	context := common.DijkstraLeiosCertificateContext{
+		AnnouncingBlockHash: messageHash,
+		TotalActiveStake:    1,
+		Committee: []common.DijkstraLeiosCommitteeMember{
+			{Stake: 1, Key: legacyKey},
+		},
+	}
+	quorum := big.NewRat(1, 1)
+
+	require.NoError(t, VerifyDijkstraCertificateForDomain(
+		[]byte{0x80}, signature, 1, quorum, context,
+		common.DijkstraBlsProofDomainLegacySig,
+	))
+	require.ErrorIs(t, VerifyDijkstraCertificateForDomain(
+		[]byte{0x80}, signature, 1, quorum, context,
+		common.DijkstraBlsProofDomainPop,
+	), ErrInvalidProof)
+	require.ErrorIs(t, VerifyDijkstraCertificate(
+		[]byte{0x80}, signature, 1, quorum, context,
+	), ErrInvalidProof)
+
+	err := VerifyDijkstraCertificateForDomain(
+		[]byte{0x80}, signature, 1, quorum, context,
+		common.DijkstraBlsProofDomain(255),
+	)
+	var configErr *common.ValidationError
+	require.ErrorAs(t, err, &configErr)
+	if configErr == nil {
+		t.Fatal("expected validation error")
+	}
+	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
+}
