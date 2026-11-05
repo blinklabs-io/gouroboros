@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -1229,6 +1230,61 @@ type UTxOsResult struct {
 	Results map[UtxoId]ledger.BabbageTransactionOutput
 }
 
+func (r *UTxOsResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results ledgerStateUTxOs
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Results = tmp.Results
+	return nil
+}
+
+// ledgerStateUTxOs decodes a UTxO map read from the ledger state. Its outputs
+// use the ledger's own UTxO decoder, which tolerates bytes past an address
+// payload in every era: outputs created before Babbage could carry them and
+// stay in the UTxO set after it. See
+// ledger.NewBabbageTransactionOutputFromCborLenient. Like growingMap, the map
+// grows only with entries that decode.
+type ledgerStateUTxOs map[UtxoId]ledger.BabbageTransactionOutput
+
+func (m *ledgerStateUTxOs) UnmarshalCBOR(data []byte) error {
+	if len(data) == 1 && (data[0] == 0xf6 || data[0] == 0xf7) {
+		*m = nil
+		return nil
+	}
+	entries := make(map[UtxoId]ledger.BabbageTransactionOutput)
+	err := cborpreflight.ValidateMap(
+		data,
+		math.MaxInt,
+		"map",
+		func(idx int, rawKey, rawValue []byte) error {
+			var key UtxoId
+			if _, err := cbor.Decode(rawKey, &key); err != nil {
+				return fmt.Errorf("decode map key %d: %w", idx, err)
+			}
+			if _, dup := entries[key]; dup {
+				return fmt.Errorf("duplicate map key %d", idx)
+			}
+			out, err := ledger.NewBabbageTransactionOutputFromCborLenient(
+				rawValue,
+			)
+			if err != nil {
+				return fmt.Errorf("decode map value %d: %w", idx, err)
+			}
+			entries[key] = *out
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+	*m = entries
+	return nil
+}
+
 type (
 	UTxOByAddressResult = UTxOsResult
 	UTxOWholeResult     = UTxOsResult
@@ -1409,6 +1465,18 @@ func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
 type UTxOByTxInResult struct {
 	cbor.StructAsArray
 	Results map[UtxoId]ledger.BabbageTransactionOutput
+}
+
+func (r *UTxOByTxInResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results ledgerStateUTxOs
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	r.Results = tmp.Results
+	return nil
 }
 
 type StakePoolsResult struct {

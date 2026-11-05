@@ -931,6 +931,14 @@ type BabbageTransactionOutput struct {
 }
 
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
+	return decodeBabbageTransactionOutput(o, cborData, false)
+}
+
+func decodeBabbageTransactionOutput(
+	o *BabbageTransactionOutput,
+	cborData []byte,
+	lenientAddress bool,
+) error {
 	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
 		type tBabbageTransactionOutput BabbageTransactionOutput
 		var tmp tBabbageTransactionOutput
@@ -949,10 +957,12 @@ func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 		}
 		// Clear Babbage-only fields to avoid leaking state from a prior decode
 		o.TxOutScriptRef = nil
-		if err := common.CheckAddressFullyConsumed(
-			tmpOutput.OutputAddress,
-		); err != nil {
-			return err
+		if !lenientAddress {
+			if err := common.CheckAddressFullyConsumed(
+				tmpOutput.OutputAddress,
+			); err != nil {
+				return err
+			}
 		}
 		// Copy from temp legacy object to Babbage format
 		o.OutputAddress = tmpOutput.OutputAddress
@@ -1684,4 +1694,40 @@ func NewBabbageTransactionOutputFromCbor(
 		)
 	}
 	return &babbageTxOutput, nil
+}
+
+// NewBabbageTransactionOutputFromCborLenient decodes an output held in the
+// ledger state rather than one carried by a new transaction. Outputs created
+// before Babbage could carry bytes past their address payload, and they stay
+// in the UTxO set after the hard fork, so the ledger decodes its own UTxO with
+// fromCborBackwardsBothAddr in every era (decShareCBOR for BabbageTxOut in
+// cardano-ledger eras/babbage/impl/src/Cardano/Ledger/Babbage/TxOut.hs). The
+// address is cropped to its payload as there; TrailingBytes reports what was
+// dropped. Only the legacy array form is lenient: the map form exists from
+// Babbage on, whose transactions were already decoded rigorously, so no such
+// output in the ledger state carries the bytes. Transaction and block
+// decoding must keep using NewBabbageTransactionOutputFromCbor, which rejects
+// such an address.
+func NewBabbageTransactionOutputFromCborLenient(
+	data []byte,
+) (*BabbageTransactionOutput, error) {
+	var babbageTxOutput BabbageTransactionOutput
+	if _, err := cbor.DecodeExact(
+		data,
+		&lenientBabbageTransactionOutput{&babbageTxOutput},
+	); err != nil {
+		return nil, fmt.Errorf(
+			"decode Babbage transaction output error: %w",
+			err,
+		)
+	}
+	return &babbageTxOutput, nil
+}
+
+type lenientBabbageTransactionOutput struct {
+	out *BabbageTransactionOutput
+}
+
+func (l *lenientBabbageTransactionOutput) UnmarshalCBOR(data []byte) error {
+	return decodeBabbageTransactionOutput(l.out, data, true)
 }
