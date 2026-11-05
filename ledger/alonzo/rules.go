@@ -694,7 +694,10 @@ func UtxoValidateCollateralContainsNonAda(
 		if amount := utxo.Output.Amount(); amount != nil {
 			totalCollateral.Add(totalCollateral, amount)
 		}
-		if utxo.Output.Assets() == nil {
+		// An explicitly encoded empty multi-asset map is ADA-only, as in
+		// cardano-ledger, so only a non-empty map makes the collateral bad.
+		if assets := utxo.Output.Assets(); assets == nil ||
+			len(assets.Policies()) == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)
