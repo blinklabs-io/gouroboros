@@ -279,7 +279,7 @@ func checkoutMachineReused(
 		return cek.NewMachine[syn.DeBruijn](version, 200, nil), false
 	}
 	entry := machinePoolFor(version, evalContext)
-	if machine, ok := entry.get(); ok {
+	if machine, ok := entry.get(); ok && machine != nil {
 		return machine, true
 	}
 	entry.constructed.Add(1)
