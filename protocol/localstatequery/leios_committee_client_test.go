@@ -65,6 +65,10 @@ func TestGetLeiosCommittee(t *testing.T) {
 			require.Zero(t, big.NewRat(1, 4).Cmp(result.Current[1].Weight))
 			require.Nil(t, result.Current[1].VKey)
 			require.Len(t, result.Next, 2)
+			require.Zero(t, big.NewRat(3, 8).Cmp(result.Next[0].Weight))
+			require.Equal(t, result.Current[0].VKey, result.Next[0].VKey)
+			require.Zero(t, big.NewRat(1, 4).Cmp(result.Next[1].Weight))
+			require.Nil(t, result.Next[1].VKey)
 		},
 	)
 }

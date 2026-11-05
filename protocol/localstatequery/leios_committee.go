@@ -20,11 +20,17 @@ import (
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // maxLeiosCommitteeSeats bounds the seat count accepted when decoding a
-// committee from a peer, before the seat slice is sized from it.
-const maxLeiosCommitteeSeats = 1 << 20
+// committee from a peer, before the seat slice is sized from it. A vote
+// refers to a seat by an index that addresses no more than this many seats.
+const maxLeiosCommitteeSeats = lcommon.MaxLeiosCommitteeSize
+
+// leiosVerificationKeySize is the length of a BLS12-381 MinSig verification
+// key, the ledger's LeiosVerificationKey.
+const leiosVerificationKeySize = 96
 
 // ShelleyLeiosCommitteeQuery is GetLeiosCommittee (Shelley query 41), added
 // by the Leios prototype: the Leios voting committees of the current and the
@@ -195,6 +201,13 @@ func decodeLeiosCommitteeSeat(data []byte) (LeiosCommitteeSeat, error) {
 		if _, err := cbor.Decode([]byte(maybeKey[0]), &key); err != nil {
 			return seat, fmt.Errorf("key: %w", err)
 		}
+		if len(key) != leiosVerificationKeySize {
+			return seat, fmt.Errorf(
+				"key: expected %d bytes, got %d",
+				leiosVerificationKeySize,
+				len(key),
+			)
+		}
 		seat.VKey = key
 	default:
 		return seat, fmt.Errorf(
@@ -235,6 +248,13 @@ func encodeLeiosCommitteeSeat(seat LeiosCommitteeSeat) ([]byte, error) {
 	}
 	key := []any{}
 	if seat.VKey != nil {
+		if len(seat.VKey) != leiosVerificationKeySize {
+			return nil, fmt.Errorf(
+				"key: expected %d bytes, got %d",
+				leiosVerificationKeySize,
+				len(seat.VKey),
+			)
+		}
 		key = append(key, seat.VKey)
 	}
 	keyEncoded, err := cbor.Encode(key)

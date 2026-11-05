@@ -15,12 +15,15 @@
 package localstatequery
 
 import (
+	"bytes"
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +56,7 @@ func TestDecodeLeiosCommitteeQuery(t *testing.T) {
 func TestLeiosCommitteeResultEncoding(t *testing.T) {
 	half := big.NewRat(1, 2)
 	third := big.NewRat(1, 3)
-	key := []byte{0xaa, 0xbb}
+	key := bytes.Repeat([]byte{0xaa}, 96)
 	tests := []struct {
 		name   string
 		result LeiosCommitteeResult
@@ -78,9 +81,9 @@ func TestLeiosCommitteeResultEncoding(t *testing.T) {
 				},
 			},
 			wantHex: "81" + "82" +
-				"81" + "82d81e820102" + "8142aabb" +
+				"81" + "82d81e820102" + "81" + "5860" + strings.Repeat("aa", 96) +
 				"81" + "82" + "82d81e820103" + "80" +
-				"82d81e820102" + "8142aabb",
+				"82d81e820102" + "81" + "5860" + strings.Repeat("aa", 96),
 		},
 		{
 			name: "empty committees",
@@ -117,7 +120,7 @@ func TestLeiosCommitteeResultLargeCommittee(t *testing.T) {
 	for i := range seats {
 		seats[i] = LeiosCommitteeSeat{
 			Weight: big.NewRat(int64(i+1), 100),
-			VKey:   []byte{byte(i)},
+			VKey:   bytes.Repeat([]byte{byte(i)}, 96),
 		}
 	}
 	encoded, err := cbor.Encode(LeiosCommitteeResult{Current: seats})
@@ -146,6 +149,7 @@ func TestLeiosCommitteeResultRejectsMalformed(t *testing.T) {
 		"seat missing key field":  "81" + "82" + "81" + "81" + "d81e820102" + "80",
 		"weight not a rational":   "81" + "82" + "81" + "82" + "01" + "80" + "80",
 		"key holds two":           "81" + "82" + "81" + "82d81e820102" + "824041" + "80",
+		"key wrong length":        "81" + "82" + "81" + "82d81e820102" + "814100" + "80",
 		"key not bytes":           "81" + "82" + "81" + "82d81e820102" + "8101" + "80",
 		"committee not a list":    "81" + "82" + "01" + "80",
 		"zero denominator weight": "81" + "82" + "81" + "82d81e820100" + "80" + "80",
@@ -166,6 +170,28 @@ func TestLeiosCommitteeResultRejectsOversizedCommittee(t *testing.T) {
 	require.NoError(t, err)
 	var decoded LeiosCommitteeResult
 	require.Error(t, decoded.UnmarshalCBOR(payload))
+}
+
+func TestLeiosCommitteeResultRejectsOverLimitCommittee(t *testing.T) {
+	// One seat over the 65536 a vote index can address, all keyless.
+	seat := "82d81e82010280"
+	count := lcommon.MaxLeiosCommitteeSize + 1
+	payload, err := hex.DecodeString(
+		"8182" + "9a" + fmt.Sprintf("%08x", count) +
+			strings.Repeat(seat, count) + "80",
+	)
+	require.NoError(t, err)
+	var decoded LeiosCommitteeResult
+	require.Error(t, decoded.UnmarshalCBOR(payload))
+}
+
+func TestLeiosCommitteeResultRejectsWrongKeyLengthOnEncode(t *testing.T) {
+	_, err := cbor.Encode(LeiosCommitteeResult{
+		Current: []LeiosCommitteeSeat{
+			{Weight: big.NewRat(1, 2), VKey: []byte{0x01}},
+		},
+	})
+	require.Error(t, err)
 }
 
 func TestLeiosCommitteeResultRejectsMissingWeight(t *testing.T) {
