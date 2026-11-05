@@ -111,6 +111,8 @@ func shelleyLeafQueryType(w QueryWrapper) (int, bool) {
 		return QueryTypeShelleyDRepDelegations, true
 	case *ShelleyStakePoolStateQuery:
 		return QueryTypeShelleyStakePoolState, true
+	case *ShelleyLeiosCommitteeQuery:
+		return QueryTypeShelleyLeiosCommittee, true
 	}
 	return 0, false
 }

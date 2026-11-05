@@ -98,6 +98,11 @@ const (
 	// node-to-client version 23; released nodes do not have the query.
 	QueryTypeShelleyStakePoolState = 40
 
+	// GetLeiosCommittee (Shelley sub-query 41) reports the Leios voting
+	// committees of the current and the next epoch. Only Leios prototype nodes
+	// answer it; released nodes do not have the query.
+	QueryTypeShelleyLeiosCommittee = 41
+
 	// A Shelley query needs at most one GetCBOR wrapper in current clients.
 	// Keep compatibility headroom while bounding recursive custom decoding of
 	// peer-controlled queries well below the general CBOR nesting limit.
@@ -277,6 +282,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleyMaxMajorProtocolVersion: &ShelleyMaxMajorProtocolVersionQuery{},
 		QueryTypeShelleyDRepDelegations:         &ShelleyDRepDelegationsQuery{},
 		QueryTypeShelleyStakePoolState:          &ShelleyStakePoolStateQuery{},
+		QueryTypeShelleyLeiosCommittee:          &ShelleyLeiosCommitteeQuery{},
 	}
 }
 
