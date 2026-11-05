@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
-	"runtime/metrics"
 	"sync"
 	"testing"
 	"time"
@@ -170,22 +169,10 @@ func TestPooledEvalContextReusesPointerForSameTuple(t *testing.T) {
 // acceptance criterion 1: cek.NewMachine is called at most once per distinct
 // (version, evalContext) tuple live in the pool.
 //
-// It does not assert strict Machine pointer reuse across a checkout/release
-// pair: sync.Pool.Put is allowed to drop a released item instead of retaining
-// it, and does so at random whenever the race detector is enabled (see
-// machinePoolEntry's doc comment), which is exactly how this repository's
-// own `make test` runs every package. Asserting "the very next checkout
-// returns the same pointer" would therefore be flaky under -race. Instead it
-// asserts the weaker, race-safe claim the sync.Pool contract actually
-// supports: across many sequential checkout/release cycles against one
-// tuple, cek.NewMachine runs far fewer times than there are checkouts,
-// proving reuse is happening rather than a fresh Machine being constructed
-// on every single call the way the pre-fix code always did.
-//
-// A different tuple must also never be handed the other tuple's Machine --
-// unlike the reuse claim, this holds deterministically regardless of -race,
-// because sync.Pool.Get can only ever return an item previously Put into that
-// same Pool, and every tuple owns its own Pool.
+// Sequential checkout/release cycles against one tuple reuse the released
+// Machine every time, so the loop below constructs none. A different tuple
+// must never be handed the other tuple's Machine, because every tuple owns its
+// own idle list.
 func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 	t.Parallel()
 
@@ -222,8 +209,8 @@ func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 	)
 
 	// Repeated checkout/release against one tuple (evalContextA, which
-	// already has one Machine released into its pool above) must construct
-	// far fewer Machines than the number of checkouts.
+	// already has one Machine released into its pool above) must reuse that
+	// Machine every time.
 	const iterations = 200
 	for range iterations {
 		m := checkoutMachine(lang.LanguageVersionV3, evalContextA)
@@ -233,9 +220,9 @@ func TestMachinePoolReusesCheckedInMachine(t *testing.T) {
 		lang.LanguageVersionV3,
 		evalContextA,
 	) - beforeLoop
-	require.Less(t, constructed, int64(iterations),
-		"repeated checkouts against one tuple must reuse the released Machine"+
-			" most of the time, not construct fresh cek.NewMachine on every checkout")
+	require.Zero(t, constructed,
+		"repeated checkouts against one tuple must reuse the released Machine,"+
+			" not construct a fresh cek.NewMachine")
 }
 
 // TestMachinePoolConcurrentEvaluationIsRaceFree is the proof for acceptance
@@ -367,8 +354,8 @@ func TestMachinePoolReducesAllocationsVsUnpooled(t *testing.T) {
 // no-shared-singleton correctness constraint: two concurrently *outstanding*
 // checkouts against the same tuple (neither released yet) must never be the
 // same instance, since the caller runs Run() against each independently.
-// sync.Pool.Get only ever returns a pooled item to one caller at a time, so
-// this must build a second Machine rather than reuse the first.
+// An idle Machine is handed to one caller at a time, so this must build a
+// second Machine rather than reuse the first.
 func TestMachinePoolChecksOutFreshMachineWhenPoolEmpty(t *testing.T) {
 	t.Parallel()
 
@@ -411,7 +398,6 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 		lang.LanguageVersionV3,
 		evalContext,
 	)
-	gcBefore := gcCycles()
 	// first leaves exactly short remaining; short cannot cover the script.
 	first := ExUnits{Memory: 2*used.Memory - 1, Steps: 2*used.Steps - 1}
 	short := ExUnits{Memory: used.Memory - 1, Steps: used.Steps - 1}
@@ -431,32 +417,15 @@ func TestMachinePoolEnforcesBudgetEqualToPreviousRemaining(t *testing.T) {
 			"iteration %d: budget %+v below the script's cost %+v must fail",
 			i, short, used)
 	}
-	// The pool keeps its Machines through this pattern. A pool that replaced
-	// the Machine for every short redeemer would construct at least 50. The
-	// race detector makes sync.Pool drop Puts at random, so the count is only
-	// meaningful without it. Without it, sync.Pool drops an idle Machine only
-	// after two GC cycles, so each GC that ran during the loop can account for
-	// at most one extra construction.
-	if raceEnabled {
-		return
-	}
-	gcDuring := int64(
-		gcCycles() - gcBefore,
-	) // #nosec G115 -- cycle deltas are small
+	// The pool keeps its Machine through this pattern. A pool that replaced
+	// the Machine for every short redeemer would construct at least 50.
 	constructed := machineConstructionCount(
 		lang.LanguageVersionV3,
 		evalContext,
 	) - constructedBefore
-	require.Less(t, constructed, 10+gcDuring,
+	require.Zero(t, constructed,
 		"a declared budget equal to the previous remaining budget must not"+
-			" force a fresh Machine (%d GC cycles during the loop)", gcDuring)
-}
-
-// gcCycles reports the number of completed GC cycles in the process.
-func gcCycles() uint64 {
-	sample := []metrics.Sample{{Name: "/gc/cycles/total:gc-cycles"}}
-	metrics.Read(sample)
-	return sample[0].Value.Uint64()
+			" force a fresh Machine")
 }
 
 // callerBuiltTestEvalContext builds a PlutusV3 *cek.EvalContext directly with
@@ -483,8 +452,7 @@ func callerBuiltTestEvalContext(t *testing.T) *cek.EvalContext {
 // TestMachinePoolReusesMachineForCallerBuiltEvalContext pins that Machine
 // reuse depends only on the caller passing the same *cek.EvalContext again,
 // not on where it came from: a caller that builds and caches its own
-// EvalContext must get pooled Machines from Evaluate. The bound is loose for
-// the reason given on TestMachinePoolReusesCheckedInMachine.
+// EvalContext must get pooled Machines from Evaluate.
 func TestMachinePoolReusesMachineForCallerBuiltEvalContext(t *testing.T) {
 	t.Parallel()
 
@@ -503,11 +471,9 @@ func TestMachinePoolReusesMachineForCallerBuiltEvalContext(t *testing.T) {
 		lang.LanguageVersionV3,
 		evalContext,
 	)
-	require.Positive(t, constructed,
-		"a caller-built EvalContext must be pooled")
-	require.Less(t, constructed, int64(iterations),
+	require.Equal(t, int64(1), constructed,
 		"repeated Evaluate calls with one caller-built EvalContext must"+
-			" reuse Machines rather than construct one per call")
+			" reuse one Machine rather than construct one per call")
 }
 
 // TestMachinePoolReleasesEntriesForCollectedEvalContexts pins the retention
@@ -698,4 +664,80 @@ func TestRunPooledMachineRejectsNonUnitResult(t *testing.T) {
 	)
 	var resultError PlutusScriptResultNotUnitError
 	require.ErrorAs(t, err, &resultError)
+}
+
+// TestMachinePoolKeepsIdleMachineAcrossGC pins why the pool is not a
+// sync.Pool: an idle Machine must survive garbage collection, because a node
+// evaluates scripts sparsely and a collection between two evaluations is
+// common. sync.Pool drops its items after two collections.
+func TestMachinePoolKeepsIdleMachineAcrossGC(t *testing.T) {
+	t.Parallel()
+
+	evalContext := pooledTestEvalContext(t, 900008)
+	first := checkoutMachine(lang.LanguageVersionV3, evalContext)
+	releaseMachine(lang.LanguageVersionV3, evalContext, first)
+	runtime.GC()
+	runtime.GC()
+	runtime.GC()
+	again := checkoutMachine(lang.LanguageVersionV3, evalContext)
+	require.Same(t, first, again,
+		"an idle Machine must be reused after garbage collection")
+	releaseMachine(lang.LanguageVersionV3, evalContext, again)
+}
+
+// TestMachinePoolBoundsIdleMachines pins the retention bound: at most
+// GOMAXPROCS Machines stay idle per tuple, however many were released.
+func TestMachinePoolBoundsIdleMachines(t *testing.T) {
+	t.Parallel()
+
+	evalContext := pooledTestEvalContext(t, 900009)
+	limit := runtime.GOMAXPROCS(0)
+	machines := make([]*cek.Machine[syn.DeBruijn], limit+3)
+	for i := range machines {
+		machines[i] = checkoutMachine(lang.LanguageVersionV3, evalContext)
+	}
+	for _, m := range machines {
+		releaseMachine(lang.LanguageVersionV3, evalContext, m)
+	}
+	entry := machinePoolFor(lang.LanguageVersionV3, evalContext)
+	entry.mu.Lock()
+	idle := len(entry.idle)
+	entry.mu.Unlock()
+	require.Equal(t, limit, idle)
+}
+
+// TestMachinePoolTrimsIdleMachinesWhenGOMAXPROCSDrops pins that the bound
+// follows GOMAXPROCS down: the next release after it is lowered trims the
+// idle list to the new bound.
+//
+// Not t.Parallel: it changes GOMAXPROCS for the whole process.
+func TestMachinePoolTrimsIdleMachinesWhenGOMAXPROCSDrops(t *testing.T) {
+	previous := runtime.GOMAXPROCS(4)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+
+	evalContext := pooledTestEvalContext(t, 900010)
+	machines := make([]*cek.Machine[syn.DeBruijn], 5)
+	for i := range machines {
+		machines[i] = checkoutMachine(lang.LanguageVersionV3, evalContext)
+	}
+	for _, m := range machines[:4] {
+		releaseMachine(lang.LanguageVersionV3, evalContext, m)
+	}
+	entry := machinePoolFor(lang.LanguageVersionV3, evalContext)
+	idle := func() int {
+		entry.mu.Lock()
+		defer entry.mu.Unlock()
+		return len(entry.idle)
+	}
+	require.Equal(t, 4, idle())
+
+	runtime.GOMAXPROCS(2)
+	releaseMachine(lang.LanguageVersionV3, evalContext, machines[4])
+	require.Equal(t, 2, idle())
+	entry.mu.Lock()
+	spare := entry.idle[:cap(entry.idle)][2:4]
+	entry.mu.Unlock()
+	for i, m := range spare {
+		require.Nil(t, m, "trimmed slot %d must not keep its Machine", i)
+	}
 }
