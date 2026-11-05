@@ -3,7 +3,9 @@
 These opt-in tests connect to a running `cardano-node` through its local
 Node-to-Client UNIX socket. They verify the configured network handshake,
 read a nonempty chain tip, decode a real block through ChainSync, and check
-that ChainSync can be stopped and restarted on the connection.
+that ChainSync can drain outstanding replies, stop, and restart on the
+connection. The restart uses `StopAfterDrain` so the peer receives `MsgDone`
+only after every pipelined request has been answered.
 
 The node must have a chain containing at least one block and must expose its
 socket to the test process. The harness does not start or configure a node, so

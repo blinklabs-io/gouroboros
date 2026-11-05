@@ -17,6 +17,7 @@
 package cardanonodeintegration
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -180,7 +181,9 @@ func TestCardanoNodeChainSync(t *testing.T) {
 		)
 	}
 
-	if err := client.Stop(); err != nil {
+	drainCtx, cancelDrain := context.WithTimeout(t.Context(), blockWaitLimit)
+	defer cancelDrain()
+	if err := client.StopAfterDrain(drainCtx); err != nil {
 		t.Fatalf("stop chain sync client: %v", err)
 	}
 	client.Start()
