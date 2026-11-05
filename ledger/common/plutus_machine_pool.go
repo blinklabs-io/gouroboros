@@ -175,19 +175,50 @@ type machineCheckoutKey struct {
 	evalContext weak.Pointer[cek.EvalContext]
 }
 
-// machinePoolEntry is the sync.Pool of *cek.Machine[syn.DeBruijn] instances
-// built for one machineCheckoutKey, plus a count of how many Machines have
-// been constructed for it. The count lets a test observe reuse without relying
-// on Machine pointer identity, which sync.Pool does not preserve: Put may drop
-// an item (it does so at random under the race detector) and a GC cycle may
-// clear the pool.
+// machinePoolEntry holds the idle *cek.Machine[syn.DeBruijn] instances built
+// for one machineCheckoutKey, plus a count of how many Machines have been
+// constructed for it. The count lets a test observe reuse.
+//
+// The idle Machines are a shared last-in, first-out list, not a sync.Pool. A
+// sync.Pool keeps one item per P that other Ps cannot take, and garbage
+// collection empties it, so evaluations that run one at a time but land on
+// different Ps kept building fresh Machines: replaying the preview chain
+// through Dingo, 3% of evaluations at GOMAXPROCS=8 and 17% at
+// GOMAXPROCS=128 got a fresh Machine, each costing its arenas again. The list
+// keeps at most GOMAXPROCS Machines, which covers every evaluation that can
+// run at once; a release beyond that drops the Machine.
 //
 // The entry holds no strong reference to its EvalContext: Machines are built
-// by checkoutMachineReused from the caller's pointer, not by a pool New func
-// that would capture it.
+// by checkoutMachineReused from the caller's pointer, and a Machine keeps only
+// values copied out of the EvalContext. The entry, with its idle Machines, is
+// removed once the EvalContext is collected (see machinePools).
 type machinePoolEntry struct {
-	pool        sync.Pool
+	mu          sync.Mutex
+	idle        []*cek.Machine[syn.DeBruijn]
 	constructed atomic.Int64
+}
+
+// get removes and returns the most recently released Machine, if any.
+func (e *machinePoolEntry) get() (*cek.Machine[syn.DeBruijn], bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	n := len(e.idle)
+	if n == 0 {
+		return nil, false
+	}
+	machine := e.idle[n-1]
+	e.idle[n-1] = nil
+	e.idle = e.idle[:n-1]
+	return machine, true
+}
+
+// put keeps machine for reuse unless GOMAXPROCS Machines are already idle.
+func (e *machinePoolEntry) put(machine *cek.Machine[syn.DeBruijn]) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if len(e.idle) < runtime.GOMAXPROCS(0) {
+		e.idle = append(e.idle, machine)
+	}
 }
 
 // machinePools maps a machineCheckoutKey to its *machinePoolEntry. An entry is
@@ -226,8 +257,8 @@ func machinePoolFor(
 // checkoutMachineReused returns a *cek.Machine[syn.DeBruijn] built for
 // (version, evalContext), reusing a previously released one when available,
 // and reports whether it was reused. The caller owns the returned Machine
-// exclusively until it calls releaseMachine; sync.Pool.Get never hands the
-// same instance to two concurrent callers. A nil evalContext is not pooled
+// exclusively until it calls releaseMachine; an idle Machine is handed to one
+// caller only. A nil evalContext is not pooled
 // and always gets a fresh Machine.
 func checkoutMachineReused(
 	version lang.LanguageVersion,
@@ -237,7 +268,7 @@ func checkoutMachineReused(
 		return cek.NewMachine[syn.DeBruijn](version, 200, nil), false
 	}
 	entry := machinePoolFor(version, evalContext)
-	if machine, ok := entry.pool.Get().(*cek.Machine[syn.DeBruijn]); ok {
+	if machine, ok := entry.get(); ok {
 		return machine, true
 	}
 	entry.constructed.Add(1)
@@ -276,7 +307,7 @@ func releaseMachine(
 	if evalContext == nil {
 		return
 	}
-	machinePoolFor(version, evalContext).pool.Put(machine)
+	machinePoolFor(version, evalContext).put(machine)
 }
 
 // runPooledPreparedContext is runPooledMachineContext for a prepared program:
