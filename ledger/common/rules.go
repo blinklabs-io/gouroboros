@@ -251,6 +251,13 @@ func (c *cachedLedgerState) TransactionScopedMemo(
 	return entry.value, entry.err
 }
 
+// UnwrapLedgerState implements LedgerStateUnwrapper, so a package that walks
+// its own adapters one layer at a time can reach the state beneath this one
+// without skipping an adapter that sits between them.
+func (c *cachedLedgerState) UnwrapLedgerState() LedgerState {
+	return c.LedgerState
+}
+
 // LedgerStateUnwrapper exposes the provider beneath a validation-time
 // LedgerState adapter. Optional capabilities must be checked against the
 // provider because adapters may add only one narrow behavior.
