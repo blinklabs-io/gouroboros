@@ -1095,6 +1095,33 @@ func (c *Client) GetStakePoolState(
 	return &result, nil
 }
 
+// GetLeiosCommittee returns the Leios voting committees of the current and
+// the next epoch. Only Leios prototype nodes answer it.
+func (c *Client) GetLeiosCommittee() (*LeiosCommitteeResult, error) {
+	c.Protocol.Logger().
+		Debug("calling GetLeiosCommittee()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	currentEra, err := c.getCurrentEra()
+	if err != nil {
+		return nil, err
+	}
+	query := buildShelleyQuery(
+		currentEra,
+		QueryTypeShelleyLeiosCommittee,
+	)
+	var result LeiosCommitteeResult
+	if err := c.runQuery(query, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 func (c *Client) GetStakeSnapshots(
 	poolIds []any,
 ) (*StakeSnapshotsResult, error) {
