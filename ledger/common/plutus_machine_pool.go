@@ -184,9 +184,13 @@ type machineCheckoutKey struct {
 // collection empties it, so evaluations that run one at a time but land on
 // different Ps kept building fresh Machines: replaying the preview chain
 // through Dingo, 3% of evaluations at GOMAXPROCS=8 and 17% at
-// GOMAXPROCS=128 got a fresh Machine, each costing its arenas again. The list
-// keeps at most GOMAXPROCS Machines, which covers every evaluation that can
-// run at once; a release beyond that drops the Machine.
+// GOMAXPROCS=128 got a fresh Machine, each costing its arenas again.
+//
+// The list keeps at most GOMAXPROCS Machines, the number of evaluations that
+// can run at once; a release beyond that drops the Machine. More goroutines
+// than that can hold a Machine when some are descheduled mid-evaluation, and
+// the Machines released past the bound are rebuilt on later checkouts. The
+// bound trades that cost for retaining no more Machines than can run.
 //
 // The entry holds no strong reference to its EvalContext: Machines are built
 // by checkoutMachineReused from the caller's pointer, and a Machine keeps only
@@ -213,10 +217,17 @@ func (e *machinePoolEntry) get() (*cek.Machine[syn.DeBruijn], bool) {
 }
 
 // put keeps machine for reuse unless GOMAXPROCS Machines are already idle.
+// The bound is read on every release, so idle Machines beyond a lowered
+// GOMAXPROCS are dropped here too.
 func (e *machinePoolEntry) put(machine *cek.Machine[syn.DeBruijn]) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if len(e.idle) < runtime.GOMAXPROCS(0) {
+	limit := runtime.GOMAXPROCS(0)
+	if len(e.idle) > limit {
+		clear(e.idle[limit:])
+		e.idle = e.idle[:limit]
+	}
+	if len(e.idle) < limit {
 		e.idle = append(e.idle, machine)
 	}
 }

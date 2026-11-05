@@ -705,3 +705,39 @@ func TestMachinePoolBoundsIdleMachines(t *testing.T) {
 	entry.mu.Unlock()
 	require.Equal(t, limit, idle)
 }
+
+// TestMachinePoolTrimsIdleMachinesWhenGOMAXPROCSDrops pins that the bound
+// follows GOMAXPROCS down: the next release after it is lowered trims the
+// idle list to the new bound.
+//
+// Not t.Parallel: it changes GOMAXPROCS for the whole process.
+func TestMachinePoolTrimsIdleMachinesWhenGOMAXPROCSDrops(t *testing.T) {
+	previous := runtime.GOMAXPROCS(4)
+	t.Cleanup(func() { runtime.GOMAXPROCS(previous) })
+
+	evalContext := pooledTestEvalContext(t, 900010)
+	machines := make([]*cek.Machine[syn.DeBruijn], 5)
+	for i := range machines {
+		machines[i] = checkoutMachine(lang.LanguageVersionV3, evalContext)
+	}
+	for _, m := range machines[:4] {
+		releaseMachine(lang.LanguageVersionV3, evalContext, m)
+	}
+	entry := machinePoolFor(lang.LanguageVersionV3, evalContext)
+	idle := func() int {
+		entry.mu.Lock()
+		defer entry.mu.Unlock()
+		return len(entry.idle)
+	}
+	require.Equal(t, 4, idle())
+
+	runtime.GOMAXPROCS(2)
+	releaseMachine(lang.LanguageVersionV3, evalContext, machines[4])
+	require.Equal(t, 2, idle())
+	entry.mu.Lock()
+	spare := entry.idle[:cap(entry.idle)][2:4]
+	entry.mu.Unlock()
+	for i, m := range spare {
+		require.Nil(t, m, "trimmed slot %d must not keep its Machine", i)
+	}
+}
