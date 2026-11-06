@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"math/big"
@@ -486,23 +487,23 @@ func TestGenesisFromJson(t *testing.T) {
 func TestNewConwayGenesisFromReader(t *testing.T) {
 	jsonData := `{
     "poolVotingThresholds": {
-      "committeeNormal": null,
-      "committeeNoConfidence": null,
-      "hardForkInitiation": null,
-      "motionNoConfidence": null,
-      "ppSecurityGroup": null
+      "committeeNormal": 0.5,
+      "committeeNoConfidence": 0.5,
+      "hardForkInitiation": 0.5,
+      "motionNoConfidence": 0.5,
+      "ppSecurityGroup": 0.5
     },
     "dRepVotingThresholds": {
-      "motionNoConfidence": null,
-      "committeeNormal": null,
-      "committeeNoConfidence": null,
-      "updateToConstitution": null,
-      "hardForkInitiation": null,
-      "ppNetworkGroup": null,
-      "ppEconomicGroup": null,
-      "ppTechnicalGroup": null,
-      "ppGovGroup": null,
-      "treasuryWithdrawal": null
+      "motionNoConfidence": 0.5,
+      "committeeNormal": 0.5,
+      "committeeNoConfidence": 0.5,
+      "updateToConstitution": 0.5,
+      "hardForkInitiation": 0.5,
+      "ppNetworkGroup": 0.5,
+      "ppEconomicGroup": 0.5,
+      "ppTechnicalGroup": 0.5,
+      "ppGovGroup": 0.5,
+      "treasuryWithdrawal": 0.5
     },
     "committeeMinSize": 5,
     "committeeMaxTermLength": 365,
@@ -510,7 +511,7 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
     "govActionDeposit": 1000,
     "dRepDeposit": 200,
     "dRepActivity": 60,
-    "minFeeRefScriptCostPerByte": null,
+    "minFeeRefScriptCostPerByte": 15,
     "plutusV3CostModel": [1, 2, 3],
     "constitution": {
       "anchor": {
@@ -550,9 +551,15 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
 }
 
 func TestNewConwayGenesisAcceptsExtraConfig(t *testing.T) {
-	genesis, err := conway.NewConwayGenesisFromReader(
-		strings.NewReader(`{"extraConfig":{"delegs":{},"initialDReps":{}}}`),
-	)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(conwayGenesisConfig), &doc))
+	doc["extraConfig"] = map[string]any{
+		"delegs":       map[string]any{},
+		"initialDReps": map[string]any{},
+	}
+	data, err := json.Marshal(doc)
+	require.NoError(t, err)
+	genesis, err := conway.NewConwayGenesisFromReader(bytes.NewReader(data))
 	require.NoError(t, err)
 	require.NotNil(t, genesis.ExtraConfig)
 }

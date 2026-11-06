@@ -42,8 +42,8 @@ type ConwayGenesis struct {
 	Delegs                     ConwayGenesisDelegs               `json:"delegs"`
 	InitialDReps               ConwayGenesisInitialDReps         `json:"initialDReps"`
 	// ExtraConfig carries the optional prototype genesis injection. Conway's
-	// current Musashi configuration leaves it empty, but it must be accepted by
-	// the strict decoder when present.
+	// current Musashi configuration leaves it empty, but it must be accepted
+	// when present.
 	ExtraConfig json.RawMessage `json:"extraConfig,omitempty"`
 }
 
@@ -189,11 +189,19 @@ type ConwayGenesisDRepState struct {
 	Anchor  *common.GovAnchor `json:"anchor"`
 }
 
+// NewConwayGenesisFromReader decodes a Conway genesis JSON document. It
+// accepts what the reference FromJSON ConwayGenesis accepts: the required
+// keys must be present and in range, and unknown keys are ignored.
 func NewConwayGenesisFromReader(r io.Reader) (ConwayGenesis, error) {
 	var ret ConwayGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ret); err != nil {
+	var data json.RawMessage
+	if err := json.NewDecoder(r).Decode(&data); err != nil {
+		return ret, err
+	}
+	if err := validateConwayGenesisJSON(data); err != nil {
+		return ret, fmt.Errorf("invalid Conway genesis: %w", err)
+	}
+	if err := json.Unmarshal(data, &ret); err != nil {
 		return ret, err
 	}
 	return ret, nil
