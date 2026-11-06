@@ -15,6 +15,7 @@ package genesisjson_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -206,4 +207,49 @@ func TestValidateOptionalNullAndAlternates(t *testing.T) {
 	err = gj.Validate("", []byte(`{"first":null}`), fields...)
 	require.ErrorContains(t, err, "first")
 	require.Error(t, gj.Validate("", []byte(`[]`), fields...))
+}
+
+// encoding/json matches struct fields case-insensitively and lets a later key
+// overwrite an earlier one, so a key differing from a validated field only in
+// case would replace the validated value after validation.
+func TestValidateRejectsCaseVariantOfDeclaredKey(t *testing.T) {
+	t.Parallel()
+	fields := []gj.Field{
+		gj.Required("rho", gj.Interval(gj.UnitInterval)),
+		gj.Optional("opt", gj.Uint(8)),
+		gj.RequiredAnyOf(gj.Uint(8), "memory", "exUnitsMem"),
+	}
+	require.NoError(t, gj.Validate(
+		"",
+		[]byte(`{"rho":0.5,"memory":1,"unrelated":1}`),
+		fields...,
+	))
+	for _, doc := range []string{
+		`{"rho":0.5,"RHO":5,"memory":1}`,
+		`{"rho":0.5,"memory":1,"Opt":300}`,
+		`{"rho":0.5,"memory":1,"EXUNITSMEM":1}`,
+	} {
+		err := gj.Validate("", []byte(doc), fields...)
+		require.ErrorContains(t, err, "differs only in case", doc)
+	}
+}
+
+// A coefficient this long is outside every bounded type, and converting it
+// costs superlinear time, so it is refused before conversion.
+func TestNumberRejectsExcessiveSignificantDigits(t *testing.T) {
+	t.Parallel()
+	long := "1" + strings.Repeat("7", 2000)
+	for _, check := range []gj.Check{
+		gj.Uint(64),
+		gj.Interval(gj.NonNegativeInterval),
+		gj.Number(),
+	} {
+		err := check("v", json.RawMessage(long))
+		require.ErrorContains(t, err, "too many significant digits")
+	}
+	// Zeros around the coefficient do not count.
+	require.NoError(t, gj.Uint(64)(
+		"v",
+		json.RawMessage("0.5"+strings.Repeat("0", 2000)+"e1"),
+	))
 }

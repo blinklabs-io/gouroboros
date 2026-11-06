@@ -83,6 +83,9 @@ func Validate(context string, data []byte, fields ...Field) error {
 	if err != nil {
 		return atPath(pathOrRoot(context), err)
 	}
+	if err := checkCaseVariants(context, obj, fields); err != nil {
+		return err
+	}
 	for _, f := range fields {
 		names := f.AnyOf
 		if len(names) == 0 {
@@ -118,6 +121,38 @@ func Validate(context string, data []byte, fields ...Field) error {
 		path := join(context, found)
 		if err := f.Check(path, raw); err != nil {
 			return atPath(path, err)
+		}
+	}
+	return nil
+}
+
+// checkCaseVariants rejects a key that differs from a declared key only in
+// case. aeson ignores such a key, but encoding/json matches struct fields
+// case-insensitively and lets a later key overwrite an earlier one, so the
+// struct decode would replace the validated value with an unvalidated one.
+func checkCaseVariants(
+	context string,
+	obj map[string]json.RawMessage,
+	fields []Field,
+) error {
+	declared := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if len(f.AnyOf) > 0 {
+			declared = append(declared, f.AnyOf...)
+		} else {
+			declared = append(declared, f.Name)
+		}
+	}
+	for key := range obj {
+		for _, name := range declared {
+			if key != name && strings.EqualFold(key, name) {
+				return &pathError{msg: fmt.Sprintf(
+					"%s: key %q differs only in case from %q",
+					pathOrRoot(context),
+					key,
+					name,
+				)}
+			}
 		}
 	}
 	return nil
@@ -401,6 +436,11 @@ func parseInteger(raw json.RawMessage) (*big.Int, error) {
 	return v.Mul(v, coeff), nil
 }
 
+// maxSignificantDigits bounds the coefficient of any JSON number. Every
+// bounded type here is exceeded by 40 significant digits, and converting a
+// longer digit string to a big.Int costs superlinear time.
+const maxSignificantDigits = 1000
+
 // parseNumber splits a JSON number into a normalised coefficient and base-10
 // exponent (trailing zeros of the coefficient folded into the exponent), the
 // representation of aeson's Scientific. A negative zero has coefficient 0.
@@ -431,6 +471,12 @@ func parseNumber(raw json.RawMessage) (*big.Int, int64, error) {
 	for strings.HasSuffix(digits, "0") {
 		digits = digits[:len(digits)-1]
 		exp++
+	}
+	if len(digits) > maxSignificantDigits {
+		return nil, 0, fmt.Errorf(
+			"value has too many significant digits: %d",
+			len(digits),
+		)
 	}
 	coeff, ok := new(big.Int).SetString(digits, 10)
 	if !ok {

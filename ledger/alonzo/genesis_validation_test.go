@@ -268,3 +268,22 @@ func TestAlonzoGenesisIntegerBounds(t *testing.T) {
 		})
 	}
 }
+
+// The reference reads "memory" <|> "exUnitsMem": a present "memory" wins even
+// when it is zero, so the decoded value is the one that was validated.
+func TestAlonzoGenesisExUnitsPrimaryKeyWinsWhenZero(t *testing.T) {
+	t.Parallel()
+	doc := loadAlonzoDoc(t)
+	doc["maxTxExUnits"] = map[string]any{
+		"memory":       json.Number("0"),
+		"exUnitsMem":   json.Number("7"),
+		"steps":        json.Number("0"),
+		"exUnitsSteps": json.Number("9"),
+	}
+	data, err := json.Marshal(doc)
+	require.NoError(t, err)
+	genesis, err := alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), genesis.MaxTxExUnits.Mem)
+	require.Equal(t, uint64(0), genesis.MaxTxExUnits.Steps)
+}

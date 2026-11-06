@@ -16,6 +16,7 @@ package alonzo
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -215,26 +216,22 @@ type AlonzoGenesisExUnits struct {
 func (u *AlonzoGenesisExUnits) UnmarshalJSON(data []byte) error {
 	// We need some custom unmarshal logic to handle alternate key names
 	tmpData := struct {
-		ExUnitsMem   uint64 `json:"exUnitsMem"`
-		ExUnitsSteps uint64 `json:"exUnitsSteps"`
-		Memory       uint64 `json:"memory"`
-		Steps        uint64 `json:"steps"`
+		ExUnitsMem   *uint64 `json:"exUnitsMem"`
+		ExUnitsSteps *uint64 `json:"exUnitsSteps"`
+		Memory       *uint64 `json:"memory"`
+		Steps        *uint64 `json:"steps"`
 	}{}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&tmpData); err != nil {
 		return err
 	}
-	if tmpData.ExUnitsMem > 0 {
-		u.Mem = tmpData.ExUnitsMem
+	// The reference reads "memory" <|> "exUnitsMem": a present primary key
+	// wins even when it is zero.
+	if mem := cmp.Or(tmpData.Memory, tmpData.ExUnitsMem); mem != nil {
+		u.Mem = *mem
 	}
-	if tmpData.ExUnitsSteps > 0 {
-		u.Steps = tmpData.ExUnitsSteps
-	}
-	if tmpData.Memory > 0 {
-		u.Mem = tmpData.Memory
-	}
-	if tmpData.Steps > 0 {
-		u.Steps = tmpData.Steps
+	if steps := cmp.Or(tmpData.Steps, tmpData.ExUnitsSteps); steps != nil {
+		u.Steps = *steps
 	}
 	return nil
 }
