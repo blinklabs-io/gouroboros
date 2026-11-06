@@ -720,6 +720,11 @@ func verifyBlockTransactions(
 // certificate's cold-key signature, KES signature, transactions, and optional
 // stake pool registration.
 //
+// The header's KES period must lie in [c0, c0+config.MaxKesEvolutions), where
+// c0 is the operational certificate's start period. MaxKesEvolutions is
+// required: when it is zero and config.SkipKesEvolutionsValidation is false,
+// VerifyBlock returns a configuration error.
+//
 // Transaction validation requires config.LedgerState to be the ledger state
 // before this block: the state after the previous block, with no transaction
 // of this block applied. VerifyBlock validates each transaction against that

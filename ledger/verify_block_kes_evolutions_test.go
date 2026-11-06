@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,6 +39,26 @@ func kesEvolutionsTestBlock(t *testing.T, evolution uint64) ledger.Block {
 	header := decodeOpCertTestHeader(t)
 	currentPeriod := header.Body.Slot / blockLimitsTestSlotsPerKesPeriod
 	require.GreaterOrEqual(t, currentPeriod, evolution)
+	return forgeKesEvolutionsTestBlock(
+		t,
+		header,
+		currentPeriod-evolution,
+		evolution,
+	)
+}
+
+// forgeKesEvolutionsTestBlock installs an operational certificate starting at
+// opCertStart with a valid cold signature, and a KES signature made at
+// signEvolution. The KES signature is only self-checked when the certificate
+// does not start in the future, since no evolution exists for such a header.
+func forgeKesEvolutionsTestBlock(
+	t *testing.T,
+	header *conway.ConwayBlockHeader,
+	opCertStart uint64,
+	signEvolution uint64,
+) ledger.Block {
+	t.Helper()
+	currentPeriod := header.Body.Slot / blockLimitsTestSlotsPerKesPeriod
 
 	sKey, vKey, err := kes.KeyGen(
 		kes.CardanoKesDepth,
@@ -49,7 +70,7 @@ func kesEvolutionsTestBlock(t *testing.T, evolution uint64) ledger.Block {
 
 	opCert := &header.Body.OpCert
 	opCert.HotVkey = vKey
-	opCert.KesPeriod = currentPeriod - evolution
+	opCert.KesPeriod = opCertStart
 	opCert.Signature = ed25519.Sign(
 		coldKey,
 		common.OpCertSignableBytes(
@@ -62,20 +83,22 @@ func kesEvolutionsTestBlock(t *testing.T, evolution uint64) ledger.Block {
 
 	header.Signature = make([]byte, kes.CardanoKesSignatureSize)
 	bodyCbor := reencodedHeaderBodyCbor(t, header)
-	for range evolution {
+	for range signEvolution {
 		sKey, err = kes.Update(sKey)
 		require.NoError(t, err)
 	}
-	header.Signature, err = kes.Sign(sKey, evolution, bodyCbor)
+	header.Signature, err = kes.Sign(sKey, signEvolution, bodyCbor)
 	require.NoError(t, err)
 
 	forged := reencodeHeader(t, header)
-	kesValid, err := ledger.VerifyKes(
-		forged,
-		blockLimitsTestSlotsPerKesPeriod,
-	)
-	require.NoError(t, err)
-	require.True(t, kesValid, "fixture must carry a valid KES signature")
+	if opCertStart <= currentPeriod {
+		kesValid, err := ledger.VerifyKes(
+			forged,
+			blockLimitsTestSlotsPerKesPeriod,
+		)
+		require.NoError(t, err)
+		require.True(t, kesValid, "fixture must carry a valid KES signature")
+	}
 	return opCertTestBlock(t, forged)
 }
 
@@ -181,4 +204,24 @@ func TestVerifyBlock_KesEvolutionsRequiresConfiguration(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, valid)
 	})
+}
+
+func TestVerifyBlock_RejectsOpCertStartingInFuture(t *testing.T) {
+	t.Parallel()
+
+	header := decodeOpCertTestHeader(t)
+	currentPeriod := header.Body.Slot / blockLimitsTestSlotsPerKesPeriod
+	block := forgeKesEvolutionsTestBlock(t, header, currentPeriod+1, 0)
+
+	valid, err := kesEvolutionsVerify(block, opCertTestVerifyConfig())
+	require.Error(t, err)
+	require.False(t, valid)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
+	require.Equal(t, common.ValidationErrorTypeKES, validationErr.Type)
+	var opCertErr *ledger.OpCertError
+	require.ErrorAs(t, err, &opCertErr)
+	require.NotNil(t, opCertErr)
+	require.Equal(t, "kes_period", opCertErr.Field)
 }
