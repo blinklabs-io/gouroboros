@@ -82,6 +82,10 @@ const (
 // callers to distinguish an invalid proof from malformed inputs.
 var ErrProofVerificationFailed = errors.New("issue verifying proof")
 
+// ErrNonCanonicalEncoding is returned when a public key or proof gamma encodes
+// a field element y that is not reduced modulo p = 2^255 - 19.
+var ErrNonCanonicalEncoding = errors.New("non-canonical point encoding")
+
 // KeyGen generates a new VRF keypair from a 32-byte seed.
 // Returns (publicKey, secretKey) where secretKey is the original seed.
 //
@@ -199,6 +203,9 @@ func Prove(secretKey []byte, alpha []byte) ([]byte, []byte, error) {
 func VerifyAndHash(publicKey []byte, proof []byte, msg []byte) ([]byte, error) {
 	Y := &edwards25519.Point{}
 	// validate key
+	if !isCanonicalY(publicKey) {
+		return nil, ErrNonCanonicalEncoding
+	}
 	if _, err := Y.SetBytes(publicKey); err != nil {
 		return nil, err
 	}
@@ -499,6 +506,9 @@ func decodeProofArrays(
 			ProofSize,
 		)
 	}
+	if !isCanonicalY(pi[:32]) {
+		return nil, fmt.Errorf("invalid gamma encoding: %w", ErrNonCanonicalEncoding)
+	}
 	gamma = &edwards25519.Point{}
 	if _, err := gamma.SetBytes(pi[:32]); err != nil {
 		return nil, fmt.Errorf("invalid gamma encoding: %w", err)
@@ -506,6 +516,23 @@ func decodeProofArrays(
 	copy(c[:], pi[32:48]) // c = pi[32:48]
 	copy(s[:], pi[48:80]) // s = pi[48:80]
 	return gamma, nil
+}
+
+// isCanonicalY reports whether the y coordinate of a 32-byte point encoding is
+// below p. SetBytes silently reduces y >= p, so the check must precede it. The
+// sign bit is ignored; only y in [p, p+18) has a second encoding. An encoding
+// of any other length is not judged here: SetBytes rejects it with its own
+// length error.
+func isCanonicalY(enc []byte) bool {
+	if len(enc) != 32 || enc[31]&0x7f != 0x7f || enc[0] < 0xed {
+		return true
+	}
+	for _, b := range enc[1:31] {
+		if b != 0xff {
+			return true
+		}
+	}
+	return false
 }
 
 // hashToCurveElligator2 hashes to the curve using Elligator2 and returns the
