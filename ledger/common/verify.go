@@ -88,7 +88,12 @@ type ByronVKeyWitnessVerifier interface {
 
 // computeByronAddressRoot computes the address root for a Byron address
 // using the bootstrap witness public key, chain code, and raw attributes bytes.
-// Byron address root = blake2b_224(sha3_256(cbor([0, [0, bytes(pubkey || chainCode)], attributes])))
+// Byron address root = blake2b_224(sha3_256(prefix || pubkey || chainCode || attributes))
+// where the prefix is the constant 0x83 0x00 0x82 0x00 0x58 0x40: an array of
+// 3, addrType 0, an array of 2, addrType 0, and a byte string header that
+// always claims 64 bytes. The chain code is appended as given, so for a chain
+// code that is not 32 bytes the hashed bytes are not well-formed CBOR, exactly
+// as in the ledger's bootstrap key hash.
 // The attributes must be used as-is (already CBOR-encoded) to preserve the original encoding.
 // This matches the Amaru implementation.
 func computeByronAddressRoot(
