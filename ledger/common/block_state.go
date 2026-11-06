@@ -71,6 +71,8 @@ type BlockLedgerState struct {
 	// to its pending pot-to-pot transfers.
 	mirTotals    map[uint]*big.Int
 	mirTransfers map[uint]*big.Int
+	// genesisFuture holds the genesis delegations this block scheduled.
+	genesisFuture []GenesisDelegation
 }
 
 // mirPendingKey identifies a credential's pending instantaneous rewards in
@@ -474,6 +476,10 @@ func (b *BlockLedgerState) applyCertificate(
 	case *MoveInstantaneousRewardsCertificate:
 		if err := b.applyMoveInstantaneousRewards(c, pp); err != nil {
 			return err
+		}
+	case *GenesisKeyDelegationCertificate:
+		if delegation, err := GenesisDelegationFromCertificate(c); err == nil {
+			b.genesisFuture = append(b.genesisFuture, delegation)
 		}
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
@@ -1102,6 +1108,55 @@ func orZero(v *big.Int) *big.Int {
 		return new(big.Int)
 	}
 	return v
+}
+
+// GenesisDelegationFromCertificate returns the delegation a genesis key
+// delegation certificate schedules, or an error when one of its hashes has the
+// wrong length.
+func GenesisDelegationFromCertificate(
+	cert *GenesisKeyDelegationCertificate,
+) (GenesisDelegation, error) {
+	genesis, err := NewBlake2b224Checked(cert.GenesisHash)
+	if err != nil {
+		return GenesisDelegation{}, fmt.Errorf("genesis key hash: %w", err)
+	}
+	delegate, err := NewBlake2b224Checked(cert.GenesisDelegateHash)
+	if err != nil {
+		return GenesisDelegation{}, fmt.Errorf("genesis delegate hash: %w", err)
+	}
+	return GenesisDelegation{
+		GenesisKeyHash:  genesis,
+		DelegateKeyHash: delegate,
+		VrfKeyHash:      Blake2b256(cert.VrfKeyHash),
+	}, nil
+}
+
+// GenesisDelegationsFor returns the current and scheduled genesis delegations
+// at slot: those the wrapped state reports through
+// GenesisDelegationRegistryState, with the delegations earlier transactions in
+// the block scheduled appended to the scheduled ones. The boolean is false
+// when the wrapped state does not implement the capability.
+func GenesisDelegationsFor(
+	ls LedgerState,
+	slot uint64,
+) (current, future []GenesisDelegation, known bool, err error) {
+	base, known := UnwrapLedgerState(ls).(GenesisDelegationRegistryState)
+	if !known {
+		return nil, nil, false, nil
+	}
+	current, err = base.CurrentGenesisDelegations(slot)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	baseFuture, err := base.FutureGenesisDelegations(slot)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	future = slices.Clone(baseFuture)
+	if b := findBlockLedgerState(ls); b != nil {
+		future = append(future, b.genesisFuture...)
+	}
+	return current, future, true, nil
 }
 
 // StakeCredentialDepositStateFor returns ls's StakeCredentialDepositState

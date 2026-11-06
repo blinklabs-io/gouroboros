@@ -429,6 +429,56 @@ func bigIntString(v *big.Int) string {
 	return v.String()
 }
 
+// GenesisKeyNotInMappingError indicates a genesis key delegation certificate
+// for a genesis key that is not in the genesis delegation map.
+//
+// Reference: GenesisKeyNotInMappingDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type GenesisKeyNotInMappingError struct {
+	GenesisKeyHash common.Blake2b224
+}
+
+func (e GenesisKeyNotInMappingError) Error() string {
+	return fmt.Sprintf(
+		"genesis key not in genesis delegation mapping: %x",
+		e.GenesisKeyHash[:],
+	)
+}
+
+// DuplicateGenesisDelegateError indicates a genesis key delegation
+// certificate whose delegate key hash is already the delegate, current or
+// scheduled, of another genesis key.
+//
+// Reference: DuplicateGenesisDelegateDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type DuplicateGenesisDelegateError struct {
+	DelegateKeyHash common.Blake2b224
+}
+
+func (e DuplicateGenesisDelegateError) Error() string {
+	return fmt.Sprintf(
+		"genesis delegate already delegated to by another genesis key: %x",
+		e.DelegateKeyHash[:],
+	)
+}
+
+// DuplicateGenesisVRFError indicates a genesis key delegation certificate
+// whose VRF key hash is already used by the delegate, current or scheduled, of
+// another genesis key.
+//
+// Reference: DuplicateGenesisVRFDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type DuplicateGenesisVRFError struct {
+	VrfKeyHash common.Blake2b256
+}
+
+func (e DuplicateGenesisVRFError) Error() string {
+	return fmt.Sprintf(
+		"genesis delegate VRF key already used by another genesis key: %x",
+		e.VrfKeyHash[:],
+	)
+}
+
 // PendingInstantaneousRewardsUnavailableError indicates a move instantaneous
 // rewards delta that MIRProducesNegativeUpdate can only decide from the
 // pending rewards, when the ledger state does not implement

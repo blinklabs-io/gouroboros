@@ -375,6 +375,31 @@ type GenesisDelegationState interface {
 	GenesisUpdateQuorum() (uint, error)
 }
 
+// GenesisDelegation is one genesis-key delegation: the delegate signing-key
+// hash and VRF key hash a genesis key delegates to.
+type GenesisDelegation struct {
+	GenesisKeyHash  Blake2b224
+	DelegateKeyHash Blake2b224
+	VrfKeyHash      Blake2b256
+}
+
+// GenesisDelegationRegistryState is the optional ledger-state capability that
+// reports the genesis delegations the DELEG rule checks a genesis key
+// delegation certificate against (GenesisKeyNotInMappingDELEG,
+// DuplicateGenesisDelegateDELEG and DuplicateGenesisVRFDELEG). Ledger states
+// used to validate Shelley through Babbage must implement this interface;
+// without it, a transaction carrying such a certificate is rejected as
+// undecidable.
+type GenesisDelegationRegistryState interface {
+	// CurrentGenesisDelegations returns the genesis delegation map in force
+	// at slot, one entry per genesis key.
+	CurrentGenesisDelegations(slot uint64) ([]GenesisDelegation, error)
+	// FutureGenesisDelegations returns the delegations scheduled by earlier
+	// certificates that are not yet in force at slot. A genesis key may have
+	// several.
+	FutureGenesisDelegations(slot uint64) ([]GenesisDelegation, error)
+}
+
 // PendingInstantaneousRewardsState is the optional ledger-state capability that
 // reports the instantaneous rewards accumulated by move instantaneous rewards
 // certificates earlier in the current epoch. The DELEG rule bounds a new

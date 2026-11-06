@@ -629,6 +629,15 @@ func (InstantaneousRewardsTotalsStateUnavailableError) Error() string {
 	return "ledger state does not provide instantaneous rewards totals"
 }
 
+// GenesisDelegationRegistryStateUnavailableError indicates that a genesis key
+// delegation certificate cannot be checked because the ledger state does not
+// implement GenesisDelegationRegistryState.
+type GenesisDelegationRegistryStateUnavailableError struct{}
+
+func (GenesisDelegationRegistryStateUnavailableError) Error() string {
+	return "ledger state does not provide genesis delegation registry"
+}
+
 // EpochStateUnavailableError indicates that a consensus rule cannot determine
 // the epoch containing a slot.
 type EpochStateUnavailableError struct{}

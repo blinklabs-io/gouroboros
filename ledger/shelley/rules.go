@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -803,6 +804,7 @@ func UtxoValidateDelegation(
 		}
 	}
 
+	var genesis *genesisDelegations
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.StakeRegistrationCertificate:
@@ -838,6 +840,17 @@ func UtxoValidateDelegation(
 			}
 			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
+		case *common.GenesisKeyDelegationCertificate:
+			if genesis == nil {
+				genesis = &genesisDelegations{}
+				if err := genesis.load(ls, slot); err != nil {
+					return err
+				}
+			}
+			if err := genesis.apply(c); err != nil {
+				return err
+			}
+
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
 
@@ -854,6 +867,81 @@ func UtxoValidateDelegation(
 			}
 		}
 	}
+	return nil
+}
+
+// genesisDelegations is the genesis delegation state a transaction's genesis
+// key delegation certificates are checked against: the delegations in force,
+// and those scheduled by earlier certificates.
+type genesisDelegations struct {
+	current []common.GenesisDelegation
+	future  []common.GenesisDelegation
+}
+
+func (g *genesisDelegations) load(
+	ls common.LedgerState,
+	slot uint64,
+) error {
+	current, future, known, err := common.GenesisDelegationsFor(ls, slot)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return common.GenesisDelegationRegistryStateUnavailableError{}
+	}
+	g.current = current
+	g.future = future
+	return nil
+}
+
+// apply checks a genesis key delegation certificate and schedules its
+// delegation. The delegate and VRF key may not belong to any other genesis
+// key, current or scheduled; the certificate's own genesis key may reuse its
+// keys.
+//
+// Reference: the GenesisDelegTxCert case of delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+func (g *genesisDelegations) apply(
+	cert *common.GenesisKeyDelegationCertificate,
+) error {
+	genesisKey, err := common.NewBlake2b224Checked(cert.GenesisHash)
+	if err != nil {
+		return fmt.Errorf("genesis key hash: %w", err)
+	}
+	delegation, err := common.GenesisDelegationFromCertificate(cert)
+	if err != nil {
+		return err
+	}
+	inMapping := false
+	for _, current := range g.current {
+		if current.GenesisKeyHash == genesisKey {
+			inMapping = true
+			break
+		}
+	}
+	if !inMapping {
+		return GenesisKeyNotInMappingError{GenesisKeyHash: genesisKey}
+	}
+	var otherDelegates []common.Blake2b224
+	var otherVrfs []common.Blake2b256
+	for _, others := range [][]common.GenesisDelegation{g.current, g.future} {
+		for _, other := range others {
+			if other.GenesisKeyHash == genesisKey {
+				continue
+			}
+			otherDelegates = append(otherDelegates, other.DelegateKeyHash)
+			otherVrfs = append(otherVrfs, other.VrfKeyHash)
+		}
+	}
+	if slices.Contains(otherDelegates, delegation.DelegateKeyHash) {
+		return DuplicateGenesisDelegateError{
+			DelegateKeyHash: delegation.DelegateKeyHash,
+		}
+	}
+	if slices.Contains(otherVrfs, delegation.VrfKeyHash) {
+		return DuplicateGenesisVRFError{VrfKeyHash: delegation.VrfKeyHash}
+	}
+	g.future = append(g.future, delegation)
 	return nil
 }
 

@@ -100,6 +100,18 @@ func (allCapabilityState) InstantaneousPotTransfer(
 	return new(big.Int), nil
 }
 
+func (allCapabilityState) CurrentGenesisDelegations(
+	uint64,
+) ([]common.GenesisDelegation, error) {
+	return nil, nil
+}
+
+func (allCapabilityState) FutureGenesisDelegations(
+	uint64,
+) ([]common.GenesisDelegation, error) {
+	return nil, nil
+}
+
 func (allCapabilityState) GovPurposeRoots() (*common.GovPurposeRoots, error) {
 	return &common.GovPurposeRoots{}, nil
 }
@@ -151,6 +163,11 @@ var capabilityProbes = map[string]func(common.LedgerState) (direct, unwrapped bo
 	"GenesisDelegationState": func(ls common.LedgerState) (bool, bool) {
 		_, direct := ls.(common.GenesisDelegationState)
 		_, unwrapped := common.UnwrapLedgerState(ls).(common.GenesisDelegationState)
+		return direct, unwrapped
+	},
+	"GenesisDelegationRegistryState": func(ls common.LedgerState) (bool, bool) {
+		_, direct := ls.(common.GenesisDelegationRegistryState)
+		_, unwrapped := common.UnwrapLedgerState(ls).(common.GenesisDelegationRegistryState)
 		return direct, unwrapped
 	},
 	"StabilityWindowState": func(ls common.LedgerState) (bool, bool) {
