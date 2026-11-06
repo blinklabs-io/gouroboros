@@ -27,7 +27,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
-	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,7 +74,7 @@ func mirOppositePotCert(
 // (eras/shelley/impl/src/Cardano/Ledger/Shelley/Era.hs) gates it on major
 // version > 4.
 func TestUtxoValidateDelegationMirNegativeDelta(t *testing.T) {
-	ls := mockledger.NewLedgerStateBuilder().Build()
+	ls := newMirNoPendingState()
 	credential := mirStakeCredential(0xab)
 
 	t.Run("negative delta is rejected before Alonzo", func(t *testing.T) {
@@ -150,6 +149,26 @@ type pendingRewardsState struct {
 	pending map[[2]uint]*big.Int
 }
 
+func (s pendingRewardsState) NextEpochFirstSlot(slot uint64) (uint64, error) {
+	return mirNoPendingLedgerState{}.NextEpochFirstSlot(slot)
+}
+
+func (s pendingRewardsState) StabilityWindow() (uint64, error) {
+	return mirNoPendingLedgerState{}.StabilityWindow()
+}
+
+func (s pendingRewardsState) InstantaneousRewardsTotal(
+	source uint,
+) (*big.Int, error) {
+	return mirNoPendingLedgerState{}.InstantaneousRewardsTotal(source)
+}
+
+func (s pendingRewardsState) InstantaneousPotTransfer(
+	source uint,
+) (*big.Int, error) {
+	return mirNoPendingLedgerState{}.InstantaneousPotTransfer(source)
+}
+
 func (s pendingRewardsState) PendingInstantaneousRewards(
 	source uint,
 	cred common.Credential,
@@ -171,11 +190,11 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 		})
 	}
 	withPending := pendingRewardsState{
-		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		LedgerState: newMirFixtureLedger(),
 		pending:     map[[2]uint]*big.Int{{0, 0xab}: big.NewInt(5)},
 	}
 	noPending := pendingRewardsState{
-		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		LedgerState: newMirFixtureLedger(),
 	}
 	validate := func(
 		ls common.LedgerState,
@@ -217,7 +236,7 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 			require.ErrorAs(
 				t,
 				validate(
-					mockledger.NewLedgerStateBuilder().Build(),
+					newMirNoPendingState(),
 					reserves(-1),
 				),
 				&unavailable,
@@ -227,7 +246,7 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 			assert.Equal(t, "-1", unavailable.Delta.String())
 			assert.Contains(t, unavailable.Error(), "delta -1")
 			require.NoError(t, validate(
-				mockledger.NewLedgerStateBuilder().Build(),
+				newMirNoPendingState(),
 				reserves(4),
 				reserves(-4),
 			))
@@ -254,7 +273,7 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 				&target,
 			)
 			require.NoError(t, validate(
-				mockledger.NewLedgerStateBuilder().Build(),
+				newMirNoPendingState(),
 				reserves(4),
 				reserves(-4),
 			))

@@ -358,6 +358,77 @@ func (e MIRProducesNegativeUpdateError) Error() string {
 	)
 }
 
+// MIRCertificateTooLateinEpochError indicates a move instantaneous rewards
+// certificate in a slot at or after the cutoff: the first slot of the next
+// epoch minus the stability window.
+//
+// Reference: MIRCertificateTooLateinEpochDELEG in checkSlotNotTooLate,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRCertificateTooLateinEpochError struct {
+	Slot   uint64
+	Cutoff uint64
+}
+
+func (e MIRCertificateTooLateinEpochError) Error() string {
+	return fmt.Sprintf(
+		"instantaneous rewards certificate too late in epoch: slot %d cutoff %d",
+		e.Slot,
+		e.Cutoff,
+	)
+}
+
+// InsufficientForInstantaneousRewardsError indicates a move instantaneous
+// rewards certificate that would leave the stake credential rewards
+// accumulated in a pot exceeding what the pot holds. Required is the total
+// accumulated after the certificate and Available is the pot plus its pending
+// pot-to-pot transfers.
+//
+// Reference: InsufficientForInstantaneousRewardsDELEG in
+// updateReservesAndTreasury,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type InsufficientForInstantaneousRewardsError struct {
+	Source    uint
+	Required  *big.Int
+	Available *big.Int
+}
+
+func (e InsufficientForInstantaneousRewardsError) Error() string {
+	return fmt.Sprintf(
+		"insufficient funds for instantaneous rewards: source pot %d required %s available %s",
+		e.Source,
+		bigIntString(e.Required),
+		bigIntString(e.Available),
+	)
+}
+
+// InsufficientForTransferError indicates a pot-to-pot move instantaneous
+// rewards certificate that moves more than the pot holds after its pending
+// instantaneous rewards and transfers. Available may be negative.
+//
+// Reference: InsufficientForTransferDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type InsufficientForTransferError struct {
+	Source    uint
+	Amount    uint64
+	Available *big.Int
+}
+
+func (e InsufficientForTransferError) Error() string {
+	return fmt.Sprintf(
+		"insufficient funds for pot-to-pot transfer: source pot %d amount %d available %s",
+		e.Source,
+		e.Amount,
+		bigIntString(e.Available),
+	)
+}
+
+func bigIntString(v *big.Int) string {
+	if v == nil {
+		return "nil"
+	}
+	return v.String()
+}
+
 // PendingInstantaneousRewardsUnavailableError indicates a move instantaneous
 // rewards delta that MIRProducesNegativeUpdate can only decide from the
 // pending rewards, when the ledger state does not implement

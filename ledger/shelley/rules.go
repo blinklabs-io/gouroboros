@@ -759,7 +759,7 @@ func UtxoValidateDelegation(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := validateMirCertificates(tx, ls, pp); err != nil {
+	if err := validateMirCertificates(tx, slot, ls, pp); err != nil {
 		return err
 	}
 
@@ -858,9 +858,17 @@ func UtxoValidateDelegation(
 }
 
 // validateMirCertificates enforces the DELEG predicates of move instantaneous
-// rewards certificates. Before the Alonzo hard fork a pot-to-pot transfer
+// rewards certificates, in certificate order. Each certificate must come
+// before the cutoff slot, the first slot of the next epoch minus the stability
+// window (MIRCertificateTooLateinEpochError), and the ledger state must
+// provide common.StabilityWindowState and
+// common.InstantaneousRewardsTotalsState; without them the certificate cannot
+// be checked and is rejected.
+//
+// Before the Alonzo hard fork a pot-to-pot transfer
 // (MIRTransferNotCurrentlyAllowed) and a negative delta
-// (MIRNegativesNotCurrentlyAllowed) are rejected. From Alonzo a delta is
+// (MIRNegativesNotCurrentlyAllowed) are rejected, and a credential's delta
+// replaces its pending rewards. From Alonzo a delta adds to them and is
 // rejected when it drives the credential's pending rewards in its pot below
 // zero (MIRProducesNegativeUpdate); the pending rewards are those the ledger
 // state reports through common.PendingInstantaneousRewardsState plus the
@@ -868,9 +876,23 @@ func UtxoValidateDelegation(
 // does not report them, a delta those deltas do not cover is rejected with
 // PendingInstantaneousRewardsUnavailableError.
 //
-// Reference: delegTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+// The rewards accumulated for stake credentials in a pot may not exceed the
+// pot (InsufficientForInstantaneousRewardsError), and a pot-to-pot transfer
+// may not exceed the pot net of its accumulated rewards
+// (InsufficientForTransferError). From Alonzo the pot includes its pending
+// pot-to-pot transfers. Totals are summed as arbitrary precision integers so
+// an oversized delta is rejected rather than wrapped.
+//
+// A negative pot-to-pot amount (MIRNegativeTransfer) cannot occur: the amount
+// is an unsigned integer on the wire and in
+// common.MoveInstantaneousRewardsCertificateReward.
+//
+// Reference: delegationTransition, checkSlotNotTooLate and
+// updateReservesAndTreasury, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs;
+// availableAfterMIR, eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/NewEpochState.hs.
 func validateMirCertificates(
 	tx common.Transaction,
+	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
@@ -896,6 +918,9 @@ func validateMirCertificates(
 	allowed := common.MirTransferAllowed(
 		versionedPparams.ProtocolMajorVersion(),
 	)
+	if err := validateMirNotTooLate(slot, ls); err != nil {
+		return err
+	}
 	type pendingKey struct {
 		source   uint
 		credType uint
@@ -905,7 +930,40 @@ func validateMirCertificates(
 		amount *big.Int
 		known  bool
 	}
+	type potTotals struct {
+		accumulated *big.Int
+		transfer    *big.Int
+	}
 	pending := make(map[pendingKey]pendingTotal)
+	pots := make(map[uint]*potTotals)
+	loadPot := func(source uint) (*potTotals, error) {
+		if source > 1 {
+			return nil, fmt.Errorf("invalid MIR source pot: %d", source)
+		}
+		if pot, ok := pots[source]; ok {
+			return pot, nil
+		}
+		accumulated, transfer, known, err := common.InstantaneousRewardsTotalsFor(
+			ls,
+			source,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !known {
+			return nil, common.InstantaneousRewardsTotalsStateUnavailableError{}
+		}
+		pot := &potTotals{accumulated: accumulated, transfer: transfer}
+		pots[source] = pot
+		return pot, nil
+	}
+	potAmount := func(source uint) *big.Int {
+		adaPots := ls.GetAdaPots()
+		if source == 0 {
+			return new(big.Int).SetUint64(adaPots.Reserves)
+		}
+		return new(big.Int).SetUint64(adaPots.Treasury)
+	}
 	for _, cert := range mirCerts {
 		reward := cert.Reward
 		if reward.Rewards == nil {
@@ -915,8 +973,38 @@ func validateMirCertificates(
 					Amount: reward.OtherPot,
 				}
 			}
+			pot, err := loadPot(reward.Source)
+			if err != nil {
+				return err
+			}
+			other, err := loadPot(1 - reward.Source)
+			if err != nil {
+				return err
+			}
+			available := potAmount(reward.Source)
+			available.Add(available, pot.transfer)
+			available.Sub(available, pot.accumulated)
+			amount := new(big.Int).SetUint64(reward.OtherPot)
+			if amount.Cmp(available) > 0 {
+				return InsufficientForTransferError{
+					Source:    reward.Source,
+					Amount:    reward.OtherPot,
+					Available: available,
+				}
+			}
+			pot.transfer.Sub(pot.transfer, amount)
+			other.transfer.Add(other.transfer, amount)
 			continue
 		}
+		pot, err := loadPot(reward.Source)
+		if err != nil {
+			return err
+		}
+		// replaced is what the certificate's credentials held before it,
+		// which a pre-Alonzo certificate overwrites; sum is what it sets
+		// them to, or adds to them from Alonzo.
+		replaced := new(big.Int)
+		sum := new(big.Int)
 		for cred, delta := range reward.Rewards {
 			if delta == nil {
 				continue
@@ -925,14 +1013,11 @@ func validateMirCertificates(
 			if cred != nil {
 				tmpCred = *cred
 			}
-			if !allowed {
-				if delta.Sign() < 0 {
-					return MIRNegativesNotCurrentlyAllowedError{
-						Credential: tmpCred,
-						Delta:      new(big.Int).Set(delta),
-					}
+			if !allowed && delta.Sign() < 0 {
+				return MIRNegativesNotCurrentlyAllowedError{
+					Credential: tmpCred,
+					Delta:      new(big.Int).Set(delta),
 				}
-				continue
 			}
 			key := pendingKey{
 				source:   reward.Source,
@@ -950,6 +1035,22 @@ func validateMirCertificates(
 					return err
 				}
 				total = pendingTotal{amount: amount, known: known}
+			}
+			sum.Add(sum, delta)
+			if !allowed {
+				if !total.known && pot.accumulated.Sign() != 0 {
+					return PendingInstantaneousRewardsUnavailableError{
+						Credential: tmpCred,
+						Source:     reward.Source,
+						Delta:      new(big.Int).Set(delta),
+					}
+				}
+				replaced.Add(replaced, total.amount)
+				pending[key] = pendingTotal{
+					amount: new(big.Int).Set(delta),
+					known:  total.known,
+				}
+				continue
 			}
 			next := new(big.Int).Add(total.amount, delta)
 			if next.Sign() < 0 {
@@ -970,6 +1071,46 @@ func validateMirCertificates(
 			}
 			pending[key] = pendingTotal{amount: next, known: total.known}
 		}
+		required := new(big.Int).Sub(pot.accumulated, replaced)
+		required.Add(required, sum)
+		available := potAmount(reward.Source)
+		if allowed {
+			available.Add(available, pot.transfer)
+		}
+		if required.Cmp(available) > 0 {
+			return InsufficientForInstantaneousRewardsError{
+				Source:    reward.Source,
+				Required:  required,
+				Available: available,
+			}
+		}
+		pot.accumulated = required
+	}
+	return nil
+}
+
+// validateMirNotTooLate rejects a slot at or after the first slot of the next
+// epoch minus the stability window.
+func validateMirNotTooLate(slot uint64, ls common.LedgerState) error {
+	windowState, ok := common.StabilityWindowStateFor(ls)
+	if !ok {
+		return common.StabilityWindowStateUnavailableError{}
+	}
+	nextEpoch, err := windowState.NextEpochFirstSlot(slot)
+	if err != nil {
+		return err
+	}
+	window, err := windowState.StabilityWindow()
+	if err != nil {
+		return err
+	}
+	// A window longer than the epoch leaves no slot for a certificate.
+	var cutoff uint64
+	if nextEpoch > window {
+		cutoff = nextEpoch - window
+	}
+	if slot >= cutoff {
+		return MIRCertificateTooLateinEpochError{Slot: slot, Cutoff: cutoff}
 	}
 	return nil
 }
