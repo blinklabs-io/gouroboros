@@ -116,8 +116,22 @@ func ShelleyVerifyConfig() (common.VerifyConfig, error) {
 				VrfKeyHash: vrfKeyHash,
 			}, nil, nil
 		})
+	// The state describes the ledger before the block, so a credential the
+	// block registers itself before delegating is not registered in it.
+	type credentialKey struct {
+		credType uint
+		hash     common.Blake2b224
+	}
+	registeredByBlock := make(map[credentialKey]struct{})
 	for _, tx := range block.Transactions() {
 		for _, certificate := range tx.Certificates() {
+			if registration, ok := certificate.(*common.StakeRegistrationCertificate); ok {
+				registeredByBlock[credentialKey{
+					credType: registration.StakeCredential.CredType,
+					hash:     registration.StakeCredential.Credential,
+				}] = struct{}{}
+				continue
+			}
 			delegation, ok := certificate.(*common.StakeDelegationCertificate)
 			if !ok {
 				continue
@@ -127,6 +141,12 @@ func ShelleyVerifyConfig() (common.VerifyConfig, error) {
 				return common.VerifyConfig{}, errors.New(
 					"unsupported Shelley fixture delegation credential",
 				)
+			}
+			if _, ok := registeredByBlock[credentialKey{
+				credType: delegation.StakeCredential.CredType,
+				hash:     delegation.StakeCredential.Credential,
+			}]; ok {
+				continue
 			}
 			stateBuilder.WithStakeCredentialRegistered(
 				delegation.StakeCredential.Credential,

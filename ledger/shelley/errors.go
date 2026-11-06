@@ -226,6 +226,57 @@ func (e DelegateUnregisteredStakeCredentialError) Error() string {
 	)
 }
 
+// StakeKeyAlreadyRegisteredError indicates a stake registration certificate
+// for a credential that is already registered.
+//
+// Reference: AccountAlreadyRegistered (DelegAccountAlreadyRegistered) in
+// delegationTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyAlreadyRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeKeyAlreadyRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake credential already registered: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeKeyNotRegisteredError indicates a stake deregistration certificate for
+// a credential that is not registered.
+//
+// Reference: StakeKeyNotRegisteredDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeKeyNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake deregistration of unregistered credential: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeKeyNonZeroAccountBalanceError indicates a stake deregistration
+// certificate for a credential whose reward balance, after the transaction's
+// withdrawals, is not zero. Balance is the remaining balance.
+//
+// Reference: StakeKeyNonZeroAccountBalanceDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyNonZeroAccountBalanceError struct {
+	Credential common.Credential
+	Balance    uint64
+}
+
+func (e StakeKeyNonZeroAccountBalanceError) Error() string {
+	return fmt.Sprintf(
+		"stake deregistration with non-zero reward balance: credential %x balance %d",
+		e.Credential.Credential[:],
+		e.Balance,
+	)
+}
+
 // MIRNegativesNotCurrentlyAllowedError indicates a move instantaneous rewards
 // certificate carrying a negative reward delta at a protocol version before
 // the Alonzo hard fork, which is the first version that permits one.

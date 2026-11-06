@@ -741,9 +741,15 @@ func UtxoValidateMetadata(
 }
 
 // UtxoValidateDelegation validates delegation certificates against ledger state.
-// For Shelley, it checks StakeDelegationCertificate:
-// - Pool registration status
-// - Stake credential registration status
+// Certificates apply in order, each seeing the state earlier ones produced.
+// It checks:
+//   - StakeRegistrationCertificate: the credential is not registered
+//     (StakeKeyAlreadyRegisteredError)
+//   - StakeDeregistrationCertificate: the credential is registered
+//     (StakeKeyNotRegisteredError) and its reward balance, after the
+//     transaction's withdrawals, is zero (StakeKeyNonZeroAccountBalanceError)
+//   - StakeDelegationCertificate: the pool and the stake credential are
+//     registered
 //
 // It also enforces the DELEG predicates of move instantaneous rewards
 // certificates; see validateMirCertificates.
@@ -784,12 +790,52 @@ func UtxoValidateDelegation(
 		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
 	}
 
+	// Withdrawals are applied before the certificates, so a credential the
+	// transaction withdraws from has an empty account at deregistration.
+	withdrawn := make(map[stakeCredentialKey]struct{})
+	for addr := range tx.Withdrawals() {
+		if addr == nil {
+			continue
+		}
+		// An invalid reward address is the withdrawals rule's to reject.
+		if cred, err := addr.RewardAccountCredential(); err == nil {
+			withdrawn[stakeKey(cred)] = struct{}{}
+		}
+	}
+
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.StakeRegistrationCertificate:
+			if isStakeRegistered(c.StakeCredential) {
+				return StakeKeyAlreadyRegisteredError{
+					Credential: c.StakeCredential,
+				}
+			}
 			inTxStakeState[stakeKey(c.StakeCredential)] = true
 
 		case *common.StakeDeregistrationCertificate:
+			if !isStakeRegistered(c.StakeCredential) {
+				return StakeKeyNotRegisteredError{
+					Credential: c.StakeCredential,
+				}
+			}
+			// An account registered earlier in this transaction holds no
+			// rewards, and a ledger-state balance is only live for an
+			// account that existed before it.
+			_, openedInTx := inTxStakeState[stakeKey(c.StakeCredential)]
+			_, drained := withdrawn[stakeKey(c.StakeCredential)]
+			if !openedInTx && !drained {
+				balance, err := ls.RewardAccountBalance(c.StakeCredential)
+				if err != nil {
+					return err
+				}
+				if balance != nil && *balance != 0 {
+					return StakeKeyNonZeroAccountBalanceError{
+						Credential: c.StakeCredential,
+						Balance:    *balance,
+					}
+				}
+			}
 			inTxStakeState[stakeKey(c.StakeCredential)] = false
 
 		case *common.PoolRegistrationCertificate:
