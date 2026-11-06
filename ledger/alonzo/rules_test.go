@@ -2156,3 +2156,120 @@ func TestMinFeeIncludesDeclaredExecutionUnits(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, baseFee, noRedeemerFee)
 }
+
+// TestUtxoValidateValueNotConservedUtxoStakeDepositsPhase2 pins that stake
+// registration deposits and deregistration refunds count toward value
+// conservation whether or not the transaction is flagged phase-2 invalid.
+func TestUtxoValidateValueNotConservedUtxoStakeDepositsPhase2(t *testing.T) {
+	t.Parallel()
+	const (
+		inputAmount = uint64(555_666_777)
+		fee         = uint64(123_456)
+		keyDeposit  = uint(2_000_000)
+	)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22",
+		0,
+	)
+	credential := common.Credential{CredType: common.CredentialTypeAddrKeyHash}
+	credential.Credential[0] = 0x42
+	pp := &alonzo.AlonzoProtocolParameters{KeyDeposit: keyDeposit}
+	utxos := []common.Utxo{{
+		Id: input,
+		Output: shelley.ShelleyTransactionOutput{
+			OutputAmount: inputAmount,
+		},
+	}}
+	build := func(
+		t *testing.T,
+		valid bool,
+		cert common.Certificate,
+		outputAmount uint64,
+	) common.Transaction {
+		t.Helper()
+		output, err := mockledger.NewTransactionOutputBuilder().
+			WithLovelace(outputAmount).
+			Build()
+		require.NoError(t, err)
+		builder := mockledger.NewTransactionBuilder().
+			WithCertificates(cert).
+			WithWitnesses(
+				mockledger.NewMockTransactionWitnessSet().WithRedeemers(
+					alonzo.AlonzoRedeemers{
+						Redeemers: []alonzo.AlonzoRedeemer{
+							{Tag: common.RedeemerTagSpend, Index: 0},
+						},
+					},
+				),
+			)
+		tx, err := builder.
+			WithInputs(input).
+			WithOutputs(output).
+			WithFee(fee).
+			WithValid(valid).
+			Build()
+		require.NoError(t, err)
+		return tx
+	}
+	for _, valid := range []bool{true, false} {
+		name := "valid"
+		if !valid {
+			name = "phase-2 invalid"
+		}
+		t.Run(name+"/registration", func(t *testing.T) {
+			t.Parallel()
+			state := mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				Build()
+			cert := &common.StakeRegistrationCertificate{
+				StakeCredential: credential,
+			}
+			balanced := build(
+				t, valid, cert, inputAmount-fee-uint64(keyDeposit),
+			)
+			require.NoError(
+				t,
+				alonzo.UtxoValidateValueNotConservedUtxo(balanced, 0, state, pp),
+			)
+			unbalanced := build(t, valid, cert, inputAmount-fee)
+			require.Error(
+				t,
+				alonzo.UtxoValidateValueNotConservedUtxo(
+					unbalanced, 0, state, pp,
+				),
+			)
+		})
+		t.Run(name+"/deregistration", func(t *testing.T) {
+			t.Parallel()
+			const recorded = uint64(3_000_000)
+			state := mockledger.NewLedgerStateBuilder().
+				WithUtxos(utxos).
+				WithStakeRegistrations(
+					[]common.StakeRegistrationCertificate{
+						{StakeCredential: credential},
+					},
+				).
+				WithStakeCredentialDeposits(
+					map[mockledger.RewardAccountKey]uint64{
+						mockledger.NewRewardAccountKey(credential): recorded,
+					},
+				).
+				Build()
+			cert := &common.StakeDeregistrationCertificate{
+				StakeCredential: credential,
+			}
+			balanced := build(t, valid, cert, inputAmount-fee+recorded)
+			require.NoError(
+				t,
+				alonzo.UtxoValidateValueNotConservedUtxo(balanced, 0, state, pp),
+			)
+			unbalanced := build(t, valid, cert, inputAmount-fee)
+			require.Error(
+				t,
+				alonzo.UtxoValidateValueNotConservedUtxo(
+					unbalanced, 0, state, pp,
+				),
+			)
+		})
+	}
+}

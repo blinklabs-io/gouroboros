@@ -757,8 +757,6 @@ func UtxoValidateValueNotConservedUtxo(
 		}
 	}
 	seenPoolRegistrations := make(map[common.PoolKeyHash]struct{})
-	stakeCertificateEffectsValid := tx.IsValid() ||
-		!common.TransactionRunsPhase2Scripts(tx)
 	type stakeCredentialKey struct {
 		credType uint
 		hash     string
@@ -771,34 +769,32 @@ func UtxoValidateValueNotConservedUtxo(
 	}
 	stakeRegistered := make(map[stakeCredentialKey]bool)
 	stakeDeposits := make(map[stakeCredentialKey]uint64)
-	if stakeCertificateEffectsValid {
-		for _, cert := range tx.Certificates() {
-			switch tmpCert := cert.(type) {
-			case *common.StakeDeregistrationCertificate:
-				cred := tmpCert.StakeCredential
-				key := keyForCredential(cred)
-				registered, ok := stakeRegistered[key]
-				if !ok {
-					registered = ls.IsStakeCredentialRegistered(cred)
-					if registered {
-						deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, uint64(tmpPparams.KeyDeposit))
-						if err != nil {
-							return err
-						}
-						stakeDeposits[key] = deposit
-					}
-				}
+	for _, cert := range tx.Certificates() {
+		switch tmpCert := cert.(type) {
+		case *common.StakeDeregistrationCertificate:
+			cred := tmpCert.StakeCredential
+			key := keyForCredential(cred)
+			registered, ok := stakeRegistered[key]
+			if !ok {
+				registered = ls.IsStakeCredentialRegistered(cred)
 				if registered {
-					consumedValue.Add(consumedValue, new(big.Int).SetUint64(stakeDeposits[key]))
-					stakeRegistered[key] = false
+					deposit, err := common.StakeCredentialDepositOrDefault(ls, cred, uint64(tmpPparams.KeyDeposit))
+					if err != nil {
+						return err
+					}
+					stakeDeposits[key] = deposit
 				}
-			case *common.StakeRegistrationCertificate:
-				key := keyForCredential(tmpCert.StakeCredential)
-				stakeRegistered[key] = true
-				stakeDeposits[key] = uint64(tmpPparams.KeyDeposit)
-				// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
-				// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 			}
+			if registered {
+				consumedValue.Add(consumedValue, new(big.Int).SetUint64(stakeDeposits[key]))
+				stakeRegistered[key] = false
+			}
+		case *common.StakeRegistrationCertificate:
+			key := keyForCredential(tmpCert.StakeCredential)
+			stakeRegistered[key] = true
+			stakeDeposits[key] = uint64(tmpPparams.KeyDeposit)
+			// Note: PoolRetirementCertificate does NOT refund the deposit as part of the transaction.
+			// Pool deposits are refunded to the reward account at the end of the retiring epoch.
 		}
 	}
 	// Calculate produced value
@@ -830,9 +826,7 @@ func UtxoValidateValueNotConservedUtxo(
 				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.PoolDeposit)))
 			}
 		case *common.StakeRegistrationCertificate:
-			if stakeCertificateEffectsValid {
-				producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
-			}
+			producedValue.Add(producedValue, new(big.Int).SetUint64(uint64(tmpPparams.KeyDeposit)))
 		}
 	}
 	if consumedValue.Cmp(producedValue) != 0 {
