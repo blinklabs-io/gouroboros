@@ -1299,6 +1299,34 @@ func (a *ByronAddressAttributes) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// ExtraSize returns the size the ledger limits on a bootstrap output
+// address: the length of the decoded derivation path byte string plus the
+// summed length of the unknown attribute values. Map framing, keys and the
+// network magic are not counted (cardano-ledger
+// libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs
+// bootstrapAddressAttrsSize, and unknownAttributesLength in
+// eras/byron/ledger/impl/src/Cardano/Chain/Common/Attributes.hs).
+//
+// Payload holds the CBOR encoding of the derivation path byte string, as it
+// appears in the attribute map. A Payload that is not a single byte string
+// cannot come from a decoded address and is counted by its raw length.
+func (a ByronAddressAttributes) ExtraSize() int {
+	size := 0
+	if len(a.Payload) > 0 {
+		var decoded []byte
+		consumed, err := cbor.Decode(a.Payload, &decoded)
+		if err == nil && consumed == len(a.Payload) {
+			size += len(decoded)
+		} else {
+			size += len(a.Payload)
+		}
+	}
+	for _, value := range a.Unparsed {
+		size += len(value)
+	}
+	return size
+}
+
 func (a ByronAddressAttributes) MarshalCBOR() ([]byte, error) {
 	for key := range a.Unparsed {
 		if key == byronAddressAttrDerivationPath ||
