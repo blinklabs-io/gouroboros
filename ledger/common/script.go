@@ -1093,12 +1093,11 @@ func parseNativeScriptChildren(
 		return nil, 0, errors.New("native script children must be an array")
 	}
 	pos := int(headerLength)
+	// No preallocation from the declared length: each nesting level would
+	// reserve capacity for the rest of the buffer before its first child is
+	// read, so a chain of lists with oversized lengths costs memory
+	// quadratic in depth. append grows only with children actually parsed.
 	var children []nativeScriptReference
-	if !indefinite {
-		// A hostile length cannot be trusted for preallocation: every
-		// child needs at least one byte.
-		children = make([]nativeScriptReference, 0, min(length, len(data)))
-	}
 	for i := 0; indefinite || i < length; i++ {
 		if pos >= len(data) {
 			return nil, 0, errors.New("native script child list is truncated")

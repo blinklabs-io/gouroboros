@@ -184,3 +184,31 @@ func TestNativeScriptRejectsTaggedChildren(t *testing.T) {
 		assert.Errorf(t, script.UnmarshalCBOR(raw), "%s: %x", name, raw)
 	}
 }
+
+func TestNativeScriptOversizedChildListLengthsStayBounded(t *testing.T) {
+	// Each level is [1, <list declaring 2^31-1 children>] holding only the
+	// next level, so the input is truncated and must be rejected without
+	// reserving memory for the declared lengths.
+	const depth = 2000
+	var data []byte
+	for range depth {
+		data = append(data, 0x82, 0x01, 0x9a, 0x7f, 0xff, 0xff, 0xff)
+	}
+	data = append(data, 0x82, 0x04, 0x00)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	var script common.NativeScript
+	err := script.UnmarshalCBOR(data)
+	runtime.ReadMemStats(&after)
+	require.Error(t, err)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	require.Less(
+		t,
+		allocated,
+		uint64(16<<20),
+		"decoding a %d-byte script allocated %d bytes",
+		len(data),
+		allocated,
+	)
+}
