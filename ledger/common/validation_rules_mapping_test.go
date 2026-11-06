@@ -254,7 +254,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		conway.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
 	},
 	"Dijkstra": {
-		common.UtxoValidateCurrentTreasuryValue,           // UtxoValidationRuleCurrentTreasuryValue
+		common.UtxoValidateCurrentTreasuryValueAnyPhase,   // UtxoValidationRuleCurrentTreasuryValue
 		dijkstra.UtxoValidateMetadata,                     // UtxoValidationRuleMetadata
 		dijkstra.UtxoValidateProposalProcedures,           // UtxoValidationRuleProposalProcedures
 		dijkstra.UtxoValidateGovActionWellFormedness,      // UtxoValidationRuleGovActionWellFormedness

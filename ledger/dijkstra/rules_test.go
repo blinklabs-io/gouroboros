@@ -277,7 +277,6 @@ func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 		common.UtxoValidationRuleStakePoolVotingRestrictions: {},
 		common.UtxoValidationRuleCCVotingRestrictions:        {},
 		common.UtxoValidationRuleUnelectedCommitteeVoters:    {},
-		common.UtxoValidationRuleRefScriptSizePerTx:          {},
 		common.UtxoValidationRulePoolCertificates:            {},
 	}
 	descriptors := UtxoValidationRuleDescriptors()
@@ -2423,7 +2422,7 @@ func TestUtxoValidateRefScriptSizePerTxIncludesSubTransactions(t *testing.T) {
 	require.ErrorAs(t, err, &common.RefScriptSizePerTxTooLargeError{})
 }
 
-func TestInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(t *testing.T) {
+func TestInvalidTxChecksPerTxRefScriptLimitAndCountsForBlock(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
 	tx := dijkstraTxWithReferenceInputs(input)
 	tx.TxIsValid = false
@@ -2433,8 +2432,12 @@ func TestInvalidTxSkipsPerTxRefScriptLimitButCountsForBlock(t *testing.T) {
 	}
 	ls := dijkstraRefScriptLedgerState(t, utxo)
 
-	t.Run("per-tx limit is skipped", func(t *testing.T) {
-		require.NoError(t, UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp))
+	t.Run("per-tx limit applies", func(t *testing.T) {
+		require.ErrorAs(
+			t,
+			UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp),
+			&common.RefScriptSizePerTxTooLargeError{},
+		)
 	})
 
 	t.Run("block limit still counts invalid transaction", func(t *testing.T) {

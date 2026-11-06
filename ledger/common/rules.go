@@ -389,6 +389,25 @@ func UtxoValidateCurrentTreasuryValue(
 	if !tx.IsValid() {
 		return nil
 	}
+	return UtxoValidateCurrentTreasuryValueAnyPhase(
+		tx,
+		slot,
+		ledgerState,
+		protocolParams,
+	)
+}
+
+// UtxoValidateCurrentTreasuryValueAnyPhase performs the same check as
+// UtxoValidateCurrentTreasuryValue without skipping phase-2-invalid
+// transactions. Dijkstra LEDGER and SUBLEDGER validate the treasury value
+// before branching on Phase2Valid, whereas Conway LEDGER validates it only
+// inside that branch.
+func UtxoValidateCurrentTreasuryValueAnyPhase(
+	tx Transaction,
+	_ uint64,
+	ledgerState LedgerState,
+	_ ProtocolParameters,
+) error {
 	bodies := SubTransactionBodiesFromTransaction(tx)
 	values := make([]*big.Int, 0, len(bodies)+1)
 	for _, body := range bodies {
