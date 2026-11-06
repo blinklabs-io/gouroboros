@@ -180,11 +180,19 @@ func costModelParamNamesForMap(
 	return ret
 }
 
+// NewAlonzoGenesisFromReader decodes an Alonzo genesis JSON document. It
+// accepts what the reference FromJSON AlonzoGenesis accepts: the required
+// keys must be present and in range, and unknown keys are ignored.
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
 	var ret AlonzoGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ret); err != nil {
+	var data json.RawMessage
+	if err := json.NewDecoder(r).Decode(&data); err != nil {
+		return ret, err
+	}
+	if err := validateAlonzoGenesisJSON(data); err != nil {
+		return ret, fmt.Errorf("invalid Alonzo genesis: %w", err)
+	}
+	if err := json.Unmarshal(data, &ret); err != nil {
 		return ret, err
 	}
 	return ret, nil
@@ -213,7 +221,6 @@ func (u *AlonzoGenesisExUnits) UnmarshalJSON(data []byte) error {
 		Steps        uint64 `json:"steps"`
 	}{}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(&tmpData); err != nil {
 		return err
 	}
@@ -246,7 +253,6 @@ func (p *AlonzoGenesisExecutionPrices) UnmarshalJSON(data []byte) error {
 		PriceMemory *common.GenesisRat `json:"priceMemory"`
 	}{}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
 	if err := dec.Decode(&tmpData); err != nil {
 		return err
 	}

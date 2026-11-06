@@ -743,7 +743,9 @@ func TestGenesisExtraConfigAbsent(t *testing.T) {
 	require.Nil(t, genesis.ExtraConfig)
 }
 
-func TestGenesisExtraConfigRejectsUnknownFields(t *testing.T) {
+// The reference parsers use aeson withObject, which ignores keys they do not
+// model, both inside extraConfig and at the top level.
+func TestGenesisExtraConfigIgnoresUnknownFields(t *testing.T) {
 	raw := map[string]json.RawMessage{}
 	data, err := os.ReadFile("testdata/alonzo-genesis-extra-config.json")
 	require.NoError(t, err)
@@ -752,13 +754,14 @@ func TestGenesisExtraConfigRejectsUnknownFields(t *testing.T) {
 	raw["extraConfig"] = json.RawMessage(`{"costModels":{},"bogus":1}`)
 	nested, err := json.Marshal(raw)
 	require.NoError(t, err)
-	_, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(nested))
-	require.ErrorContains(t, err, `unknown field "bogus"`)
+	genesis, err := alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(nested))
+	require.NoError(t, err)
+	require.NotNil(t, genesis.ExtraConfig)
 
 	raw["extraConfig"] = json.RawMessage(`{}`)
 	raw["bogusTopLevel"] = json.RawMessage(`1`)
 	top, err := json.Marshal(raw)
 	require.NoError(t, err)
 	_, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(top))
-	require.ErrorContains(t, err, `unknown field "bogusTopLevel"`)
+	require.NoError(t, err)
 }
