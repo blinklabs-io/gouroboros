@@ -1,0 +1,443 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Package genesisjson validates genesis JSON documents against the shape the
+// reference implementation (cardano-ledger FromJSON instances, built on aeson
+// withObject) accepts: required keys must be present, optional keys may be
+// absent or null, unknown keys are ignored, and each typed value must lie in
+// the range of its Haskell type.
+//
+// Validation runs on the raw JSON before the permissive struct decode, so the
+// ranges are checked on the literal number rather than on a lossy Go value.
+package genesisjson
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math/big"
+	"strconv"
+	"strings"
+)
+
+// Check validates one raw JSON value found at path. Leaf checks return plain
+// errors that Validate prefixes with the path; nested checks return errors
+// that already carry their full path.
+type Check func(path string, raw json.RawMessage) error
+
+// pathError is an error that already names the JSON path it refers to.
+type pathError struct{ msg string }
+
+func (e *pathError) Error() string { return e.msg }
+
+func atPath(path string, err error) error {
+	var pe *pathError
+	if errors.As(err, &pe) {
+		return err
+	}
+	return &pathError{msg: path + ": " + err.Error()}
+}
+
+// Field describes one key of a JSON object.
+type Field struct {
+	Name string
+	// Optional keys follow aeson's (.:?): absent and null both mean unset.
+	Optional bool
+	Check    Check
+	// AnyOf lists alternate key names; the field is satisfied by any one of
+	// them, checked in order (aeson's o .: a <|> o .: b).
+	AnyOf []string
+}
+
+// Required returns a required field.
+func Required(name string, check Check) Field {
+	return Field{Name: name, Check: check}
+}
+
+// Optional returns an optional field.
+func Optional(name string, check Check) Field {
+	return Field{Name: name, Optional: true, Check: check}
+}
+
+// RequiredAnyOf returns a field satisfied by any one of the named keys.
+func RequiredAnyOf(check Check, names ...string) Field {
+	return Field{Name: names[0], Check: check, AnyOf: names}
+}
+
+// Validate checks data, which must be a JSON object, against fields. The
+// context prefixes every error path (for example "protocolParams").
+func Validate(context string, data []byte, fields ...Field) error {
+	obj, err := decodeObject(data)
+	if err != nil {
+		return atPath(pathOrRoot(context), err)
+	}
+	for _, f := range fields {
+		names := f.AnyOf
+		if len(names) == 0 {
+			names = []string{f.Name}
+		}
+		var raw json.RawMessage
+		var found string
+		for _, name := range names {
+			v, ok := obj[name]
+			if !ok || (f.Optional && isNull(v)) {
+				continue
+			}
+			raw, found = v, name
+			break
+		}
+		if found == "" {
+			if f.Optional {
+				continue
+			}
+			quoted := make([]string, len(names))
+			for i, name := range names {
+				quoted[i] = strconv.Quote(name)
+			}
+			return &pathError{msg: fmt.Sprintf(
+				"%s: missing required field %s",
+				pathOrRoot(context),
+				strings.Join(quoted, " or "),
+			)}
+		}
+		if f.Check == nil {
+			continue
+		}
+		path := join(context, found)
+		if err := f.Check(path, raw); err != nil {
+			return atPath(path, err)
+		}
+	}
+	return nil
+}
+
+func join(context, name string) string {
+	if context == "" {
+		return name
+	}
+	return context + "." + name
+}
+
+func pathOrRoot(context string) string {
+	if context == "" {
+		return "genesis"
+	}
+	return context
+}
+
+func isNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func decodeObject(data []byte) (map[string]json.RawMessage, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, errors.New("expected a JSON object")
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+// Object checks a nested object against fields.
+func Object(fields ...Field) Check {
+	return func(path string, raw json.RawMessage) error {
+		return Validate(path, raw, fields...)
+	}
+}
+
+// MapOf checks that raw is an object whose every value satisfies check.
+func MapOf(check Check) Check {
+	return func(path string, raw json.RawMessage) error {
+		obj, err := decodeObject(raw)
+		if err != nil {
+			return err
+		}
+		for key, value := range obj {
+			if check == nil {
+				continue
+			}
+			child := path + "." + key
+			if err := check(child, value); err != nil {
+				return atPath(child, err)
+			}
+		}
+		return nil
+	}
+}
+
+// AnyObject checks that raw is a JSON object.
+func AnyObject() Check {
+	return func(_ string, raw json.RawMessage) error {
+		_, err := decodeObject(raw)
+		return err
+	}
+}
+
+// Array checks that raw is a JSON array.
+func Array() Check {
+	return func(_ string, raw json.RawMessage) error {
+		if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '[' {
+			return errors.New("expected a JSON array")
+		}
+		return nil
+	}
+}
+
+// Text checks that raw is a JSON string.
+func Text() Check {
+	return func(_ string, raw json.RawMessage) error {
+		if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '"' {
+			return errors.New("expected a JSON string")
+		}
+		return nil
+	}
+}
+
+// OneOf checks that raw is a JSON string equal to one of values.
+func OneOf(values ...string) Check {
+	return func(_ string, raw json.RawMessage) error {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return errors.New("expected a JSON string")
+		}
+		for _, v := range values {
+			if s == v {
+				return nil
+			}
+		}
+		return fmt.Errorf("value %q is not one of %v", s, values)
+	}
+}
+
+// Number checks that raw is a JSON number.
+func Number() Check {
+	return func(_ string, raw json.RawMessage) error {
+		_, _, err := parseNumber(raw)
+		return err
+	}
+}
+
+// Uint checks that raw is an integral JSON number within [0, 2^bits-1],
+// matching a Haskell WordN. aeson accepts an integral value written with an
+// exponent or a trailing ".0".
+func Uint(bits uint) Check {
+	return func(_ string, raw json.RawMessage) error {
+		v, err := parseInteger(raw)
+		if err != nil {
+			return err
+		}
+		return checkUint(v, bits)
+	}
+}
+
+// NonZeroUint64 checks a Haskell NonZero Word64.
+func NonZeroUint64() Check {
+	return func(_ string, raw json.RawMessage) error {
+		v, err := parseInteger(raw)
+		if err != nil {
+			return err
+		}
+		if err := checkUint(v, 64); err != nil {
+			return err
+		}
+		if v.Sign() == 0 {
+			return errors.New("value is zero")
+		}
+		return nil
+	}
+}
+
+func checkUint(v *big.Int, bits uint) error {
+	max := new(big.Int).Lsh(big.NewInt(1), bits)
+	max.Sub(max, big.NewInt(1))
+	if v.Sign() < 0 || v.Cmp(max) > 0 {
+		return fmt.Errorf("value %s is outside of Word%d bounds", v, bits)
+	}
+	return nil
+}
+
+// IntervalKind selects a bounded rational type from cardano-ledger BaseTypes.
+type IntervalKind int
+
+const (
+	// UnitInterval is [0, 1].
+	UnitInterval IntervalKind = iota
+	// PositiveUnitInterval is [1e-19, 1]; the lower bound is
+	// positiveIntervalEpsilon.
+	PositiveUnitInterval
+	// NonNegativeInterval is [0, 2^64-1].
+	NonNegativeInterval
+)
+
+// maxDecimals is maxDecimalsWord64 in BaseTypes: the most decimal places a
+// bounded ratio written as a JSON number may carry.
+const maxDecimals = 19
+
+// Interval checks a bounded-ratio JSON value the way its FromJSON does: an
+// object with integral numerator and denominator, or a JSON number.
+func Interval(kind IntervalKind) Check {
+	return func(_ string, raw json.RawMessage) error {
+		r, err := parseRational(raw)
+		if err != nil {
+			return err
+		}
+		return checkInterval(r, kind)
+	}
+}
+
+func parseRational(raw json.RawMessage) (*big.Rat, error) {
+	t := bytes.TrimSpace(raw)
+	if len(t) == 0 {
+		return nil, errors.New("expected a rational value")
+	}
+	if t[0] == '{' {
+		obj, err := decodeObject(t)
+		if err != nil {
+			return nil, err
+		}
+		numRaw, ok := obj["numerator"]
+		if !ok {
+			return nil, errors.New(`missing required field "numerator"`)
+		}
+		denRaw, ok := obj["denominator"]
+		if !ok {
+			return nil, errors.New(`missing required field "denominator"`)
+		}
+		num, err := parseInteger(numRaw)
+		if err != nil {
+			return nil, fmt.Errorf("numerator: %w", err)
+		}
+		den, err := parseInteger(denRaw)
+		if err != nil {
+			return nil, fmt.Errorf("denominator: %w", err)
+		}
+		if den.Sign() == 0 {
+			return nil, errors.New("ratio denominator was 0")
+		}
+		return new(big.Rat).SetFrac(num, den), nil
+	}
+	coeff, exp, err := parseNumber(t)
+	if err != nil {
+		return nil, err
+	}
+	if coeff.Sign() < 0 {
+		return nil, fmt.Errorf("value is negative: %s", t)
+	}
+	if exp <= 0 {
+		if exp < -maxDecimals {
+			return nil, fmt.Errorf("value is too precise: %s", t)
+		}
+		den := new(big.Int).Exp(big.NewInt(10), big.NewInt(-exp), nil)
+		return new(big.Rat).SetFrac(coeff, den), nil
+	}
+	if exp > maxDecimals {
+		return nil, fmt.Errorf("value is too big: %s", t)
+	}
+	num := new(big.Int).Exp(big.NewInt(10), big.NewInt(exp), nil)
+	num.Mul(num, coeff)
+	return new(big.Rat).SetInt(num), nil
+}
+
+func checkInterval(r *big.Rat, kind IntervalKind) error {
+	// boundRational rejects a numerator or denominator that does not fit a
+	// Word64 before it looks at the bounds.
+	maxWord := new(big.Int).Lsh(big.NewInt(1), 64)
+	maxWord.Sub(maxWord, big.NewInt(1))
+	if r.Num().Sign() < 0 || r.Num().Cmp(maxWord) > 0 ||
+		r.Denom().Cmp(maxWord) > 0 {
+		return fmt.Errorf("value is outside of bounds: %s", r.RatString())
+	}
+	var lower, upper *big.Rat
+	switch kind {
+	case UnitInterval:
+		lower, upper = new(big.Rat), big.NewRat(1, 1)
+	case PositiveUnitInterval:
+		lower = new(big.Rat).SetFrac(
+			big.NewInt(1),
+			new(big.Int).Exp(big.NewInt(10), big.NewInt(maxDecimals), nil),
+		)
+		upper = big.NewRat(1, 1)
+	case NonNegativeInterval:
+		lower, upper = new(big.Rat), new(big.Rat).SetInt(maxWord)
+	default:
+		return errors.New("unknown interval kind")
+	}
+	if r.Cmp(lower) < 0 || r.Cmp(upper) > 0 {
+		return fmt.Errorf("value is outside of bounds: %s", r.RatString())
+	}
+	return nil
+}
+
+// parseInteger parses a JSON number that must be integral.
+func parseInteger(raw json.RawMessage) (*big.Int, error) {
+	coeff, exp, err := parseNumber(raw)
+	if err != nil {
+		return nil, err
+	}
+	if exp < 0 {
+		return nil, fmt.Errorf("value is not an integer: %s", raw)
+	}
+	// A value this large is out of range for every bounded integer type;
+	// refuse before materialising it.
+	if exp > 40 {
+		return nil, fmt.Errorf("value is too big: %s", raw)
+	}
+	v := new(big.Int).Exp(big.NewInt(10), big.NewInt(exp), nil)
+	return v.Mul(v, coeff), nil
+}
+
+// parseNumber splits a JSON number into a normalised coefficient and base-10
+// exponent (trailing zeros of the coefficient folded into the exponent), the
+// representation of aeson's Scientific. A negative zero has coefficient 0.
+func parseNumber(raw json.RawMessage) (*big.Int, int64, error) {
+	t := strings.TrimSpace(string(raw))
+	if t == "" || (t[0] != '-' && (t[0] < '0' || t[0] > '9')) ||
+		!json.Valid([]byte(t)) {
+		return nil, 0, errors.New("expected a JSON number")
+	}
+	neg := strings.HasPrefix(t, "-")
+	t = strings.TrimPrefix(t, "-")
+	var exp int64
+	if i := strings.IndexAny(t, "eE"); i >= 0 {
+		e, err := strconv.ParseInt(strings.TrimPrefix(t[i+1:], "+"), 10, 32)
+		if err != nil {
+			return nil, 0, errors.New("exponent out of range")
+		}
+		exp = e
+		t = t[:i]
+	}
+	intPart, fracPart, _ := strings.Cut(t, ".")
+	digits := intPart + fracPart
+	exp -= int64(len(fracPart))
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return new(big.Int), 0, nil
+	}
+	for strings.HasSuffix(digits, "0") {
+		digits = digits[:len(digits)-1]
+		exp++
+	}
+	coeff, ok := new(big.Int).SetString(digits, 10)
+	if !ok {
+		return nil, 0, errors.New("expected a JSON number")
+	}
+	if neg {
+		coeff.Neg(coeff)
+	}
+	return coeff, exp, nil
+}

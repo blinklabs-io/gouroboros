@@ -793,11 +793,21 @@ func (p ShelleyGenesisProtocolParams) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
+// NewShelleyGenesisFromReader decodes a Shelley genesis JSON document. It
+// accepts what the reference FromJSON ShelleyGenesis accepts: the required
+// keys must be present and in range, and unknown keys are ignored.
 func NewShelleyGenesisFromReader(r io.Reader) (ShelleyGenesis, error) {
 	var ret ShelleyGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ret); err != nil {
+	// Decode one value like json.Decoder does, leaving any bytes after it
+	// unread.
+	var data json.RawMessage
+	if err := json.NewDecoder(r).Decode(&data); err != nil {
+		return ret, err
+	}
+	if err := validateShelleyGenesisJSON(data); err != nil {
+		return ret, fmt.Errorf("invalid Shelley genesis: %w", err)
+	}
+	if err := json.Unmarshal(data, &ret); err != nil {
 		return ret, err
 	}
 	return ret, nil
