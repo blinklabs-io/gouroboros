@@ -15,11 +15,13 @@
 package common_test
 
 import (
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,29 +46,44 @@ func nestedAllScript(depth int, indefinite bool) []byte {
 	return out
 }
 
-func decodeNativeScriptTime(t *testing.T, data []byte) time.Duration {
+// decodeNativeScriptTime returns the time to decode data repeat times.
+func decodeNativeScriptTime(
+	t *testing.T,
+	data []byte,
+	repeat int,
+) time.Duration {
 	t.Helper()
-	best := time.Duration(1<<63 - 1)
-	for range 5 {
+	// Collect first so a cycle triggered by an earlier measurement does not
+	// land inside this one.
+	runtime.GC()
+	start := time.Now()
+	for range repeat {
 		var script common.NativeScript
-		start := time.Now()
 		require.NoError(t, script.UnmarshalCBOR(data))
-		if d := time.Since(start); d < best {
-			best = d
-		}
 	}
-	return best
+	return time.Since(start)
 }
 
-// Decoding must visit each byte a constant number of times. Quadratic decode
-// grows 16x when the depth grows 4x; linear decode grows about 4x. The bound
-// sits between them with a wide margin, and the best of several runs on each
-// side filters scheduler noise.
+// Decoding must visit each byte a constant number of times. The test decodes
+// a shallow script factor times and a script factor times deeper once, so
+// both sides process the same number of bytes: quadratic decode takes factor
+// times longer per byte on the deep one, linear decode only the 2-4x that
+// deep recursion costs in stack growth and cache locality. The bound sits
+// between the two. Interleaving
+// the two sides and keeping the fastest of several rounds of each cancels
+// clock-speed drift and scheduler noise, and the test is not parallel so
+// sibling tests do not compete with the timed runs.
 func TestNativeScriptDecodeScalesLinearlyWithDepth(t *testing.T) {
-	t.Parallel()
-	const baseDepth = 1500
-	small := decodeNativeScriptTime(t, nestedAllScript(baseDepth, false))
-	large := decodeNativeScriptTime(t, nestedAllScript(baseDepth*4, false))
+	const baseDepth = 500
+	const factor = 16
+	shallow := nestedAllScript(baseDepth, false)
+	deep := nestedAllScript(baseDepth*factor, false)
+	small := time.Duration(1<<63 - 1)
+	large := small
+	for range 7 {
+		small = min(small, decodeNativeScriptTime(t, shallow, factor))
+		large = min(large, decodeNativeScriptTime(t, deep, 1))
+	}
 	if small <= 0 {
 		t.Skipf("clock cannot resolve decode of depth %d", baseDepth)
 	}
@@ -74,11 +91,14 @@ func TestNativeScriptDecodeScalesLinearlyWithDepth(t *testing.T) {
 	require.Lessf(
 		t,
 		ratio,
-		10.0,
-		"decode time grew %.1fx for 4x depth (%s -> %s); linear is ~4x, quadratic ~16x",
+		7.0,
+		"decoding %dx deeper took %.1fx as long per byte (%s -> %s); "+
+			"linear is ~1x, quadratic ~%dx",
+		factor,
 		ratio,
 		small,
 		large,
+		factor,
 	)
 }
 
@@ -138,4 +158,29 @@ func TestNativeScriptNestingAtCborLimit(t *testing.T) {
 	tooDeep := nestedAllScript(cbor.MaxNestedLevels/2, false)
 	var rejected common.NativeScript
 	require.Error(t, rejected.UnmarshalCBOR(tooDeep))
+}
+
+// A child list and each child must be plain CBOR arrays. The reference ledger
+// decodes them with decodeStrictSeq and the Timelock sum decoder, neither of
+// which accepts a tag in front of the list or the child.
+func TestNativeScriptRejectsTaggedChildren(t *testing.T) {
+	t.Parallel()
+	for name, raw := range map[string][]byte{
+		"set tag on child list": {0x82, 0x01, 0xd9, 0x01, 0x02, 0x80},
+		"self-describe tag on child list": {
+			0x82, 0x01, 0xd9, 0xd9, 0xf7, 0x81, 0x82, 0x04, 0x00,
+		},
+		"self-describe tag on child": {
+			0x82, 0x01, 0x81, 0xd9, 0xd9, 0xf7, 0x82, 0x04, 0x00,
+		},
+		"self-describe tag on indefinite child": {
+			0x82, 0x01, 0x9f, 0xd9, 0xd9, 0xf7, 0x82, 0x04, 0x00, 0xff,
+		},
+		"tag on n-of-k child list": {
+			0x83, 0x03, 0x01, 0xd9, 0x01, 0x02, 0x81, 0x82, 0x04, 0x00,
+		},
+	} {
+		var script common.NativeScript
+		assert.Errorf(t, script.UnmarshalCBOR(raw), "%s: %x", name, raw)
+	}
 }
