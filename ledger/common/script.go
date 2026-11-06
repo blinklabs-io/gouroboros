@@ -1303,7 +1303,9 @@ func FirstInvalidNativeScriptIn(
 			keyHashes[Blake2b224Hash(vkw.Vkey)] = true
 		}
 		for _, bw := range witnesses.Bootstrap() {
-			keyHashes[Blake2b224Hash(bw.PublicKey)] = true
+			if hash, err := bw.KeyHash(); err == nil {
+				keyHashes[hash] = true
+			}
 		}
 	}
 
