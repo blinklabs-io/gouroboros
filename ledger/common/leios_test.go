@@ -281,10 +281,20 @@ func TestValidateLeiosSignerBitfield(t *testing.T) {
 			wantErr:       "must be 1 bytes",
 		},
 		{
-			name:          "unused bits set",
+			name:          "unused bits set are ignored",
 			signers:       []byte{0x81},
 			committeeSize: 1,
-			wantErr:       "unused bits",
+		},
+		{
+			name:          "all unused bits set in last byte are ignored",
+			signers:       []byte{0xff, 0x7f},
+			committeeSize: 9,
+		},
+		{
+			name:          "too many bytes is still rejected",
+			signers:       []byte{0x80, 0x00},
+			committeeSize: 8,
+			wantErr:       "must be 1 bytes",
 		},
 	}
 

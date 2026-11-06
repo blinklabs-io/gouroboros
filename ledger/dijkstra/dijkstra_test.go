@@ -1205,7 +1205,7 @@ func TestDijkstraLeiosCertificateValidatesCommitteeBitfield(t *testing.T) {
 	)
 
 	cert.Signers[1] = 0x01
-	require.ErrorContains(t, cert.Validate(9), "non-zero unused bits")
+	require.NoError(t, cert.Validate(9))
 }
 
 func TestDijkstraBlockRoundTripWithBodyHash(t *testing.T) {
