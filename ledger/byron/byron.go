@@ -313,11 +313,16 @@ func (h *ByronMainBlockHeader) BlockNumber() uint64 {
 	return h.ConsensusData.Difficulty.Value
 }
 
-// SlotNumber returns the mainnet absolute slot for legacy callers. Use
-// SlotNumberWithEpochLength when interpreting a network-configured header.
+// SlotNumber returns the mainnet absolute slot for legacy callers. If the
+// slot does not fit in a uint64 it saturates to math.MaxUint64 rather than
+// wrapping. Callers that need to detect overflow, or that interpret a
+// network-configured header, must use SlotNumberWithEpochLength.
 func (h *ByronMainBlockHeader) SlotNumber() uint64 {
-	return (h.ConsensusData.SlotId.Epoch * ByronSlotsPerEpoch) +
-		h.ConsensusData.SlotId.Slot
+	slot, err := h.SlotNumberWithEpochLength(ByronSlotsPerEpoch)
+	if err != nil {
+		return math.MaxUint64
+	}
+	return slot
 }
 
 // SlotNumberWithEpochLength converts the preserved epoch and slot counts to
@@ -2059,10 +2064,16 @@ func (h *ByronEpochBoundaryBlockHeader) BlockNumber() uint64 {
 	return h.ConsensusData.Difficulty.Value
 }
 
-// SlotNumber returns the mainnet absolute slot for legacy callers. Use
-// SlotNumberWithEpochLength when interpreting a network-configured header.
+// SlotNumber returns the mainnet absolute slot for legacy callers. If the
+// slot does not fit in a uint64 it saturates to math.MaxUint64 rather than
+// wrapping. Callers that need to detect overflow, or that interpret a
+// network-configured header, must use SlotNumberWithEpochLength.
 func (h *ByronEpochBoundaryBlockHeader) SlotNumber() uint64 {
-	return h.ConsensusData.Epoch * ByronSlotsPerEpoch
+	slot, err := h.SlotNumberWithEpochLength(ByronSlotsPerEpoch)
+	if err != nil {
+		return math.MaxUint64
+	}
+	return slot
 }
 
 // SlotNumberWithEpochLength converts the preserved epoch count to an absolute
