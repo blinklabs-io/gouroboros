@@ -209,29 +209,25 @@ func TestValidateOptionalNullAndAlternates(t *testing.T) {
 	require.Error(t, gj.Validate("", []byte(`[]`), fields...))
 }
 
-// encoding/json matches struct fields case-insensitively and lets a later key
-// overwrite an earlier one, so a key differing from a validated field only in
-// case would replace the validated value after validation.
-func TestValidateRejectsCaseVariantOfDeclaredKey(t *testing.T) {
+// A key differing from a declared key only in case is ignored, as in aeson;
+// encoding/json would match it to the struct field, so it must not be emitted.
+func TestValidateIgnoresCaseVariantOfDeclaredKey(t *testing.T) {
 	t.Parallel()
 	fields := []gj.Field{
 		gj.Required("rho", gj.Interval(gj.UnitInterval)),
 		gj.Optional("opt", gj.Uint(8)),
 		gj.RequiredAnyOf(gj.Uint(8), "memory", "exUnitsMem"),
 	}
-	require.NoError(t, gj.Validate(
+	out, err := gj.Normalize(
 		"",
-		[]byte(`{"rho":0.5,"memory":1,"unrelated":1}`),
+		[]byte(`{"rho":0.5,"RHO":5,"memory":1,"Opt":300,"EXUNITSMEM":1}`),
 		fields...,
-	))
-	for _, doc := range []string{
-		`{"rho":0.5,"RHO":5,"memory":1}`,
-		`{"rho":0.5,"memory":1,"Opt":300}`,
-		`{"rho":0.5,"memory":1,"EXUNITSMEM":1}`,
-	} {
-		err := gj.Validate("", []byte(doc), fields...)
-		require.ErrorContains(t, err, "differs only in case", doc)
-	}
+	)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"rho":0.5,"memory":1}`, string(out))
+	// A required key present only as a variant is missing.
+	err = gj.Validate("", []byte(`{"RHO":0.5,"memory":1}`), fields...)
+	require.ErrorContains(t, err, `missing required field "rho"`)
 }
 
 // A coefficient this long is outside every bounded type, and converting it

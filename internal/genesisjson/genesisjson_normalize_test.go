@@ -66,19 +66,25 @@ func TestNormalizeLeavesUncheckedValuesUntouched(t *testing.T) {
 		`{"PlutusV1":[1.0,2e3,-0],"x":1E2}`,
 		string(got["costModels"]),
 	)
-	require.Equal(t, `[1.50]`, string(got["unknown"]))
 }
 
-func TestIntervalRatioObjectRejectsCaseVariants(t *testing.T) {
+// The ratio is read from its exact "numerator" and "denominator" keys; a case
+// variant is ignored, and a ratio carrying only a variant is incomplete.
+func TestIntervalRatioObjectIgnoresCaseVariants(t *testing.T) {
 	t.Parallel()
 	for _, doc := range []string{
 		`{"numerator":1,"Numerator":-1,"denominator":2}`,
 		`{"numerator":1,"denominator":2,"DENOMINATOR":0}`,
 	} {
-		_, err := gj.Interval(gj.UnitInterval)("v", json.RawMessage(doc))
-		require.ErrorContains(t, err, "differs only in case", doc)
-		require.ErrorContains(t, err, "v:", doc)
+		out, err := gj.Interval(gj.UnitInterval)("v", json.RawMessage(doc))
+		require.NoError(t, err, doc)
+		require.JSONEq(t, `{"numerator":1,"denominator":2}`, string(out), doc)
 	}
+	_, err := gj.Interval(gj.UnitInterval)(
+		"v",
+		json.RawMessage(`{"Numerator":1,"denominator":2}`),
+	)
+	require.ErrorContains(t, err, "numerator")
 }
 
 func TestIntervalRatioObjectComponentLimit(t *testing.T) {
@@ -192,4 +198,27 @@ func TestValidateAlternateFallthroughOnNegative(t *testing.T) {
 		gj.Validate("", []byte(`{"first":-1,"second":1}`), fields...),
 	)
 	require.Error(t, gj.Validate("", []byte(`{"first":-1}`), fields...))
+}
+
+// Only the keys a validated object declares, and for alternates only the one
+// the validator selected, reach the decode.
+func TestNormalizeEmitsOnlyDeclaredAndSelectedKeys(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":1,"A":2,"extra":3,"first":-1,"second":4,"n":{"x":1,"y":2,"Z":3},"m":{"k":{"x":1,"y":2}},"opt":null}`,
+		),
+		gj.Required("a", gj.Uint(8)),
+		gj.RequiredAnyOf(gj.Uint(8), "first", "second"),
+		gj.Required("n", gj.Object(gj.Required("x", gj.Uint(8)))),
+		gj.Required("m", gj.MapOf(gj.Object(gj.Required("y", gj.Uint(8))))),
+		gj.Optional("opt", gj.Uint(8)),
+	)
+	require.NoError(t, err)
+	require.JSONEq(
+		t,
+		`{"a":1,"second":4,"n":{"x":1},"m":{"k":{"y":2}}}`,
+		string(out),
+	)
 }

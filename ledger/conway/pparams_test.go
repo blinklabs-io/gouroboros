@@ -697,7 +697,7 @@ func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}
-	var doc map[string]any
+	doc := map[string]any{}
 	if err := json.Unmarshal(data, &doc); err != nil {
 		t.Fatalf("unexpected error: %s", err)
 	}

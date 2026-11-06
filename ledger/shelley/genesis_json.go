@@ -99,12 +99,13 @@ func validateExtraConfig(
 	path string,
 	raw json.RawMessage,
 ) (json.RawMessage, error) {
+	fields := make([]gj.Field, 0, 3)
 	for _, section := range []string{
 		"initialFunds",
 		"stakePools",
 		"stakeCredentials",
 	} {
-		injection := gj.Optional(
+		fields = append(fields, gj.Optional(
 			section,
 			func(p string, v json.RawMessage) (json.RawMessage, error) {
 				var keys map[string]json.RawMessage
@@ -119,10 +120,7 @@ func validateExtraConfig(
 				}
 				return v, nil
 			},
-		)
-		if _, err := gj.Normalize(path, raw, injection); err != nil {
-			return nil, err
-		}
+		))
 	}
-	return raw, nil
+	return gj.Object(fields...)(path, raw)
 }

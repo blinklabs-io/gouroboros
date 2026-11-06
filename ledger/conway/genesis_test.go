@@ -551,7 +551,7 @@ func TestNewConwayGenesisFromReader(t *testing.T) {
 }
 
 func TestNewConwayGenesisAcceptsExtraConfig(t *testing.T) {
-	var doc map[string]any
+	doc := map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(conwayGenesisConfig), &doc))
 	doc["extraConfig"] = map[string]any{
 		"delegs":       map[string]any{},

@@ -109,7 +109,7 @@ const shelleyGenesisConfig = `
 // does, so a test that only cares about a few keys starts from a full document.
 func shelleyGenesisWith(t *testing.T, overrides map[string]any) string {
 	t.Helper()
-	var doc map[string]any
+	doc := map[string]any{}
 	require.NoError(t, json.Unmarshal([]byte(shelleyGenesisConfig), &doc))
 	mergeShelleyDoc(doc, overrides)
 	data, err := json.Marshal(doc)

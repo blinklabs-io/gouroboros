@@ -17,6 +17,7 @@ package alonzo_test
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ func alonzoDecodeWith(
 ) (alonzo.AlonzoGenesis, error) {
 	t.Helper()
 	doc := loadAlonzoDoc(t)
-	parts := splitPath(path)
+	parts := strings.Split(path, ".")
 	cur := doc
 	for _, part := range parts[:len(parts)-1] {
 		next, ok := cur[part].(map[string]any)
@@ -49,18 +50,6 @@ func alonzoDecodeWith(
 	data, err := json.Marshal(doc)
 	require.NoError(t, err)
 	return alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
-}
-
-func splitPath(path string) []string {
-	var parts []string
-	start := 0
-	for i := 0; i <= len(path); i++ {
-		if i == len(path) || path[i] == '.' {
-			parts = append(parts, path[start:i])
-			start = i + 1
-		}
-	}
-	return parts
 }
 
 func TestAlonzoGenesisIntegralNumberFormsDecode(t *testing.T) {
@@ -94,25 +83,24 @@ func TestAlonzoGenesisIntegralNumberFormsDecode(t *testing.T) {
 	require.Equal(t, "577/10000", g.ExecutionPrices.Mem.String())
 }
 
-func TestAlonzoGenesisRatioObjectCaseVariantCannotOverride(t *testing.T) {
+// The reference reads a ratio's exact "numerator" and "denominator" and ignores
+// any other key, so a case variant must not replace the validated component.
+func TestAlonzoGenesisRatioObjectCaseVariantIsIgnored(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ path, value string }{
-		{
-			"executionPrices.prSteps",
-			`{"numerator":1,"Numerator":-1,"denominator":2}`,
-		},
-		{
-			"executionPrices.prMem",
-			`{"numerator":1,"denominator":2,"DENOMINATOR":0}`,
-		},
-	} {
-		_, err := alonzoDecodeWith(t, tc.path, json.RawMessage(tc.value))
-		require.ErrorContains(t, err, "differs only in case", tc.path)
-	}
+	g, err := alonzoDecodeWith(t, "executionPrices", json.RawMessage(
+		`{"prSteps":{"numerator":1,"Numerator":-1,"denominator":2},`+
+			`"prMem":{"numerator":1,"denominator":4,"DENOMINATOR":0}}`))
+	require.NoError(t, err)
+	require.Equal(t, "1/2", g.ExecutionPrices.Steps.String())
+	require.Equal(t, "1/4", g.ExecutionPrices.Mem.String())
 }
 
-func TestAlonzoGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
+// Every validated object drops a case variant of a declared key, so the decode
+// sees the same document whether or not the variant is present.
+func TestAlonzoGenesisEveryValidatedObjectIgnoresCaseVariants(t *testing.T) {
 	t.Parallel()
+	want, err := alonzo.NewAlonzoGenesisFromFile(alonzoNetworkFixture)
+	require.NoError(t, err)
 	for _, tc := range []struct{ path, variant string }{
 		{"", "LovelacePerUTxOWord"},
 		{"costModels", "plutusv1"},
@@ -130,10 +118,34 @@ func TestAlonzoGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
 			cur[tc.variant] = json.Number("0")
 			data, err := json.Marshal(doc)
 			require.NoError(t, err)
-			_, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
-			require.ErrorContains(t, err, "differs only in case")
+			got, err := alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Equal(t, want, got)
 		})
 	}
+}
+
+// The reference ignores language keys other than PlutusV1 here; the decode
+// keeps PlutusV2 and PlutusV3 when present and never sees any other key.
+func TestAlonzoGenesisCostModelsKeepsKnownLanguagesAndIgnoresOtherKeys(
+	t *testing.T,
+) {
+	t.Parallel()
+	want, err := alonzo.NewAlonzoGenesisFromFile(alonzoNetworkFixture)
+	require.NoError(t, err)
+	doc := loadAlonzoDoc(t)
+	doc["costModels"].(map[string]any)["PlutusV4"] = json.Number("1")
+	data, err := json.Marshal(doc)
+	require.NoError(t, err)
+	got, err := alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	doc["costModels"].(map[string]any)["PlutusV2"] = json.RawMessage(`[1,2,3]`)
+	data, err = json.Marshal(doc)
+	require.NoError(t, err)
+	got, err = alonzo.NewAlonzoGenesisFromReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.Equal(t, []int64{1, 2, 3}, got.CostModels["PlutusV2"])
 }
 
 // aeson reads (o .: "memory" <|> o .: "exUnitsMem"): null and a value of the
@@ -308,4 +320,37 @@ func TestAlonzoGenesisValidatedValuesAlwaysDecode(t *testing.T) {
 			})
 		}
 	}
+}
+
+// An alternate spelling the validator passed over must not reach the decode:
+// an invalid earlier alternate cannot override the valid later one.
+func TestAlonzoGenesisPricesInvalidEarlierAlternateIsDropped(t *testing.T) {
+	t.Parallel()
+	for name, prices := range map[string]string{
+		"negative":   `{"priceSteps":-1,"prSteps":0.5,"priceMemory":-1,"prMem":0.25}`,
+		"above max":  `{"priceSteps":18446744073709551616,"prSteps":0.5,"priceMemory":2e20,"prMem":0.25}`,
+		"mistyped":   `{"priceSteps":"x","prSteps":0.5,"priceMemory":[],"prMem":0.25}`,
+		"zero denom": `{"priceSteps":{"numerator":1,"denominator":0},"prSteps":0.5,"priceMemory":{"numerator":1,"denominator":0},"prMem":0.25}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			g, err := alonzoDecodeWith(
+				t,
+				"executionPrices",
+				json.RawMessage(prices),
+			)
+			require.NoError(t, err)
+			require.Equal(t, "1/2", g.ExecutionPrices.Steps.String())
+			require.Equal(t, "1/4", g.ExecutionPrices.Mem.String())
+		})
+	}
+}
+
+func TestAlonzoGenesisExUnitsInvalidEarlierAlternateIsDropped(t *testing.T) {
+	t.Parallel()
+	g, err := alonzoDecodeWith(t, "maxTxExUnits", json.RawMessage(
+		`{"memory":-1,"exUnitsMem":5,"steps":"x","exUnitsSteps":6}`))
+	require.NoError(t, err)
+	require.Equal(t, uint64(5), g.MaxTxExUnits.Mem)
+	require.Equal(t, uint64(6), g.MaxTxExUnits.Steps)
 }

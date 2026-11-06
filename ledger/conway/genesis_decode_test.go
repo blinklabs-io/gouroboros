@@ -103,34 +103,32 @@ func TestConwayGenesisIntegralNumberFormsDecode(t *testing.T) {
 	require.Equal(t, "15/1", g.MinFeeRefScriptCostPerByte.String())
 }
 
-func TestConwayGenesisRatioObjectCaseVariantCannotOverride(t *testing.T) {
+// The reference reads a ratio's exact "numerator" and "denominator" and ignores
+// any other key, so a case variant must not replace the validated component.
+func TestConwayGenesisRatioObjectCaseVariantIsIgnored(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ path, value string }{
-		{
-			"committee.threshold",
-			`{"numerator":0,"denominator":1,"NUMERATOR":2}`,
-		},
-		{
-			"poolVotingThresholds.committeeNormal",
-			`{"numerator":1,"Numerator":-1,"denominator":2}`,
-		},
-		{
-			"dRepVotingThresholds.treasuryWithdrawal",
-			`{"numerator":1,"denominator":2,"denominator ":0,"Denominator":0}`,
-		},
-		{
-			"minFeeRefScriptCostPerByte",
-			`{"numerator":1,"denominator":2,"Denominator":0}`,
-		},
-	} {
-		_, err := conwayDecodeWith(t, tc.path, json.RawMessage(tc.value))
-		require.ErrorContains(t, err, "differs only in case", tc.path)
-		require.ErrorContains(t, err, tc.path)
-	}
+	g, err := conwayDecodeWith(t, "committee.threshold",
+		json.RawMessage(`{"numerator":2,"denominator":3,"NUMERATOR":9}`))
+	require.NoError(t, err)
+	require.Equal(t, "2/3", g.Committee.Threshold.String())
+	g, err = conwayDecodeWith(t, "poolVotingThresholds.committeeNormal",
+		json.RawMessage(`{"numerator":1,"Numerator":-1,"denominator":2}`))
+	require.NoError(t, err)
+	require.Equal(t, "1/2", g.PoolVotingThresholds.CommitteeNormal.String())
+	g, err = conwayDecodeWith(t, "minFeeRefScriptCostPerByte",
+		json.RawMessage(`{"numerator":15,"denominator":1,"Denominator":0}`))
+	require.NoError(t, err)
+	require.Equal(t, "15/1", g.MinFeeRefScriptCostPerByte.String())
 }
 
-func TestConwayGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
+// Every validated object drops a case variant of a declared key, so the decode
+// sees the same document whether or not the variant is present.
+func TestConwayGenesisEveryValidatedObjectIgnoresCaseVariants(t *testing.T) {
 	t.Parallel()
+	want, err := conway.NewConwayGenesisFromFile(
+		"testdata/mainnet-conway-genesis.json",
+	)
+	require.NoError(t, err)
 	for _, tc := range []struct{ path, variant string }{
 		{"", "CommitteeMinSize"},
 		{"poolVotingThresholds", "CommitteeNormal"},
@@ -151,8 +149,9 @@ func TestConwayGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
 			cur[tc.variant] = json.Number("0")
 			data, err := json.Marshal(doc)
 			require.NoError(t, err)
-			_, err = conway.NewConwayGenesisFromReader(bytes.NewReader(data))
-			require.ErrorContains(t, err, "differs only in case")
+			got, err := conway.NewConwayGenesisFromReader(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Equal(t, want, got)
 		})
 	}
 }

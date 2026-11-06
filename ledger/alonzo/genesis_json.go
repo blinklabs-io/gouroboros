@@ -36,8 +36,13 @@ func validateAlonzoGenesisJSON(data []byte) (json.RawMessage, error) {
 		data,
 		gj.Required("lovelacePerUTxOWord", gj.Uint(64)),
 		// parseCostModels fails when PlutusV1 is not supplied.
+		// Only the language keys the decode reads are kept. PlutusV2 and
+		// PlutusV3 are not read by the reference here but are decoded when
+		// present, so they pass through unexamined.
 		gj.Required("costModels", gj.Object(
 			gj.Required("PlutusV1", gj.ArrayOrObject()),
+			gj.Optional("PlutusV2", nil),
+			gj.Optional("PlutusV3", nil),
 		)),
 		gj.Required("executionPrices", gj.Object(
 			gj.RequiredAnyOf(

@@ -181,24 +181,33 @@ func TestShelleyGenesisRatioComponentAboveInt64IsValidationError(t *testing.T) {
 	require.ErrorContains(t, err, "activeSlotsCoeff")
 }
 
-// encoding/json matches the ratio members case-insensitively and lets a later
-// key win, so a variant would replace the validated numerator.
-func TestShelleyGenesisRatioObjectCaseVariantCannotOverride(t *testing.T) {
+// The reference reads a ratio's exact "numerator" and "denominator" and ignores
+// any other key, so a case variant must not replace the validated component.
+func TestShelleyGenesisRatioObjectCaseVariantIsIgnored(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct{ path, value string }{
-		{"protocolParams.a0", `{"numerator":1,"Numerator":-1,"denominator":2}`},
-		{"protocolParams.rho", `{"numerator":0,"denominator":1,"NUMERATOR":2}`},
-		{"activeSlotsCoeff", `{"numerator":1,"denominator":2,"Denominator":0}`},
+	for _, tc := range []struct{ path, value, want string }{
+		{"protocolParams.a0", `{"numerator":1,"Numerator":-1,"denominator":2}`, "1/2"},
+		{"protocolParams.rho", `{"numerator":0,"denominator":1,"NUMERATOR":2}`, "0/1"},
+		{"activeSlotsCoeff", `{"numerator":1,"denominator":2,"Denominator":0}`, "1/2"},
 	} {
-		_, err := shelleyDecodeWith(t, tc.path, json.RawMessage(tc.value))
-		require.ErrorContains(t, err, "differs only in case", tc.path)
-		require.ErrorContains(t, err, tc.path)
+		g, err := shelleyDecodeWith(t, tc.path, json.RawMessage(tc.value))
+		require.NoError(t, err, tc.path)
+		got := map[string]string{
+			"protocolParams.a0":  g.ProtocolParameters.A0.String(),
+			"protocolParams.rho": g.ProtocolParameters.Rho.String(),
+			"activeSlotsCoeff":   g.ActiveSlotsCoeff.String(),
+		}[tc.path]
+		require.Equal(t, tc.want, got, tc.path)
 	}
+	// A required key present only as a case variant is missing.
+	_, err := shelleyDecodeWith(t, "protocolParams.a0",
+		json.RawMessage(`{"Numerator":1,"denominator":2}`))
+	require.ErrorContains(t, err, "numerator")
 }
 
-// Every validated object rejects a case variant of a declared key, so none of
-// them can pass a validated value and decode a different one.
-func TestShelleyGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
+// Every validated object drops a case variant of a declared key, so the decode
+// sees the same document whether or not the variant is present.
+func TestShelleyGenesisEveryValidatedObjectIgnoresCaseVariants(t *testing.T) {
 	t.Parallel()
 	doc := loadShelleyDoc(t, "testdata/mainnet-shelley-genesis.json")
 	doc["staking"] = map[string]any{
@@ -213,6 +222,15 @@ func TestShelleyGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
 		delegKey = k
 		break
 	}
+	encode := func(d map[string]any) []byte {
+		data, err := json.Marshal(d)
+		require.NoError(t, err)
+		return data
+	}
+	want, err := shelley.NewShelleyGenesisFromReader(
+		bytes.NewReader(encode(doc)),
+	)
+	require.NoError(t, err)
 	for _, tc := range []struct {
 		path    string
 		variant string
@@ -226,10 +244,8 @@ func TestShelleyGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
 	} {
 		t.Run(tc.path+"+"+tc.variant, func(t *testing.T) {
 			t.Parallel()
-			data, err := json.Marshal(doc)
-			require.NoError(t, err)
-			var copyDoc map[string]any
-			require.NoError(t, json.Unmarshal(data, &copyDoc))
+			copyDoc := map[string]any{}
+			require.NoError(t, json.Unmarshal(encode(doc), &copyDoc))
 			cur := copyDoc
 			if tc.path != "" {
 				for _, part := range strings.Split(tc.path, ".") {
@@ -237,10 +253,11 @@ func TestShelleyGenesisEveryValidatedObjectRejectsCaseVariants(t *testing.T) {
 				}
 			}
 			cur[tc.variant] = json.Number("0")
-			data, err = json.Marshal(copyDoc)
+			got, err := shelley.NewShelleyGenesisFromReader(
+				bytes.NewReader(encode(copyDoc)),
+			)
 			require.NoError(t, err)
-			_, err = shelley.NewShelleyGenesisFromReader(bytes.NewReader(data))
-			require.ErrorContains(t, err, "differs only in case")
+			require.Equal(t, want, got)
 		})
 	}
 }
@@ -332,7 +349,7 @@ func TestShelleyGenesisRepeatedObjectKeyTakesFirstOccurrence(t *testing.T) {
 	doc := loadShelleyDoc(t, "testdata/mainnet-shelley-genesis.json")
 	pp, err := json.Marshal(doc["protocolParams"])
 	require.NoError(t, err)
-	var first map[string]any
+	first := map[string]any{}
 	dec := json.NewDecoder(bytes.NewReader(pp))
 	dec.UseNumber()
 	require.NoError(t, dec.Decode(&first))
@@ -400,5 +417,35 @@ func TestShelleyGenesisValidatedValuesAlwaysDecode(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The reference ignores unknown keys in every object it reads, so an extra key
+// next to a validated one must not reach the struct decode.
+func TestShelleyGenesisUnknownKeysInValidatedObjectsAreIgnored(t *testing.T) {
+	t.Parallel()
+	doc := loadShelleyDoc(t, "testdata/mainnet-shelley-genesis.json")
+	var delegKey string
+	for k := range doc["genDelegs"].(map[string]any) {
+		delegKey = k
+		break
+	}
+	want, err := shelleyDecodeWith(t, "genDelegs."+delegKey+"x", nil)
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		path  string
+		value any
+	}{
+		{"genDelegs." + delegKey + ".note", json.Number("1")},
+		{"genDelegs." + delegKey + ".nested", map[string]any{"a": []any{}}},
+		{"protocolParams.protocolVersion.note", "x"},
+		{"protocolParams.note", json.Number("1")},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
+			got, err := shelleyDecodeWith(t, tc.path, tc.value)
+			require.NoError(t, err)
+			require.Equal(t, want, got)
+		})
 	}
 }

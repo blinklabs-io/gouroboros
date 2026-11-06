@@ -34,7 +34,7 @@ func loadShelleyDoc(t *testing.T, path string) map[string]any {
 	require.NoError(t, err)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	var doc map[string]any
+	doc := map[string]any{}
 	require.NoError(t, dec.Decode(&doc))
 	return doc
 }
@@ -416,11 +416,13 @@ func TestShelleyGenesisNetworkId(t *testing.T) {
 	})
 }
 
-// A key differing from a validated key only in case must not replace the
-// validated value: the reference ignores it, encoding/json would decode it.
-func TestShelleyGenesisCaseVariantKeyCannotOverride(t *testing.T) {
+// A key differing from a validated key only in case is ignored, as in the
+// reference: the validated value is the decoded one.
+func TestShelleyGenesisCaseVariantKeyIsIgnored(t *testing.T) {
 	t.Parallel()
 	data, err := os.ReadFile("testdata/mainnet-shelley-genesis.json")
+	require.NoError(t, err)
+	want, err := shelley.NewShelleyGenesisFromReader(bytes.NewReader(data))
 	require.NoError(t, err)
 	for _, tc := range []struct{ exact, variant string }{
 		{`"rho": 0.003`, `"RHO": 5`},
@@ -434,7 +436,8 @@ func TestShelleyGenesisCaseVariantKeyCannotOverride(t *testing.T) {
 			tc.exact+", "+tc.variant,
 			1,
 		)
-		_, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(doc))
-		require.ErrorContains(t, err, "differs only in case", tc.variant)
+		got, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(doc))
+		require.NoError(t, err, tc.variant)
+		require.Equal(t, want, got, tc.variant)
 	}
 }

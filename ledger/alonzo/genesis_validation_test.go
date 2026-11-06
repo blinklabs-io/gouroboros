@@ -33,7 +33,7 @@ func loadAlonzoDoc(t *testing.T) map[string]any {
 	require.NoError(t, err)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	var doc map[string]any
+	doc := map[string]any{}
 	require.NoError(t, dec.Decode(&doc))
 	return doc
 }

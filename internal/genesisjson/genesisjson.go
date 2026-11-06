@@ -95,8 +95,12 @@ func Optional(name string, check Check) Field {
 }
 
 // RequiredAnyOf returns a field satisfied by any one of the named keys.
-func RequiredAnyOf(check Check, names ...string) Field {
-	return Field{Name: names[0], Check: check, AnyOf: names}
+func RequiredAnyOf(check Check, first string, rest ...string) Field {
+	return Field{
+		Name:  first,
+		Check: check,
+		AnyOf: append([]string{first}, rest...),
+	}
 }
 
 // Validate checks data, which must be a JSON object, against fields. The
@@ -106,9 +110,12 @@ func Validate(context string, data []byte, fields ...Field) error {
 	return err
 }
 
-// Normalize validates data like Validate and returns the document to decode:
-// every checked field holds the value its check returned, and every other
-// value keeps its meaning and its number literals. A key that appears more
+// Normalize validates data like Validate and returns the document to decode.
+// Each object checked against fields holds exactly its declared keys, with the
+// value its check returned; a key that differs only in case, an unselected
+// alternate and an unknown key are dropped, as the reference ignores them.
+// Values below a field that has no check, or an unstructured check, keep their
+// meaning and their number literals. A key that appears more
 // than once in any object resolves to its first occurrence, as it does in
 // aeson, and the later occurrences are dropped unexamined; encoding/json would
 // keep the last one, or merge two objects.
@@ -133,13 +140,11 @@ func normalize(
 	if err != nil {
 		return nil, atPath(pathOrRoot(context), err)
 	}
-	if err := checkCaseVariants(context, obj, fields); err != nil {
-		return nil, err
-	}
-	out := make(map[string]json.RawMessage, len(obj))
-	for k, v := range obj {
-		out[k] = v
-	}
+	// Only declared keys, and of an alternation only the selected one, are
+	// emitted: the reference reads exactly those and ignores everything
+	// else, whereas the struct decode would match a case variant, a later
+	// alternate or an unexpected value against its fields.
+	out := make(map[string]json.RawMessage, len(fields))
 	for _, f := range fields {
 		names := f.AnyOf
 		if len(names) == 0 {
@@ -188,38 +193,6 @@ func normalize(
 		)}
 	}
 	return json.Marshal(out)
-}
-
-// checkCaseVariants rejects a key that differs from a declared key only in
-// case. aeson ignores such a key, but encoding/json matches struct fields
-// case-insensitively and lets a later key overwrite an earlier one, so the
-// struct decode would replace the validated value with an unvalidated one.
-func checkCaseVariants(
-	context string,
-	obj map[string]json.RawMessage,
-	fields []Field,
-) error {
-	declared := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if len(f.AnyOf) > 0 {
-			declared = append(declared, f.AnyOf...)
-		} else {
-			declared = append(declared, f.Name)
-		}
-	}
-	for key := range obj {
-		for _, name := range declared {
-			if key != name && strings.EqualFold(key, name) {
-				return &pathError{msg: fmt.Sprintf(
-					"%s: key %q differs only in case from %q",
-					pathOrRoot(context),
-					key,
-					name,
-				)}
-			}
-		}
-	}
-	return nil
 }
 
 func join(context, name string) string {
@@ -584,13 +557,9 @@ const maxDecimals = 19
 // component above math.MaxInt64 is refused; this is an intentional divergence
 // from the Word64 range of the reference.
 func Interval(kind IntervalKind) Check {
-	return func(path string, raw json.RawMessage) (json.RawMessage, error) {
-		r, isObject, err := parseRational(path, raw)
+	return func(_ string, raw json.RawMessage) (json.RawMessage, error) {
+		r, isObject, err := parseRational(raw)
 		if err != nil {
-			var pe *pathError
-			if errors.As(err, &pe) {
-				return nil, err
-			}
 			return nil, typeErr(err)
 		}
 		if err := checkInterval(r, kind); err != nil {
@@ -624,7 +593,7 @@ func ratDecimal(r *big.Rat) string {
 	return s
 }
 
-func parseRational(path string, raw json.RawMessage) (*big.Rat, bool, error) {
+func parseRational(raw json.RawMessage) (*big.Rat, bool, error) {
 	t := bytes.TrimSpace(raw)
 	if len(t) == 0 {
 		return nil, false, errors.New("expected a rational value")
@@ -632,14 +601,6 @@ func parseRational(path string, raw json.RawMessage) (*big.Rat, bool, error) {
 	if t[0] == '{' {
 		obj, err := decodeObject(t)
 		if err != nil {
-			return nil, false, err
-		}
-		// The ratio is decoded case-insensitively, so a variant key could
-		// replace the validated component.
-		if err := checkCaseVariants(path, obj, []Field{
-			Required("numerator", nil),
-			Required("denominator", nil),
-		}); err != nil {
 			return nil, false, err
 		}
 		numRaw, ok := obj["numerator"]
