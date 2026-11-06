@@ -1327,7 +1327,11 @@ func UtxoValidateWithdrawals(
 //
 // The era-specific pool metadata URL bound (64 bytes before protocol version 9,
 // 128 thereafter) is enforced while decoding pool metadata, including genesis
-// pool configuration, rather than by the reference POOL predicate.
+// pool configuration, rather than by the reference POOL predicate. The relay
+// dns_name bound (64 bytes before protocol version 9, 128 thereafter) is also a
+// decoder bound in the reference; the wire decoder here carries no protocol
+// version, so registration applies it through
+// common.ValidatePoolRelaysForProtocolVersion.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction,
 	slot uint64,
@@ -1492,6 +1496,12 @@ func validatePoolRegistration(
 ) error {
 	if err := common.ValidatePoolMetadataForProtocolVersion(
 		cert.PoolMetadata,
+		protocolMajor,
+	); err != nil {
+		return err
+	}
+	if err := common.ValidatePoolRelaysForProtocolVersion(
+		cert.Relays,
 		protocolMajor,
 	); err != nil {
 		return err

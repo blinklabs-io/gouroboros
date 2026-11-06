@@ -635,6 +635,36 @@ func ValidatePoolMetadataForProtocolVersion(
 	return validatePoolMetadataURL(metadata, maxURLLength)
 }
 
+// ValidatePoolRelaysForProtocolVersion verifies the protocol-version-aware
+// bound on relay dns_name values. Protocol versions before Conway use the
+// legacy 64-byte bound; Conway and later use the 128-byte bound.
+//
+// The wire decoder carries no protocol version and accepts the larger bound,
+// so a rule validating a transaction applies this check to what it decoded.
+func ValidatePoolRelaysForProtocolVersion(
+	relays []PoolRelay,
+	protocolMajor uint,
+) error {
+	maxLength := poolRelayMaxHostnameLen
+	if protocolMajor < ProtocolVersionConway {
+		maxLength = poolRelayMaxHostnameLenLegacy
+	}
+	for _, relay := range relays {
+		switch relay.Type {
+		case PoolRelayTypeSingleHostName, PoolRelayTypeMultiHostName:
+			if relay.Hostname != nil && len(*relay.Hostname) > maxLength {
+				return fmt.Errorf(
+					"%w: maximum %d bytes, got %d",
+					ErrPoolRelayHostnameTooLong,
+					maxLength,
+					len(*relay.Hostname),
+				)
+			}
+		}
+	}
+	return nil
+}
+
 func validatePoolMetadataURL(metadata *PoolMetadata, maxURLLength int) error {
 	if metadata == nil || len(metadata.Url) <= maxURLLength {
 		return nil
@@ -720,8 +750,16 @@ const (
 	PoolRelayTypeMultiHostName            = 2
 	poolRelayMaxPort               uint32 = 65535
 	poolRelayMaxHostnameLen               = 128
+	poolRelayMaxHostnameLenLegacy         = 64
 	poolRelayIpv4Size                     = 4
 	poolRelayIpv6Size                     = 16
+)
+
+// ErrPoolRelayHostnameTooLong identifies a single_host_name or multi_host_name
+// relay whose dns_name exceeds the bound of the protocol version it is
+// validated at.
+var ErrPoolRelayHostnameTooLong = errors.New(
+	"pool relay dns_name exceeds the protocol length limit",
 )
 
 // ErrPoolRelayAddressWidth identifies a single_host_addr relay whose ipv4 or
