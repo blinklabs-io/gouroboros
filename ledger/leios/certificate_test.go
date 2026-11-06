@@ -44,6 +44,14 @@ func TestVerifyDijkstraCertificate(t *testing.T) {
 		)
 		require.NoError(t, err)
 	})
+	t.Run("ignores padding bits beyond the committee size", func(t *testing.T) {
+		for _, signers := range [][]byte{{0x81}, {0xbf}} {
+			err := VerifyDijkstraCertificate(
+				signers, signature, 2, big.NewRat(3, 5), context,
+			)
+			require.NoError(t, err, "signers %x", signers)
+		}
+	})
 	t.Run(
 		"rejects signature with no cryptographic validity",
 		func(t *testing.T) {
