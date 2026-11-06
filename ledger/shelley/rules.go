@@ -28,7 +28,6 @@ import (
 	"math/big"
 	"unicode/utf8"
 
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 )
@@ -501,12 +500,7 @@ func UtxoValidateOutputBootAddrAttrsTooBig(
 		if addr.Type() != common.AddressTypeByron {
 			continue
 		}
-		attr := addr.ByronAttr()
-		attrBytes, err := cbor.Encode(attr)
-		if err != nil {
-			return err
-		}
-		if len(attrBytes) <= 64 {
+		if addr.ByronAttr().ExtraSize() <= 64 {
 			continue
 		}
 		badOutputs = append(badOutputs, tmpOutput)
