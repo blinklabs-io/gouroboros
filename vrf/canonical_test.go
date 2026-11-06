@@ -90,8 +90,9 @@ func TestRejectsNonCanonicalPointEncodings(t *testing.T) {
 func TestWrongLengthKeyKeepsLengthError(t *testing.T) {
 	t.Parallel()
 	for _, key := range [][]byte{nil, make([]byte, 31), make([]byte, 33)} {
+		_, wantErr := (&edwards25519.Point{}).SetBytes(key)
+		require.Error(t, wantErr, "key length %d", len(key))
 		_, err := VerifyAndHash(key, make([]byte, ProofSize), []byte("msg"))
-		require.Error(t, err)
-		require.NotErrorIs(t, err, ErrNonCanonicalEncoding, "key length %d", len(key))
+		require.EqualError(t, err, wantErr.Error(), "key length %d", len(key))
 	}
 }

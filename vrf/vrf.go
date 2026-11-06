@@ -507,7 +507,10 @@ func decodeProofArrays(
 		)
 	}
 	if !isCanonicalY(pi[:32]) {
-		return nil, fmt.Errorf("invalid gamma encoding: %w", ErrNonCanonicalEncoding)
+		return nil, fmt.Errorf(
+			"invalid gamma encoding: %w",
+			ErrNonCanonicalEncoding,
+		)
 	}
 	gamma = &edwards25519.Point{}
 	if _, err := gamma.SetBytes(pi[:32]); err != nil {
@@ -520,7 +523,7 @@ func decodeProofArrays(
 
 // isCanonicalY reports whether the y coordinate of a 32-byte point encoding is
 // below p. SetBytes silently reduces y >= p, so the check must precede it. The
-// sign bit is ignored; only y in [p, p+18) has a second encoding. An encoding
+// sign bit is ignored; only y in [p, p+19) has a second encoding. An encoding
 // of any other length is not judged here: SetBytes rejects it with its own
 // length error.
 func isCanonicalY(enc []byte) bool {
