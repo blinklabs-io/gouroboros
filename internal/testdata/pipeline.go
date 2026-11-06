@@ -135,7 +135,8 @@ func ShelleyVerifyConfig() (common.VerifyConfig, error) {
 		}
 	}
 	return common.VerifyConfig{
-		LedgerState: stateBuilder.Build(),
+		MaxKesEvolutions: 62,
+		LedgerState:      stateBuilder.Build(),
 		ProtocolParameters: &shelley.ShelleyProtocolParameters{
 			MaxBlockBodySize:   2_097_154,
 			MaxTxSize:          2_097_154,

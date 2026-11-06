@@ -72,6 +72,7 @@ func opCertTestBlock(
 
 func opCertTestVerifyConfig() common.VerifyConfig {
 	return common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipBlockLimitsValidation: true,
 		SkipTransactionValidation: true,

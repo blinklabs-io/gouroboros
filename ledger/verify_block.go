@@ -730,8 +730,8 @@ func verifyBlockTransactions(
 //
 // VerifyBlock is not full chain-context consensus validation. It does not
 // receive the previous header, active stake distribution, active slot
-// coefficient, max KES evolutions, or operational certificate sequence state,
-// so callers must combine it with chain-state validation before using a block
+// coefficient, or operational certificate sequence state, so callers must
+// combine it with chain-state validation before using a block
 // as a production consensus decision.
 func VerifyBlock(
 	block Block,
@@ -1002,9 +1002,9 @@ func verifyBlock(
 	// id is the Blake2b-224 hash of exactly that key, so verifying against
 	// header.IssuerVkey is verifying against the registered cold key.
 	//
-	// Counter monotonicity and the max-KES-evolutions bound are not checked
-	// here: both need state VerifyBlock does not receive -- the pool's
-	// last-seen counter, and the Shelley genesis maxKESEvolutions.
+	// Counter monotonicity is not checked here: it needs the pool's last-seen
+	// counter, which VerifyBlock does not receive. The max-KES-evolutions
+	// bound below comes from config instead.
 	//
 	opCert, err := ExtractOpCertFromHeader(block.Header())
 	if err != nil {
@@ -1036,6 +1036,45 @@ func verifyBlock(
 	signature, hotVkey, kesPeriod, err := ExtractKesFields(block.Header())
 	if err != nil {
 		return false, "", 0, 0, err
+	}
+
+	if !localOnly && !config.SkipKesEvolutionsValidation {
+		// kes.VerifySignedKES bounds the evolution only by the key depth, so
+		// it accepts evolutions up to 63 where the Shelley genesis limit is
+		// lower. The reference rejects kesPeriod >= opcertStart +
+		// maxKESEvolutions and any period before the opcert start.
+		if config.MaxKesEvolutions == 0 {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeConfiguration,
+				"MaxKesEvolutions is required for KES evolution validation",
+				map[string]any{
+					"slot":         slot,
+					"block_number": blockNo,
+					"era":          era,
+				},
+				nil,
+			)
+		}
+		if _, err := ValidateKesPeriod(
+			kesPeriod,
+			slot,
+			slotsPerKesPeriod,
+			config.MaxKesEvolutions,
+		); err != nil {
+			return false, "", 0, 0, common.NewValidationError(
+				common.ValidationErrorTypeKES,
+				"KES period outside operational certificate validity",
+				map[string]any{
+					"slot":                 slot,
+					"block_number":         blockNo,
+					"era":                  era,
+					"kes_period":           kesPeriod,
+					"slots_per_kes_period": slotsPerKesPeriod,
+					"max_kes_evolutions":   config.MaxKesEvolutions,
+				},
+				err,
+			)
+		}
 	}
 
 	kesValid, err = VerifyKesComponents(

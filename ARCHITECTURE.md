@@ -491,9 +491,12 @@ registration against the state before the block. `VerifyBlock()` combines both.
 Byron transaction validation also requires `VerifyConfig.ByronTxFeePolicy` and
 fails closed when it is unset: the fee must be at least the linear policy's
 minimum for the serialized transaction size, except for redeem-only spends.
+`VerifyBlock()` also requires `VerifyConfig.MaxKesEvolutions` (the Shelley
+genesis maxKESEvolutions) and fails closed when it is zero, unless
+`SkipKesEvolutionsValidation` is set; it rejects a header whose KES evolution
+is at or beyond that bound. `VerifyBlockLocal()` does not apply the bound.
 These helpers are not complete consensus gates. They do not receive the previous
-header, active
-stake distribution, active slot coefficient, max KES evolutions, or operational
+header, active stake distribution, active slot coefficient, or operational
 certificate sequence state. Production chain validation must combine these
 checks with pre-decode block-type resolution and ordered chain-context
 consensus validation before accepting a block.

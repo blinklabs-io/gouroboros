@@ -189,6 +189,7 @@ func TestVerifyBlockDijkstraBodySizeMatchesSignedHeader(t *testing.T) {
 		blockLimitsTestEta0Hex,
 		blockLimitsTestSlotsPerKesPeriod,
 		common.VerifyConfig{
+			MaxKesEvolutions:          62,
 			SkipTransactionValidation: true,
 			SkipStakePoolValidation:   true,
 			SkipBlockLimitsValidation: true,
@@ -251,6 +252,7 @@ func TestVerifyBlockDijkstraExUnitsIncludesEveryTransactionLevel(
 				blockLimitsTestEta0Hex,
 				blockLimitsTestSlotsPerKesPeriod,
 				common.VerifyConfig{
+					MaxKesEvolutions:          62,
 					SkipBodyHashValidation:    true,
 					SkipTransactionValidation: true,
 					SkipStakePoolValidation:   true,
@@ -281,6 +283,7 @@ func TestVerifyBlockDijkstraZeroExUnitsAtZeroLimit(t *testing.T) {
 		blockLimitsTestEta0Hex,
 		blockLimitsTestSlotsPerKesPeriod,
 		common.VerifyConfig{
+			MaxKesEvolutions:          62,
 			SkipBodyHashValidation:    true,
 			SkipTransactionValidation: true,
 			SkipStakePoolValidation:   true,

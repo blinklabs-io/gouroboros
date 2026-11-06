@@ -75,6 +75,7 @@ func TestProfileBlockValidation(t *testing.T) {
 	// Create a config that skips validation steps requiring ledger state
 	// This focuses profiling on the core decode + hash validation path
 	config := common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
 		// Keep body hash validation enabled - this is a key validation path

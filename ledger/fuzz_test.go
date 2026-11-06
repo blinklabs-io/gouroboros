@@ -48,6 +48,7 @@ func exerciseFuzzBlock(block Block, eta0Hex string, slotsPerKesPeriod uint64) {
 		eta0Hex,
 		slotsPerKesPeriod,
 		common.VerifyConfig{
+			MaxKesEvolutions:          62,
 			SkipBodyHashValidation:    true,
 			SkipTransactionValidation: true,
 			SkipStakePoolValidation:   true,

@@ -129,6 +129,17 @@ type VerifyConfig struct {
 	// validation failure when ProtocolParameters is nil and is a no-op only
 	// when transactions, raw block CBOR, and header CBOR are all unavailable.
 	SkipBlockLimitsValidation bool
+	// MaxKesEvolutions is the Shelley genesis maxKESEvolutions (62 on
+	// mainnet). VerifyBlock requires it unless SkipKesEvolutionsValidation is
+	// set, and rejects a header whose KES evolution (its KES period minus the
+	// operational certificate's start period) is greater than or equal to this
+	// value, or whose KES period precedes the certificate's start period.
+	MaxKesEvolutions uint64
+	// SkipKesEvolutionsValidation disables the MaxKesEvolutions bound in
+	// VerifyBlock(). When false (default), MaxKesEvolutions must be non-zero
+	// and validation fails closed otherwise. The KES signature is still
+	// verified, but only bounded by the depth of the KES key.
+	SkipKesEvolutionsValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
 	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
 	LedgerState LedgerState
