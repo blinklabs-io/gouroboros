@@ -14,6 +14,8 @@
 package alonzo
 
 import (
+	"encoding/json"
+
 	gj "github.com/blinklabs-io/gouroboros/internal/genesisjson"
 )
 
@@ -24,18 +26,18 @@ import (
 // the types of UpgradeAlonzoPParams (maxValueSize Word32, collateralPercentage
 // and maxCollateralInputs Word16), Prices (NonNegativeInterval) and ExUnits
 // (Word64, Plutus/ExUnits.hs).
-func validateAlonzoGenesisJSON(data []byte) error {
+func validateAlonzoGenesisJSON(data []byte) (json.RawMessage, error) {
 	exUnits := gj.Object(
 		gj.RequiredAnyOf(gj.Uint(64), "memory", "exUnitsMem"),
 		gj.RequiredAnyOf(gj.Uint(64), "steps", "exUnitsSteps"),
 	)
-	return gj.Validate(
+	return gj.Normalize(
 		"",
 		data,
 		gj.Required("lovelacePerUTxOWord", gj.Uint(64)),
 		// parseCostModels fails when PlutusV1 is not supplied.
 		gj.Required("costModels", gj.Object(
-			gj.Required("PlutusV1", nil),
+			gj.Required("PlutusV1", gj.ArrayOrObject()),
 		)),
 		gj.Required("executionPrices", gj.Object(
 			gj.RequiredAnyOf(

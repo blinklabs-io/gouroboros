@@ -804,10 +804,11 @@ func NewShelleyGenesisFromReader(r io.Reader) (ShelleyGenesis, error) {
 	if err := json.NewDecoder(r).Decode(&data); err != nil {
 		return ret, err
 	}
-	if err := validateShelleyGenesisJSON(data); err != nil {
+	normalized, err := validateShelleyGenesisJSON(data)
+	if err != nil {
 		return ret, fmt.Errorf("invalid Shelley genesis: %w", err)
 	}
-	if err := json.Unmarshal(data, &ret); err != nil {
+	if err := json.Unmarshal(normalized, &ret); err != nil {
 		return ret, err
 	}
 	return ret, nil

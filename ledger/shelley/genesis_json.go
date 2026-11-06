@@ -28,8 +28,8 @@ import (
 // required, staking and extraConfig are optional, and unknown keys are
 // ignored. Value ranges follow the field types of ShelleyGenesis and of
 // ShelleyPParams (Shelley/PParams.hs).
-func validateShelleyGenesisJSON(data []byte) error {
-	return gj.Validate(
+func validateShelleyGenesisJSON(data []byte) (json.RawMessage, error) {
+	return gj.Normalize(
 		"",
 		data,
 		gj.Required("systemStart", gj.Text()),
@@ -40,12 +40,12 @@ func validateShelleyGenesisJSON(data []byte) error {
 			"activeSlotsCoeff",
 			gj.Interval(gj.PositiveUnitInterval),
 		),
-		gj.Required("securityParam", gj.NonZeroUint64()),
-		gj.Required("epochLength", gj.Uint(64)),
-		gj.Required("slotsPerKESPeriod", gj.Uint(64)),
-		gj.Required("maxKESEvolutions", gj.Uint(64)),
+		gj.Required("securityParam", gj.NonZeroGoInt()),
+		gj.Required("epochLength", gj.GoInt(64)),
+		gj.Required("slotsPerKESPeriod", gj.GoInt(64)),
+		gj.Required("maxKESEvolutions", gj.GoInt(64)),
 		gj.Required("slotLength", gj.Number()),
-		gj.Required("updateQuorum", gj.Uint(64)),
+		gj.Required("updateQuorum", gj.GoInt(64)),
 		gj.Required("maxLovelaceSupply", gj.Uint(64)),
 		gj.Required("protocolParams", gj.Object(shelleyPParamsFields()...)),
 		// GenDelegPair requires both keys.
@@ -53,7 +53,7 @@ func validateShelleyGenesisJSON(data []byte) error {
 			gj.Required("delegate", gj.Text()),
 			gj.Required("vrf", gj.Text()),
 		))),
-		gj.Required("initialFunds", gj.AnyObject()),
+		gj.Required("initialFunds", gj.MapOf(gj.Uint(64))),
 		gj.Optional("staking", gj.Object(
 			gj.Required("pools", gj.AnyObject()),
 			gj.Required("stake", gj.AnyObject()),
@@ -66,13 +66,13 @@ func validateShelleyGenesisJSON(data []byte) error {
 // (Shelley/Genesis.hs); the field types come from ShelleyPParams.
 func shelleyPParamsFields() []gj.Field {
 	return []gj.Field{
-		gj.Required("minFeeA", gj.Uint(64)),
-		gj.Required("minFeeB", gj.Uint(64)),
+		gj.Required("minFeeA", gj.GoUint(64)),
+		gj.Required("minFeeB", gj.GoUint(64)),
 		gj.Required("maxBlockBodySize", gj.Uint(32)),
 		gj.Required("maxTxSize", gj.Uint(32)),
 		gj.Required("maxBlockHeaderSize", gj.Uint(16)),
-		gj.Required("keyDeposit", gj.Uint(64)),
-		gj.Required("poolDeposit", gj.Uint(64)),
+		gj.Required("keyDeposit", gj.GoUint(64)),
+		gj.Required("poolDeposit", gj.GoUint(64)),
 		gj.Required("eMax", gj.Uint(32)),
 		gj.Required("nOpt", gj.Uint(16)),
 		gj.Required("a0", gj.Interval(gj.NonNegativeInterval)),
@@ -86,8 +86,8 @@ func shelleyPParamsFields() []gj.Field {
 			gj.Required("major", gj.Uint(32)),
 			gj.Required("minor", gj.Uint(32)),
 		)),
-		gj.Optional("minUTxOValue", gj.Uint(64)),
-		gj.Optional("minPoolCost", gj.Uint(64)),
+		gj.Optional("minUTxOValue", gj.GoUint(64)),
+		gj.Optional("minPoolCost", gj.GoUint(64)),
 	}
 }
 
@@ -95,7 +95,10 @@ func shelleyPParamsFields() []gj.Field {
 // Every section is optional. The reference also accepts a file-backed
 // injection, which this package does not load; refusing it avoids silently
 // dropping injected state.
-func validateExtraConfig(path string, raw json.RawMessage) error {
+func validateExtraConfig(
+	path string,
+	raw json.RawMessage,
+) (json.RawMessage, error) {
 	for _, section := range []string{
 		"initialFunds",
 		"stakePools",
@@ -103,23 +106,23 @@ func validateExtraConfig(path string, raw json.RawMessage) error {
 	} {
 		injection := gj.Optional(
 			section,
-			func(p string, v json.RawMessage) error {
+			func(p string, v json.RawMessage) (json.RawMessage, error) {
 				var keys map[string]json.RawMessage
 				if err := json.Unmarshal(v, &keys); err != nil {
-					return errors.New("expected a JSON object")
+					return nil, errors.New("expected a JSON object")
 				}
 				if _, ok := keys["file"]; ok {
-					return fmt.Errorf(
+					return nil, fmt.Errorf(
 						"%s: file-backed injection is not supported",
 						p,
 					)
 				}
-				return nil
+				return v, nil
 			},
 		)
-		if err := gj.Validate(path, raw, injection); err != nil {
-			return err
+		if _, err := gj.Normalize(path, raw, injection); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+	return raw, nil
 }

@@ -14,6 +14,8 @@
 package conway
 
 import (
+	"encoding/json"
+
 	gj "github.com/blinklabs-io/gouroboros/internal/genesisjson"
 )
 
@@ -23,9 +25,9 @@ import (
 // parameter keys are the required FromJSON UpgradeConwayPParams keys
 // (Conway/PParams.hs), constitution and committee are required, and delegs,
 // initialDReps and extraConfig are optional. Unknown keys are ignored.
-func validateConwayGenesisJSON(data []byte) error {
+func validateConwayGenesisJSON(data []byte) (json.RawMessage, error) {
 	unit := gj.Interval(gj.UnitInterval)
-	return gj.Validate(
+	return gj.Normalize(
 		"",
 		data,
 		// PoolVotingThresholds and DRepVotingThresholds: every key required,
@@ -72,7 +74,7 @@ func validateConwayGenesisJSON(data []byte) error {
 		)),
 		// FromJSON Committee: members map to an EpochNo (Word64).
 		gj.Required("committee", gj.Object(
-			gj.Required("members", gj.MapOf(gj.Uint(64))),
+			gj.Required("members", gj.MapOf(gj.GoInt(64))),
 			gj.Required("threshold", unit),
 		)),
 		gj.Optional("delegs", gj.AnyObject()),

@@ -140,7 +140,7 @@ func TestIntervalMatchesBoundedRatioFromJSON(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := gj.Interval(tc.kind)("v", json.RawMessage(tc.input))
+			_, err := gj.Interval(tc.kind)("v", json.RawMessage(tc.input))
 			if tc.valid {
 				require.NoError(t, err)
 			} else {
@@ -171,7 +171,7 @@ func TestUintAcceptsIntegralNumberForms(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
 			t.Parallel()
-			err := gj.Uint(tc.bits)("v", json.RawMessage(tc.input))
+			_, err := gj.Uint(tc.bits)("v", json.RawMessage(tc.input))
 			if tc.valid {
 				require.NoError(t, err)
 			} else {
@@ -203,7 +203,7 @@ func TestValidateOptionalNullAndAlternates(t *testing.T) {
 		err,
 		`ctx: missing required field "first" or "second"`,
 	)
-	// A required field holding null is a type error, not an absence.
+	// A null alternate is skipped, so only its absence is reported.
 	err = gj.Validate("", []byte(`{"first":null}`), fields...)
 	require.ErrorContains(t, err, "first")
 	require.Error(t, gj.Validate("", []byte(`[]`), fields...))
@@ -244,12 +244,13 @@ func TestNumberRejectsExcessiveSignificantDigits(t *testing.T) {
 		gj.Interval(gj.NonNegativeInterval),
 		gj.Number(),
 	} {
-		err := check("v", json.RawMessage(long))
+		_, err := check("v", json.RawMessage(long))
 		require.ErrorContains(t, err, "too many significant digits")
 	}
 	// Zeros around the coefficient do not count.
-	require.NoError(t, gj.Uint(64)(
+	_, err := gj.Uint(64)(
 		"v",
 		json.RawMessage("0.5"+strings.Repeat("0", 2000)+"e1"),
-	))
+	)
+	require.NoError(t, err)
 }
