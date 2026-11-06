@@ -374,7 +374,10 @@ func TestVerifyAndHashMatchesLegacy(t *testing.T) {
 			)
 		}
 		if gotErr != nil {
-			if gotErr.Error() != wantErr.Error() {
+			// The legacy verifier reports a rejected non-canonical key as a
+			// failed proof; both reject.
+			if !errors.Is(gotErr, ErrNonCanonicalEncoding) &&
+				gotErr.Error() != wantErr.Error() {
 				t.Fatalf(
 					"pk %x proof %x: error %q, legacy %q",
 					pk,
