@@ -42,7 +42,7 @@ const minUtxoOverheadBytes = 160
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
-		Validator: common.UtxoValidateCurrentTreasuryValue,
+		Validator: common.UtxoValidateCurrentTreasuryValueAnyPhase,
 	},
 	{
 		Id:        common.UtxoValidationRuleMetadata,
@@ -386,7 +386,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleStakePoolVotingRestrictions:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleCCVotingRestrictions:         dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleUnelectedCommitteeVoters:     dijkstraUtxoValidationPhase2Valid,
-	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleRefScriptSizePerTx:           dijkstraUtxoValidationAlways,
 	common.UtxoValidationRulePoolCertificates:             dijkstraUtxoValidationPhase2Valid,
 }
 
@@ -5082,6 +5082,10 @@ func UtxoValidateMalformedReferenceScripts(
 	)
 }
 
+// UtxoValidateRefScriptSizePerTx limits the non-distinct reference-script
+// size summed over the top-level transaction and every sub-transaction.
+// Dijkstra LEDGER applies it before branching on Phase2Valid, so
+// phase-2-invalid transactions are checked too.
 func UtxoValidateRefScriptSizePerTx(
 	tx common.Transaction,
 	slot uint64,
@@ -5091,9 +5095,6 @@ func UtxoValidateRefScriptSizePerTx(
 	maxSize, err := maxRefScriptSizePerTx(pp)
 	if err != nil {
 		return err
-	}
-	if !tx.IsValid() {
-		return nil
 	}
 	totalSize, err := consumedRefScriptSize(tx, ls)
 	if err != nil {

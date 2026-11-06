@@ -168,14 +168,15 @@ func TestDijkstraCurrentTreasuryValueProductionRules(t *testing.T) {
 			},
 		},
 		{
-			name:          "phase-2 invalid skips provider",
-			treasuryValue: dijkstraTreasuryValue(41),
-			ledgerErr:     providerErr,
-			wantRuleId:    common.UtxoValidationRuleIsValidFlag,
+			name:             "phase-2 invalid queries provider",
+			treasuryValue:    dijkstraTreasuryValue(41),
+			ledgerErr:        providerErr,
+			wantProviderCall: 1,
+			wantRuleId:       common.UtxoValidationRuleCurrentTreasuryValue,
 			checkError: func(t *testing.T, err error) {
-				var target common.InvalidIsValidFlagError
+				var target common.TreasuryValueQueryError
 				require.ErrorAs(t, err, &target)
-				require.NotErrorIs(t, err, providerErr)
+				require.ErrorIs(t, err, providerErr)
 			},
 		},
 	}
@@ -279,7 +280,7 @@ func TestDijkstraCurrentTreasuryValueValidatesAllSubTransactions(
 	)
 
 	t.Run(
-		"top-level phase-2-invalid skips every sub-transaction",
+		"top-level phase-2-invalid still validates sub-transactions",
 		func(t *testing.T) {
 			body := decodeDijkstraTreasuryBody(t, nil)
 			body.TxSubTransactions = cbor.NewSetType(
@@ -308,9 +309,10 @@ func TestDijkstraCurrentTreasuryValueValidatesAllSubTransactions(
 				},
 				UtxoValidationRules,
 			)
-			var target common.InvalidIsValidFlagError
+			var target common.CurrentTreasuryValueMismatchError
 			require.ErrorAs(t, err, &target)
-			require.Equal(t, 0, providerCalls)
+			require.Equal(t, big.NewInt(41), target.Supplied)
+			require.Equal(t, 1, providerCalls)
 		},
 	)
 }
