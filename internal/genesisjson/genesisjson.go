@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"strconv"
@@ -106,11 +107,24 @@ func Validate(context string, data []byte, fields ...Field) error {
 }
 
 // Normalize validates data like Validate and returns the document to decode:
-// every checked field holds the value its check returned, and every other key
-// is carried over unchanged. A key that appears more than once resolves to its
-// last occurrence, as it does in aeson, rather than being merged by the struct
-// decode.
+// every checked field holds the value its check returned, and every other
+// value keeps its meaning and its number literals. A key that appears more
+// than once in any object resolves to its first occurrence, as it does in
+// aeson, and the later occurrences are dropped unexamined; encoding/json would
+// keep the last one, or merge two objects.
 func Normalize(
+	context string,
+	data []byte,
+	fields ...Field,
+) (json.RawMessage, error) {
+	deduped, err := firstOccurrence(data)
+	if err != nil {
+		return nil, atPath(pathOrRoot(context), err)
+	}
+	return normalize(context, deduped, fields...)
+}
+
+func normalize(
 	context string,
 	data []byte,
 	fields ...Field,
@@ -222,6 +236,97 @@ func pathOrRoot(context string) string {
 	return context
 }
 
+// maxDepth matches the nesting limit of encoding/json.
+const maxDepth = 10000
+
+// firstOccurrence re-encodes one JSON value, keeping only the first occurrence
+// of a repeated key in every object. Numbers keep their literal text.
+func firstOccurrence(data []byte) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var buf bytes.Buffer
+	if err := copyFirst(dec, &buf, true, 0); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, errors.New("unexpected data after the JSON value")
+	}
+	return buf.Bytes(), nil
+}
+
+// copyFirst copies the next value from dec into buf, or only consumes it when
+// keep is false.
+func copyFirst(
+	dec *json.Decoder,
+	buf *bytes.Buffer,
+	keep bool,
+	depth int,
+) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	write := func(s string) {
+		if keep {
+			buf.WriteString(s)
+		}
+	}
+	switch v := tok.(type) {
+	case json.Delim:
+		if depth >= maxDepth {
+			return errors.New("exceeded max depth")
+		}
+		write(string(v))
+		seen := make(map[string]bool)
+		for n := 0; dec.More(); n++ {
+			keepChild := keep
+			if v == '{' {
+				kt, err := dec.Token()
+				if err != nil {
+					return err
+				}
+				key, _ := kt.(string)
+				keepChild = keep && !seen[key]
+				seen[key] = true
+				if keepChild {
+					if n > 0 {
+						buf.WriteByte(',')
+					}
+					k, err := json.Marshal(key)
+					if err != nil {
+						return err
+					}
+					buf.Write(k)
+					buf.WriteByte(':')
+				}
+			} else if keep && n > 0 {
+				buf.WriteByte(',')
+			}
+			if err := copyFirst(dec, buf, keepChild, depth+1); err != nil {
+				return err
+			}
+		}
+		end, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		write(string(end.(json.Delim)))
+	case json.Number:
+		write(string(v))
+	case string:
+		s, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		write(string(s))
+	case bool:
+		write(strconv.FormatBool(v))
+	case nil:
+		write("null")
+	}
+	return nil
+}
+
 func isNull(raw json.RawMessage) bool {
 	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
@@ -241,7 +346,7 @@ func decodeObject(data []byte) (map[string]json.RawMessage, error) {
 // Object checks a nested object against fields.
 func Object(fields ...Field) Check {
 	return func(path string, raw json.RawMessage) (json.RawMessage, error) {
-		return Normalize(path, raw, fields...)
+		return normalize(path, raw, fields...)
 	}
 }
 
@@ -387,6 +492,11 @@ func uintCheck(bits uint, nonZero bool, dest *destination) Check {
 		v, err := parseInteger(raw)
 		if err != nil {
 			return nil, typeErr(err)
+		}
+		// A negative value already fails the Natural or Integer parse that
+		// the reference applies inside an alternation, so it falls through.
+		if v.Sign() < 0 {
+			return nil, typeErr(checkUint(v, bits))
 		}
 		if err := checkUint(v, bits); err != nil {
 			return nil, err

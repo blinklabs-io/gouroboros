@@ -174,6 +174,12 @@ func TestAlonzoGenesisExUnitsAlternateSpellingSelection(t *testing.T) {
 		},
 		{"zero primary wins", `{"memory":0,"exUnitsMem":9,"steps":2}`, 0, true},
 		{
+			"negative primary",
+			`{"memory":-1,"exUnitsMem":1,"steps":2}`,
+			1,
+			true,
+		},
+		{
 			"out of range primary does not fall through",
 			`{"memory":18446744073709551616,"exUnitsMem":1,"steps":2}`,
 			0,

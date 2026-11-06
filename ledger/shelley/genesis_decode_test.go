@@ -325,10 +325,9 @@ func TestShelleyGenesisValueBeyondDecodedGoTypeIsValidationError(t *testing.T) {
 	}
 }
 
-// aeson resolves a repeated key to its last occurrence as a whole value;
-// encoding/json would merge the two objects, keeping a member only the first
-// one carried.
-func TestShelleyGenesisRepeatedObjectKeyTakesLastOccurrence(t *testing.T) {
+// aeson resolves a repeated key to its first occurrence as a whole value;
+// encoding/json would merge the two objects, letting the last one win.
+func TestShelleyGenesisRepeatedObjectKeyTakesFirstOccurrence(t *testing.T) {
 	t.Parallel()
 	doc := loadShelleyDoc(t, "testdata/mainnet-shelley-genesis.json")
 	pp, err := json.Marshal(doc["protocolParams"])
@@ -353,7 +352,8 @@ func TestShelleyGenesisRepeatedObjectKeyTakesLastOccurrence(t *testing.T) {
 		`,"protocolParams":` + string(lastJSON) + `}`
 	g, err := shelley.NewShelleyGenesisFromReader(strings.NewReader(spliced))
 	require.NoError(t, err)
-	require.Equal(t, uint(0), g.ProtocolParameters.MinPoolCost)
+	require.Equal(t, uint(7), g.ProtocolParameters.MinPoolCost)
+	require.Equal(t, g.ProtocolParameters.MinFeeA, uint(44))
 }
 
 // Every value the validator accepts must decode: a failure in the struct

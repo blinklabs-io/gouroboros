@@ -152,3 +152,44 @@ func TestNumberRejectsExponentBeyondDecodeLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "150", string(out))
 }
+
+// aeson keeps the first occurrence of a repeated object key, at every depth,
+// including inside values the validator does not examine; encoding/json keeps
+// the last one.
+func TestNormalizeRepeatedKeyKeepsFirstOccurrence(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":1,"b":{"c":1,"c":2,"d":[{"e":1,"e":2}]},"a":2,"f":{"g":3,"g":4}}`,
+		),
+		gj.Required("a", gj.Uint(8)),
+		gj.Required("b", gj.AnyObject()),
+		gj.Required("f", gj.MapOf(gj.Uint(8))),
+	)
+	require.NoError(t, err)
+	require.JSONEq(
+		t,
+		`{"a":1,"b":{"c":1,"d":[{"e":1}]},"f":{"g":3}}`,
+		string(out),
+	)
+	// The repeated value is skipped, not validated: aeson never parses it.
+	require.NoError(t, gj.Validate(
+		"",
+		[]byte(`{"a":1,"a":"x"}`),
+		gj.Required("a", gj.Uint(8)),
+	))
+}
+
+// FromJSON ExUnits reads a Natural inside the (<|>), so a negative primary
+// falls through to the alternate spelling; only the Word64 bound applied
+// after the alternation is final.
+func TestValidateAlternateFallthroughOnNegative(t *testing.T) {
+	t.Parallel()
+	fields := []gj.Field{gj.RequiredAnyOf(gj.Uint(64), "first", "second")}
+	require.NoError(
+		t,
+		gj.Validate("", []byte(`{"first":-1,"second":1}`), fields...),
+	)
+	require.Error(t, gj.Validate("", []byte(`{"first":-1}`), fields...))
+}
