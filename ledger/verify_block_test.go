@@ -99,6 +99,7 @@ var eraNameMap = map[uint]string{
 // Useful for tests that don't provide full CBOR or ledger state.
 func testSkipAllValidationConfig() common.VerifyConfig {
 	return common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
@@ -370,6 +371,7 @@ func verifiedBlockFuzzSeed() (uint, []byte, string, uint64, error) {
 		fixture.Eta0,
 		uint64(fixture.Spk),
 		common.VerifyConfig{
+			MaxKesEvolutions:          62,
 			SkipBodyHashValidation:    true,
 			SkipTransactionValidation: true,
 			SkipStakePoolValidation:   true,
@@ -640,6 +642,7 @@ func TestVerifyBlock_SkipBodyHashValidation(t *testing.T) {
 func TestVerifyBlock_TransactionValidation(t *testing.T) {
 	// This test enables transaction validation and verifies it integrates correctly with VerifyBlock
 	config := common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,  // Skip to focus on transaction validation
 		SkipTransactionValidation: false, // Enable transaction validation
 		SkipStakePoolValidation:   true,  // Skip stake pool validation
@@ -732,6 +735,7 @@ func TestVerifyBlock_TransactionValidation(t *testing.T) {
 func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 	// This test enables stake pool validation and verifies it integrates correctly with VerifyBlock
 	config := common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,  // Skip to focus on stake pool validation
 		SkipTransactionValidation: true,  // Skip transaction validation
 		SkipStakePoolValidation:   false, // Enable stake pool validation
@@ -987,6 +991,7 @@ func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
 
 	t.Run("unrecognized ProtocolParameters fails closed", func(t *testing.T) {
 		config := common.VerifyConfig{
+			MaxKesEvolutions:        62,
 			SkipBodyHashValidation:  true,
 			SkipStakePoolValidation: true,
 			LedgerState:             ledgerState,
@@ -1008,6 +1013,7 @@ func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
 
 	t.Run("missing ProtocolParameters fails closed", func(t *testing.T) {
 		config := common.VerifyConfig{
+			MaxKesEvolutions:          62,
 			SkipBodyHashValidation:    true,
 			SkipStakePoolValidation:   true,
 			SkipTransactionValidation: true,
@@ -1031,6 +1037,7 @@ func TestVerifyBlock_UnrecognizedProtocolParameters(t *testing.T) {
 		"SkipBlockLimitsValidation bypasses the error",
 		func(t *testing.T) {
 			config := common.VerifyConfig{
+				MaxKesEvolutions:          62,
 				SkipBodyHashValidation:    true,
 				SkipStakePoolValidation:   true,
 				SkipBlockLimitsValidation: true,

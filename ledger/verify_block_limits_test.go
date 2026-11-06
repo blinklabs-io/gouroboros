@@ -298,6 +298,7 @@ func blockLimitsTestVerifyConfig(
 	pp *conway.ConwayProtocolParameters,
 ) common.VerifyConfig {
 	return common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,

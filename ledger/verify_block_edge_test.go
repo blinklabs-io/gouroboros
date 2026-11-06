@@ -39,6 +39,7 @@ const testSlotsPerKesPeriod = uint64(129600)
 // This is useful for tests that don't need full block validation.
 func skipAllValidationConfig() common.VerifyConfig {
 	return common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
@@ -94,6 +95,7 @@ func newRealConwayBlock(t *testing.T) *conway.ConwayBlock {
 // not carry, leaving VRF, operational certificate and KES enabled.
 func headerOnlyConfig() common.VerifyConfig {
 	return common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,

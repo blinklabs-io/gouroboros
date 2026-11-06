@@ -51,6 +51,7 @@ func TestVerifyBlockDijkstraHeaderProtocolVersionFloor(t *testing.T) {
 				blockLimitsTestEta0Hex,
 				blockLimitsTestSlotsPerKesPeriod,
 				common.VerifyConfig{
+					MaxKesEvolutions:          62,
 					SkipBodyHashValidation:    true,
 					SkipTransactionValidation: true,
 					SkipStakePoolValidation:   true,
@@ -180,6 +181,7 @@ func verifyLeiosWiringBlock(
 ) (bool, []error) {
 	t.Helper()
 	config := common.VerifyConfig{
+		MaxKesEvolutions:          62,
 		SkipBodyHashValidation:    true,
 		SkipTransactionValidation: true,
 		SkipStakePoolValidation:   true,
