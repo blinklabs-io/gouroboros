@@ -88,7 +88,12 @@ type ByronVKeyWitnessVerifier interface {
 
 // computeByronAddressRoot computes the address root for a Byron address
 // using the bootstrap witness public key, chain code, and raw attributes bytes.
-// Byron address root = blake2b_224(sha3_256(cbor([0, [0, bytes(pubkey || chainCode)], attributes])))
+// Byron address root = blake2b_224(sha3_256(prefix || pubkey || chainCode || attributes))
+// where the prefix is the constant 0x83 0x00 0x82 0x00 0x58 0x40: an array of
+// 3, addrType 0, an array of 2, addrType 0, and a byte string header that
+// always claims 64 bytes. The chain code is appended as given, so for a chain
+// code that is not 32 bytes the hashed bytes are not well-formed CBOR, exactly
+// as in the ledger's bootstrap key hash.
 // The attributes must be used as-is (already CBOR-encoded) to preserve the original encoding.
 // This matches the Amaru implementation.
 func computeByronAddressRoot(
@@ -96,32 +101,18 @@ func computeByronAddressRoot(
 	chainCode []byte,
 	attrBytes []byte,
 ) (Blake2b224, error) {
-	// Validate input sizes to ensure correct CBOR encoding
-	// Byron addresses require exactly 32 bytes for both pubkey and chain code
 	if len(pubkey) != 32 {
 		return Blake2b224{}, fmt.Errorf(
 			"invalid Byron pubkey size: expected 32 bytes, got %d",
 			len(pubkey),
 		)
 	}
-	if len(chainCode) != 32 {
-		return Blake2b224{}, fmt.Errorf(
-			"invalid Byron chain code size: expected 32 bytes, got %d",
-			len(chainCode),
-		)
-	}
 
-	// Build the CBOR structure: [0, [0, bytes(pubkey || chainCode)], attributes]
-	// Byron addresses always use addrType = 0 for public key addresses
-	// CBOR prefix: 0x83 (array of 3) 0x00 (int 0) 0x82 (array of 2) 0x00 (int 0) 0x5840 (bytes of 64)
-	var buf []byte                // nolint:prealloc
-	buf = append(buf, 0x83)       // CBOR array of 3 elements
-	buf = append(buf, 0x00)       // First element: addrType = 0
-	buf = append(buf, 0x82)       // Second element: array of 2
-	buf = append(buf, 0x00)       // addrType = 0
-	buf = append(buf, 0x58, 0x40) // CBOR bytes of 64 bytes (0x40 = 64)
-
-	// Append pubkey (32 bytes) and chainCode (32 bytes)
+	// NOTE: The ledger hashes a constant prefix whose byte-string header always
+	// claims 64 bytes, followed by whatever chain code was supplied. The chain
+	// code length is deliberately not checked here.
+	buf := make([]byte, 0, 6+len(pubkey)+len(chainCode)+len(attrBytes))
+	buf = append(buf, 0x83, 0x00, 0x82, 0x00, 0x58, 0x40)
 	buf = append(buf, pubkey...)
 	buf = append(buf, chainCode...)
 
