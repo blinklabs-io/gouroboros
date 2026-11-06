@@ -942,11 +942,13 @@ func (n NativeScript) Item() any {
 
 func (n *NativeScript) UnmarshalCBOR(data []byte) error {
 	n.SetCbor(data)
-	var decoded nativeScriptReference
-	if err := decoded.UnmarshalCBOR(n.Cbor()); err != nil {
+	raw := n.Cbor()
+	decoded, _, err := parseNativeScriptReference(raw, 0)
+	if err != nil {
 		return err
 	}
 	*n = decoded.nativeScript()
+	n.SetCborReference(raw)
 	return nil
 }
 
@@ -970,39 +972,151 @@ type nativeScriptNofKReference struct {
 	Scripts []nativeScriptReference
 }
 
-func (n *nativeScriptReference) UnmarshalCBOR(data []byte) error {
-	n.SetCborReference(data)
+// parseNativeScriptReference decodes the native script at the start of data
+// and returns it with the number of bytes it occupies. Container scripts are
+// walked in place rather than handed whole to the CBOR decoder, which would
+// re-validate every nested script at each level and make decode time
+// quadratic in nesting depth. Each byte is decoded once: only a leaf script
+// or a type tag reaches the CBOR decoder, and those are fixed-size.
+//
+// Every script level occupies two CBOR nesting levels (its own array and its
+// child list), so the depth bound matches the decoder's cbor.MaxNestedLevels.
+func parseNativeScriptReference(
+	data []byte,
+	depth int,
+) (nativeScriptReference, int, error) {
+	var ret nativeScriptReference
+	if 2*depth+2 > cbor.MaxNestedLevels {
+		return ret, 0, errors.New("native script nesting is too deep")
+	}
 	length, headerLength, indefinite := cbor.ArrayInfo(data)
 	if length < 0 || (!indefinite && length == 0) ||
 		int(headerLength) >= len(data) {
-		return errors.New("native script must be a non-empty CBOR array")
+		return ret, 0, errors.New(
+			"native script must be a non-empty CBOR array",
+		)
 	}
+	pos := int(headerLength)
 	var id uint
-	if _, err := cbor.Decode(data[headerLength:], &id); err != nil {
-		return fmt.Errorf("decode native script type: %w", err)
+	idLength, err := cbor.Decode(data[pos:], &id)
+	if err != nil {
+		return ret, 0, fmt.Errorf("decode native script type: %w", err)
 	}
-	var tmpData any
-	switch id {
-	case 0:
-		tmpData = &NativeScriptPubkey{}
-	case 1, 2:
-		tmpData = &nativeScriptListReference{}
-	case 3:
-		tmpData = &nativeScriptNofKReference{}
-	case 4:
-		tmpData = &NativeScriptInvalidBefore{}
-	case 5:
-		tmpData = &NativeScriptInvalidHereafter{}
-	case 6:
-		tmpData = &NativeScriptRequireGuard{}
-	default:
-		return fmt.Errorf("unknown native script type %d", id)
+	if id > 6 {
+		return ret, 0, fmt.Errorf("unknown native script type %d", id)
 	}
-	if _, err := cbor.Decode(data, tmpData); err != nil {
-		return err
+	if id != 1 && id != 2 && id != 3 {
+		var item any
+		switch id {
+		case 0:
+			item = &NativeScriptPubkey{}
+		case 4:
+			item = &NativeScriptInvalidBefore{}
+		case 5:
+			item = &NativeScriptInvalidHereafter{}
+		default:
+			item = &NativeScriptRequireGuard{}
+		}
+		consumed, err := cbor.Decode(data, item)
+		if err != nil {
+			return ret, 0, err
+		}
+		ret.SetCborReference(data[:consumed:consumed])
+		ret.item = item
+		return ret, consumed, nil
 	}
-	n.item = tmpData
-	return nil
+	pos += idLength
+	fields := 2
+	var threshold int64
+	if id == 3 {
+		fields = 3
+		thresholdLength, err := cbor.Decode(data[pos:], &threshold)
+		if err != nil {
+			return ret, 0, err
+		}
+		pos += thresholdLength
+	}
+	if !indefinite && length != fields {
+		return ret, 0, fmt.Errorf(
+			"native script type %d must contain %d fields, got %d",
+			id,
+			fields,
+			length,
+		)
+	}
+	children, childrenLength, err := parseNativeScriptChildren(
+		data[pos:],
+		depth,
+	)
+	if err != nil {
+		return ret, 0, err
+	}
+	pos += childrenLength
+	if indefinite {
+		if pos >= len(data) || data[pos] != 0xff {
+			return ret, 0, fmt.Errorf(
+				"native script type %d must contain %d fields",
+				id,
+				fields,
+			)
+		}
+		pos++
+	}
+	ret.SetCborReference(data[:pos:pos])
+	if id == 3 {
+		ret.item = &nativeScriptNofKReference{
+			Type:    id,
+			N:       threshold,
+			Scripts: children,
+		}
+	} else {
+		ret.item = &nativeScriptListReference{Type: id, Scripts: children}
+	}
+	return ret, pos, nil
+}
+
+// parseNativeScriptChildren decodes a definite or indefinite list of native
+// scripts at the start of data and returns it with its encoded length. CBOR
+// null and undefined decode to an empty list.
+func parseNativeScriptChildren(
+	data []byte,
+	depth int,
+) ([]nativeScriptReference, int, error) {
+	if len(data) == 0 {
+		return nil, 0, errors.New("native script child list is missing")
+	}
+	if data[0] == 0xf6 || data[0] == 0xf7 {
+		return nil, 1, nil
+	}
+	length, headerLength, indefinite := cbor.ArrayInfo(data)
+	if length < 0 {
+		return nil, 0, errors.New("native script children must be an array")
+	}
+	pos := int(headerLength)
+	var children []nativeScriptReference
+	if !indefinite {
+		// A hostile length cannot be trusted for preallocation: every
+		// child needs at least one byte.
+		children = make([]nativeScriptReference, 0, min(length, len(data)))
+	}
+	for i := 0; indefinite || i < length; i++ {
+		if pos >= len(data) {
+			return nil, 0, errors.New("native script child list is truncated")
+		}
+		if indefinite && data[pos] == 0xff {
+			return children, pos + 1, nil
+		}
+		child, consumed, err := parseNativeScriptReference(
+			data[pos:],
+			depth+1,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+		children = append(children, child)
+		pos += consumed
+	}
+	return children, pos, nil
 }
 
 func (n nativeScriptReference) nativeScript() NativeScript {
