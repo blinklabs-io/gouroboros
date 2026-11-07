@@ -38,19 +38,20 @@ import (
 )
 
 func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
-	hash := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
+	scriptHash := bytes.Repeat([]byte{0x42}, common.AddressHashSize)
+	keyHash := bytes.Repeat([]byte{0x43}, common.AddressHashSize)
 	scriptAddress, err := common.NewAddressFromParts(
 		common.AddressTypeNoneScript,
 		common.AddressNetworkTestnet,
 		nil,
-		hash,
+		scriptHash,
 	)
 	require.NoError(t, err)
 	keyAddress, err := common.NewAddressFromParts(
 		common.AddressTypeNoneKey,
 		common.AddressNetworkTestnet,
 		nil,
-		hash,
+		keyHash,
 	)
 	require.NoError(t, err)
 	tx := mockledger.NewTransactionBuilder().WithWithdrawals(
@@ -59,14 +60,49 @@ func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
 			&keyAddress:    2,
 		},
 	)
+	tx.WithWitnesses(
+		mockledger.NewMockTransactionWitnessSet().WithRedeemers(
+			conway.ConwayRedeemers{
+				Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+					{Tag: common.RedeemerTagReward, Index: 0}: {},
+				},
+			},
+		),
+	)
 
-	assertOrder := func(
+	assertScriptFirst := func(
 		t *testing.T,
 		withdrawals script.KeyValuePairs[*common.Address, *big.Int],
 	) {
 		require.Len(t, withdrawals, 2)
 		require.Same(t, &scriptAddress, withdrawals[0].Key)
 		require.Same(t, &keyAddress, withdrawals[1].Key)
+	}
+	assertKeyFirst := func(
+		t *testing.T,
+		withdrawals script.KeyValuePairs[*common.Address, *big.Int],
+	) {
+		require.Len(t, withdrawals, 2)
+		require.Same(t, &keyAddress, withdrawals[0].Key)
+		require.Same(t, &scriptAddress, withdrawals[1].Key)
+	}
+	assertScriptRedeemer := func(
+		t *testing.T,
+		redeemers script.KeyValuePairs[script.ScriptPurpose, script.Redeemer],
+	) {
+		require.Len(t, redeemers, 1)
+		purpose, ok := redeemers[0].Key.(script.ScriptPurposeRewarding)
+		require.True(t, ok)
+		require.EqualValues(
+			t,
+			common.CredentialTypeScriptHash,
+			purpose.StakeCredential.CredType,
+		)
+		require.Equal(
+			t,
+			common.NewBlake2b224(scriptHash),
+			purpose.StakeCredential.Credential,
+		)
 	}
 
 	t.Run("Plutus V1", func(t *testing.T) {
@@ -75,22 +111,24 @@ func TestTxInfoWithdrawalOrderFollowsCredentialOrder(t *testing.T) {
 		)
 		require.NoError(t, err)
 		require.Len(t, txInfo.Withdrawals, 2)
-		require.Same(t, &scriptAddress, txInfo.Withdrawals[0].T1)
-		require.Same(t, &keyAddress, txInfo.Withdrawals[1].T1)
+		require.Same(t, &keyAddress, txInfo.Withdrawals[0].T1)
+		require.Same(t, &scriptAddress, txInfo.Withdrawals[1].T1)
+		assertScriptRedeemer(t, txInfo.Redeemers)
 	})
 	t.Run("Plutus V2", func(t *testing.T) {
 		txInfo, err := script.NewTxInfoV2FromTransaction(
 			mockSlotState{}, tx, nil, false, common.ProtocolVersionDijkstra,
 		)
 		require.NoError(t, err)
-		assertOrder(t, txInfo.Withdrawals)
+		assertKeyFirst(t, txInfo.Withdrawals)
+		assertScriptRedeemer(t, txInfo.Redeemers)
 	})
 	t.Run("Plutus V3", func(t *testing.T) {
 		txInfo, err := script.NewTxInfoV3FromTransaction(
 			mockSlotState{}, tx, nil, common.ProtocolVersionDijkstra,
 		)
 		require.NoError(t, err)
-		assertOrder(t, txInfo.Withdrawals)
+		assertScriptFirst(t, txInfo.Withdrawals)
 	})
 }
 

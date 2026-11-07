@@ -118,7 +118,7 @@ func TestTxInfoOutputsUseTransactionBodyOutputs(t *testing.T) {
 	}
 }
 
-func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
+func TestTxInfoV1FiltersByronInputsOnlyInAlonzo(t *testing.T) {
 	byronAddress, err := common.NewByronAddressFromParts(
 		common.ByronAddressTypePubkey,
 		bytes.Repeat([]byte{0x42}, common.AddressHashSize),
@@ -165,12 +165,11 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 
 	for _, eraType := range []int{5, 6, 7} {
 		tx.txType = eraType
-		info, err = script.NewTxInfoV1FromTransaction(
+		_, err = script.NewTxInfoV1FromTransaction(
 			validitySlotState{}, tx, resolved, eraType >= 6,
 			common.ProtocolVersionDijkstra,
 		)
-		require.NoError(t, err)
-		require.Empty(t, info.Inputs)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 		_, err = script.NewTxInfoV2FromTransaction(
 			validitySlotState{}, tx, resolved, eraType >= 6,
 			common.ProtocolVersionDijkstra,
@@ -184,7 +183,7 @@ func TestTxInfoV1FiltersByronInputsAcrossEras(t *testing.T) {
 	require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 }
 
-func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
+func TestTxInfoV1FiltersByronOutputsOnlyInAlonzo(t *testing.T) {
 	byronAddress, err := common.NewByronAddressFromParts(
 		common.ByronAddressTypePubkey,
 		bytes.Repeat([]byte{0x42}, common.AddressHashSize),
@@ -231,12 +230,11 @@ func TestTxInfoV1FiltersByronOutputsAcrossEras(t *testing.T) {
 
 	for _, eraType := range []int{5, 6, 7} {
 		tx.txType = eraType
-		info, err = script.NewTxInfoV1FromTransaction(
+		_, err = script.NewTxInfoV1FromTransaction(
 			validitySlotState{}, tx, resolved, eraType >= 6,
 			common.ProtocolVersionDijkstra,
 		)
-		require.NoError(t, err)
-		require.Empty(t, info.Outputs)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 		_, err = script.NewTxInfoV2FromTransaction(
 			validitySlotState{}, tx, resolved, eraType >= 6,
 			common.ProtocolVersionDijkstra,
@@ -260,6 +258,16 @@ func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
 	byronOutput, err := mockledger.NewTransactionOutputBuilder().
 		WithAddress(byronAddress.String()).WithLovelace(1).Build()
 	require.NoError(t, err)
+	shelleyAddress, err := common.NewAddressFromParts(
+		common.AddressTypeKeyNone,
+		common.AddressNetworkTestnet,
+		bytes.Repeat([]byte{0x31}, common.AddressHashSize),
+		nil,
+	)
+	require.NoError(t, err)
+	shelleyOutput, err := mockledger.NewTransactionOutputBuilder().
+		WithAddress(shelleyAddress.String()).WithLovelace(1).Build()
+	require.NoError(t, err)
 	reference := shelley.MustNewShelleyTransactionInput(
 		hex.EncodeToString(
 			bytes.Repeat([]byte{0x44}, common.Blake2b256Size),
@@ -272,14 +280,29 @@ func TestTxInfoRejectsByronReferenceInputs(t *testing.T) {
 		txType:          5,
 		referenceInputs: []common.TransactionInput{reference},
 	}
-	for _, eraType := range []int{5, 6} {
+	for _, eraType := range []int{5, 6, 7} {
 		tx.txType = eraType
+		_, err = script.NewTxInfoV1FromTransaction(
+			validitySlotState{}, tx, resolved, eraType >= 6,
+			common.ProtocolVersionDijkstra,
+		)
+		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 		_, err = script.NewTxInfoV2FromTransaction(
 			validitySlotState{}, tx, resolved, eraType >= 6,
 			common.ProtocolVersionDijkstra,
 		)
 		require.ErrorContains(t, err, "cannot represent a Byron TxOut")
 	}
+	tx.txType = 6
+	info, err := script.NewTxInfoV1FromTransaction(
+		validitySlotState{},
+		tx,
+		[]common.Utxo{{Id: reference, Output: shelleyOutput}},
+		true,
+		common.ProtocolVersionDijkstra,
+	)
+	require.NoError(t, err)
+	require.Empty(t, info.Inputs)
 	tx.txType = 6
 	_, err = script.NewTxInfoV3FromTransaction(
 		validitySlotState{}, tx, resolved, common.ProtocolVersionDijkstra,
