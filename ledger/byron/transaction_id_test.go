@@ -377,6 +377,12 @@ func TestByronTransactionBodyIdCanonicalizesOutputAddress(t *testing.T) {
 			t.Parallel()
 			wire := byronTxBodyWithAddress(t, addr)
 			var body byron.ByronTransactionBody
+			if name == "attributes out of key order" {
+				if err := body.UnmarshalCBOR(wire); err == nil {
+					t.Fatal("accepted an address with descending attribute keys")
+				}
+				return
+			}
 			if err := body.UnmarshalCBOR(wire); err != nil {
 				t.Fatalf("decode body: %v", err)
 			}

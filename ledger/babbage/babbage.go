@@ -939,6 +939,9 @@ func decodeBabbageTransactionOutput(
 	cborData []byte,
 	lenientAddress bool,
 ) error {
+	if len(cborData) > 0 && cborData[0] == 0xbb {
+		return errors.New("babbage output map has an unsupported 64-bit length head")
+	}
 	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
 		type tBabbageTransactionOutput BabbageTransactionOutput
 		var tmp tBabbageTransactionOutput

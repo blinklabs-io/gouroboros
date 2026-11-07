@@ -15,6 +15,7 @@
 package common
 
 import (
+	"encoding/hex"
 	"reflect"
 	"runtime"
 	"testing"
@@ -23,6 +24,56 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/utxorpc/go-codegen/utxorpc/v1alpha/cardano"
 )
+
+func TestBoundedRationalChecksReducedComponents(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		hex     string
+		valid11 bool
+		valid12 bool
+	}{
+		{"bounded ratio", "d81e820102", true, true},
+		{"bignum numerator", "d81e82c2410102", true, false},
+		{"bignum denominator", "d81e8201c24102", true, false},
+		{"double negative", "d81e822021", true, false},
+		{
+			"wide numerator reduces",
+			"d81e82c24901000000000000000002",
+			true,
+			false,
+		},
+		{
+			"wide ratio reduces",
+			"d81e82c249020000000000000000c249040000000000000000",
+			true,
+			false,
+		},
+		{"negative ratio", "d81e822002", false, false},
+		{"zero denominator", "d81e820100", false, false},
+		{
+			"irreducible wide numerator",
+			"d81e82c24901000000000000000001",
+			false,
+			false,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := hex.DecodeString(test.hex)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ValidateNonNegativeBoundedRatCBOR(raw)
+			if (err == nil) != test.valid11 {
+				t.Fatalf("version 11 valid=%t, error=%v", test.valid11, err)
+			}
+			err = ValidateNonNegativeBoundedRatCBORForVersion(raw, 12)
+			if (err == nil) != test.valid12 {
+				t.Fatalf("version 12 valid=%t, error=%v", test.valid12, err)
+			}
+		})
+	}
+}
 
 func TestValidateNonNegativeBoundedRatArrayCBORRequiresArray(t *testing.T) {
 	for name, value := range map[string]any{

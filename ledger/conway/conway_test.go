@@ -35,6 +35,30 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRedeemerMapHeadWidths(t *testing.T) {
+	t.Parallel()
+	canonical, err := hex.DecodeString("a18200008200820000")
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name  string
+		head  []byte
+		valid bool
+	}{
+		{"minimal", []byte{0xa1}, true},
+		{"32-bit", []byte{0xba, 0, 0, 0, 1}, true},
+		{"64-bit", []byte{0xbb, 0, 0, 0, 0, 0, 0, 0, 1}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire := append(append([]byte(nil), test.head...), canonical[1:]...)
+			var redeemers ConwayRedeemers
+			_, err := cbor.Decode(wire, &redeemers)
+			if (err == nil) != test.valid {
+				t.Fatalf("valid=%t, error=%v", test.valid, err)
+			}
+		})
+	}
+}
+
 func TestConwayRedeemersIter(t *testing.T) {
 	testRedeemers := ConwayRedeemers{
 		Redeemers: map[common.RedeemerKey]common.RedeemerValue{

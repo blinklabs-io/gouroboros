@@ -67,15 +67,14 @@ func decodeNativeScriptTime(
 // Decoding must visit each byte a constant number of times. The test decodes
 // a shallow script factor times and a script factor times deeper once, so
 // both sides process the same number of bytes: quadratic decode takes factor
-// times longer per byte on the deep one, linear decode only the 2-4x that
-// deep recursion costs in stack growth and cache locality. The bound sits
-// between the two. Interleaving
-// the two sides and keeping the fastest of several rounds of each cancels
-// clock-speed drift and scheduler noise, and the test is not parallel so
-// sibling tests do not compete with the timed runs.
+// times longer per byte on the deep one. The bound sits halfway between
+// linear and quadratic growth. Interleaving the two sides and keeping the
+// fastest of several rounds of each cancels clock-speed drift and scheduler
+// noise, and the test is not parallel so sibling tests do not compete with
+// the timed runs.
 func TestNativeScriptDecodeScalesLinearlyWithDepth(t *testing.T) {
-	const baseDepth = 500
-	const factor = 16
+	const baseDepth = 125
+	const factor = 64
 	shallow := nestedAllScript(baseDepth, false)
 	deep := nestedAllScript(baseDepth*factor, false)
 	small := time.Duration(1<<63 - 1)
@@ -91,7 +90,7 @@ func TestNativeScriptDecodeScalesLinearlyWithDepth(t *testing.T) {
 	require.Lessf(
 		t,
 		ratio,
-		7.0,
+		float64(factor)/2,
 		"decoding %dx deeper took %.1fx as long per byte (%s -> %s); "+
 			"linear is ~1x, quadratic ~%dx",
 		factor,

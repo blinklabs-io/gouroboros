@@ -86,9 +86,16 @@ func ValidateCostModelLanguageIDs(models map[uint][]int64) error {
 }
 
 // ValidateNonNegativeBoundedRatCBOR verifies the raw tag-30 integer pair used
-// by reference NonNegativeInterval and UnitInterval values. It checks the
-// unreduced CBOR numerator and denominator before cbor.Rat normalizes them.
+// by reference NonNegativeInterval and UnitInterval values. The Word64
+// bounds apply to the normalized numerator and denominator.
 func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
+	return ValidateNonNegativeBoundedRatCBORForVersion(raw, 11)
+}
+
+// ValidateNonNegativeBoundedRatCBORForVersion checks the rational wire domain
+// for a decoder version. Version 12 bounds the raw Word64 components;
+// earlier versions normalize arbitrary integers before checking the bounds.
+func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error {
 	var tagged cbor.RawTag
 	if _, err := cbor.Decode(raw, &tagged); err != nil {
 		return err
@@ -108,6 +115,26 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 	if len(components) != 2 {
 		return errors.New("expected rational numerator and denominator")
 	}
+	if version >= 12 {
+		if len(components[0]) == 0 || components[0][0]>>5 != 0 {
+			return errors.New("rational numerator must be a Word64")
+		}
+		var numerator uint64
+		if _, err := cbor.DecodeExact(components[0], &numerator); err != nil {
+			return fmt.Errorf("decode rational numerator: %w", err)
+		}
+		if len(components[1]) == 0 || components[1][0]>>5 != 0 {
+			return errors.New("rational denominator must be a positive Word64")
+		}
+		var denominator uint64
+		if _, err := cbor.DecodeExact(components[1], &denominator); err != nil {
+			return fmt.Errorf("decode rational denominator: %w", err)
+		}
+		if denominator == 0 {
+			return errors.New("rational denominator must be a positive Word64")
+		}
+		return nil
+	}
 	numerator, err := rawCBORInteger(components[0])
 	if err != nil {
 		return fmt.Errorf("decode rational numerator: %w", err)
@@ -116,10 +143,14 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 	if err != nil {
 		return fmt.Errorf("decode rational denominator: %w", err)
 	}
-	if !numerator.IsUint64() {
+	if denominator.Sign() == 0 {
+		return errors.New("rational denominator must not be zero")
+	}
+	reduced := new(big.Rat).SetFrac(numerator, denominator)
+	if !reduced.Num().IsUint64() {
 		return errors.New("rational numerator must be in Word64")
 	}
-	if !denominator.IsUint64() || denominator.Sign() == 0 {
+	if !reduced.Denom().IsUint64() {
 		return errors.New("rational denominator must be positive Word64")
 	}
 	return nil
@@ -128,6 +159,15 @@ func ValidateNonNegativeBoundedRatCBOR(raw []byte) error {
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
 // in a struct-as-array CBOR value.
 func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
+	return ValidateNonNegativeBoundedRatArrayCBORForVersion(raw, 11)
+}
+
+// ValidateNonNegativeBoundedRatArrayCBORForVersion validates every raw tag-30
+// rational in a struct-as-array CBOR value for a decoder version.
+func ValidateNonNegativeBoundedRatArrayCBORForVersion(
+	raw []byte,
+	version uint,
+) error {
 	if len(raw) == 0 || raw[0]>>5 != 4 {
 		return errors.New("expected CBOR array")
 	}
@@ -136,7 +176,10 @@ func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
 		return err
 	}
 	for index, value := range values {
-		if err := ValidateNonNegativeBoundedRatCBOR(value); err != nil {
+		if err := ValidateNonNegativeBoundedRatCBORForVersion(
+			value,
+			version,
+		); err != nil {
 			return fmt.Errorf("rational at array index %d: %w", index, err)
 		}
 	}
