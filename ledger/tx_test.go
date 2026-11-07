@@ -382,6 +382,40 @@ func TestDetermineTransactionTypeConwayRequiredSignersNotDijkstra(
 	}
 }
 
+func TestDetermineTransactionTypeThreeComponentConway(t *testing.T) {
+	address := append(
+		[]byte{0x60},
+		bytes.Repeat([]byte{0x01}, common.AddressHashSize)...,
+	)
+	txCbor, err := cbor.Encode([]any{
+		map[uint]any{
+			0: []any{},
+			1: []any{
+				map[uint]any{
+					0: address,
+					1: uint64(1),
+				},
+			},
+			2:  uint64(0),
+			22: uint64(1),
+		},
+		map[uint]any{},
+		nil,
+	})
+	require.NoError(t, err)
+
+	_, err = ledger.NewMaryTransactionFromCbor(txCbor)
+	require.Error(t, err)
+	_, err = ledger.NewBabbageTransactionFromCbor(txCbor)
+	require.Error(t, err)
+	_, err = ledger.NewConwayTransactionFromCbor(txCbor)
+	require.NoError(t, err)
+
+	txType, err := ledger.DetermineTransactionType(txCbor)
+	require.NoError(t, err)
+	require.Equal(t, uint(ledger.TxTypeConway), txType)
+}
+
 func TestDetermineTransactionTypePreDijkstraTransactionsNotDijkstra(
 	t *testing.T,
 ) {

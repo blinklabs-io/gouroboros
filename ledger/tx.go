@@ -153,7 +153,9 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		if _, err := NewByronTransactionFromCbor(data); err == nil {
 			return TxTypeByron, nil
 		}
-	case 0x83: // Shelley, Allegra, and Mary transactions are 3-element arrays
+	case 0x83:
+		// Shelley through Conway may use three elements when IsValid is
+		// omitted.
 		if tryDijkstra() {
 			return TxTypeDijkstra, nil
 		}
@@ -165,6 +167,15 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		}
 		if _, err := NewMaryTransactionFromCbor(data); err == nil {
 			return TxTypeMary, nil
+		}
+		if _, err := NewAlonzoTransactionFromCbor(data); err == nil {
+			return TxTypeAlonzo, nil
+		}
+		if _, err := NewBabbageTransactionFromCbor(data); err == nil {
+			return TxTypeBabbage, nil
+		}
+		if _, err := NewConwayTransactionFromCbor(data); err == nil {
+			return TxTypeConway, nil
 		}
 	case 0x84: // Alonzo+ transactions are 4-element arrays
 		if tryDijkstra() {
