@@ -930,6 +930,16 @@ type BabbageTransactionOutput struct {
 	legacyOutput   bool
 }
 
+// babbageTransactionOutputKeys holds the raw values of a map-form output so
+// that the presence of the required keys can be checked without decoding them
+// a second time.
+type babbageTransactionOutputKeys struct {
+	Address cbor.RawMessage `cbor:"0,keyasint"`
+	Value   cbor.RawMessage `cbor:"1,keyasint"`
+	Datum   cbor.RawMessage `cbor:"2,keyasint"`
+	Script  cbor.RawMessage `cbor:"3,keyasint"`
+}
+
 func (o *BabbageTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 	return decodeBabbageTransactionOutput(o, cborData, false)
 }
@@ -947,6 +957,24 @@ func decodeBabbageTransactionOutput(
 		var tmp tBabbageTransactionOutput
 		if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 			return err
+		}
+		// NOTE: Cardano.Ledger.Babbage.TxOut declares the address (key 0) and
+		// value (key 1) as required fields on every keyed decoding path. The
+		// struct tags are omitempty, so a missing key cannot be told from a
+		// zero value after decoding and presence is checked on the raw map.
+		var present babbageTransactionOutputKeys
+		if _, err := cbor.DecodeLedgerMap(cborData, &present); err != nil {
+			return err
+		}
+		if len(present.Address) == 0 {
+			return errors.New(
+				"babbage transaction output map is missing the address (key 0)",
+			)
+		}
+		if len(present.Value) == 0 {
+			return errors.New(
+				"babbage transaction output map is missing the value (key 1)",
+			)
 		}
 		*o = BabbageTransactionOutput(tmp)
 		if err := common.CheckAddressFullyConsumed(o.OutputAddress); err != nil {
