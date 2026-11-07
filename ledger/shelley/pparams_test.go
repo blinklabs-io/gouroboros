@@ -83,9 +83,29 @@ func TestShelleyProtocolParamsUpdateFromGenesis(t *testing.T) {
 	}{
 		{
 			startParams: shelley.ShelleyProtocolParameters{},
-			genesisJson: `{"protocolParams":{"decentralisationParam":0.9}}`,
+			genesisJson: shelleyGenesisWith(t, map[string]any{
+				"protocolParams": map[string]any{
+					"decentralisationParam": 0.9,
+				},
+			}),
 			expectedParams: shelley.ShelleyProtocolParameters{
-				Decentralization: &cbor.Rat{Rat: big.NewRat(9, 10)},
+				MinFeeA:            44,
+				MinFeeB:            155381,
+				MaxBlockBodySize:   65536,
+				MaxTxSize:          16384,
+				MaxBlockHeaderSize: 1100,
+				KeyDeposit:         2000000,
+				PoolDeposit:        500000000,
+				MaxEpoch:           18,
+				NOpt:               150,
+				A0:                 &cbor.Rat{Rat: big.NewRat(3, 10)},
+				Rho:                &cbor.Rat{Rat: big.NewRat(3, 1000)},
+				Tau:                &cbor.Rat{Rat: big.NewRat(1, 5)},
+				Decentralization:   &cbor.Rat{Rat: big.NewRat(9, 10)},
+				ExtraEntropy:       common.Nonce{Type: common.NonceTypeNeutral},
+				ProtocolMajor:      2,
+				MinUtxoValue:       1000000,
+				MinPoolCost:        340000000,
 			},
 		},
 	}
@@ -444,9 +464,9 @@ func TestShelleyProtocolParamsMinPoolCost(t *testing.T) {
 	// Mainnet's shelley-genesis.json sets it to 340000000.
 	t.Run("fromGenesis", func(t *testing.T) {
 		genesis, err := shelley.NewShelleyGenesisFromReader(
-			strings.NewReader(
-				`{"protocolParams":{"minPoolCost":340000000}}`,
-			),
+			strings.NewReader(shelleyGenesisWith(t, map[string]any{
+				"protocolParams": map[string]any{"minPoolCost": 340000000},
+			})),
 		)
 		if err != nil {
 			t.Fatalf("unexpected error: %s", err)

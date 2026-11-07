@@ -15,13 +15,15 @@
 package conway_test
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"math/bits"
+	"os"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -688,40 +690,40 @@ func TestConwayProtocolParameters_UpdateCopiesFields(t *testing.T) {
 }
 
 func TestConwayProtocolParamsUpdateFromGenesis(t *testing.T) {
-	testDefs := []struct {
-		startParams    conway.ConwayProtocolParameters
-		genesisJson    string
-		expectedParams conway.ConwayProtocolParameters
-	}{
-		{
-			startParams: conway.ConwayProtocolParameters{
-				MaxBlockBodySize: 1,
-			},
-			genesisJson: `{"govActionDeposit": 100000000000}`,
-			expectedParams: conway.ConwayProtocolParameters{
-				MaxBlockBodySize: 1,
-				GovActionDeposit: 100000000000,
-			},
-		},
+	// The reader requires every protocol parameter key, so the genesis comes
+	// from the mainnet file with one value changed. Parameters outside the
+	// genesis (MaxBlockBodySize) must survive, and the genesis value must land.
+	data, err := os.ReadFile("testdata/mainnet-conway-genesis.json")
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
 	}
-	for _, testDef := range testDefs {
-		tmpGenesis, err := conway.NewConwayGenesisFromReader(
-			strings.NewReader(testDef.genesisJson),
+	doc := map[string]any{}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	doc["govActionDeposit"] = 123456789
+	genesisJson, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpGenesis, err := conway.NewConwayGenesisFromReader(
+		bytes.NewReader(genesisJson),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %s", err)
+	}
+	tmpParams := conway.ConwayProtocolParameters{MaxBlockBodySize: 1}
+	if err := tmpParams.UpdateFromGenesis(&tmpGenesis); err != nil {
+		t.Fatalf("unexpected error updating pparams from genesis: %s", err)
+	}
+	if tmpParams.MaxBlockBodySize != 1 {
+		t.Fatalf("MaxBlockBodySize changed: got %d", tmpParams.MaxBlockBodySize)
+	}
+	if tmpParams.GovActionDeposit != 123456789 {
+		t.Fatalf(
+			"GovActionDeposit: got %d, wanted 123456789",
+			tmpParams.GovActionDeposit,
 		)
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err)
-		}
-		tmpParams := testDef.startParams
-		if err := tmpParams.UpdateFromGenesis(&tmpGenesis); err != nil {
-			t.Fatalf("unexpected error updating pparams from genesis: %s", err)
-		}
-		if !reflect.DeepEqual(tmpParams, testDef.expectedParams) {
-			t.Fatalf(
-				"did not get expected params:\n     got: %#v\n  wanted: %#v",
-				tmpParams,
-				testDef.expectedParams,
-			)
-		}
 	}
 }
 

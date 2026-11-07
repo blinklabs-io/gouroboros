@@ -1,0 +1,224 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package genesisjson_test
+
+import (
+	"encoding/json"
+	"strconv"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	gj "github.com/blinklabs-io/gouroboros/internal/genesisjson"
+)
+
+func TestNormalizeRewritesCheckedNumbersToPlainForm(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":4.32e5,"b":1.0,"c":5E-1,"d":{"numerator":1e19,"denominator":2e19},"e":2.0e-1,"f":{"k":1e3}}`,
+		),
+		gj.Required("a", gj.Uint(64)),
+		gj.Required("b", gj.NonZeroUint64()),
+		gj.Required("c", gj.Interval(gj.UnitInterval)),
+		gj.Required("d", gj.Interval(gj.UnitInterval)),
+		gj.Required("e", gj.Number()),
+		gj.Required("f", gj.MapOf(gj.Uint(16))),
+	)
+	require.NoError(t, err)
+	require.JSONEq(
+		t,
+		`{"a":432000,"b":1,"c":0.5,"d":{"numerator":1,"denominator":2},"e":0.2,"f":{"k":1000}}`,
+		string(out),
+	)
+}
+
+// Keys and values the validator does not examine must reach the decode
+// byte-for-byte, so their meaning cannot change.
+func TestNormalizeLeavesUncheckedValuesUntouched(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":1,"costModels":{"PlutusV1":[1.0,2e3,-0],"x":1E2},"unknown":[1.50]}`,
+		),
+		gj.Required("a", gj.Uint(8)),
+		gj.Required("costModels", gj.AnyObject()),
+	)
+	require.NoError(t, err)
+	var got map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(out, &got))
+	require.Equal(
+		t,
+		`{"PlutusV1":[1.0,2e3,-0],"x":1E2}`,
+		string(got["costModels"]),
+	)
+}
+
+// The ratio is read from its exact "numerator" and "denominator" keys; a case
+// variant is ignored, and a ratio carrying only a variant is incomplete.
+func TestIntervalRatioObjectIgnoresCaseVariants(t *testing.T) {
+	t.Parallel()
+	for _, doc := range []string{
+		`{"numerator":1,"Numerator":-1,"denominator":2}`,
+		`{"numerator":1,"denominator":2,"DENOMINATOR":0}`,
+	} {
+		out, err := gj.Interval(gj.UnitInterval)("v", json.RawMessage(doc))
+		require.NoError(t, err, doc)
+		require.JSONEq(t, `{"numerator":1,"denominator":2}`, string(out), doc)
+	}
+	_, err := gj.Interval(gj.UnitInterval)(
+		"v",
+		json.RawMessage(`{"Numerator":1,"denominator":2}`),
+	)
+	require.ErrorContains(t, err, "numerator")
+}
+
+func TestIntervalRatioObjectComponentLimit(t *testing.T) {
+	t.Parallel()
+	_, err := gj.Interval(gj.UnitInterval)("v", json.RawMessage(
+		`{"numerator":9223372036854775808,"denominator":18446744073709551615}`))
+	require.ErrorContains(t, err, "int64")
+	out, err := gj.Interval(gj.UnitInterval)("v", json.RawMessage(
+		`{"numerator":-1,"denominator":-2}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"numerator":1,"denominator":2}`, string(out))
+}
+
+func TestGoIntBoundsFollowPlatformInt(t *testing.T) {
+	t.Parallel()
+	limit := "9223372036854775807"
+	if strconv.IntSize == 32 {
+		limit = "2147483647"
+	}
+	_, err := gj.GoInt(64)("v", json.RawMessage(limit))
+	require.NoError(t, err)
+	_, err = gj.GoInt(64)("v", json.RawMessage(strconv.Quote("1")))
+	require.Error(t, err)
+	over := "9223372036854775808"
+	if strconv.IntSize == 32 {
+		over = "2147483648"
+	}
+	_, err = gj.GoInt(64)("v", json.RawMessage(over))
+	require.ErrorContains(t, err, "decoded Go int")
+	_, err = gj.NonZeroGoInt()("v", json.RawMessage("0"))
+	require.ErrorContains(t, err, "zero")
+}
+
+// aeson's (<|>) falls through to the next spelling on null or a value of the
+// wrong type, but a range failure is final.
+func TestValidateAlternateFallthrough(t *testing.T) {
+	t.Parallel()
+	fields := []gj.Field{gj.RequiredAnyOf(gj.Uint(8), "first", "second")}
+	for _, doc := range []string{
+		`{"first":null,"second":1}`,
+		`{"first":"x","second":1}`,
+		`{"first":1.5,"second":1}`,
+	} {
+		require.NoError(t, gj.Validate("", []byte(doc), fields...), doc)
+	}
+	for _, doc := range []string{
+		`{"first":256,"second":1}`,
+		`{"first":"x","second":256}`,
+		`{"first":"x"}`,
+		`{"first":null}`,
+	} {
+		require.Error(t, gj.Validate("", []byte(doc), fields...), doc)
+	}
+}
+
+func TestArrayOrObjectRejectsNull(t *testing.T) {
+	t.Parallel()
+	for doc, valid := range map[string]bool{
+		`[]`: true, `{}`: true, `null`: false, `1`: false, `"x"`: false,
+	} {
+		_, err := gj.ArrayOrObject()("v", json.RawMessage(doc))
+		require.Equal(t, valid, err == nil, doc)
+	}
+}
+
+func TestNumberRejectsExponentBeyondDecodeLimit(t *testing.T) {
+	t.Parallel()
+	_, err := gj.Number()("v", json.RawMessage("1e-1000000000"))
+	require.ErrorContains(t, err, "exponent out of range")
+	out, err := gj.Number()("v", json.RawMessage("1.5e2"))
+	require.NoError(t, err)
+	require.Equal(t, "150", string(out))
+}
+
+// aeson keeps the first occurrence of a repeated object key, at every depth,
+// including inside values the validator does not examine; encoding/json keeps
+// the last one.
+func TestNormalizeRepeatedKeyKeepsFirstOccurrence(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":1,"b":{"c":1,"c":2,"d":[{"e":1,"e":2}]},"a":2,"f":{"g":3,"g":4}}`,
+		),
+		gj.Required("a", gj.Uint(8)),
+		gj.Required("b", gj.AnyObject()),
+		gj.Required("f", gj.MapOf(gj.Uint(8))),
+	)
+	require.NoError(t, err)
+	require.JSONEq(
+		t,
+		`{"a":1,"b":{"c":1,"d":[{"e":1}]},"f":{"g":3}}`,
+		string(out),
+	)
+	// The repeated value is skipped, not validated: aeson never parses it.
+	require.NoError(t, gj.Validate(
+		"",
+		[]byte(`{"a":1,"a":"x"}`),
+		gj.Required("a", gj.Uint(8)),
+	))
+}
+
+// FromJSON ExUnits reads a Natural inside the (<|>), so a negative primary
+// falls through to the alternate spelling; only the Word64 bound applied
+// after the alternation is final.
+func TestValidateAlternateFallthroughOnNegative(t *testing.T) {
+	t.Parallel()
+	fields := []gj.Field{gj.RequiredAnyOf(gj.Uint(64), "first", "second")}
+	require.NoError(
+		t,
+		gj.Validate("", []byte(`{"first":-1,"second":1}`), fields...),
+	)
+	require.Error(t, gj.Validate("", []byte(`{"first":-1}`), fields...))
+}
+
+// Only the keys a validated object declares, and for alternates only the one
+// the validator selected, reach the decode.
+func TestNormalizeEmitsOnlyDeclaredAndSelectedKeys(t *testing.T) {
+	t.Parallel()
+	out, err := gj.Normalize(
+		"",
+		[]byte(
+			`{"a":1,"A":2,"extra":3,"first":-1,"second":4,"n":{"x":1,"y":2,"Z":3},"m":{"k":{"x":1,"y":2}},"opt":null}`,
+		),
+		gj.Required("a", gj.Uint(8)),
+		gj.RequiredAnyOf(gj.Uint(8), "first", "second"),
+		gj.Required("n", gj.Object(gj.Required("x", gj.Uint(8)))),
+		gj.Required("m", gj.MapOf(gj.Object(gj.Required("y", gj.Uint(8))))),
+		gj.Optional("opt", gj.Uint(8)),
+	)
+	require.NoError(t, err)
+	require.JSONEq(
+		t,
+		`{"a":1,"second":4,"n":{"x":1},"m":{"k":{"y":2}}}`,
+		string(out),
+	)
+}

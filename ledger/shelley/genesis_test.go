@@ -104,6 +104,31 @@ const shelleyGenesisConfig = `
 }
 `
 
+// shelleyGenesisWith returns the complete mainnet genesis document with
+// overrides deep-merged on top. The reader requires every key the reference
+// does, so a test that only cares about a few keys starts from a full document.
+func shelleyGenesisWith(t *testing.T, overrides map[string]any) string {
+	t.Helper()
+	doc := map[string]any{}
+	require.NoError(t, json.Unmarshal([]byte(shelleyGenesisConfig), &doc))
+	mergeShelleyDoc(doc, overrides)
+	data, err := json.Marshal(doc)
+	require.NoError(t, err)
+	return string(data)
+}
+
+func mergeShelleyDoc(dst, src map[string]any) {
+	for key, value := range src {
+		srcMap, srcIsMap := value.(map[string]any)
+		dstMap, dstIsMap := dst[key].(map[string]any)
+		if srcIsMap && dstIsMap {
+			mergeShelleyDoc(dstMap, srcMap)
+			continue
+		}
+		dst[key] = value
+	}
+}
+
 var expectedGenesisObj = shelley.ShelleyGenesis{
 	SystemStart: time.Date(
 		2017,
@@ -568,7 +593,7 @@ func TestGenesisPoolMetadataJSONURLHonorsProtocolBound(t *testing.T) {
 			))
 			staking, ok := config["staking"].(map[string]any)
 			if !ok {
-				staking = map[string]any{}
+				staking = map[string]any{"stake": map[string]any{}}
 				config["staking"] = staking
 			}
 			staking["pools"] = map[string]any{poolID: map[string]any{
@@ -787,18 +812,14 @@ func TestGenesisUtxos(t *testing.T) {
 	expectedTxId := "d7357999c3867a9d8eb7c84b25a8d4fc20699d9d802f6c51a4554bd6a928783e"
 	expectedAddr := "addr_test1qqqy2xpurh9wkr99eavr569euvdxxqduhhjgwpjm6dde2k5ch2wnqc0ph52hf8xg2l55kvzc8sfquvj44kunk3rgrwksfahlvw"
 	// Generate genesis config JSON
-	tmpGenesisData := map[string]any{
-		"initialFunds": map[string]uint64{
+	tmpGenesisJson := shelleyGenesisWith(t, map[string]any{
+		"initialFunds": map[string]any{
 			testHexAddr: testAmount,
 		},
-	}
-	tmpGenesisJson, err := json.Marshal(tmpGenesisData)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
-	}
+	})
 	// Parse genesis config JSON
 	tmpGenesis, err := shelley.NewShelleyGenesisFromReader(
-		strings.NewReader(string(tmpGenesisJson)),
+		strings.NewReader(tmpGenesisJson),
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -836,7 +857,7 @@ func TestGenesisUtxos(t *testing.T) {
 }
 
 func TestGenesisStaking(t *testing.T) {
-	const testGenesis = `{
+	const stakingOverrides = `{
         "systemStart": "2017-09-23T21:44:51Z",
         "networkMagic": 764824073,
         "networkId": "Testnet",
@@ -870,6 +891,9 @@ func TestGenesisStaking(t *testing.T) {
             "poolDeposit": 500000000
         }
     }`
+	var overrides map[string]any
+	require.NoError(t, json.Unmarshal([]byte(stakingOverrides), &overrides))
+	testGenesis := shelleyGenesisWith(t, overrides)
 
 	t.Run("TestInitialPools", func(t *testing.T) {
 		genesis, err := shelley.NewShelleyGenesisFromReader(
