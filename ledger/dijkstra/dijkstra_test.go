@@ -3132,6 +3132,45 @@ func TestDijkstraProtocolParameterUpdateRejectsOutOfRangeRatios(t *testing.T) {
 			require.Error(t, decoded.UnmarshalCBOR(raw))
 		})
 	}
+
+	wideRatio := cbor.RawMessage{
+		0xd8, 0x1e, 0x82,
+		0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	}
+	for _, key := range []int{9, 10, 11, 33} {
+		t.Run(fmt.Sprintf("inherited rational tag %d", key), func(t *testing.T) {
+			raw, err := cbor.Encode(map[int]cbor.RawMessage{key: wideRatio})
+			require.NoError(t, err)
+			var decoded DijkstraProtocolParameterUpdate
+			require.Error(t, decoded.UnmarshalCBOR(raw))
+		})
+	}
+	validRatio := cbor.RawMessage{0xd8, 0x1e, 0x82, 0x01, 0x02}
+	for _, field := range []struct {
+		key    int
+		length int
+	}{{19, 2}, {25, 5}, {26, 10}} {
+		t.Run(
+			fmt.Sprintf("inherited rational array tag %d", field.key),
+			func(t *testing.T) {
+				values := make([]cbor.RawMessage, field.length)
+				for index := range values {
+					values[index] = validRatio
+				}
+				values[0] = wideRatio
+				array, err := cbor.Encode(values)
+				require.NoError(t, err)
+				raw, err := cbor.Encode(
+					map[int]cbor.RawMessage{field.key: array},
+				)
+				require.NoError(t, err)
+				var decoded DijkstraProtocolParameterUpdate
+				require.Error(t, decoded.UnmarshalCBOR(raw))
+			},
+		)
+	}
+
 	maxBoundedComponents := []byte{
 		0xa1, 0x18, 0x27, 0xd8, 0x1e, 0x82,
 		0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,

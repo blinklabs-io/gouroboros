@@ -148,6 +148,15 @@ func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
 // in a struct-as-array CBOR value.
 func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
+	return ValidateNonNegativeBoundedRatArrayCBORForVersion(raw, 11)
+}
+
+// ValidateNonNegativeBoundedRatArrayCBORForVersion validates every raw tag-30
+// rational in a struct-as-array CBOR value for a decoder version.
+func ValidateNonNegativeBoundedRatArrayCBORForVersion(
+	raw []byte,
+	version uint,
+) error {
 	if len(raw) == 0 || raw[0]>>5 != 4 {
 		return errors.New("expected CBOR array")
 	}
@@ -156,7 +165,10 @@ func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
 		return err
 	}
 	for index, value := range values {
-		if err := ValidateNonNegativeBoundedRatCBOR(value); err != nil {
+		if err := ValidateNonNegativeBoundedRatCBORForVersion(
+			value,
+			version,
+		); err != nil {
 			return fmt.Errorf("rational at array index %d: %w", index, err)
 		}
 	}

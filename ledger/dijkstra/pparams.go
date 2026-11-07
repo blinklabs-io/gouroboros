@@ -717,12 +717,26 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 			return errors.New("perasBootstrapRound cannot be undefined")
 		}
 	}
-	for _, key := range []int{37, 38, 39, 44, 50, 54} {
+	for _, key := range []int{9, 10, 11, 33, 37, 38, 39, 44, 50, 54} {
 		if raw, ok := fields[key]; ok {
 			if key == 38 && len(raw) == 1 && raw[0] == 0xf6 {
 				continue
 			}
 			if err := common.ValidateNonNegativeBoundedRatCBORForVersion(raw, 12); err != nil {
+				return fmt.Errorf(
+					"dijkstra protocol parameter tag %d: %w",
+					key,
+					err,
+				)
+			}
+		}
+	}
+	for _, key := range []int{19, 25, 26} {
+		if raw, ok := fields[key]; ok {
+			if err := common.ValidateNonNegativeBoundedRatArrayCBORForVersion(
+				raw,
+				12,
+			); err != nil {
 				return fmt.Errorf(
 					"dijkstra protocol parameter tag %d: %w",
 					key,

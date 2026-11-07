@@ -28,16 +28,33 @@ import (
 func TestBoundedRationalChecksReducedComponents(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name  string
-		hex   string
-		valid bool
+		name    string
+		hex     string
+		valid11 bool
+		valid12 bool
 	}{
-		{"double negative", "d81e822021", true},
-		{"wide numerator reduces", "d81e82c24901000000000000000002", true},
-		{"wide ratio reduces", "d81e82c249020000000000000000c249040000000000000000", true},
-		{"negative ratio", "d81e822002", false},
-		{"zero denominator", "d81e820100", false},
-		{"irreducible wide numerator", "d81e82c24901000000000000000001", false},
+		{"bounded ratio", "d81e820102", true, true},
+		{"double negative", "d81e822021", true, false},
+		{
+			"wide numerator reduces",
+			"d81e82c24901000000000000000002",
+			true,
+			false,
+		},
+		{
+			"wide ratio reduces",
+			"d81e82c249020000000000000000c249040000000000000000",
+			true,
+			false,
+		},
+		{"negative ratio", "d81e822002", false, false},
+		{"zero denominator", "d81e820100", false, false},
+		{
+			"irreducible wide numerator",
+			"d81e82c24901000000000000000001",
+			false,
+			false,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			raw, err := hex.DecodeString(test.hex)
@@ -45,8 +62,12 @@ func TestBoundedRationalChecksReducedComponents(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = ValidateNonNegativeBoundedRatCBOR(raw)
-			if (err == nil) != test.valid {
-				t.Fatalf("valid=%t, error=%v", test.valid, err)
+			if (err == nil) != test.valid11 {
+				t.Fatalf("version 11 valid=%t, error=%v", test.valid11, err)
+			}
+			err = ValidateNonNegativeBoundedRatCBORForVersion(raw, 12)
+			if (err == nil) != test.valid12 {
+				t.Fatalf("version 12 valid=%t, error=%v", test.valid12, err)
 			}
 		})
 	}

@@ -287,7 +287,10 @@ func TestByronAddressRejectsDescendingAttributeKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	var address common.Address
-	if _, err := cbor.Decode(buildByronAddress(t, attributes), &address); err == nil {
+	if _, err := cbor.Decode(
+		buildByronAddress(t, attributes),
+		&address,
+	); err == nil {
 		t.Fatal("accepted descending Byron attribute keys")
 	}
 }
