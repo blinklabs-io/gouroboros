@@ -624,6 +624,10 @@ func (w WithPartialCertificates) ToPlutusData() data.PlutusData {
 				toPlutusData(c.PoolKeyHash),
 				data.NewInteger(new(big.Int).SetUint64(c.Epoch)),
 			)
+		case *lcommon.GenesisKeyDelegationCertificate:
+			return data.NewConstr(5)
+		case *lcommon.MoveInstantaneousRewardsCertificate:
+			return data.NewConstr(6)
 		default:
 			panic(fmt.Sprintf("unsupported type: %T", c))
 		}

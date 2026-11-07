@@ -276,6 +276,7 @@ func NewTxInfoV1FromTransaction(
 	}
 	inputs := SortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	plutusWithdrawals := plutusV1V2WithdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
 	redeemers, err := redeemersInfo(
@@ -296,13 +297,23 @@ func NewTxInfoV1FromTransaction(
 		return TxInfoV1{}, err
 	}
 	tmpData := dataInfo(tx.Witnesses())
+	filterByron := tx.Type() == eraIdAlonzo
 	contextInputs, err := contextInputsForPlutus(
-		expandInputs(inputs, resolvedInputs), true,
+		expandInputs(inputs, resolvedInputs), filterByron,
 	)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
-	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), true)
+	if tx.Type() > eraIdAlonzo {
+		_, err = contextInputsForPlutus(
+			expandInputs(SortInputs(tx.ReferenceInputs()), resolvedInputs),
+			false,
+		)
+		if err != nil {
+			return TxInfoV1{}, err
+		}
+	}
+	contextOutputs, err := contextOutputsForPlutus(tx.Outputs(), filterByron)
 	if err != nil {
 		return TxInfoV1{}, err
 	}
@@ -313,7 +324,7 @@ func NewTxInfoV1FromTransaction(
 		Mint:         *assetMint,
 		ValidRange:   validityRange,
 		Certificates: certs,
-		Withdrawals:  withdrawals.ToPairs(),
+		Withdrawals:  plutusWithdrawals.ToPairs(),
 		Signatories:  signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:    redeemers,
 		Data:         tmpData,
@@ -417,6 +428,7 @@ func NewTxInfoV2FromTransaction(
 	}
 	inputs := SortInputs(tx.Inputs())
 	withdrawals := withdrawalsInfo(tx.Withdrawals())
+	plutusWithdrawals := plutusV1V2WithdrawalsInfo(tx.Withdrawals())
 	witnessDatums := buildWitnessDatums(tx.Witnesses())
 	certs := tx.Certificates()
 	redeemers, err := redeemersInfo(
@@ -461,7 +473,7 @@ func NewTxInfoV2FromTransaction(
 		Mint:            *assetMint,
 		ValidRange:      validityRange,
 		Certificates:    certs,
-		Withdrawals:     withdrawals,
+		Withdrawals:     plutusWithdrawals,
 		Signatories:     signatoriesInfo(tx.RequiredSigners()),
 		Redeemers:       redeemers,
 		Data:            tmpData,
@@ -864,18 +876,38 @@ func validityRangeInfo(
 func withdrawalsInfo(
 	withdrawals map[*lcommon.Address]*big.Int,
 ) KeyValuePairs[*lcommon.Address, *big.Int] {
-	ret := make(KeyValuePairs[*lcommon.Address, *big.Int], 0, len(withdrawals))
-	for addr, amt := range withdrawals {
-		ret = append(
-			ret,
-			KeyValuePair[*lcommon.Address, *big.Int]{
-				Key:   addr,
-				Value: amt,
-			},
-		)
+	return withdrawalsInfoInOrder(
+		withdrawals,
+		SortWithdrawalAddresses(withdrawals),
+	)
+}
+
+func plutusV1V2WithdrawalsInfo(
+	withdrawals map[*lcommon.Address]*big.Int,
+) KeyValuePairs[*lcommon.Address, *big.Int] {
+	sorted := make([]*lcommon.Address, 0, len(withdrawals))
+	for address := range withdrawals {
+		sorted = append(sorted, address)
 	}
-	sorted := SortWithdrawalAddresses(withdrawals)
-	ret = ret[:0]
+	slices.SortFunc(sorted, func(a, b *lcommon.Address) int {
+		aCredential, _ := a.StakeCredential()
+		bCredential, _ := b.StakeCredential()
+		if c := cmp.Compare(aCredential.CredType, bCredential.CredType); c != 0 {
+			return c
+		}
+		return bytes.Compare(
+			aCredential.Credential[:],
+			bCredential.Credential[:],
+		)
+	})
+	return withdrawalsInfoInOrder(withdrawals, sorted)
+}
+
+func withdrawalsInfoInOrder(
+	withdrawals map[*lcommon.Address]*big.Int,
+	sorted []*lcommon.Address,
+) KeyValuePairs[*lcommon.Address, *big.Int] {
+	ret := make(KeyValuePairs[*lcommon.Address, *big.Int], 0, len(withdrawals))
 	for _, addr := range sorted {
 		ret = append(ret, KeyValuePair[*lcommon.Address, *big.Int]{
 			Key:   addr,
