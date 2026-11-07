@@ -115,6 +115,26 @@ func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error
 	if len(components) != 2 {
 		return errors.New("expected rational numerator and denominator")
 	}
+	if version >= 12 {
+		if len(components[0]) == 0 || components[0][0]>>5 != 0 {
+			return errors.New("rational numerator must be a Word64")
+		}
+		var numerator uint64
+		if _, err := cbor.DecodeExact(components[0], &numerator); err != nil {
+			return fmt.Errorf("decode rational numerator: %w", err)
+		}
+		if len(components[1]) == 0 || components[1][0]>>5 != 0 {
+			return errors.New("rational denominator must be a positive Word64")
+		}
+		var denominator uint64
+		if _, err := cbor.DecodeExact(components[1], &denominator); err != nil {
+			return fmt.Errorf("decode rational denominator: %w", err)
+		}
+		if denominator == 0 {
+			return errors.New("rational denominator must be a positive Word64")
+		}
+		return nil
+	}
 	numerator, err := rawCBORInteger(components[0])
 	if err != nil {
 		return fmt.Errorf("decode rational numerator: %w", err)
@@ -122,15 +142,6 @@ func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error
 	denominator, err := rawCBORInteger(components[1])
 	if err != nil {
 		return fmt.Errorf("decode rational denominator: %w", err)
-	}
-	if version >= 12 {
-		if !numerator.IsUint64() {
-			return errors.New("rational numerator must be in Word64")
-		}
-		if !denominator.IsUint64() || denominator.Sign() == 0 {
-			return errors.New("rational denominator must be positive Word64")
-		}
-		return nil
 	}
 	if denominator.Sign() == 0 {
 		return errors.New("rational denominator must not be zero")

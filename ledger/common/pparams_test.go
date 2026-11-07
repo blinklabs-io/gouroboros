@@ -34,6 +34,8 @@ func TestBoundedRationalChecksReducedComponents(t *testing.T) {
 		valid12 bool
 	}{
 		{"bounded ratio", "d81e820102", true, true},
+		{"bignum numerator", "d81e82c2410102", true, false},
+		{"bignum denominator", "d81e8201c24102", true, false},
 		{"double negative", "d81e822021", true, false},
 		{
 			"wide numerator reduces",
