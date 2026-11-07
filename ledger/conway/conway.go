@@ -1127,10 +1127,9 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Ensure we have exactly 4 components (body, witness, isValid, metadata)
-	if len(txArray) != 4 {
+	if len(txArray) != 3 && len(txArray) != 4 {
 		return fmt.Errorf(
-			"invalid transaction: expected exactly 4 components, got %d",
+			"invalid transaction: expected 3 or 4 components, got %d",
 			len(txArray),
 		)
 	}
@@ -1145,12 +1144,23 @@ func (t *ConwayTransaction) UnmarshalCBOR(cborData []byte) error {
 		return fmt.Errorf("failed to decode transaction witness set: %w", err)
 	}
 
-	// Decode TxIsValid flag
-	if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
-		return fmt.Errorf("failed to decode TxIsValid: %w", err)
+	metadataIndex := 2
+	if len(txArray) == 4 {
+		if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
+			return fmt.Errorf("failed to decode TxIsValid: %w", err)
+		}
+		metadataIndex = 3
+	} else {
+		metadataRaw := []byte(txArray[2])
+		if len(metadataRaw) == 1 &&
+			(metadataRaw[0] == 0xf4 || metadataRaw[0] == 0xf5) {
+			return errors.New(
+				"invalid transaction: IsValid requires an auxiliary data component",
+			)
+		}
+		t.TxIsValid = true
 	}
-	// Handle metadata (component 4, always present - either data or CBOR nil)
-	metadataRaw := []byte(txArray[3])
+	metadataRaw := []byte(txArray[metadataIndex])
 	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
 		(len(metadataRaw) != 1 ||
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {
