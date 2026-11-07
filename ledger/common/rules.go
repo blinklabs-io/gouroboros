@@ -33,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/transactionwire"
 )
 
 const (
@@ -576,29 +577,30 @@ func VerifyTransactionWithSignatures(
 	return nil
 }
 
-// txTypeAlonzo is the first era whose historical on-wire CBOR includes the
-// 1-byte IsValid boolean field. The fee-relevant size excludes this byte only
-// when the transaction actually has the 4-component Alonzo-style envelope.
-const txTypeAlonzo = 4
+const (
+	// txTypeAlonzo is the first era whose mempool transaction envelope may
+	// carry the IsValid boolean.
+	txTypeAlonzo = 4
+	// txTypeConway is the last era that uses the Alonzo transaction size
+	// encoding. Dijkstra has its own three-component envelope.
+	txTypeConway = 6
+)
 
 // TxSize returns the size of a transaction as the Cardano ledger spec defines
 // it — the measure used both for fees and for maxTxSize.
 //
-// For Alonzo through Conway the on-wire CBOR is a 4-element array
-// [body, witnesses, isValid, metadata], while the Haskell
-// toCBORForSizeComputation encodes only 3 elements. The IsValid flag is not
-// part of the transaction the chain sized: a block stores bodies, witness
-// sets, IsValid flags and auxiliary data in four parallel arrays, and
-// reconstructing a standalone transaction re-attaches that byte. So the size
-// is the full on-wire length minus 1. Dijkstra block transactions use a
-// 3-element envelope, so no adjustment applies unless an explicitly
-// 4-component transaction is being sized.
+// For Alonzo through Conway the Haskell toCBORForSizeComputation encodes a
+// canonical 3-element array [body, witnesses, metadata]. Mempool transaction
+// CBOR may additionally carry IsValid as a fourth component, and the received
+// outer array may use another valid framing. Neither changes the size used by
+// the ledger: the three retained components keep their received bytes and get
+// a canonical one-byte array header. Dijkstra uses its own three-component
+// envelope.
 //
 // Every rule expressed against a transaction's size must use this, not
-// len(tx.Cbor()). The two differ by exactly one byte, which only matters for a
-// transaction sitting exactly on a limit — rare enough to survive a long way
-// into a replay before a single transaction built to fill maxTxSize exposes
-// it.
+// len(tx.Cbor()). The two can differ when the received envelope carries
+// IsValid or uses non-canonical outer-array framing. That difference matters
+// most for a transaction sitting exactly on a limit.
 //
 // When the transaction has no stored CBOR (e.g. programmatically constructed),
 // the function falls back to encoding the transaction to compute its size.
@@ -618,7 +620,12 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	fullSize := len(cborData)
-	if tx.Type() >= txTypeAlonzo {
+	if tx.Type() >= txTypeAlonzo && tx.Type() <= txTypeConway {
+		if size, ok := alonzoFamilyTransactionSize(cborData); ok {
+			return size, nil
+		}
+	}
+	if tx.Type() > txTypeConway {
 		dec, err := cbor.NewStreamDecoder(cborData)
 		if err == nil {
 			arrayLen, _, _, decodeErr := dec.DecodeArrayHeader()
@@ -628,6 +635,19 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	return fullSize, nil
+}
+
+func alonzoFamilyTransactionSize(cborData []byte) (int, bool) {
+	envelope, err := transactionwire.DecodeAlonzoFamilyEnvelope(cborData)
+	if err != nil || envelope.WireSize != len(cborData) {
+		return 0, false
+	}
+	_, auxiliaryData, err := envelope.DecodeValidityAndAuxiliaryData()
+	if err != nil {
+		return 0, false
+	}
+	return 1 + len(envelope.Body) + len(envelope.WitnessSet) +
+		len(auxiliaryData), true
 }
 
 // TxSizeForFee returns the fee-relevant size of a transaction. It is the same

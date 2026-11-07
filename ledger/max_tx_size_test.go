@@ -59,6 +59,55 @@ func unsegmentedTxCbor(size int) []byte {
 	return b
 }
 
+// alonzoFamilyTxCbor returns a structurally valid Alonzo-family transaction
+// envelope whose canonical size is exactly canonicalSize. A Plutus script in
+// the witness set supplies the variable-length payload without changing the
+// transaction envelope's shape.
+func alonzoFamilyTxCbor(
+	t *testing.T,
+	canonicalSize int,
+	includeValidity bool,
+) []byte {
+	t.Helper()
+
+	// The retained encoding consists of a one-byte array header, a minimal
+	// transaction body, a witness map containing one Plutus script, and null
+	// auxiliary data. The script uses a three-byte byte-string header.
+	const fixedSize = 15
+	scriptSize := canonicalSize - fixedSize
+	require.GreaterOrEqual(t, scriptSize, 256)
+	require.LessOrEqual(t, scriptSize, 65535)
+
+	outerHeader := byte(0x83)
+	if includeValidity {
+		outerHeader = 0x84
+	}
+	ret := make([]byte, 0, canonicalSize+1)
+	ret = append(ret, outerHeader)
+	ret = append(ret,
+		0xa3,
+		0x00, 0x80,
+		0x01, 0x80,
+		0x02, 0x00,
+	)
+	ret = append(ret,
+		0xa1, 0x03, 0x81,
+		0x59, byte(scriptSize>>8), byte(scriptSize),
+	)
+	ret = append(ret, make([]byte, scriptSize)...)
+	if includeValidity {
+		ret = append(ret, 0xf5)
+	}
+	ret = append(ret, 0xf6)
+
+	wireSize := canonicalSize
+	if includeValidity {
+		wireSize++
+	}
+	require.Len(t, ret, wireSize)
+	return ret
+}
+
 type maxTxSizeEra struct {
 	name     string
 	newTx    func(cborData []byte) common.Transaction
@@ -192,16 +241,17 @@ func TestMaxTxSizeAcceptsATransactionExactlyAtTheLimit(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 	for _, era := range maxTxSizeEras() {
 		t.Run(era.name, func(t *testing.T) {
-			// A transaction is exactly maxTxSize on chain. For an era whose
-			// block keeps IsValid in a parallel array, reconstruction re-adds
-			// one byte; for the others the on-wire bytes are the measure.
-			raw := int(testMaxTxSize)
-			body := unsegmentedTxCbor
+			var txCbor []byte
 			if era.blockTxCarriesIsValid {
-				raw++
-				body = segmentedTxCbor
+				txCbor = alonzoFamilyTxCbor(
+					t,
+					int(testMaxTxSize),
+					true,
+				)
+			} else {
+				txCbor = unsegmentedTxCbor(int(testMaxTxSize))
 			}
-			tx := era.newTx(body(raw))
+			tx := era.newTx(txCbor)
 			err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
 			assert.NoError(t, err,
 				"a transaction exactly at maxTxSize on chain must be accepted")
@@ -227,7 +277,15 @@ func TestMaxTxSizeAdjustmentFollowsTheEnvelopeNotTheEra(t *testing.T) {
 			t.Run(
 				"three-component envelope is not adjusted",
 				func(t *testing.T) {
-					tx := era.newTx(unsegmentedTxCbor(int(testMaxTxSize) + 1))
+					txCbor := unsegmentedTxCbor(int(testMaxTxSize) + 1)
+					if era.name != "dijkstra" {
+						txCbor = alonzoFamilyTxCbor(
+							t,
+							int(testMaxTxSize)+1,
+							false,
+						)
+					}
+					tx := era.newTx(txCbor)
 					err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
 					require.Error(
 						t,
@@ -238,7 +296,15 @@ func TestMaxTxSizeAdjustmentFollowsTheEnvelopeNotTheEra(t *testing.T) {
 				},
 			)
 			t.Run("four-component envelope is adjusted", func(t *testing.T) {
-				tx := era.newTx(segmentedTxCbor(int(testMaxTxSize) + 1))
+				txCbor := segmentedTxCbor(int(testMaxTxSize) + 1)
+				if era.name != "dijkstra" {
+					txCbor = alonzoFamilyTxCbor(
+						t,
+						int(testMaxTxSize),
+						true,
+					)
+				}
+				tx := era.newTx(txCbor)
 				err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
 				assert.NoError(t, err,
 					"the fourth component is the IsValid byte and is not "+
@@ -263,16 +329,17 @@ func TestMaxTxSizeStillRejectsOversize(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().Build()
 	for _, era := range maxTxSizeEras() {
 		t.Run(era.name, func(t *testing.T) {
-			raw := int(testMaxTxSize) + 1
+			var txCbor []byte
 			if era.blockTxCarriesIsValid {
-				// One byte past the limit once the IsValid byte is removed.
-				raw = int(testMaxTxSize) + 2
+				txCbor = alonzoFamilyTxCbor(
+					t,
+					int(testMaxTxSize)+1,
+					true,
+				)
+			} else {
+				txCbor = unsegmentedTxCbor(int(testMaxTxSize) + 1)
 			}
-			body := unsegmentedTxCbor
-			if era.blockTxCarriesIsValid {
-				body = segmentedTxCbor
-			}
-			tx := era.newTx(body(raw))
+			tx := era.newTx(txCbor)
 			err := era.validate(tx, 0, ls, era.pparams(testMaxTxSize))
 			require.Error(t, err, "a genuinely oversize transaction must fail")
 
