@@ -722,7 +722,7 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 			if key == 38 && len(raw) == 1 && raw[0] == 0xf6 {
 				continue
 			}
-			if err := common.ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
+			if err := common.ValidateNonNegativeBoundedRatCBORForVersion(raw, 12); err != nil {
 				return fmt.Errorf(
 					"dijkstra protocol parameter tag %d: %w",
 					key,

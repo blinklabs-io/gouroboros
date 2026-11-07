@@ -335,6 +335,9 @@ func (r ConwayRedeemers) validateTagLimit(maxTag common.RedeemerTag) error {
 }
 
 func (r *ConwayRedeemers) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) > 0 && cborData[0] == 0xbb {
+		return errors.New("conway redeemers map has an unsupported 64-bit length head")
+	}
 	r.SetCbor(cborData)
 	if len(cborData) > 0 && (cborData[0]&0xe0) == 0xa0 {
 		// Modern map form — clear any stale legacy state

@@ -30,6 +30,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestOutputMapHeadWidths(t *testing.T) {
+	t.Parallel()
+	canonical, err := cbor.Encode(map[uint]any{
+		0: append([]byte{0x61}, make([]byte, 28)...),
+		1: uint64(1),
+	})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name  string
+		head  []byte
+		valid bool
+	}{
+		{"minimal", []byte{0xa2}, true},
+		{"32-bit", []byte{0xba, 0, 0, 0, 2}, true},
+		{"64-bit", []byte{0xbb, 0, 0, 0, 0, 0, 0, 0, 2}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire := append(append([]byte(nil), test.head...), canonical[1:]...)
+			var output BabbageTransactionOutput
+			_, err := cbor.Decode(wire, &output)
+			if (err == nil) != test.valid {
+				t.Fatalf("valid=%t, error=%v", test.valid, err)
+			}
+		})
+	}
+}
+
 func encodeBabbageHeaderWithPrevHash(
 	t *testing.T,
 	prevHash cbor.RawMessage,

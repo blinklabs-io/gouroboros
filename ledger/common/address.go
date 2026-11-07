@@ -644,6 +644,7 @@ func validateByronAddressAttributeWire(raw []byte) error {
 		return errors.New("byron address attributes must be a definite map")
 	}
 	pos := int(headerSize)
+	var previousKey uint64
 	for i := 0; i < length; i++ {
 		keyStart := pos
 		if keyStart >= len(raw) || raw[keyStart]&cbor.CborTypeMask != 0 {
@@ -666,6 +667,10 @@ func validateByronAddressAttributeWire(raw []byte) error {
 				i,
 			)
 		}
+		if i > 0 && key <= previousKey {
+			return errors.New("byron address attribute keys must be strictly ascending")
+		}
+		previousKey = key
 		valueStart := pos
 		pos, err = addressCBORItemEnd(raw, pos, 0)
 		if err != nil {

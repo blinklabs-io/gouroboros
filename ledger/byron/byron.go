@@ -1511,8 +1511,8 @@ func (o ByronTransactionOutput) MarshalCBOR() ([]byte, error) {
 // encodeCrcProtected writes it: [#6.24(payload), crc] with every integer and
 // length in shortest form, and the attribute map rebuilt from its parsed
 // fields in ascending key order. The stored attribute bytes are not reused,
-// because the decoder accepts attribute maps that are out of key order or
-// carry non-shortest heads, and those bytes would otherwise reach the
+// because the decoder accepts attribute maps that carry non-shortest
+// heads, and those bytes would otherwise reach the
 // transaction ID.
 func canonicalByronAddressCbor(addr common.Address) (cbor.RawMessage, error) {
 	if addr.Type() != common.AddressTypeByron {

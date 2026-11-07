@@ -262,7 +262,7 @@ func TestByronAddressPreservesNonCanonicalMapLength(t *testing.T) {
 	// The attribute map decoder accepts non-shortest map lengths, while
 	// Byron-v1 byte strings inside the map must remain definite-length.
 	attrCbor, err := hex.DecodeString(
-		"b8020343c0deff014b4a1c010203040506070809",
+		"b802014b4a1c0102030405060708090343c0deff",
 	)
 	if err != nil {
 		t.Fatalf("bad test attribute hex: %v", err)
@@ -278,6 +278,17 @@ func TestByronAddressPreservesNonCanonicalMapLength(t *testing.T) {
 	}
 	if !bytes.Equal(roundTrip, addrBytes) {
 		t.Fatalf("round trip: got %x, want %x", roundTrip, addrBytes)
+	}
+}
+
+func TestByronAddressRejectsDescendingAttributeKeys(t *testing.T) {
+	attributes, err := hex.DecodeString("a20343c0deff014b4a1c010203040506070809")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var address common.Address
+	if _, err := cbor.Decode(buildByronAddress(t, attributes), &address); err == nil {
+		t.Fatal("accepted descending Byron attribute keys")
 	}
 }
 
