@@ -295,8 +295,10 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 	}
 
 	testDefs := []struct {
-		name   string
-		guards any
+		name      string
+		guards    any
+		expected  uint
+		ambiguous bool
 	}{
 		{
 			name: "credential_guards",
@@ -304,10 +306,13 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 				[]common.Credential{guardCredential},
 				false,
 			),
+			expected: ledger.TxTypeDijkstra,
 		},
 		{
-			name:   "key_hash_guards_in_three_part_tx",
-			guards: cbor.NewSetType([]common.Blake2b224{guardHash}, false),
+			name:      "ambiguous_key_hash_guards_in_three_part_tx",
+			guards:    cbor.NewSetType([]common.Blake2b224{guardHash}, false),
+			expected:  ledger.TxTypeConway,
+			ambiguous: true,
 		},
 	}
 	for _, testDef := range testDefs {
@@ -328,6 +333,12 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 					err,
 				)
 			}
+			if testDef.ambiguous {
+				_, err = ledger.NewConwayTransactionFromCbor(txCbor)
+				require.NoError(t, err)
+				_, err = ledger.NewDijkstraTransactionFromCbor(txCbor)
+				require.NoError(t, err)
+			}
 
 			txType, err := ledger.DetermineTransactionType(txCbor)
 			if err != nil {
@@ -336,11 +347,11 @@ func TestDetermineTransactionTypeDijkstraGuards(t *testing.T) {
 					err,
 				)
 			}
-			if txType != ledger.TxTypeDijkstra {
+			if txType != testDef.expected {
 				t.Fatalf(
 					"did not get expected TX type: got %d, wanted %d",
 					txType,
-					ledger.TxTypeDijkstra,
+					testDef.expected,
 				)
 			}
 		})
@@ -414,6 +425,31 @@ func TestDetermineTransactionTypeThreeComponentConway(t *testing.T) {
 	txType, err := ledger.DetermineTransactionType(txCbor)
 	require.NoError(t, err)
 	require.Equal(t, uint(ledger.TxTypeConway), txType)
+}
+
+func TestDetermineTransactionTypeThreeComponentAlonzo(t *testing.T) {
+	txCbor, err := cbor.Encode([]any{
+		map[uint]any{
+			0:  []any{},
+			1:  []any{},
+			2:  uint64(0),
+			11: bytes.Repeat([]byte{0x01}, common.Blake2b256Size),
+		},
+		map[uint]any{},
+		nil,
+	})
+	require.NoError(t, err)
+
+	_, err = ledger.NewMaryTransactionFromCbor(txCbor)
+	require.Error(t, err)
+	_, err = ledger.NewAlonzoTransactionFromCbor(txCbor)
+	require.NoError(t, err)
+	_, err = ledger.NewConwayTransactionFromCbor(txCbor)
+	require.NoError(t, err)
+
+	txType, err := ledger.DetermineTransactionType(txCbor)
+	require.NoError(t, err)
+	require.Equal(t, uint(ledger.TxTypeAlonzo), txType)
 }
 
 func TestDetermineTransactionTypePreDijkstraTransactionsNotDijkstra(

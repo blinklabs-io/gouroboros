@@ -119,19 +119,21 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		return 0, errors.New("unknown transaction type")
 	}
 	// Dijkstra detection is intentionally heuristic. Fields 23, 25, and
-	// 26 are currently Dijkstra-only transaction body keys. Field 14 is
-	// Dijkstra-only only when it carries credential guards, or when it appears
-	// in Dijkstra's 3-component envelope; a 4-component key-hash guard is
-	// indistinguishable from Conway required_signers without era context.
+	// 26 are currently Dijkstra-only transaction body keys. Field 14 identifies
+	// Dijkstra only when it carries credential guards. Key-hash guards are
+	// indistinguishable from Alonzo-family required_signers without era context,
+	// even in a 3-component envelope, so they follow the explicit Conway
+	// preference below.
 	var dijkstraDecoded bool
 	var dijkstraCandidate bool
 	var dijkstraTxArray []cbor.RawMessage
+	var dijkstraTxBody map[uint]cbor.RawMessage
 	tryDijkstra := func() bool {
 		if !dijkstraDecoded {
-			var err error
-			dijkstraCandidate, dijkstraTxArray, _, err = looksLikeDijkstraTransaction(
-				data,
-			)
+			candidate, txArray, txBody, err := looksLikeDijkstraTransaction(data)
+			dijkstraCandidate = candidate
+			dijkstraTxArray = txArray
+			dijkstraTxBody = txBody
 			dijkstraDecoded = true
 			if err != nil {
 				dijkstraCandidate = false
@@ -167,6 +169,14 @@ func DetermineTransactionType(data []byte) (uint, error) {
 		}
 		if _, err := NewMaryTransactionFromCbor(data); err == nil {
 			return TxTypeMary, nil
+		}
+		if rawGuards, ok := dijkstraTxBody[14]; ok &&
+			classifyDijkstraGuards(rawGuards) == dijkstraGuardsKeyHashes {
+			// This encoding is byte-for-byte valid as both required_signers
+			// and Dijkstra key-hash guards. Prefer Conway deterministically.
+			if _, err := NewConwayTransactionFromCbor(data); err == nil {
+				return TxTypeConway, nil
+			}
 		}
 		if _, err := NewAlonzoTransactionFromCbor(data); err == nil {
 			return TxTypeAlonzo, nil
@@ -283,7 +293,7 @@ func looksLikeDijkstraTransaction(
 		return false, nil, nil, err
 	}
 	if rawGuards, ok := txBody[14]; ok &&
-		looksLikeDijkstraGuards(txArray, rawGuards) {
+		classifyDijkstraGuards(rawGuards) == dijkstraGuardsCredentials {
 		return true, txArray, txBody, nil
 	}
 	// This is a heuristic, not a proof of era. Fields 23, 25, and 26 are
@@ -297,16 +307,24 @@ func looksLikeDijkstraTransaction(
 	return false, txArray, txBody, nil
 }
 
-func looksLikeDijkstraGuards(
-	txArray []cbor.RawMessage,
-	rawGuards cbor.RawMessage,
-) bool {
+type dijkstraGuardsShape uint8
+
+const (
+	dijkstraGuardsInvalid dijkstraGuardsShape = iota
+	dijkstraGuardsKeyHashes
+	dijkstraGuardsCredentials
+)
+
+func classifyDijkstraGuards(rawGuards cbor.RawMessage) dijkstraGuardsShape {
 	var guards dijkstraera.DijkstraGuards
 	if _, err := cbor.Decode(rawGuards, &guards); err != nil {
-		return false
+		return dijkstraGuardsInvalid
 	}
 	if len(guards.Credentials) > 0 {
-		return true
+		return dijkstraGuardsCredentials
 	}
-	return len(txArray) == 3 && len(guards.KeyHashes) > 0
+	if len(guards.KeyHashes) > 0 {
+		return dijkstraGuardsKeyHashes
+	}
+	return dijkstraGuardsInvalid
 }
