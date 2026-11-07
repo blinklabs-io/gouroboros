@@ -180,11 +180,20 @@ func costModelParamNamesForMap(
 	return ret
 }
 
+// NewAlonzoGenesisFromReader decodes an Alonzo genesis JSON document. It
+// accepts what the reference FromJSON AlonzoGenesis accepts: the required
+// keys must be present and in range, and unknown keys are ignored.
 func NewAlonzoGenesisFromReader(r io.Reader) (AlonzoGenesis, error) {
 	var ret AlonzoGenesis
-	dec := json.NewDecoder(r)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&ret); err != nil {
+	var data json.RawMessage
+	if err := json.NewDecoder(r).Decode(&data); err != nil {
+		return ret, err
+	}
+	normalized, err := validateAlonzoGenesisJSON(data)
+	if err != nil {
+		return ret, fmt.Errorf("invalid Alonzo genesis: %w", err)
+	}
+	if err := json.Unmarshal(normalized, &ret); err != nil {
 		return ret, err
 	}
 	return ret, nil
@@ -204,30 +213,51 @@ type AlonzoGenesisExUnits struct {
 	Steps uint64 `json:"exUnitsSteps"`
 }
 
+// decodeAlias decodes the first of names that is present, not null and
+// decodes as T, matching the reference's (o .: a <|> o .: b). A spelling that
+// is not selected is never decoded, so an invalid value under it cannot fail
+// the document. It returns nil when no name is present.
+func decodeAlias[T any](
+	obj map[string]json.RawMessage,
+	names ...string,
+) (*T, error) {
+	var lastErr error
+	for _, name := range names {
+		raw, ok := obj[name]
+		if !ok || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+			continue
+		}
+		var v T
+		if err := json.Unmarshal(raw, &v); err != nil {
+			lastErr = fmt.Errorf("%s: %w", name, err)
+			continue
+		}
+		return &v, nil
+	}
+	return nil, lastErr
+}
+
 func (u *AlonzoGenesisExUnits) UnmarshalJSON(data []byte) error {
 	// We need some custom unmarshal logic to handle alternate key names
-	tmpData := struct {
-		ExUnitsMem   uint64 `json:"exUnitsMem"`
-		ExUnitsSteps uint64 `json:"exUnitsSteps"`
-		Memory       uint64 `json:"memory"`
-		Steps        uint64 `json:"steps"`
-	}{}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&tmpData); err != nil {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
-	if tmpData.ExUnitsMem > 0 {
-		u.Mem = tmpData.ExUnitsMem
+	// The reference reads "memory" <|> "exUnitsMem": a present primary key
+	// wins even when it is zero.
+	mem, err := decodeAlias[uint64](obj, "memory", "exUnitsMem")
+	if err != nil {
+		return err
 	}
-	if tmpData.ExUnitsSteps > 0 {
-		u.Steps = tmpData.ExUnitsSteps
+	steps, err := decodeAlias[uint64](obj, "steps", "exUnitsSteps")
+	if err != nil {
+		return err
 	}
-	if tmpData.Memory > 0 {
-		u.Mem = tmpData.Memory
+	if mem != nil {
+		u.Mem = *mem
 	}
-	if tmpData.Steps > 0 {
-		u.Steps = tmpData.Steps
+	if steps != nil {
+		u.Steps = *steps
 	}
 	return nil
 }
@@ -239,28 +269,23 @@ type AlonzoGenesisExecutionPrices struct {
 
 func (p *AlonzoGenesisExecutionPrices) UnmarshalJSON(data []byte) error {
 	// We need some custom unmarshal logic to handle alternate key names
-	tmpData := struct {
-		PrSteps     *common.GenesisRat `json:"prSteps"`
-		PrMem       *common.GenesisRat `json:"prMem"`
-		PriceSteps  *common.GenesisRat `json:"priceSteps"`
-		PriceMemory *common.GenesisRat `json:"priceMemory"`
-	}{}
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&tmpData); err != nil {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
 	}
-	if tmpData.PrSteps != nil {
-		p.Steps = tmpData.PrSteps
+	steps, err := decodeAlias[common.GenesisRat](obj, "priceSteps", "prSteps")
+	if err != nil {
+		return err
 	}
-	if tmpData.PrMem != nil {
-		p.Mem = tmpData.PrMem
+	mem, err := decodeAlias[common.GenesisRat](obj, "priceMemory", "prMem")
+	if err != nil {
+		return err
 	}
-	if tmpData.PriceSteps != nil {
-		p.Steps = tmpData.PriceSteps
+	if steps != nil {
+		p.Steps = steps
 	}
-	if tmpData.PriceMemory != nil {
-		p.Mem = tmpData.PriceMemory
+	if mem != nil {
+		p.Mem = mem
 	}
 	return nil
 }
