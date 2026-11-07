@@ -33,6 +33,7 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/transactionwire"
 )
 
 const (
@@ -597,10 +598,9 @@ const (
 // envelope.
 //
 // Every rule expressed against a transaction's size must use this, not
-// len(tx.Cbor()). The two differ by exactly one byte, which only matters for a
-// transaction sitting exactly on a limit — rare enough to survive a long way
-// into a replay before a single transaction built to fill maxTxSize exposes
-// it.
+// len(tx.Cbor()). The two can differ when the received envelope carries
+// IsValid or uses non-canonical outer-array framing. That difference matters
+// most for a transaction sitting exactly on a limit.
 //
 // When the transaction has no stored CBOR (e.g. programmatically constructed),
 // the function falls back to encoding the transaction to compute its size.
@@ -638,25 +638,16 @@ func TxSize(tx Transaction) (int, error) {
 }
 
 func alonzoFamilyTransactionSize(cborData []byte) (int, bool) {
-	var components []cbor.RawMessage
-	bytesRead, err := cbor.Decode(cborData, &components)
-	if err != nil || bytesRead != len(cborData) {
+	envelope, err := transactionwire.DecodeAlonzoFamilyEnvelope(cborData)
+	if err != nil || envelope.WireSize != len(cborData) {
 		return 0, false
 	}
-	if len(components) != 3 && len(components) != 4 {
+	_, auxiliaryData, err := envelope.DecodeValidityAndAuxiliaryData()
+	if err != nil {
 		return 0, false
 	}
-	metadataIndex := 2
-	if len(components) == 4 {
-		validity := components[2]
-		if len(validity) != 1 ||
-			(validity[0] != 0xf4 && validity[0] != 0xf5) {
-			return 0, false
-		}
-		metadataIndex = 3
-	}
-	return 1 + len(components[0]) + len(components[1]) +
-		len(components[metadataIndex]), true
+	return 1 + len(envelope.Body) + len(envelope.WitnessSet) +
+		len(auxiliaryData), true
 }
 
 // TxSizeForFee returns the fee-relevant size of a transaction. It is the same

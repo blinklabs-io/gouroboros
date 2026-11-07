@@ -21,6 +21,7 @@ import (
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/transactionwire"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
@@ -1330,49 +1331,26 @@ func (t *BabbageTransaction) UnmarshalCBOR(cborData []byte) error {
 	t.TxMetadata = nil
 	t.auxData = nil
 
-	dec, err := cbor.NewStreamDecoder(cborData)
+	envelope, err := transactionwire.DecodeAlonzoFamilyEnvelope(cborData)
 	if err != nil {
 		return err
 	}
-	var txArray []cbor.RawMessage
-	if _, _, err := dec.Decode(&txArray); err != nil {
-		return err
-	}
-
-	if len(txArray) != 3 && len(txArray) != 4 {
-		return fmt.Errorf(
-			"invalid transaction: expected 3 or 4 components, got %d",
-			len(txArray),
-		)
-	}
 
 	// Decode body
-	if _, err := cbor.Decode([]byte(txArray[0]), &t.Body); err != nil {
+	if _, err := cbor.Decode(envelope.Body, &t.Body); err != nil {
 		return fmt.Errorf("failed to decode transaction body: %w", err)
 	}
 
 	// Decode witness set
-	if _, err := cbor.Decode([]byte(txArray[1]), &t.WitnessSet); err != nil {
+	if _, err := cbor.Decode(envelope.WitnessSet, &t.WitnessSet); err != nil {
 		return fmt.Errorf("failed to decode transaction witness set: %w", err)
 	}
 
-	metadataIndex := 2
-	if len(txArray) == 4 {
-		if _, err := cbor.Decode([]byte(txArray[2]), &t.TxIsValid); err != nil {
-			return fmt.Errorf("failed to decode TxIsValid: %w", err)
-		}
-		metadataIndex = 3
-	} else {
-		metadataRaw := []byte(txArray[2])
-		if len(metadataRaw) == 1 &&
-			(metadataRaw[0] == 0xf4 || metadataRaw[0] == 0xf5) {
-			return errors.New(
-				"invalid transaction: IsValid requires an auxiliary data component",
-			)
-		}
-		t.TxIsValid = true
+	isValid, metadataRaw, err := envelope.DecodeValidityAndAuxiliaryData()
+	if err != nil {
+		return err
 	}
-	metadataRaw := []byte(txArray[metadataIndex])
+	t.TxIsValid = isValid
 	if len(metadataRaw) > 0 && metadataRaw[0] != 0xF6 &&
 		(len(metadataRaw) != 1 ||
 			(metadataRaw[0] != 0xF4 && metadataRaw[0] != 0xF5)) {

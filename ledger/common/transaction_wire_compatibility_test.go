@@ -15,6 +15,7 @@
 package common_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -177,6 +178,58 @@ func TestTxSizePreservesMalformedFourComponentEnvelope(t *testing.T) {
 	}
 }
 
+func TestTxSizePreservesMalformedThreeComponentBooleanAuxiliaryData(
+	t *testing.T,
+) {
+	txTypes := []struct {
+		name string
+		id   int
+	}{
+		{name: "Alonzo", id: alonzo.TxTypeAlonzo},
+		{name: "Babbage", id: babbage.TxTypeBabbage},
+		{name: "Conway", id: conway.TxTypeConway},
+	}
+	encodings := []struct {
+		name   string
+		header []byte
+		end    []byte
+	}{
+		{name: "wide definite array", header: []byte{0x98, 0x03}},
+		{
+			name:   "indefinite array",
+			header: []byte{0x9f},
+			end:    []byte{0xff},
+		},
+	}
+
+	for _, txType := range txTypes {
+		t.Run(txType.name, func(t *testing.T) {
+			for _, validity := range []byte{0xf4, 0xf5} {
+				t.Run(fmt.Sprintf("boolean %x", validity), func(t *testing.T) {
+					for _, encoding := range encodings {
+						t.Run(encoding.name, func(t *testing.T) {
+							wire := concatenateBytes(
+								encoding.header,
+								minimalAlonzoFamilyTxBody,
+								[]byte{0xa0, validity},
+								encoding.end,
+							)
+							tx := mockledger.NewTransactionBuilder().WithType(
+								txType.id,
+							)
+							tx.SetCbor(wire)
+
+							size, err := common.TxSize(tx)
+							require.NoError(t, err)
+							require.Equal(t, len(wire), size)
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestAlonzoFamilyTransactionDecodeDefaultsOmittedValidity(t *testing.T) {
 	type decodeFunc func([]byte) (common.Transaction, error)
 	decoders := []struct {
@@ -218,6 +271,45 @@ func TestAlonzoFamilyTransactionDecodeDefaultsOmittedValidity(t *testing.T) {
 		minimalAlonzoFamilyTxBody,
 		[]byte{0xa0, 0xf5},
 	)
+	fourComponentWithInvalidValidity := concatenateBytes(
+		[]byte{0x84},
+		minimalAlonzoFamilyTxBody,
+		[]byte{0xa0, 0xf6, 0xf6},
+	)
+	combinedMalformed := []struct {
+		name     string
+		wire     []byte
+		expected string
+	}{
+		{
+			name:     "four components reject body before validity",
+			wire:     []byte{0x84, 0x00, 0xa0, 0xf6, 0xf6},
+			expected: "failed to decode transaction body",
+		},
+		{
+			name:     "three components reject body before boolean auxiliary data",
+			wire:     []byte{0x83, 0x00, 0xa0, 0xf5},
+			expected: "failed to decode transaction body",
+		},
+		{
+			name: "four components reject witnesses before validity",
+			wire: concatenateBytes(
+				[]byte{0x84},
+				minimalAlonzoFamilyTxBody,
+				[]byte{0x00, 0xf6, 0xf6},
+			),
+			expected: "failed to decode transaction witness set",
+		},
+		{
+			name: "three components reject witnesses before boolean auxiliary data",
+			wire: concatenateBytes(
+				[]byte{0x83},
+				minimalAlonzoFamilyTxBody,
+				[]byte{0x00, 0xf5},
+			),
+			expected: "failed to decode transaction witness set",
+		},
+	}
 
 	for _, decoder := range decoders {
 		t.Run(decoder.name, func(t *testing.T) {
@@ -231,13 +323,37 @@ func TestAlonzoFamilyTransactionDecodeDefaultsOmittedValidity(t *testing.T) {
 			require.False(t, decoded.IsValid())
 
 			_, err = decoder.decode(threeComponentWithValidity)
-			require.Error(t, err)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid transaction: IsValid requires an auxiliary data component",
+			)
+
+			_, err = decoder.decode(fourComponentWithInvalidValidity)
+			require.ErrorContains(t, err, "failed to decode TxIsValid")
 
 			_, err = decoder.decode([]byte{0x82, 0xa0, 0xa0})
-			require.Error(t, err)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid transaction: expected 3 or 4 components, got 2",
+			)
 
 			_, err = decoder.decode([]byte{0x85, 0xa0, 0xa0, 0xf5, 0xf6, 0xf6})
-			require.Error(t, err)
+			require.ErrorContains(
+				t,
+				err,
+				"invalid transaction: expected 3 or 4 components, got 5",
+			)
+
+			for _, test := range combinedMalformed {
+				t.Run(test.name, func(t *testing.T) {
+					_, err := decoder.decode(test.wire)
+					require.ErrorContains(t, err, test.expected)
+					require.NotContains(t, err.Error(), "TxIsValid")
+					require.NotContains(t, err.Error(), "IsValid requires")
+				})
+			}
 		})
 	}
 }
