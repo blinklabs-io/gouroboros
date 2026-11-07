@@ -2153,7 +2153,10 @@ func (t DijkstraTransaction) Hash() common.Blake2b256 {
 }
 
 func (t DijkstraTransaction) Id() common.Blake2b256 {
-	return t.Body.Id()
+	// Atomic cache operations can make their receiver escape. Limit that
+	// allocation to the embedded base rather than the whole transaction.
+	body := t.Body.TransactionBodyBase
+	return body.Id()
 }
 
 // LeiosHash returns the Blake2b-256 hash of the transaction's CBOR. The value
