@@ -155,29 +155,31 @@ func TestJumpWhileSyncingReturnsErrSyncInProgress(t *testing.T) {
 	require.Equal(t, uint64(2), recv(t, h.rollbacks, "rollback 2"))
 }
 
-// A loop that is alive between batches has no request outstanding, yet a
-// FindIntersect would move the server's read pointer under it.
+// A loop still working through its ready signals has no request outstanding
+// once the server has answered them all, yet a FindIntersect would move the
+// server's read pointer under it.
 func TestJumpWithIdleSyncLoopReturnsErrSyncInProgress(t *testing.T) {
 	t.Parallel()
 	h := newReintersectHarness(t)
-	var signals atomic.Int32
+	var armed atomic.Bool
 	parked := make(chan struct{}, 1)
 	proceed := make(chan struct{})
 	h.client.testSyncLoopBeforeBusyLock = func() {
-		// The third armed signal is the last reply of the batch: the loop
-		// would now send the next batch.
-		if signals.Add(1) == 3 {
+		if armed.CompareAndSwap(true, false) {
 			parked <- struct{}{}
 			<-proceed
 		}
 	}
 	h.startPipelined()
-	signals.Store(0)
+	armed.Store(true)
 	defer close(proceed)
 
 	h.release(3)
-	recv(t, parked, "loop parked after the batch was answered")
-	require.Equal(t, 0, h.outstanding())
+	recv(t, parked, "loop parked on the first signal of the batch")
+	require.Eventually(t, func() bool {
+		return h.outstanding() == 0
+	}, reintersectTestTimeout, time.Millisecond,
+		"batch was never answered while the loop was parked")
 
 	_, _, _, err := h.client.Jump([]pcommon.Point{h.findPoint})
 	require.ErrorIs(t, err, ErrSyncInProgress)
