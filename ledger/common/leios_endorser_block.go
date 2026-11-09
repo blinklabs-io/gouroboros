@@ -25,8 +25,8 @@ import (
 
 // LeiosMaxTxsPerEndorserBlock is the most transaction references an
 // endorser block may carry. The reference node derives it from the 600000-byte
-// endorser block ceiling over the smallest encoded reference, and rejects a
-// larger count before decoding any reference.
+// endorser block ceiling over the smallest encoded reference, and enforces
+// that byte ceiling rather than counting references.
 const LeiosMaxTxsPerEndorserBlock = 17142
 
 const (
