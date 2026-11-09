@@ -2420,7 +2420,8 @@ type batchWithdrawal struct {
 
 // UtxoValidateBatchWithdrawals rejects a Dijkstra transaction when the total
 // withdrawal for an account across the entire batch exceeds its original
-// reward-account balance. This is unconditional: phase-2-invalid transactions
+// reward-account balance. In Plutus legacy mode the top-level withdrawal is
+// excluded from the sum. This is unconditional: phase-2-invalid transactions
 // still undergo this UTXOW check.
 func UtxoValidateBatchWithdrawals(
 	tx common.Transaction,
@@ -2433,12 +2434,22 @@ func UtxoValidateBatchWithdrawals(
 		return nil
 	}
 
+	// In legacy mode only sub-transaction withdrawals are bounded by the
+	// original balance. The top-level withdrawal is checked against the
+	// threaded account state by UtxoValidateWithdrawals, where it must
+	// drain the balance including sub-transaction effects.
+	legacyWithdrawalMode, err := dijkstraLegacyWithdrawalMode(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
 	bodies := make(
 		[]common.TransactionBody,
 		0,
 		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
 	)
-	bodies = append(bodies, &dijkstraTx.Body)
+	if !legacyWithdrawalMode {
+		bodies = append(bodies, &dijkstraTx.Body)
+	}
 	bodies = append(
 		bodies,
 		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
