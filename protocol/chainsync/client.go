@@ -44,22 +44,21 @@ const (
 // Client implements the ChainSync client
 type Client struct {
 	*protocol.Protocol
-	protocolMu               sync.RWMutex
-	config                   *Config
-	callbackContext          CallbackContext
-	busyMutex                sync.Mutex
-	lifecycleMutex           sync.Mutex
-	lifecycleState           clientLifecycleState
-	startingDone             chan struct{}
-	stoppingDone             chan struct{}
-	activeOperations         int
-	operationsDrained        chan struct{}
-	protocolStarted          bool
-	readyForNextBlockChan    chan bool
-	syncLoopWaitGroup        sync.WaitGroup
-	syncPipelinedRequestNext int
-	outstandingRequestNext   int
-	requestNextDrained       chan struct{}
+	protocolMu             sync.RWMutex
+	config                 *Config
+	callbackContext        CallbackContext
+	busyMutex              sync.Mutex
+	lifecycleMutex         sync.Mutex
+	lifecycleState         clientLifecycleState
+	startingDone           chan struct{}
+	stoppingDone           chan struct{}
+	activeOperations       int
+	operationsDrained      chan struct{}
+	protocolStarted        bool
+	readyForNextBlockChan  chan bool
+	syncLoopWaitGroup      sync.WaitGroup
+	outstandingRequestNext int
+	requestNextDrained     chan struct{}
 	// syncLoopStop and syncLoopDone belong to the most recently started sync
 	// loop. Closing syncLoopStop makes that loop exit; the loop closes
 	// syncLoopDone on its way out.
@@ -338,7 +337,6 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				c.syncPipelinedRequestNext = 0
 				// Requests sent on the stopped instance are never answered.
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
@@ -1235,8 +1233,6 @@ func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 		c.syncLoopWaitGroup.Done()
 		return protocol.ErrProtocolShuttingDown
 	}
-	// Reset pipelined message counter before starting a new loop.
-	c.syncPipelinedRequestNext = 0
 	// Start a sync loop bound to this protocol instance. Stop waits for every
 	// active loop before Start can replace the protocol and its channels.
 	loopDone := make(chan struct{})
@@ -1261,6 +1257,9 @@ func (c *Client) syncLoop(
 	c.lifecycleMutex.Lock()
 	stopChan := c.syncLoopStop
 	c.lifecycleMutex.Unlock()
+	// inFlight counts the requests this loop has sent whose replies it has not
+	// yet consumed. The request sent before the loop started is the first.
+	inFlight := 1
 	for {
 		// Wait for a block to be received
 		select {
@@ -1295,15 +1294,16 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		// Wait for next block if we have pipelined messages
-		if c.syncPipelinedRequestNext > 0 {
-			c.syncPipelinedRequestNext--
+		// One reply was consumed: top the window back up so PipelineLimit
+		// requests stay outstanding. Sending only after the window empties
+		// leaves the link idle for a round trip per batch.
+		inFlight--
+		msgCount := max(c.config.PipelineLimit, 1) - inFlight
+		if msgCount <= 0 {
 			c.lifecycleMutex.Unlock()
 			c.busyMutex.Unlock()
 			continue
 		}
-		// Request the next block(s)
-		msgCount := max(c.config.PipelineLimit, 1)
 		proto := c.ProtocolInstance()
 		c.lifecycleMutex.Unlock()
 		if c.testSyncLoopBeforeRequestNext != nil {
@@ -1326,7 +1326,7 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		c.syncPipelinedRequestNext = msgCount - 1
+		inFlight += msgCount
 		c.lifecycleMutex.Unlock()
 		c.busyMutex.Unlock()
 	}

@@ -234,23 +234,23 @@ func TestTxInfoV2InputDatumNormalized(t *testing.T) {
 	if !ok {
 		t.Fatalf("TxInfoV2 did not render as a Constr")
 	}
-	inputs, ok := rendered.Fields[0].(*data.List)
-	if !ok || len(inputs.Items) != 1 {
+	inputs, ok := rendered.Fields()[0].(*data.List)
+	if !ok || len(inputs.Items()) != 1 {
 		t.Fatalf("txInfoInputs did not render as a one-item list")
 	}
-	resolved, ok := inputs.Items[0].(*data.Constr)
+	resolved, ok := inputs.Items()[0].(*data.Constr)
 	if !ok {
 		t.Fatalf("resolved input did not render as a Constr")
 	}
-	txOut, ok := resolved.Fields[1].(*data.Constr)
+	txOut, ok := resolved.Fields()[1].(*data.Constr)
 	if !ok {
 		t.Fatalf("TxOut did not render as a Constr")
 	}
-	datumOption, ok := txOut.Fields[2].(*data.Constr)
+	datumOption, ok := txOut.Fields()[2].(*data.Constr)
 	if !ok || datumOption.Tag == nil || datumOption.Tag.Int64() != 2 {
-		t.Fatalf("datum option is not an inline datum: %v", txOut.Fields[2])
+		t.Fatalf("datum option is not an inline datum: %v", txOut.Fields()[2])
 	}
-	encoded, err := data.Encode(datumOption.Fields[0])
+	encoded, err := data.Encode(datumOption.Fields()[0])
 	if err != nil {
 		t.Fatalf("encode inline datum: %v", err)
 	}

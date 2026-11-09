@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUtxoValidateOutsideValidityIntervalUtxo(t *testing.T) {
@@ -741,6 +742,62 @@ func TestUtxoValidateOutputTooSmallUtxo(t *testing.T) {
 			)
 		},
 	)
+}
+
+// The reference rule flags an output only when its value is pointwise less
+// than the minimum coin, which a positive asset quantity makes false.
+func TestUtxoValidateOutputTooSmallUtxoAssetOutputs(t *testing.T) {
+	const lowCoin uint64 = 123
+	assetOutput := func(coin uint64, quantity int64) mary.MaryTransactionOutput {
+		assets := common.NewMultiAsset[common.MultiAssetTypeOutput](
+			map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+				{}: {cbor.NewByteString([]byte("token")): big.NewInt(quantity)},
+			},
+		)
+		return mary.MaryTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{
+				Amount: coin,
+				Assets: &assets,
+			},
+		}
+	}
+	plainOutput := func(coin uint64) mary.MaryTransactionOutput {
+		return mary.MaryTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{Amount: coin},
+		}
+	}
+	validate := func(outputs ...mary.MaryTransactionOutput) error {
+		return mary.UtxoValidateOutputTooSmallUtxo(
+			&mary.MaryTransaction{
+				Body: mary.MaryTransactionBody{TxOutputs: outputs},
+			},
+			0,
+			mockledger.NewLedgerStateBuilder().Build(),
+			&mary.MaryProtocolParameters{MinUtxoValue: 100000},
+		)
+	}
+
+	t.Run("asset output below the minimum coin is accepted", func(t *testing.T) {
+		assert.NoError(t, validate(assetOutput(lowCoin, 1)))
+	})
+	t.Run("asset-free output below the minimum coin is rejected", func(t *testing.T) {
+		var target shelley.OutputTooSmallUtxoError
+		require.ErrorAs(t, validate(plainOutput(lowCoin)), &target)
+	})
+	t.Run("zero-quantity asset does not exempt an output", func(t *testing.T) {
+		var target shelley.OutputTooSmallUtxoError
+		require.ErrorAs(t, validate(assetOutput(lowCoin, 0)), &target)
+	})
+	t.Run("only the asset-free output is reported", func(t *testing.T) {
+		var target shelley.OutputTooSmallUtxoError
+		require.ErrorAs(
+			t,
+			validate(assetOutput(lowCoin, 1), plainOutput(lowCoin)),
+			&target,
+		)
+		require.Len(t, target.Outputs, 1)
+		assert.Nil(t, target.Outputs[0].Assets())
+	})
 }
 
 func TestUtxoValidateValueNotConservedChecksZeroPolicyMint(t *testing.T) {

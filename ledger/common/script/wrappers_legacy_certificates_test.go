@@ -98,14 +98,14 @@ func TestTxInfoV1V2LegacyCertificates(t *testing.T) {
 					WithCertificates(certificate.certificate)
 				info, err := context.build(tx)
 				require.NoError(t, err)
-				fields := info.ToPlutusData().(*data.Constr).Fields
+				fields := info.ToPlutusData().(*data.Constr).Fields()
 				translated := fields[context.fieldIndex].(*data.List)
 				require.Equal(
 					t,
 					[]data.PlutusData{certificate.want},
-					translated.Items,
+					translated.Items(),
 				)
-				require.Empty(t, translated.Items[0].(*data.Constr).Fields)
+				require.Empty(t, translated.Items()[0].(*data.Constr).Fields())
 			})
 		}
 	}

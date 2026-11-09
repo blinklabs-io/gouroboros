@@ -100,10 +100,10 @@ func TestOneShotMintAssetNamePinsScriptVisibleEncoding(t *testing.T) {
 	if !ok {
 		t.Fatalf("redeemer is %T, want *data.Constr", redeemerData)
 	}
-	if len(outer.Fields) != 1 {
-		t.Fatalf("redeemer has %d fields, want 1", len(outer.Fields))
+	if len(outer.Fields()) != 1 {
+		t.Fatalf("redeemer has %d fields, want 1", len(outer.Fields()))
 	}
-	txOutRef := outer.Fields[0]
+	txOutRef := outer.Fields()[0]
 
 	hashOf := func(pd data.PlutusData) string {
 		encoded, err := data.Encode(pd)

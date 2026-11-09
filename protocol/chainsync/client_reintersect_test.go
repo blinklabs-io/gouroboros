@@ -344,6 +344,18 @@ func TestReintersectIntersectNotFoundLeavesProtocolIdle(t *testing.T) {
 
 	h.notFound.Store(true)
 	done := h.reintersectAsync([]pcommon.Point{h.findPoint})
+	// Replies consumed before the loop is stopped make it send more requests,
+	// which the gated server never answers; wait for the stop first.
+	require.Eventually(t, func() bool {
+		h.client.lifecycleMutex.Lock()
+		defer h.client.lifecycleMutex.Unlock()
+		select {
+		case <-h.client.syncLoopStop:
+			return true
+		default:
+			return false
+		}
+	}, reintersectTestTimeout, time.Millisecond, "sync loop never stopped")
 	h.release(3)
 	recv(t, h.finds, "FindIntersect")
 	res := recv(t, done, "Reintersect result")

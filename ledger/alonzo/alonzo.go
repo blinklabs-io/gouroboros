@@ -641,7 +641,7 @@ func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 		}
 		valueData = append(
 			valueData,
-			assetDataMap.Pairs...,
+			assetDataMap.Pairs()...,
 		)
 	}
 	var datumOptionPd data.PlutusData

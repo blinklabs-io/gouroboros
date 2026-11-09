@@ -197,9 +197,9 @@ func mintWithZeroAda(
 			{data.NewByteString(nil), data.NewInteger(big.NewInt(0))},
 		}),
 	}
-	pairs := make([][2]data.PlutusData, 0, 1+len(mintMap.Pairs))
+	pairs := make([][2]data.PlutusData, 0, 1+len(mintMap.Pairs()))
 	pairs = append(pairs, adaEntry)
-	pairs = append(pairs, mintMap.Pairs...)
+	pairs = append(pairs, mintMap.Pairs()...)
 	return data.NewMap(pairs)
 }
 

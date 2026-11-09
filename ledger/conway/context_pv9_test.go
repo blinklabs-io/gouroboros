@@ -181,8 +181,8 @@ func TestTxInfoV3FromTransactionPreservesCertificateAmountRules(t *testing.T) {
 						version.major,
 					)
 					require.NoError(t, err)
-					certificates := info.ToPlutusData().(*data.Constr).Fields[5].(*data.List)
-					translated := certificates.Items[0].(*data.Constr).Fields[1]
+					certificates := info.ToPlutusData().(*data.Constr).Fields()[5].(*data.List)
+					translated := certificates.Items()[0].(*data.Constr).Fields()[1]
 					require.Equal(t, tc.want[version.major], translated)
 				})
 			}
