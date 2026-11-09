@@ -83,25 +83,20 @@ func TestLeiosEndorserBlockEncodingMatchesReference(t *testing.T) {
 	require.Equal(t, Blake2b256Hash(want), decoded.Hash())
 }
 
-// The reference node checks a received endorser block by hashing the
-// re-encoding of its decoded value, and its decoder accepts a definite head
-// of any width. A block decoded from wider heads therefore hashes as its
-// canonical form, while its wire bytes are kept for re-serialization.
-func TestLeiosEndorserBlockHashUsesCanonicalEncoding(t *testing.T) {
+// The reference memoises the bytes an endorser block arrived as and hashes
+// those, so a block decoded from wider heads hashes as its wire bytes, not as
+// its canonical re-encoding.
+func TestLeiosEndorserBlockHashUsesReceivedBytes(t *testing.T) {
+	t.Parallel()
 	hash := make([]byte, Blake2b256Size)
 	hash[0] = 0xaa
 	canonical := append([]byte{0xa1, 0x58, 0x20}, hash...)
 	canonical = append(canonical, 0x18, 0x26)
-	want := Blake2b256Hash(canonical)
 	tests := map[string][]byte{
 		"canonical": canonical,
 		"size with a four-byte argument": append(
 			append([]byte{0xa1, 0x58, 0x20}, hash...),
 			0x1a, 0x00, 0x00, 0x00, 0x26,
-		),
-		"size with an eight-byte argument": append(
-			append([]byte{0xa1, 0x58, 0x20}, hash...),
-			0x1b, 0, 0, 0, 0, 0, 0, 0, 0x26,
 		),
 		"map length with a one-byte argument": append(
 			append([]byte{0xb8, 0x01, 0x58, 0x20}, hash...),
@@ -111,17 +106,42 @@ func TestLeiosEndorserBlockHashUsesCanonicalEncoding(t *testing.T) {
 			append([]byte{0xa1, 0x59, 0x00, 0x20}, hash...),
 			0x18, 0x26,
 		),
+		"indefinite map": append(
+			append([]byte{0xbf, 0x58, 0x20}, hash...),
+			0x18, 0x26, 0xff,
+		),
 	}
 	for name, wire := range tests {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			decoded, err := NewLeiosEndorserBlockFromCbor(wire)
 			require.NoError(t, err)
-			require.Equal(t, want, decoded.Hash())
+			require.Equal(t, Blake2b256Hash(wire), decoded.Hash())
 			encoded, err := decoded.MarshalCBOR()
 			require.NoError(t, err)
 			require.Equal(t, wire, encoded)
 		})
 	}
+	wide, err := NewLeiosEndorserBlockFromCbor(
+		tests["map length with a one-byte argument"],
+	)
+	require.NoError(t, err)
+	require.NotEqual(t, Blake2b256Hash(canonical), wide.Hash())
+}
+
+// A block built from references carries no received bytes and hashes its
+// canonical encoding.
+func TestLeiosEndorserBlockHashWithoutReceivedBytesIsCanonical(t *testing.T) {
+	t.Parallel()
+	block := LeiosEndorserBlock{
+		TransactionReferences: []LeiosTransactionReference{
+			{TransactionHash: NewBlake2b256([]byte{0x01}), TransactionSize: 38},
+		},
+	}
+	raw, err := block.MarshalCBOR()
+	require.NoError(t, err)
+	require.Equal(t, Blake2b256Hash(raw), block.Hash())
+	require.Equal(t, Blake2b256{}, LeiosEndorserBlock{}.Hash())
 }
 
 // The reference decodes each hash with decodeBytes and each size with
@@ -173,13 +193,78 @@ func TestLeiosEndorserBlockRejectsArrayWrapper(t *testing.T) {
 	require.ErrorContains(t, err, "expected map")
 }
 
-func TestLeiosEndorserBlockRejectsIndefiniteMap(t *testing.T) {
-	wire := []byte{0xbf, 0x58, 0x20}
-	wire = append(wire, make([]byte, Blake2b256Size)...)
-	wire = append(wire, 0x01, 0xff)
+func leiosIndefiniteMapWire(entries ...[2]byte) []byte {
+	wire := []byte{0xbf}
+	for _, e := range entries {
+		hash := make([]byte, Blake2b256Size)
+		hash[0] = e[0]
+		wire = append(wire, 0x58, 0x20)
+		wire = append(wire, hash...)
+		wire = append(wire, 0x18, e[1])
+	}
+	return wire
+}
 
+func TestLeiosEndorserBlockAcceptsIndefiniteMap(t *testing.T) {
+	t.Parallel()
+	wire := append(leiosIndefiniteMapWire([2]byte{1, 5}, [2]byte{2, 6}), 0xff)
+	block, err := NewLeiosEndorserBlockFromCbor(wire)
+	require.NoError(t, err)
+	require.Len(t, block.TransactionReferences, 2)
+	require.Equal(t, uint32(5), block.TransactionReferences[0].TransactionSize)
+	require.Equal(t, uint32(6), block.TransactionReferences[1].TransactionSize)
+	require.NoError(t, block.Validate())
+}
+
+func TestLeiosEndorserBlockRejectsMalformedIndefiniteMap(t *testing.T) {
+	t.Parallel()
+	one := leiosIndefiniteMapWire([2]byte{1, 5})
+	cut := one[:len(one)-2]
+	tests := map[string][]byte{
+		"missing break":  one,
+		"empty":          {0xbf, 0xff},
+		"only header":    {0xbf},
+		"trailing bytes": append(append([]byte{}, one...), 0xff, 0x00),
+		"duplicate": append(
+			leiosIndefiniteMapWire([2]byte{1, 5}, [2]byte{1, 6}),
+			0xff,
+		),
+		"break before value": append(append([]byte{}, cut...), 0xff),
+		"indefinite hash":    {0xbf, 0x5f, 0x40, 0xff, 0x01, 0xff},
+		"non-uint size":      append(append([]byte{}, cut...), 0x40, 0xff),
+		"oversized size": append(
+			append([]byte{}, cut...),
+			0x1b, 0, 0, 0, 1, 0, 0, 0, 0, 0xff,
+		),
+	}
+	for name, wire := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := NewLeiosEndorserBlockFromCbor(wire)
+			require.Error(t, err)
+		})
+	}
+	_, err := NewLeiosEndorserBlockFromCbor(
+		append(append([]byte{}, one...), 0xff, 0x00),
+	)
+	require.ErrorContains(t, err, "trailing bytes")
+	_, err = NewLeiosEndorserBlockFromCbor([]byte{0xbf, 0xff})
+	require.ErrorContains(t, err, "at least one transaction reference")
+}
+
+func TestLeiosEndorserBlockIndefiniteMapCountBound(t *testing.T) {
+	t.Parallel()
+	wire := []byte{0xbf}
+	for i := range LeiosMaxTxsPerEndorserBlock + 1 {
+		hash := make([]byte, Blake2b256Size)
+		binary.BigEndian.PutUint32(hash[len(hash)-4:], uint32(i)) // #nosec G115
+		wire = append(wire, 0x58, 0x20)
+		wire = append(wire, hash...)
+		wire = append(wire, 0x01)
+	}
+	wire = append(wire, 0xff)
 	_, err := NewLeiosEndorserBlockFromCbor(wire)
-	require.Error(t, err)
+	require.ErrorContains(t, err, "not in [1, 17142]")
 }
 
 func TestLeiosEndorserBlockRejectsDuplicateReferences(t *testing.T) {
@@ -205,26 +290,26 @@ func TestLeiosEndorserBlockRejectsEmptyReferences(t *testing.T) {
 	require.ErrorContains(t, err, "at least one transaction reference")
 }
 
-func TestLeiosEndorserBlockRejectsZeroTxSize(t *testing.T) {
+// The reference sizes are Word32 and its decoder rejects only an empty map.
+func TestLeiosEndorserBlockAcceptsZeroTxSize(t *testing.T) {
+	t.Parallel()
 	block := LeiosEndorserBlock{
 		TransactionReferences: []LeiosTransactionReference{
-			{
-				TransactionHash: NewBlake2b256([]byte{0x01}),
-				TransactionSize: 0,
-			},
+			{TransactionHash: NewBlake2b256([]byte{0x01}), TransactionSize: 0},
 		},
 	}
-
-	_, err := cbor.Encode(&block)
-	require.ErrorContains(t, err, "zero size")
-
-	refMap, err := cbor.Encode(map[Blake2b256]uint32{
-		NewBlake2b256([]byte{0x01}): 0,
-	})
+	require.NoError(t, block.Validate())
+	raw, err := block.MarshalCBOR()
 	require.NoError(t, err)
 
-	_, err = NewLeiosEndorserBlockFromCbor(refMap)
-	require.ErrorContains(t, err, "zero size")
+	decoded, err := NewLeiosEndorserBlockFromCbor(raw)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		uint32(0),
+		decoded.TransactionReferences[0].TransactionSize,
+	)
+	require.Equal(t, Blake2b256Hash(raw), decoded.Hash())
 }
 
 func TestLeiosEndorserBlockRejectsTrailingBytes(t *testing.T) {
