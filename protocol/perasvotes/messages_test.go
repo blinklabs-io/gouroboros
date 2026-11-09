@@ -16,6 +16,7 @@ package perasvotes
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -116,6 +117,20 @@ func TestMalformedAndUnknownMessagesRejected(t *testing.T) {
 			require.Error(t, err)
 		})
 	}
+}
+
+func TestMessageRejectsNestingBeyondPeerLimit(t *testing.T) {
+	// The second field nests one level past the peer limit once the outer
+	// message array is counted, yet stays far below the general decoder limit
+	// that the field splitter would otherwise apply.
+	depth := cbor.MaxUntrustedNestedLevels + 1
+	data := []byte{0x84, MessageTypeRequestObjectIDs}
+	data = append(data, bytes.Repeat([]byte{0x81}, depth)...)
+	data = append(data, 0x00, 0x00, 0x00)
+	_, err := NewMsgFromCbor(uint(MessageTypeRequestObjectIDs), data)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "CBOR nesting too deep")
+	require.False(t, strings.Contains(err.Error(), "decode blocking flag"))
 }
 
 func TestVoteIDAndObjectRoundTrip(t *testing.T) {
