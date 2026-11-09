@@ -279,23 +279,23 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	refOutPd := txInfoV3.ReferenceInputs[0].Output.ToPlutusData()
 	refOutTop, ok := refOutPd.(*data.Constr)
 	if !ok || refOutTop.Tag == nil || refOutTop.Tag.Uint64() != 0 ||
-		len(refOutTop.Fields) < 3 {
+		len(refOutTop.Fields()) < 3 {
 		t.Fatalf("ref output PD = %v, want Constr 0 with >=3 fields", refOutPd)
 	}
-	datumOptionPd, ok := refOutTop.Fields[2].(*data.Constr)
+	datumOptionPd, ok := refOutTop.Fields()[2].(*data.Constr)
 	if !ok || datumOptionPd.Tag == nil || datumOptionPd.Tag.Uint64() != 2 ||
-		len(datumOptionPd.Fields) != 1 {
+		len(datumOptionPd.Fields()) != 1 {
 		t.Fatalf(
 			"ref datum option = %v, want Constr 2 with 1 field (INLINE datum)",
-			refOutTop.Fields[2],
+			refOutTop.Fields()[2],
 		)
 	}
-	innerDatum, ok := datumOptionPd.Fields[0].(*data.Constr)
+	innerDatum, ok := datumOptionPd.Fields()[0].(*data.Constr)
 	if !ok || innerDatum.Tag == nil || innerDatum.Tag.Uint64() != 0 ||
-		len(innerDatum.Fields) != 7 {
+		len(innerDatum.Fields()) != 7 {
 		t.Fatalf(
 			"ref inline datum = %v, want Constr 0 with 7 fields",
-			datumOptionPd.Fields[0],
+			datumOptionPd.Fields()[0],
 		)
 	}
 	t.Logf("ref inline datum verified: Constr 2 [ Constr 0 (7 fields) ]")
@@ -365,26 +365,26 @@ func TestDeab9ef3RedeemerEncodingOnlyDifference(t *testing.T) {
 	const sentinelInt = 999999999
 	sentinelSubstitute := func(ctxData data.PlutusData) data.PlutusData {
 		outer, ok := ctxData.(*data.Constr)
-		if !ok || len(outer.Fields) < 2 {
+		if !ok || len(outer.Fields()) < 2 {
 			return ctxData
 		}
 		// txInfo = outer.Fields[0]; its redeemers map is at field index 9.
-		txInfo, ok := outer.Fields[0].(*data.Constr)
-		if !ok || len(txInfo.Fields) <= 9 {
+		txInfo, ok := outer.Fields()[0].(*data.Constr)
+		if !ok || len(txInfo.Fields()) <= 9 {
 			return ctxData
 		}
-		redeemersMap, ok := txInfo.Fields[9].(*data.Map)
+		redeemersMap, ok := txInfo.Fields()[9].(*data.Map)
 		if !ok {
 			return ctxData
 		}
 		sentinel := data.NewInteger(big.NewInt(sentinelInt))
-		newPairs := make([][2]data.PlutusData, len(redeemersMap.Pairs))
-		for i, p := range redeemersMap.Pairs {
+		newPairs := make([][2]data.PlutusData, len(redeemersMap.Pairs()))
+		for i, p := range redeemersMap.Pairs() {
 			newPairs[i] = [2]data.PlutusData{p[0], sentinel}
 		}
-		newTxInfoFields := append([]data.PlutusData(nil), txInfo.Fields...)
+		newTxInfoFields := append([]data.PlutusData(nil), txInfo.Fields()...)
 		newTxInfoFields[9] = data.NewMap(newPairs)
-		newFields := append([]data.PlutusData(nil), outer.Fields...)
+		newFields := append([]data.PlutusData(nil), outer.Fields()...)
 		newFields[0] = data.NewConstr(0, newTxInfoFields...)
 		newFields[1] = sentinel
 		return data.NewConstr(outer.Tag.Uint64(), newFields...)

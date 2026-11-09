@@ -50,7 +50,7 @@ func requireDijkstraV4Constr(
 	constr, ok := value.(*data.Constr)
 	require.True(t, ok, "expected constructor, got %T", value)
 	require.Equal(t, new(big.Int).SetUint64(tag), constr.Tag)
-	require.Len(t, constr.Fields, fieldCount)
+	require.Len(t, constr.Fields(), fieldCount)
 	return constr
 }
 
@@ -84,7 +84,7 @@ func requireDijkstraV4List(
 	t.Helper()
 	list, ok := value.(*data.List)
 	require.True(t, ok, "expected list, got %T", value)
-	require.Len(t, list.Items, length)
+	require.Len(t, list.Items(), length)
 	return list
 }
 
@@ -96,7 +96,7 @@ func requireDijkstraV4Map(
 	t.Helper()
 	dataMap, ok := value.(*data.Map)
 	require.True(t, ok, "expected map, got %T", value)
-	require.Len(t, dataMap.Pairs, length)
+	require.Len(t, dataMap.Pairs(), length)
 	return dataMap
 }
 
@@ -254,7 +254,7 @@ func TestDijkstraRequiredTopLevelGuardsV4CredentialOrder(t *testing.T) {
 			require.NoError(t, err)
 			dataMap := requireDijkstraV4Map(t, requiredGuards, len(want))
 			for idx := range want {
-				require.True(t, dataMap.Pairs[idx][0].Equal(
+				require.True(t, dataMap.Pairs()[idx][0].Equal(
 					want[idx].ToPlutusData(),
 				), "credential at index %d", idx)
 			}
@@ -365,12 +365,12 @@ func TestDijkstraWithdrawalsV4FollowCredentialOrder(t *testing.T) {
 	withdrawalsData, err := dijkstraWithdrawalsV4(withdrawals)
 	require.NoError(t, err)
 	withdrawalMap := requireDijkstraV4Map(t, withdrawalsData, 2)
-	first := requireDijkstraV4Constr(t, withdrawalMap.Pairs[0][0], 1, 1)
-	requireDijkstraV4Bytes(t, first.Fields[0], hash)
-	requireDijkstraV4Integer(t, withdrawalMap.Pairs[0][1], 1)
-	second := requireDijkstraV4Constr(t, withdrawalMap.Pairs[1][0], 0, 1)
-	requireDijkstraV4Bytes(t, second.Fields[0], hash)
-	requireDijkstraV4Integer(t, withdrawalMap.Pairs[1][1], 2)
+	first := requireDijkstraV4Constr(t, withdrawalMap.Pairs()[0][0], 1, 1)
+	requireDijkstraV4Bytes(t, first.Fields()[0], hash)
+	requireDijkstraV4Integer(t, withdrawalMap.Pairs()[0][1], 1)
+	second := requireDijkstraV4Constr(t, withdrawalMap.Pairs()[1][0], 0, 1)
+	requireDijkstraV4Bytes(t, second.Fields()[0], hash)
+	requireDijkstraV4Integer(t, withdrawalMap.Pairs()[1][1], 2)
 }
 
 func TestDijkstraRewardPurposeUsesCredentialOrder(t *testing.T) {
@@ -440,33 +440,33 @@ func TestDijkstraTxInfoV4ReleasedSchema(t *testing.T) {
 	require.NoError(t, err)
 	txInfo := requireDijkstraV4List(t, txInfoData, 19)
 
-	requireDijkstraV4Bytes(t, txInfo.Items[0], tx.Id().Bytes())
-	requireDijkstraV4Constr(t, txInfo.Items[1], 1, 0)
-	requireDijkstraV4List(t, txInfo.Items[2], 0)
-	requireDijkstraV4List(t, txInfo.Items[3], 0)
-	requireDijkstraV4List(t, txInfo.Items[4], 0)
-	require.True(t, mint.ToPlutusData().Equal(txInfo.Items[5]))
-	requireDijkstraV4List(t, txInfo.Items[6], 0)
-	requireDijkstraV4Map(t, txInfo.Items[7], 0)
-	requireDijkstraV4Map(t, txInfo.Items[8], 0)
-	requireDijkstraV4Map(t, txInfo.Items[9], 0)
+	requireDijkstraV4Bytes(t, txInfo.Items()[0], tx.Id().Bytes())
+	requireDijkstraV4Constr(t, txInfo.Items()[1], 1, 0)
+	requireDijkstraV4List(t, txInfo.Items()[2], 0)
+	requireDijkstraV4List(t, txInfo.Items()[3], 0)
+	requireDijkstraV4List(t, txInfo.Items()[4], 0)
+	require.True(t, mint.ToPlutusData().Equal(txInfo.Items()[5]))
+	requireDijkstraV4List(t, txInfo.Items()[6], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[7], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[8], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[9], 0)
 
-	validRange := requireDijkstraV4List(t, txInfo.Items[10], 2)
-	lower := requireDijkstraV4Constr(t, validRange.Items[0], 0, 1)
-	requireDijkstraV4Integer(t, lower.Fields[0], 2500)
-	upper := requireDijkstraV4Constr(t, validRange.Items[1], 0, 1)
-	requireDijkstraV4Integer(t, upper.Fields[0], 7500)
+	validRange := requireDijkstraV4List(t, txInfo.Items()[10], 2)
+	lower := requireDijkstraV4Constr(t, validRange.Items()[0], 0, 1)
+	requireDijkstraV4Integer(t, lower.Fields()[0], 2500)
+	upper := requireDijkstraV4Constr(t, validRange.Items()[1], 0, 1)
+	requireDijkstraV4Integer(t, upper.Fields()[0], 7500)
 
-	guards := requireDijkstraV4List(t, txInfo.Items[11], 1)
-	require.True(t, guard.ToPlutusData().Equal(guards.Items[0]))
-	requireDijkstraV4Map(t, txInfo.Items[12], 0)
-	requireDijkstraV4Map(t, txInfo.Items[13], 0)
-	requireDijkstraV4Map(t, txInfo.Items[14], 0)
-	requireDijkstraV4Map(t, txInfo.Items[15], 0)
-	requireDijkstraV4List(t, txInfo.Items[16], 0)
-	treasury := requireDijkstraV4Constr(t, txInfo.Items[17], 0, 1)
-	requireDijkstraV4Integer(t, treasury.Fields[0], 33)
-	requireDijkstraV4Integer(t, txInfo.Items[18], 44)
+	guards := requireDijkstraV4List(t, txInfo.Items()[11], 1)
+	require.True(t, guard.ToPlutusData().Equal(guards.Items()[0]))
+	requireDijkstraV4Map(t, txInfo.Items()[12], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[13], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[14], 0)
+	requireDijkstraV4Map(t, txInfo.Items()[15], 0)
+	requireDijkstraV4List(t, txInfo.Items()[16], 0)
+	treasury := requireDijkstraV4Constr(t, txInfo.Items()[17], 0, 1)
+	requireDijkstraV4Integer(t, treasury.Fields()[0], 33)
+	requireDijkstraV4Integer(t, txInfo.Items()[18], 44)
 }
 
 func TestDijkstraTxInfoV4POSIXTimeRange(t *testing.T) {
@@ -523,22 +523,22 @@ func TestDijkstraTxInfoV4POSIXTimeRange(t *testing.T) {
 			txInfoData, err := dijkstraTxInfoV4(dijkstraV4TestLevel(t, tx))
 			require.NoError(t, err)
 			txInfo := requireDijkstraV4List(t, txInfoData, 19)
-			validRange := requireDijkstraV4List(t, txInfo.Items[10], 2)
+			validRange := requireDijkstraV4List(t, txInfo.Items()[10], 2)
 			for idx, want := range []*int64{
 				testCase.wantLower,
 				testCase.wantUpper,
 			} {
 				if want == nil {
-					requireDijkstraV4Constr(t, validRange.Items[idx], 1, 0)
+					requireDijkstraV4Constr(t, validRange.Items()[idx], 1, 0)
 					continue
 				}
 				bound := requireDijkstraV4Constr(
 					t,
-					validRange.Items[idx],
+					validRange.Items()[idx],
 					0,
 					1,
 				)
-				requireDijkstraV4Integer(t, bound.Fields[0], *want)
+				requireDijkstraV4Integer(t, bound.Fields()[0], *want)
 			}
 		})
 	}
@@ -575,15 +575,15 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervals(t *testing.T) {
 	_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
 	require.NoError(t, err)
 	dataMap := requireDijkstraV4Map(t, balanceIntervals, 2)
-	firstKey := requireDijkstraV4Constr(t, dataMap.Pairs[0][0], 0, 1)
-	requireDijkstraV4Bytes(t, firstKey.Fields[0], cred1.Credential.Bytes())
-	both := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 2, 2)
-	requireDijkstraV4Integer(t, both.Fields[0], 10)
-	requireDijkstraV4Integer(t, both.Fields[1], 20)
-	secondKey := requireDijkstraV4Constr(t, dataMap.Pairs[1][0], 0, 1)
-	requireDijkstraV4Bytes(t, secondKey.Fields[0], cred2.Credential.Bytes())
-	exactField := requireDijkstraV4Constr(t, dataMap.Pairs[1][1], 3, 1)
-	requireDijkstraV4Integer(t, exactField.Fields[0], 30)
+	firstKey := requireDijkstraV4Constr(t, dataMap.Pairs()[0][0], 0, 1)
+	requireDijkstraV4Bytes(t, firstKey.Fields()[0], cred1.Credential.Bytes())
+	both := requireDijkstraV4Constr(t, dataMap.Pairs()[0][1], 2, 2)
+	requireDijkstraV4Integer(t, both.Fields()[0], 10)
+	requireDijkstraV4Integer(t, both.Fields()[1], 20)
+	secondKey := requireDijkstraV4Constr(t, dataMap.Pairs()[1][0], 0, 1)
+	requireDijkstraV4Bytes(t, secondKey.Fields()[0], cred2.Credential.Bytes())
+	exactField := requireDijkstraV4Constr(t, dataMap.Pairs()[1][1], 3, 1)
+	requireDijkstraV4Integer(t, exactField.Fields()[0], 30)
 }
 
 func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
@@ -617,7 +617,7 @@ func TestDijkstraBodyFieldsV4AccountBalanceIntervalBoundShapes(t *testing.T) {
 			_, balanceIntervals, _, _, err := dijkstraBodyFieldsV4(body)
 			require.NoError(t, err)
 			dataMap := requireDijkstraV4Map(t, balanceIntervals, 1)
-			requireDijkstraV4Constr(t, dataMap.Pairs[0][1], test.wantTag, 1)
+			requireDijkstraV4Constr(t, dataMap.Pairs()[0][1], test.wantTag, 1)
 		})
 	}
 }
@@ -645,11 +645,11 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 			require.NoError(t, err)
 			dataMap := requireDijkstraV4Map(t, requiredGuards, 1)
 			if test.datum == nil {
-				requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 1, 0)
+				requireDijkstraV4Constr(t, dataMap.Pairs()[0][1], 1, 0)
 				return
 			}
-			present := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 0, 1)
-			requireDijkstraV4Integer(t, present.Fields[0], 7)
+			present := requireDijkstraV4Constr(t, dataMap.Pairs()[0][1], 0, 1)
+			requireDijkstraV4Integer(t, present.Fields()[0], 7)
 		})
 	}
 	t.Run("transaction body", func(t *testing.T) {
@@ -661,8 +661,8 @@ func TestDijkstraBodyFieldsV4RequiredTopLevelGuards(t *testing.T) {
 		_, _, _, requiredGuards, err := dijkstraBodyFieldsV4(body)
 		require.NoError(t, err)
 		dataMap := requireDijkstraV4Map(t, requiredGuards, 1)
-		present := requireDijkstraV4Constr(t, dataMap.Pairs[0][1], 0, 1)
-		requireDijkstraV4Integer(t, present.Fields[0], 9)
+		present := requireDijkstraV4Constr(t, dataMap.Pairs()[0][1], 0, 1)
+		requireDijkstraV4Integer(t, present.Fields()[0], 9)
 	})
 }
 
@@ -763,11 +763,11 @@ func TestDijkstraTxInfoV4SubTxIndex(t *testing.T) {
 		require.NoError(t, err)
 		info := requireDijkstraV4List(t, infoData, 19)
 		if idx == len(levels)-1 {
-			requireDijkstraV4Constr(t, info.Items[1], 1, 0)
+			requireDijkstraV4Constr(t, info.Items()[1], 1, 0)
 			continue
 		}
-		subTxIx := requireDijkstraV4Constr(t, info.Items[1], 0, 1)
-		requireDijkstraV4Integer(t, subTxIx.Fields[0], int64(idx))
+		subTxIx := requireDijkstraV4Constr(t, info.Items()[1], 0, 1)
+		requireDijkstraV4Integer(t, subTxIx.Fields()[0], int64(idx))
 	}
 }
 
@@ -847,71 +847,75 @@ func TestDijkstraPlutusV4GuardingSubTxIndex(t *testing.T) {
 	)
 	require.NoError(t, err)
 	topContext := requireDijkstraV4List(t, topContextData, 4)
-	requireDijkstraV4Integer(t, topContext.Items[1], 91)
-	requireDijkstraV4Bytes(t, topContext.Items[3], purpose.ScriptHash().Bytes())
-	topTxInfo := requireDijkstraV4List(t, topContext.Items[0], 19)
-	requireDijkstraV4Constr(t, topTxInfo.Items[1], 1, 0)
-	topScriptInfo := requireDijkstraV4Constr(t, topContext.Items[2], 6, 2)
-	requireDijkstraV4Integer(t, topScriptInfo.Fields[0], 0)
-	justTop := requireDijkstraV4Constr(t, topScriptInfo.Fields[1], 0, 1)
-	topInfo := requireDijkstraV4List(t, justTop.Fields[0], 4)
+	requireDijkstraV4Integer(t, topContext.Items()[1], 91)
+	requireDijkstraV4Bytes(
+		t,
+		topContext.Items()[3],
+		purpose.ScriptHash().Bytes(),
+	)
+	topTxInfo := requireDijkstraV4List(t, topContext.Items()[0], 19)
+	requireDijkstraV4Constr(t, topTxInfo.Items()[1], 1, 0)
+	topScriptInfo := requireDijkstraV4Constr(t, topContext.Items()[2], 6, 2)
+	requireDijkstraV4Integer(t, topScriptInfo.Fields()[0], 0)
+	justTop := requireDijkstraV4Constr(t, topScriptInfo.Fields()[1], 0, 1)
+	topInfo := requireDijkstraV4List(t, justTop.Fields()[0], 4)
 
-	subTxInfos := requireDijkstraV4List(t, topInfo.Items[0], 2)
+	subTxInfos := requireDijkstraV4List(t, topInfo.Items()[0], 2)
 	subTxIds := make([][]byte, 0, 2)
-	for idx, item := range subTxInfos.Items {
+	for idx, item := range subTxInfos.Items() {
 		info := requireDijkstraV4List(t, item, 19)
-		subTxIx := requireDijkstraV4Constr(t, info.Items[1], 0, 1)
-		requireDijkstraV4Integer(t, subTxIx.Fields[0], int64(idx))
-		id, ok := info.Items[0].(*data.ByteString)
+		subTxIx := requireDijkstraV4Constr(t, info.Items()[1], 0, 1)
+		requireDijkstraV4Integer(t, subTxIx.Fields()[0], int64(idx))
+		id, ok := info.Items()[0].(*data.ByteString)
 		require.True(t, ok)
 		subTxIds = append(subTxIds, id.Inner)
 	}
 	// Both sub-transactions name the executing guard with a datum.
-	datums := requireDijkstraV4Map(t, topInfo.Items[1], 2)
+	datums := requireDijkstraV4Map(t, topInfo.Items()[1], 2)
 	sortedIds := [][]byte{subTxIds[0], subTxIds[1]}
 	slices.SortFunc(sortedIds, bytes.Compare)
-	for idx, pair := range datums.Pairs {
+	for idx, pair := range datums.Pairs() {
 		requireDijkstraV4Bytes(t, pair[0], sortedIds[idx])
 		requireDijkstraV4Integer(t, pair[1], 123)
 	}
-	requireDijkstraV4Map(t, topInfo.Items[2], 0)
+	requireDijkstraV4Map(t, topInfo.Items()[2], 0)
 
-	simplified := requireDijkstraV4List(t, topInfo.Items[3], 18)
-	ids := requireDijkstraV4List(t, simplified.Items[0], 3)
-	requireDijkstraV4Bytes(t, ids.Items[0], subTxIds[0])
-	requireDijkstraV4Bytes(t, ids.Items[1], subTxIds[1])
-	requireDijkstraV4Bytes(t, ids.Items[2], tx.Id().Bytes())
+	simplified := requireDijkstraV4List(t, topInfo.Items()[3], 18)
+	ids := requireDijkstraV4List(t, simplified.Items()[0], 3)
+	requireDijkstraV4Bytes(t, ids.Items()[0], subTxIds[0])
+	requireDijkstraV4Bytes(t, ids.Items()[1], subTxIds[1])
+	requireDijkstraV4Bytes(t, ids.Items()[2], tx.Id().Bytes())
 	for _, idx := range []int{1, 2, 3, 6} {
-		requireDijkstraV4List(t, simplified.Items[idx], 0)
+		requireDijkstraV4List(t, simplified.Items()[idx], 0)
 	}
-	mints := requireDijkstraV4Map(t, simplified.Items[4], 1)
-	requireDijkstraV4Bytes(t, mints.Pairs[0][0], policy.Bytes())
-	minted := requireDijkstraV4Map(t, mints.Pairs[0][1], 1)
-	requireDijkstraV4Integer(t, minted.Pairs[0][1], 10)
-	burns := requireDijkstraV4Map(t, simplified.Items[5], 1)
-	burned := requireDijkstraV4Map(t, burns.Pairs[0][1], 1)
-	requireDijkstraV4Integer(t, burned.Pairs[0][1], -3)
-	requireDijkstraV4Map(t, simplified.Items[7], 0)
-	requireDijkstraV4Map(t, simplified.Items[8], 0)
+	mints := requireDijkstraV4Map(t, simplified.Items()[4], 1)
+	requireDijkstraV4Bytes(t, mints.Pairs()[0][0], policy.Bytes())
+	minted := requireDijkstraV4Map(t, mints.Pairs()[0][1], 1)
+	requireDijkstraV4Integer(t, minted.Pairs()[0][1], 10)
+	burns := requireDijkstraV4Map(t, simplified.Items()[5], 1)
+	burned := requireDijkstraV4Map(t, burns.Pairs()[0][1], 1)
+	requireDijkstraV4Integer(t, burned.Pairs()[0][1], -3)
+	requireDijkstraV4Map(t, simplified.Items()[7], 0)
+	requireDijkstraV4Map(t, simplified.Items()[8], 0)
 	// The batch validity range is the intersection of every level's range.
-	validRange := requireDijkstraV4List(t, simplified.Items[9], 2)
-	lower := requireDijkstraV4Constr(t, validRange.Items[0], 0, 1)
-	requireDijkstraV4Integer(t, lower.Fields[0], 3500)
-	upper := requireDijkstraV4Constr(t, validRange.Items[1], 0, 1)
-	requireDijkstraV4Integer(t, upper.Fields[0], 8500)
-	requireDijkstraV4List(t, simplified.Items[10], 3)
-	requiredGuardList := requireDijkstraV4List(t, simplified.Items[11], 2)
-	require.True(t, guard.ToPlutusData().Equal(requiredGuardList.Items[0]))
+	validRange := requireDijkstraV4List(t, simplified.Items()[9], 2)
+	lower := requireDijkstraV4Constr(t, validRange.Items()[0], 0, 1)
+	requireDijkstraV4Integer(t, lower.Fields()[0], 3500)
+	upper := requireDijkstraV4Constr(t, validRange.Items()[1], 0, 1)
+	requireDijkstraV4Integer(t, upper.Fields()[0], 8500)
+	requireDijkstraV4List(t, simplified.Items()[10], 3)
+	requiredGuardList := requireDijkstraV4List(t, simplified.Items()[11], 2)
+	require.True(t, guard.ToPlutusData().Equal(requiredGuardList.Items()[0]))
 	require.True(
 		t,
-		otherGuard.ToPlutusData().Equal(requiredGuardList.Items[1]),
+		otherGuard.ToPlutusData().Equal(requiredGuardList.Items()[1]),
 	)
-	requireDijkstraV4List(t, simplified.Items[12], 0)
-	requireDijkstraV4Map(t, simplified.Items[13], 0)
-	requireDijkstraV4Map(t, simplified.Items[14], 0)
-	requireDijkstraV4List(t, simplified.Items[15], 0)
-	requireDijkstraV4Constr(t, simplified.Items[16], 1, 0)
-	requireDijkstraV4Integer(t, simplified.Items[17], 18)
+	requireDijkstraV4List(t, simplified.Items()[12], 0)
+	requireDijkstraV4Map(t, simplified.Items()[13], 0)
+	requireDijkstraV4Map(t, simplified.Items()[14], 0)
+	requireDijkstraV4List(t, simplified.Items()[15], 0)
+	requireDijkstraV4Constr(t, simplified.Items()[16], 1, 0)
+	requireDijkstraV4Integer(t, simplified.Items()[17], 18)
 
 	for idx, level := range levels[:2] {
 		subContextData, err := dijkstraPlutusV4Context(
@@ -922,11 +926,11 @@ func TestDijkstraPlutusV4GuardingSubTxIndex(t *testing.T) {
 		)
 		require.NoError(t, err)
 		subContext := requireDijkstraV4List(t, subContextData, 4)
-		subTxInfo := requireDijkstraV4List(t, subContext.Items[0], 19)
-		subTxIx := requireDijkstraV4Constr(t, subTxInfo.Items[1], 0, 1)
-		requireDijkstraV4Integer(t, subTxIx.Fields[0], int64(idx))
-		subScriptInfo := requireDijkstraV4Constr(t, subContext.Items[2], 6, 2)
-		requireDijkstraV4Constr(t, subScriptInfo.Fields[1], 1, 0)
+		subTxInfo := requireDijkstraV4List(t, subContext.Items()[0], 19)
+		subTxIx := requireDijkstraV4Constr(t, subTxInfo.Items()[1], 0, 1)
+		requireDijkstraV4Integer(t, subTxIx.Fields()[0], int64(idx))
+		subScriptInfo := requireDijkstraV4Constr(t, subContext.Items()[2], 6, 2)
+		requireDijkstraV4Constr(t, subScriptInfo.Fields()[1], 1, 0)
 	}
 }
 
@@ -971,24 +975,24 @@ func TestDijkstraAddressV4BasePaymentCredentials(t *testing.T) {
 			addressData := requireDijkstraV4List(t, encoded, 2)
 			payment := requireDijkstraV4Constr(
 				t,
-				addressData.Items[0],
+				addressData.Items()[0],
 				testCase.paymentTag,
 				1,
 			)
-			requireDijkstraV4Bytes(t, payment.Fields[0], paymentHash)
+			requireDijkstraV4Bytes(t, payment.Fields()[0], paymentHash)
 			stakeOption := requireDijkstraV4Constr(
 				t,
-				addressData.Items[1],
+				addressData.Items()[1],
 				0,
 				1,
 			)
 			stake := requireDijkstraV4Constr(
 				t,
-				stakeOption.Fields[0],
+				stakeOption.Fields()[0],
 				testCase.stakingTag,
 				1,
 			)
-			requireDijkstraV4Bytes(t, stake.Fields[0], stakingHash)
+			requireDijkstraV4Bytes(t, stake.Fields()[0], stakingHash)
 		})
 	}
 }

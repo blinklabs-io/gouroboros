@@ -461,11 +461,11 @@ func (w WithZeroAdaAsset) ToPlutusData() data.PlutusData {
 		}
 		var assetsOutputPairs, assetsMintPairs [][2]data.PlutusData
 		if v.AssetsOutput != nil {
-			assetsOutputPairs = v.AssetsOutput.ToPlutusData().(*data.Map).Pairs
+			assetsOutputPairs = v.AssetsOutput.ToPlutusData().(*data.Map).Pairs()
 			totalCap += len(assetsOutputPairs)
 		}
 		if v.AssetsMint != nil {
-			assetsMintPairs = v.AssetsMint.ToPlutusData().(*data.Map).Pairs
+			assetsMintPairs = v.AssetsMint.ToPlutusData().(*data.Map).Pairs()
 			totalCap += len(assetsMintPairs)
 		}
 

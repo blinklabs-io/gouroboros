@@ -68,7 +68,7 @@ func dijkstraTopTxInfoV4(
 			return nil, err
 		}
 		list, ok := txInfo.(*data.List)
-		if !ok || len(list.Items) != dijkstraTxInfoV4FieldCount {
+		if !ok || len(list.Items()) != dijkstraTxInfoV4FieldCount {
 			return nil, errors.New("malformed Plutus V4 TxInfo")
 		}
 		txInfos[idx] = list
@@ -150,14 +150,14 @@ func dijkstraTopTxInfoSimplifiedV4(
 	concat := func(field int) (data.PlutusData, error) {
 		var items []data.PlutusData
 		for _, txInfo := range txInfos {
-			list, ok := txInfo.Items[field].(*data.List)
+			list, ok := txInfo.Items()[field].(*data.List)
 			if !ok {
 				return nil, fmt.Errorf(
 					"plutus V4 TxInfo field %d is not a list",
 					field,
 				)
 			}
-			items = append(items, list.Items...)
+			items = append(items, list.Items()...)
 		}
 		return data.NewList(items...), nil
 	}
@@ -165,7 +165,7 @@ func dijkstraTopTxInfoSimplifiedV4(
 
 	ids := make([]data.PlutusData, len(txInfos))
 	for idx, txInfo := range txInfos {
-		ids[idx] = txInfo.Items[dijkstraTxInfoV4Id]
+		ids[idx] = txInfo.Items()[dijkstraTxInfoV4Id]
 	}
 	fields = append(fields, data.NewList(ids...))
 	for _, field := range []int{
@@ -240,7 +240,7 @@ func dijkstraTopTxInfoSimplifiedV4(
 	// the first one stands for all of them.
 	treasury := data.PlutusData(data.NewConstr(1))
 	for _, txInfo := range txInfos {
-		amount := txInfo.Items[dijkstraTxInfoV4CurrentTreasuryAmount]
+		amount := txInfo.Items()[dijkstraTxInfoV4CurrentTreasuryAmount]
 		if constr, ok := amount.(*data.Constr); ok && constr.Tag != nil &&
 			constr.Tag.Sign() == 0 {
 			treasury = amount
@@ -249,7 +249,8 @@ func dijkstraTopTxInfoSimplifiedV4(
 	}
 	donations := new(big.Int)
 	for _, txInfo := range txInfos {
-		donation, ok := txInfo.Items[dijkstraTxInfoV4TreasuryDonation].(*data.Integer)
+		rawDonation := txInfo.Items()[dijkstraTxInfoV4TreasuryDonation]
+		donation, ok := rawDonation.(*data.Integer)
 		if !ok {
 			return nil, errors.New(
 				"plutus V4 TxInfo treasury donation is not an integer",
@@ -463,16 +464,16 @@ func dijkstraBatchRedeemerHashesV4(
 ) (data.PlutusData, error) {
 	var hashes [][]byte
 	for _, txInfo := range txInfos {
-		redeemers, ok := txInfo.Items[dijkstraTxInfoV4Redeemers].(*data.Map)
+		redeemers, ok := txInfo.Items()[dijkstraTxInfoV4Redeemers].(*data.Map)
 		if !ok {
 			return nil, errors.New("plutus V4 TxInfo redeemers is not a map")
 		}
-		for _, pair := range redeemers.Pairs {
+		for _, pair := range redeemers.Pairs() {
 			purpose, ok := pair[0].(*data.Constr)
-			if !ok || len(purpose.Fields) == 0 {
+			if !ok || len(purpose.Fields()) == 0 {
 				return nil, errors.New("malformed Plutus V4 script purpose")
 			}
-			hash, ok := purpose.Fields[0].(*data.ByteString)
+			hash, ok := purpose.Fields()[0].(*data.ByteString)
 			if !ok {
 				return nil, errors.New(
 					"malformed Plutus V4 script purpose hash",
@@ -496,11 +497,11 @@ func dijkstraBatchDatumsV4(txInfos []*data.List) (data.PlutusData, error) {
 	var pairs [][2]data.PlutusData
 	seen := make(map[string]struct{})
 	for _, txInfo := range txInfos {
-		datums, ok := txInfo.Items[dijkstraTxInfoV4Data].(*data.Map)
+		datums, ok := txInfo.Items()[dijkstraTxInfoV4Data].(*data.Map)
 		if !ok {
 			return nil, errors.New("plutus V4 TxInfo data is not a map")
 		}
-		for _, pair := range datums.Pairs {
+		for _, pair := range datums.Pairs() {
 			hash, ok := pair[0].(*data.ByteString)
 			if !ok {
 				return nil, errors.New("malformed Plutus V4 datum hash")

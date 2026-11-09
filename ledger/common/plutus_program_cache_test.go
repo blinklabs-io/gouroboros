@@ -244,8 +244,10 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	hugeTerm := make([]syn.Term[syn.DeBruijn], 0, 4096)
-	for range 4096 {
+	// Scripts may give a constr at most 1024 fields, as in the reference
+	// decoder.
+	hugeTerm := make([]syn.Term[syn.DeBruijn], 0, 1024)
+	for range 1024 {
 		hugeTerm = append(
 			hugeTerm,
 			&syn.Delay[syn.DeBruijn]{Term: &syn.Error{}},
@@ -360,16 +362,19 @@ func programCacheRetentionShapes() map[string]syn.Term[syn.DeBruijn] {
 	}
 	// A constant's type is decoded into heap nodes that the decoded value
 	// keeps alive, so a deeply nested type costs memory without any value.
+	// Scripts may encode a constant's type in at most 32 tags, as in the
+	// reference decoder. A constant's tags are its type's plus three, a list
+	// adds two and a pair four, so these are the deepest types allowed.
 	deepListType := func() syn.Typ {
 		var typ syn.Typ = &syn.TUnit{}
-		for range 12000 {
+		for range 14 {
 			typ = &syn.TList{Typ: typ}
 		}
 		return typ
 	}
 	deepPairType := func() syn.Typ {
 		var typ syn.Typ = &syn.TUnit{}
-		for range 6000 {
+		for range 7 {
 			typ = &syn.TPair{First: typ, Second: &syn.TUnit{}}
 		}
 		return typ
@@ -382,24 +387,22 @@ func programCacheRetentionShapes() map[string]syn.Term[syn.DeBruijn] {
 			&syn.ProtoList{LTyp: deepPairType()}),
 		"apply chain": applyChain(),
 		"integer list": programCacheCon(
-			&syn.ProtoList{LTyp: &syn.TInteger{}, List: ints}),
+			syn.WrapProtoList(&syn.TInteger{}, ints)),
 		"unit list": programCacheCon(
-			&syn.ProtoList{LTyp: &syn.TUnit{}, List: units}),
+			syn.WrapProtoList(&syn.TUnit{}, units)),
 		"bool list": programCacheCon(
-			&syn.ProtoList{LTyp: &syn.TBool{}, List: bools}),
+			syn.WrapProtoList(&syn.TBool{}, bools)),
 		"empty bytestring list": programCacheCon(
-			&syn.ProtoList{LTyp: &syn.TByteString{}, List: empties}),
+			syn.WrapProtoList(&syn.TByteString{}, empties)),
 		"nested empty lists": programCacheCon(
-			&syn.ProtoList{
-				LTyp: &syn.TList{Typ: &syn.TUnit{}}, List: lists,
-			}),
+			syn.WrapProtoList(
+				&syn.TList{Typ: &syn.TUnit{}}, lists,
+			)),
 		"unit pair list": programCacheCon(
-			&syn.ProtoList{
-				LTyp: &syn.TPair{
-					First: &syn.TUnit{}, Second: &syn.TUnit{},
-				},
-				List: pairs,
-			}),
+			syn.WrapProtoList(
+				&syn.TPair{First: &syn.TUnit{}, Second: &syn.TUnit{}},
+				pairs,
+			)),
 		"data list": programCacheCon(
 			&syn.Data{Inner: data.NewList(dataItems...)}),
 	}

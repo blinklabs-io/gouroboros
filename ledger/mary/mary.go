@@ -712,7 +712,7 @@ func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
 		}
 		valueData = append(
 			valueData,
-			assetDataMap.Pairs...,
+			assetDataMap.Pairs()...,
 		)
 	}
 	tmpData := data.NewConstr(
