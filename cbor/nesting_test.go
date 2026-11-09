@@ -17,6 +17,7 @@ package cbor_test
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -155,5 +156,7 @@ func TestDecodeUntrustedExactUsesPeerNestingLimit(t *testing.T) {
 	var value cbor.Value
 	if _, err := cbor.DecodeUntrustedExact(nestedArrays(depth), &value); err == nil {
 		t.Fatalf("DecodeUntrustedExact accepted nesting depth %d", depth)
+	} else if !strings.Contains(err.Error(), "CBOR nesting too deep") {
+		t.Fatalf("DecodeUntrustedExact used recursive validation first: %v", err)
 	}
 }

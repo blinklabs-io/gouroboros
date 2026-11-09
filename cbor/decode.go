@@ -122,12 +122,18 @@ func DecodeExact(dataBytes []byte, dest any) (int, error) {
 // DecodeUntrustedExact decodes one peer-controlled CBOR item with the peer
 // nesting limit and rejects any trailing bytes.
 func DecodeUntrustedExact(dataBytes []byte, dest any) (int, error) {
+	if err := validateUntrustedStructure(dataBytes); err != nil {
+		return 0, err
+	}
 	return decodeExact(dataBytes, dest, getUntrustedDecMode)
 }
 
 // ValidateUntrustedExact validates one peer-controlled CBOR item without
 // constructing its decoded value.
 func ValidateUntrustedExact(dataBytes []byte) error {
+	if err := validateUntrustedStructure(dataBytes); err != nil {
+		return err
+	}
 	decMode, err := getUntrustedDecMode()
 	if err != nil {
 		return err
@@ -136,6 +142,13 @@ func ValidateUntrustedExact(dataBytes []byte) error {
 		return errors.New("CBOR decoder mode not initialized")
 	}
 	return decMode.Wellformed(dataBytes)
+}
+
+// validateUntrustedStructure iteratively enforces the peer nesting limit
+// before the recursive decoder validates or constructs a value. A complete
+// CBOR item cannot contain more data items than encoded bytes.
+func validateUntrustedStructure(dataBytes []byte) error {
+	return CheckItemBudget(dataBytes, len(dataBytes))
 }
 
 func decodeExact(
