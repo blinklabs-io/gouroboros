@@ -152,6 +152,17 @@ func TestDecodeExactRetainsGeneralNestingLimit(t *testing.T) {
 }
 
 func TestDecodeUntrustedExactUsesPeerNestingLimit(t *testing.T) {
+	var boundaryValue cbor.Value
+	if _, err := cbor.DecodeUntrustedExact(
+		nestedArrays(cbor.MaxUntrustedNestedLevels),
+		&boundaryValue,
+	); err != nil {
+		t.Fatalf(
+			"DecodeUntrustedExact rejected nesting at configured limit: %v",
+			err,
+		)
+	}
+
 	depth := cbor.MaxUntrustedNestedLevels + 1
 	var value cbor.Value
 	if _, err := cbor.DecodeUntrustedExact(nestedArrays(depth), &value); err == nil {

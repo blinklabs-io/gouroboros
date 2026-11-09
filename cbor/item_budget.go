@@ -127,7 +127,7 @@ func countItems(data []byte, maxItems int) (int, error) {
 			push = 1
 		}
 		if push != 0 {
-			if len(stack) >= MaxUntrustedNestedLevels {
+			if len(stack) > MaxUntrustedNestedLevels {
 				return 0, errors.New("cbor: CBOR nesting too deep")
 			}
 			stack = append(stack, push)
