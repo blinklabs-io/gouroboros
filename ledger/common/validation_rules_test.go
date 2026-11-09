@@ -329,6 +329,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleRequiredRedeemers,
 				common.UtxoValidationRuleBatchWithdrawals,
 				common.UtxoValidationRuleAccountBalanceIntervals,
+				common.UtxoValidationRuleTreasuryDonationScripts,
 				common.UtxoValidationRuleValueNotConserved,
 				common.UtxoValidationRuleOutputTooSmall,
 				common.UtxoValidationRuleOutputTooBig,
