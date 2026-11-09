@@ -258,10 +258,10 @@ func (s *messageScanner) scan(
 }
 
 func (s *messageScanner) pushFrame(frame messageScanFrame) error {
-	if len(s.frames) >= cbor.MaxNestedLevels {
+	if len(s.frames) >= cbor.MaxUntrustedNestedLevels {
 		return fmt.Errorf(
 			"CBOR nesting exceeds maximum depth %d",
-			cbor.MaxNestedLevels,
+			cbor.MaxUntrustedNestedLevels,
 		)
 	}
 	s.frames = append(s.frames, frame)

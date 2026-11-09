@@ -319,7 +319,7 @@ func TestHandshakeRejectsDeepScalarBeforeTypedDecode(t *testing.T) {
 	t.Parallel()
 	deepTags := bytes.Repeat(
 		[]byte{0xd9, 0x03, 0xe8},
-		cbor.MaxNestedLevels+1,
+		cbor.MaxUntrustedNestedLevels+1,
 	)
 	for _, tc := range []struct {
 		name    string
