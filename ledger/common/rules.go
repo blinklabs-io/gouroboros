@@ -999,16 +999,12 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if len(required) == 0 {
 		return nil
 	}
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
+	provided := witnessKeyHashes(tx.Witnesses())
+	if len(provided) == 0 {
 		return MissingVKeyWitnessesError{}
 	}
-	vkeyHashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
-	for _, vw := range w.Vkey() {
-		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
 	for req := range required {
-		if _, ok := vkeyHashes[req]; !ok {
+		if _, ok := provided[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
 		}
 	}
