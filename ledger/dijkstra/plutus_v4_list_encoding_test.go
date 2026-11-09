@@ -59,17 +59,17 @@ func TestDijkstraInputsV4ListEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, inputs, 1)
 	txInInfo := requireDijkstraV4List(t, inputs[0], 2)
-	outRef := requireDijkstraV4List(t, txInInfo.Items[0], 2)
-	requireDijkstraV4Bytes(t, outRef.Items[0], txId)
-	requireDijkstraV4Integer(t, outRef.Items[1], 3)
-	txOut := requireDijkstraV4List(t, txInInfo.Items[1], 4)
-	addressData := requireDijkstraV4List(t, txOut.Items[0], 2)
-	payment := requireDijkstraV4Constr(t, addressData.Items[0], 0, 1)
-	requireDijkstraV4Bytes(t, payment.Fields[0], paymentHash)
-	requireDijkstraV4Constr(t, addressData.Items[1], 1, 0)
-	requireDijkstraV4Map(t, txOut.Items[1], 1)
-	requireDijkstraV4Constr(t, txOut.Items[2], 0, 0)
-	requireDijkstraV4Constr(t, txOut.Items[3], 1, 0)
+	outRef := requireDijkstraV4List(t, txInInfo.Items()[0], 2)
+	requireDijkstraV4Bytes(t, outRef.Items()[0], txId)
+	requireDijkstraV4Integer(t, outRef.Items()[1], 3)
+	txOut := requireDijkstraV4List(t, txInInfo.Items()[1], 4)
+	addressData := requireDijkstraV4List(t, txOut.Items()[0], 2)
+	payment := requireDijkstraV4Constr(t, addressData.Items()[0], 0, 1)
+	requireDijkstraV4Bytes(t, payment.Fields()[0], paymentHash)
+	requireDijkstraV4Constr(t, addressData.Items()[1], 1, 0)
+	requireDijkstraV4Map(t, txOut.Items()[1], 1)
+	requireDijkstraV4Constr(t, txOut.Items()[2], 0, 0)
+	requireDijkstraV4Constr(t, txOut.Items()[3], 1, 0)
 
 	spending := script.ScriptPurposeSpending{
 		Input: common.Utxo{Id: input, Output: output},
@@ -80,9 +80,9 @@ func TestDijkstraInputsV4ListEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	purposeData := requireDijkstraV4Constr(t, purpose, 1, 2)
-	requireDijkstraV4List(t, purposeData.Fields[1], 2)
+	requireDijkstraV4List(t, purposeData.Fields()[1], 2)
 	infoData := requireDijkstraV4Constr(t, info, 1, 2)
-	requireDijkstraV4List(t, infoData.Fields[0], 2)
+	requireDijkstraV4List(t, infoData.Fields()[0], 2)
 }
 
 func testDijkstraV4GovActionId(t *testing.T) *common.GovActionId {
@@ -99,9 +99,9 @@ func requireDijkstraV4GovActionId(
 ) {
 	t.Helper()
 	just := requireDijkstraV4Constr(t, value, 0, 1)
-	encoded := requireDijkstraV4List(t, just.Fields[0], 2)
-	requireDijkstraV4Bytes(t, encoded.Items[0], id.TransactionId[:])
-	requireDijkstraV4Integer(t, encoded.Items[1], int64(id.GovActionIdx))
+	encoded := requireDijkstraV4List(t, just.Fields()[0], 2)
+	requireDijkstraV4Bytes(t, encoded.Items()[0], id.TransactionId[:])
+	requireDijkstraV4Integer(t, encoded.Items()[1], int64(id.GovActionIdx))
 }
 
 func TestDijkstraProposalProceduresV4ListEncoding(t *testing.T) {
@@ -157,41 +157,41 @@ func TestDijkstraProposalProceduresV4ListEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	encoded := requireDijkstraV4List(t, proposals, 5)
-	actions := make([]*data.Constr, 0, len(encoded.Items))
-	for _, item := range encoded.Items {
+	actions := make([]*data.Constr, 0, len(encoded.Items()))
+	for _, item := range encoded.Items() {
 		procedure := requireDijkstraV4List(t, item, 3)
-		requireDijkstraV4Integer(t, procedure.Items[0], 100)
-		reward := requireDijkstraV4Constr(t, procedure.Items[1], 0, 1)
-		requireDijkstraV4Bytes(t, reward.Fields[0], stakeHash)
-		action, ok := procedure.Items[2].(*data.Constr)
-		require.True(t, ok, "expected constructor, got %T", procedure.Items[2])
+		requireDijkstraV4Integer(t, procedure.Items()[0], 100)
+		reward := requireDijkstraV4Constr(t, procedure.Items()[1], 0, 1)
+		requireDijkstraV4Bytes(t, reward.Fields()[0], stakeHash)
+		action, ok := procedure.Items()[2].(*data.Constr)
+		require.True(t, ok, "expected constructor, got %T", procedure.Items()[2])
 		actions = append(actions, action)
 	}
 
 	requireDijkstraV4Constr(t, actions[0], 1, 2)
-	requireDijkstraV4GovActionId(t, actions[0].Fields[0], id)
-	version := requireDijkstraV4List(t, actions[0].Fields[1], 2)
-	requireDijkstraV4Integer(t, version.Items[0], 13)
-	requireDijkstraV4Integer(t, version.Items[1], 1)
+	requireDijkstraV4GovActionId(t, actions[0].Fields()[0], id)
+	version := requireDijkstraV4List(t, actions[0].Fields()[1], 2)
+	requireDijkstraV4Integer(t, version.Items()[0], 13)
+	requireDijkstraV4Integer(t, version.Items()[1], 1)
 
 	requireDijkstraV4Constr(t, actions[1], 4, 4)
-	requireDijkstraV4GovActionId(t, actions[1].Fields[0], id)
-	quorum := requireDijkstraV4List(t, actions[1].Fields[3], 2)
-	requireDijkstraV4Integer(t, quorum.Items[0], 2)
-	requireDijkstraV4Integer(t, quorum.Items[1], 3)
+	requireDijkstraV4GovActionId(t, actions[1].Fields()[0], id)
+	quorum := requireDijkstraV4List(t, actions[1].Fields()[3], 2)
+	requireDijkstraV4Integer(t, quorum.Items()[0], 2)
+	requireDijkstraV4Integer(t, quorum.Items()[1], 3)
 
 	requireDijkstraV4Constr(t, actions[2], 5, 2)
-	requireDijkstraV4GovActionId(t, actions[2].Fields[0], id)
-	constitutionData := requireDijkstraV4List(t, actions[2].Fields[1], 1)
-	scriptHash := requireDijkstraV4Constr(t, constitutionData.Items[0], 0, 1)
+	requireDijkstraV4GovActionId(t, actions[2].Fields()[0], id)
+	constitutionData := requireDijkstraV4List(t, actions[2].Fields()[1], 1)
+	scriptHash := requireDijkstraV4Constr(t, constitutionData.Items()[0], 0, 1)
 	requireDijkstraV4Bytes(
 		t,
-		scriptHash.Fields[0],
+		scriptHash.Fields()[0],
 		constitution.Constitution.ScriptHash,
 	)
 
 	requireDijkstraV4Constr(t, actions[3], 3, 1)
-	requireDijkstraV4GovActionId(t, actions[3].Fields[0], id)
+	requireDijkstraV4GovActionId(t, actions[3].Fields()[0], id)
 
 	requireDijkstraV4Constr(t, actions[4], 6, 0)
 
@@ -204,9 +204,9 @@ func TestDijkstraProposalProceduresV4ListEncoding(t *testing.T) {
 	)
 	require.NoError(t, err)
 	purposeData := requireDijkstraV4Constr(t, purpose, 5, 3)
-	requireDijkstraV4List(t, purposeData.Fields[2], 3)
+	requireDijkstraV4List(t, purposeData.Fields()[2], 3)
 	infoData := requireDijkstraV4Constr(t, info, 5, 2)
-	requireDijkstraV4List(t, infoData.Fields[1], 3)
+	requireDijkstraV4List(t, infoData.Fields()[1], 3)
 }
 
 func TestDijkstraTxInfoV4VotesListEncodeGovActionIds(t *testing.T) {
@@ -223,13 +223,13 @@ func TestDijkstraTxInfoV4VotesListEncodeGovActionIds(t *testing.T) {
 	txInfoData, err := dijkstraTxInfoV4(dijkstraV4TestLevel(t, tx))
 	require.NoError(t, err)
 	txInfo := requireDijkstraV4List(t, txInfoData, 19)
-	votes := requireDijkstraV4Map(t, txInfo.Items[15], 1)
-	require.True(t, voter.ToPlutusData().Equal(votes.Pairs[0][0]))
-	byAction := requireDijkstraV4Map(t, votes.Pairs[0][1], 1)
-	actionId := requireDijkstraV4List(t, byAction.Pairs[0][0], 2)
-	requireDijkstraV4Bytes(t, actionId.Items[0], id.TransactionId[:])
-	requireDijkstraV4Integer(t, actionId.Items[1], int64(id.GovActionIdx))
-	requireDijkstraV4Constr(t, byAction.Pairs[0][1], 1, 0)
+	votes := requireDijkstraV4Map(t, txInfo.Items()[15], 1)
+	require.True(t, voter.ToPlutusData().Equal(votes.Pairs()[0][0]))
+	byAction := requireDijkstraV4Map(t, votes.Pairs()[0][1], 1)
+	actionId := requireDijkstraV4List(t, byAction.Pairs()[0][0], 2)
+	requireDijkstraV4Bytes(t, actionId.Items()[0], id.TransactionId[:])
+	requireDijkstraV4Integer(t, actionId.Items()[1], int64(id.GovActionIdx))
+	requireDijkstraV4Constr(t, byAction.Pairs()[0][1], 1, 0)
 }
 
 // TopTxInfoSimplified sums withdrawals from the same account across levels,
@@ -277,15 +277,15 @@ func TestDijkstraTopTxInfoV4MergesBatch(t *testing.T) {
 	require.NoError(t, err)
 	simplified := requireDijkstraV4List(
 		t,
-		requireDijkstraV4List(t, topInfo, 4).Items[3],
+		requireDijkstraV4List(t, topInfo, 4).Items()[3],
 		18,
 	)
-	withdrawals := requireDijkstraV4Map(t, simplified.Items[7], 1)
-	requireDijkstraV4Integer(t, withdrawals.Pairs[0][1], 9)
-	votes := requireDijkstraV4Map(t, simplified.Items[14], 1)
-	byAction := requireDijkstraV4Map(t, votes.Pairs[0][1], 1)
-	requireDijkstraV4List(t, byAction.Pairs[0][0], 2)
-	requireDijkstraV4Constr(t, byAction.Pairs[0][1], 0, 0)
+	withdrawals := requireDijkstraV4Map(t, simplified.Items()[7], 1)
+	requireDijkstraV4Integer(t, withdrawals.Pairs()[0][1], 9)
+	votes := requireDijkstraV4Map(t, simplified.Items()[14], 1)
+	byAction := requireDijkstraV4Map(t, votes.Pairs()[0][1], 1)
+	requireDijkstraV4List(t, byAction.Pairs()[0][0], 2)
+	requireDijkstraV4Constr(t, byAction.Pairs()[0][1], 0, 0)
 }
 
 func TestDijkstraVotesV4RejectsMalformedActionId(t *testing.T) {

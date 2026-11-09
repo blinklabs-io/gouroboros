@@ -57,8 +57,8 @@ func TestCertificateToPlutusDataUsesProtocolVersion(t *testing.T) {
 				tt.certificate,
 				common.ProtocolVersionPlomin,
 			)
-			pv9Fields := pv9.(*data.Constr).Fields
-			pv10Fields := pv10.(*data.Constr).Fields
+			pv9Fields := pv9.(*data.Constr).Fields()
+			pv10Fields := pv10.(*data.Constr).Fields()
 			require.Equal(t, tt.constructor, pv9.(*data.Constr).Tag)
 			require.Equal(t, data.NewConstr(1), pv9Fields[1])
 			require.Equal(
@@ -95,8 +95,8 @@ func TestTxInfoV3CertificateTranslationUsesProtocolVersion(t *testing.T) {
 			ProtocolVersionMajor: tc.major,
 			Mint:                 common.MultiAsset[common.MultiAssetTypeMint]{},
 		}
-		fields := info.ToPlutusData().(*data.Constr).Fields
-		translated := fields[5].(*data.List).Items[0].(*data.Constr).Fields[1]
+		fields := info.ToPlutusData().(*data.Constr).Fields()
+		translated := fields[5].(*data.List).Items()[0].(*data.Constr).Fields()[1]
 		require.Equal(t, tc.want, translated)
 	}
 }
@@ -120,6 +120,6 @@ func TestScriptPurposeCertificateTranslationUsesProtocolVersion(t *testing.T) {
 	)
 	require.NoError(t, err)
 	purposeData := purpose.ToPlutusData().(*data.Constr)
-	certificateData := purposeData.Fields[1].(*data.Constr)
-	require.Equal(t, data.NewConstr(1), certificateData.Fields[1])
+	certificateData := purposeData.Fields()[1].(*data.Constr)
+	require.Equal(t, data.NewConstr(1), certificateData.Fields()[1])
 }

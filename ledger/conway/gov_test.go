@@ -61,7 +61,7 @@ func TestConwayProposalProcedureToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(0), constr.Tag)
-	assert.Len(t, constr.Fields, 3)
+	assert.Len(t, constr.Fields(), 3)
 }
 
 func TestConwayGovActionHardForkProtocolVersionMajorBound(t *testing.T) {

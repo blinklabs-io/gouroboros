@@ -308,7 +308,7 @@ func dijkstraOutputV4(
 		if !ok {
 			return nil, errors.New("multi-asset value did not encode as a map")
 		}
-		valuePairs = append(valuePairs, assetData.Pairs...)
+		valuePairs = append(valuePairs, assetData.Pairs()...)
 	}
 
 	var datumData data.PlutusData
@@ -832,7 +832,7 @@ func dijkstraGovActionV4(value data.PlutusData) (data.PlutusData, error) {
 			value,
 		)
 	}
-	fields := slices.Clone(action.Fields)
+	fields := slices.Clone(action.Fields())
 	// Field positions per constructor index: 0 ParameterChange,
 	// 1 HardForkInitiation, 3 NoConfidence, 4 UpdateCommittee and
 	// 5 NewConstitution lead with the previous action id; 2
@@ -888,11 +888,11 @@ func dijkstraMaybeGovActionIdV4(
 			value,
 		)
 	}
-	if maybe.Tag.Sign() != 0 || len(maybe.Fields) != 1 {
+	if maybe.Tag.Sign() != 0 || len(maybe.Fields()) != 1 {
 		return maybe, nil
 	}
 	id, err := dijkstraListEncodedFieldsV4(
-		maybe.Fields[0],
+		maybe.Fields()[0],
 		2,
 		"governance action id",
 	)
@@ -909,15 +909,15 @@ func dijkstraVotesV4(value data.PlutusData) (data.PlutusData, error) {
 	if !ok {
 		return value, nil
 	}
-	pairs := make([][2]data.PlutusData, len(votes.Pairs))
-	for idx, pair := range votes.Pairs {
+	pairs := make([][2]data.PlutusData, len(votes.Pairs()))
+	for idx, pair := range votes.Pairs() {
 		pairs[idx] = pair
 		byAction, ok := pair[1].(*data.Map)
 		if !ok {
 			continue
 		}
-		actionPairs := make([][2]data.PlutusData, len(byAction.Pairs))
-		for actionIdx, actionPair := range byAction.Pairs {
+		actionPairs := make([][2]data.PlutusData, len(byAction.Pairs()))
+		for actionIdx, actionPair := range byAction.Pairs() {
 			actionPairs[actionIdx] = actionPair
 			id, err := dijkstraListEncodedFieldsV4(
 				actionPair[0],
@@ -950,15 +950,15 @@ func dijkstraListEncodedFieldsV4(
 			value,
 		)
 	}
-	if count >= 0 && len(constr.Fields) != count {
+	if count >= 0 && len(constr.Fields()) != count {
 		return nil, fmt.Errorf(
 			"%s has %d fields, expected %d",
 			name,
-			len(constr.Fields),
+			len(constr.Fields()),
 			count,
 		)
 	}
-	return slices.Clone(constr.Fields), nil
+	return slices.Clone(constr.Fields()), nil
 }
 
 func dijkstraCertificateV4(

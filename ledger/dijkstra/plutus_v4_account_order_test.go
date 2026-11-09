@@ -124,13 +124,13 @@ func TestDijkstraDirectDepositsV4FollowAccountAddressOrder(t *testing.T) {
 				if account.addrType == common.AddressTypeNoneScript {
 					ctor = 1
 				}
-				k := requireDijkstraV4Constr(t, dataMap.Pairs[i][0], ctor, 1)
+				k := requireDijkstraV4Constr(t, dataMap.Pairs()[i][0], ctor, 1)
 				requireDijkstraV4Bytes(
 					t,
-					k.Fields[0],
+					k.Fields()[0],
 					bytes.Repeat([]byte{account.hash}, common.AddressHashSize),
 				)
-				requireDijkstraV4Integer(t, dataMap.Pairs[i][1], int64(i+1))
+				requireDijkstraV4Integer(t, dataMap.Pairs()[i][1], int64(i+1))
 			}
 		})
 	}
@@ -163,14 +163,14 @@ func TestDijkstraBalanceIntervalsV4FollowAccountAddressOrder(t *testing.T) {
 				if account.addrType == common.AddressTypeNoneScript {
 					ctor = 1
 				}
-				k := requireDijkstraV4Constr(t, dataMap.Pairs[i][0], ctor, 1)
+				k := requireDijkstraV4Constr(t, dataMap.Pairs()[i][0], ctor, 1)
 				requireDijkstraV4Bytes(
 					t,
-					k.Fields[0],
+					k.Fields()[0],
 					bytes.Repeat([]byte{account.hash}, common.AddressHashSize),
 				)
-				v := requireDijkstraV4Constr(t, dataMap.Pairs[i][1], 3, 1)
-				requireDijkstraV4Integer(t, v.Fields[0], int64(i+1))
+				v := requireDijkstraV4Constr(t, dataMap.Pairs()[i][1], 3, 1)
+				requireDijkstraV4Integer(t, v.Fields()[0], int64(i+1))
 			}
 		})
 	}

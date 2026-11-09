@@ -90,15 +90,15 @@ func largeContextNodeCount(pd data.PlutusData) int {
 		count++
 		switch d := v.(type) {
 		case *data.Constr:
-			for _, f := range d.Fields {
+			for _, f := range d.Fields() {
 				walk(f)
 			}
 		case *data.List:
-			for _, item := range d.Items {
+			for _, item := range d.Items() {
 				walk(item)
 			}
 		case *data.Map:
-			for _, pair := range d.Pairs {
+			for _, pair := range d.Pairs() {
 				walk(pair[0])
 				walk(pair[1])
 			}

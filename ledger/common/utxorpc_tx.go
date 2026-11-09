@@ -223,7 +223,7 @@ func plutusDataToUtxorpc(pd data.PlutusData) (*utxorpc.PlutusData, error) {
 		if err != nil {
 			return nil, err
 		}
-		fields, err := plutusDataListToUtxorpc(v.Fields)
+		fields, err := plutusDataListToUtxorpc(v.Fields())
 		if err != nil {
 			return nil, err
 		}
@@ -237,8 +237,8 @@ func plutusDataToUtxorpc(pd data.PlutusData) (*utxorpc.PlutusData, error) {
 			},
 		}, nil
 	case *data.Map:
-		pairs := make([]*utxorpc.PlutusDataPair, 0, len(v.Pairs))
-		for _, pair := range v.Pairs {
+		pairs := make([]*utxorpc.PlutusDataPair, 0, len(v.Pairs()))
+		for _, pair := range v.Pairs() {
 			key, err := plutusDataToUtxorpc(pair[0])
 			if err != nil {
 				return nil, err
@@ -267,7 +267,7 @@ func plutusDataToUtxorpc(pd data.PlutusData) (*utxorpc.PlutusData, error) {
 			},
 		}, nil
 	case *data.List:
-		items, err := plutusDataListToUtxorpc(v.Items)
+		items, err := plutusDataListToUtxorpc(v.Items())
 		if err != nil {
 			return nil, err
 		}

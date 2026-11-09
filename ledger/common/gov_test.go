@@ -47,16 +47,16 @@ func TestGovernancePlutusDataUsesLedgerCredentialOrder(t *testing.T) {
 	}
 	action := &UpdateCommitteeGovAction{Credentials: removed, CredEpochs: added}
 	encodedAction := action.ToPlutusData().(*data.Constr)
-	removedData := encodedAction.Fields[1].(*data.List)
-	require.True(t, scriptCredential.ToPlutusData().Equal(removedData.Items[0]))
-	require.True(t, keyCredential.ToPlutusData().Equal(removedData.Items[1]))
-	addedData := encodedAction.Fields[2].(*data.Map)
-	require.Equal(t, 2, len(addedData.Pairs))
+	removedData := encodedAction.Fields()[1].(*data.List)
+	require.True(t, scriptCredential.ToPlutusData().Equal(removedData.Items()[0]))
+	require.True(t, keyCredential.ToPlutusData().Equal(removedData.Items()[1]))
+	addedData := encodedAction.Fields()[2].(*data.Map)
+	require.Equal(t, 2, len(addedData.Pairs()))
 	require.True(
 		t,
-		scriptCredential.ToPlutusData().Equal(addedData.Pairs[0][0]),
+		scriptCredential.ToPlutusData().Equal(addedData.Pairs()[0][0]),
 	)
-	require.True(t, keyCredential.ToPlutusData().Equal(addedData.Pairs[1][0]))
+	require.True(t, keyCredential.ToPlutusData().Equal(addedData.Pairs()[1][0]))
 
 	other := &UpdateCommitteeGovAction{
 		Credentials: []Credential{scriptCredential, keyCredential},
@@ -87,8 +87,8 @@ func TestTreasuryWithdrawalPlutusDataUsesLedgerAddressOrder(t *testing.T) {
 	action := &TreasuryWithdrawalGovAction{
 		Withdrawals: map[*Address]uint64{key: 2, script: 1},
 	}
-	encoded := action.ToPlutusData().(*data.Constr).Fields[0].(*data.Map)
-	require.Len(t, encoded.Pairs, 2)
+	encoded := action.ToPlutusData().(*data.Constr).Fields()[0].(*data.Map)
+	require.Len(t, encoded.Pairs(), 2)
 	scriptData := script.ToPlutusData()
 	if scriptData == nil {
 		t.Fatal("expected script address Plutus data")
@@ -97,8 +97,8 @@ func TestTreasuryWithdrawalPlutusDataUsesLedgerAddressOrder(t *testing.T) {
 	if keyData == nil {
 		t.Fatal("expected key address Plutus data")
 	}
-	require.True(t, scriptData.Equal(encoded.Pairs[0][0]))
-	require.True(t, keyData.Equal(encoded.Pairs[1][0]))
+	require.True(t, scriptData.Equal(encoded.Pairs()[0][0]))
+	require.True(t, keyData.Equal(encoded.Pairs()[1][0]))
 
 	other := &TreasuryWithdrawalGovAction{
 		Withdrawals: map[*Address]uint64{script: 1, key: 2},
@@ -1121,7 +1121,7 @@ func TestGovActionIdToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(0), constr.Tag)
-	assert.Len(t, constr.Fields, 2)
+	assert.Len(t, constr.Fields(), 2)
 }
 
 func TestHardForkInitiationGovActionToPlutusData(t *testing.T) {
@@ -1141,7 +1141,7 @@ func TestHardForkInitiationGovActionToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(1), constr.Tag)
-	assert.Len(t, constr.Fields, 2)
+	assert.Len(t, constr.Fields(), 2)
 }
 
 func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
@@ -1159,7 +1159,7 @@ func TestTreasuryWithdrawalGovActionToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(2), constr.Tag)
-	assert.Len(t, constr.Fields, 2)
+	assert.Len(t, constr.Fields(), 2)
 }
 
 func TestTreasuryWithdrawalGovActionToPlutusDataCanonicalizesAddressOrder(
@@ -1193,13 +1193,13 @@ func TestTreasuryWithdrawalGovActionToPlutusDataCanonicalizesAddressOrder(
 	require.NoError(t, err)
 	require.Equal(t, firstCbor, secondCbor)
 	constr := firstData.(*data.Constr)
-	withdrawals := constr.Fields[0].(*data.Map)
+	withdrawals := constr.Fields()[0].(*data.Map)
 	want := []data.PlutusData{
 		script.ToPlutusData(),
 		key.ToPlutusData(),
 		otherNetwork.ToPlutusData(),
 	}
-	for idx, pair := range withdrawals.Pairs {
+	for idx, pair := range withdrawals.Pairs() {
 		require.Equal(t, want[idx], pair[0])
 	}
 }
@@ -1213,7 +1213,7 @@ func TestNoConfidenceGovActionToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(3), constr.Tag)
-	assert.Len(t, constr.Fields, 1)
+	assert.Len(t, constr.Fields(), 1)
 }
 
 func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
@@ -1242,16 +1242,16 @@ func TestUpdateCommitteeGovActionToPlutusData(t *testing.T) {
 		assert.True(t, ok)
 		assert.Equal(t, big.NewInt(4), constr.Tag)
 
-		innerConstr, ok := constr.Fields[3].(*data.Constr)
+		innerConstr, ok := constr.Fields()[3].(*data.Constr)
 		assert.True(t, ok)
 		assert.Equal(t, big.NewInt(0), innerConstr.Tag)
 
 		// Verify default values were used
-		num, ok := innerConstr.Fields[0].(*data.Integer)
+		num, ok := innerConstr.Fields()[0].(*data.Integer)
 		assert.True(t, ok)
 		assert.Equal(t, int64(0), num.Inner.Int64())
 
-		den, ok := innerConstr.Fields[1].(*data.Integer)
+		den, ok := innerConstr.Fields()[1].(*data.Integer)
 		assert.True(t, ok)
 		assert.Equal(t, int64(1), den.Inner.Int64())
 	})
@@ -1309,11 +1309,11 @@ func TestUpdateCommitteeGovActionToPlutusDataCanonicalizesCollections(
 		key.ToPlutusData(),
 	}
 	constr := firstData.(*data.Constr)
-	removals := constr.Fields[1].(*data.List)
-	require.Equal(t, wantCredentialOrder, removals.Items)
-	additions := constr.Fields[2].(*data.Map)
-	require.Len(t, additions.Pairs, 3)
-	for idx, pair := range additions.Pairs {
+	removals := constr.Fields()[1].(*data.List)
+	require.Equal(t, wantCredentialOrder, removals.Items())
+	additions := constr.Fields()[2].(*data.Map)
+	require.Len(t, additions.Pairs(), 3)
+	for idx, pair := range additions.Pairs() {
 		require.Equal(t, wantCredentialOrder[idx], pair[0])
 	}
 	firstCbor, err := data.Encode(firstData)
@@ -1394,7 +1394,7 @@ func TestNewConstitutionGovActionToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(5), constr.Tag)
-	assert.Len(t, constr.Fields, 2)
+	assert.Len(t, constr.Fields(), 2)
 }
 
 func TestInfoGovActionToPlutusData(t *testing.T) {
@@ -1404,7 +1404,7 @@ func TestInfoGovActionToPlutusData(t *testing.T) {
 	constr, ok := pd.(*data.Constr)
 	assert.True(t, ok)
 	assert.Equal(t, big.NewInt(6), constr.Tag)
-	assert.Len(t, constr.Fields, 0)
+	assert.Len(t, constr.Fields(), 0)
 }
 
 // TestGovActionIdString tests CIP-0129 bech32 encoding for governance action IDs.
