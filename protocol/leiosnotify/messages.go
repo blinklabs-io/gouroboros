@@ -413,7 +413,7 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 			MaxVotesOfferBytes,
 		)
 	}
-	dec, err := cbor.NewStreamDecoder(data)
+	dec, err := cbor.NewUntrustedStreamDecoder(data)
 	if err != nil {
 		return err
 	}

@@ -594,7 +594,20 @@ type StreamDecoder struct {
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
 func NewStreamDecoder(data []byte) (*StreamDecoder, error) {
-	decMode, err := getDecMode()
+	return newStreamDecoder(data, getDecMode)
+}
+
+// NewUntrustedStreamDecoder creates a sequential decoder with the peer nesting
+// limit and general collection limits.
+func NewUntrustedStreamDecoder(data []byte) (*StreamDecoder, error) {
+	return newStreamDecoder(data, getUntrustedDecMode)
+}
+
+func newStreamDecoder(
+	data []byte,
+	getMode func() (_cbor.DecMode, error),
+) (*StreamDecoder, error) {
+	decMode, err := getMode()
 	if err != nil {
 		return nil, err
 	}
