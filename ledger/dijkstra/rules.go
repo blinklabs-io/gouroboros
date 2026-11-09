@@ -348,7 +348,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutsideForecast:              dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
-	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInsufficientCollateral:       dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCollateralContainsNonAda:     dijkstraUtxoValidationAlways,
@@ -360,7 +360,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleRequiredRedeemers:            dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleBatchWithdrawals:             dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
-	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputBootAddrAttrsTooBig:    dijkstraUtxoValidationAlways,
@@ -2209,6 +2209,8 @@ func (t dijkstraProducedAdjustmentTransaction) Donation() *big.Int {
 // across every transaction level. A sub-transaction's inputs, outputs,
 // withdrawals, certificates, mints, proposal deposits, treasury donation and
 // direct deposits all count towards the enclosing transaction's balance.
+// The production rule list skips it for phase-2-invalid transactions, which
+// change no ledger state that affects conservation.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2364,7 +2366,9 @@ func UtxoValidateInputSetEmptyUtxo(
 
 // UtxoValidateNoDuplicateInputs rejects an input spent by more than one
 // transaction level, which would otherwise count towards consumed value once
-// per level.
+// per level. The production rule list skips it for phase-2-invalid
+// transactions: their sub-transactions leave the UTxO unchanged, so no input
+// is spent twice.
 func UtxoValidateNoDuplicateInputs(
 	tx common.Transaction,
 	slot uint64,

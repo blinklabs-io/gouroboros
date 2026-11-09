@@ -60,6 +60,7 @@ func TestUtxoValidateValueNotConservedUtxoPoolDeposits(t *testing.T) {
 					},
 					TxCertificates: certs,
 				},
+				TxIsValid: true,
 			}
 		},
 	})

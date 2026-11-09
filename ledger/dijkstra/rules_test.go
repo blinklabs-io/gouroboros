@@ -257,6 +257,8 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 	phase2Valid := map[common.UtxoValidationRuleId]struct{}{
 		common.UtxoValidationRuleProposalProcedures:          {},
+		common.UtxoValidationRuleNoDuplicateInputs:           {},
+		common.UtxoValidationRuleValueNotConserved:           {},
 		common.UtxoValidationRuleHardForkCanFollow:           {},
 		common.UtxoValidationRuleProposalAncestry:            {},
 		common.UtxoValidationRuleProposalDeposit:             {},
