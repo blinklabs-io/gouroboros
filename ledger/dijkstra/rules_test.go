@@ -2136,21 +2136,24 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	}
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
+	// A script-hash guard makes the V1 to V3 feature check fail first, so both
+	// subtests bypass that check to isolate the redeemer handling.
 	t.Run("unwrapped fails closed", func(t *testing.T) {
+		unwrapped := v1v3CheckSkipped{Transaction: tx}
 		_, err := script.NewTxInfoV1FromTransaction(
-			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+			ls, unwrapped, nil, true, common.ProtocolVersionDijkstra,
 		)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV2FromTransaction(
-			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+			ls, unwrapped, nil, true, common.ProtocolVersionDijkstra,
 		)
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV3FromTransaction(
 			ls,
-			tx,
+			unwrapped,
 			nil,
 			common.ProtocolVersionDijkstra,
 		)
@@ -2158,7 +2161,9 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	})
 
 	t.Run("wrapped succeeds", func(t *testing.T) {
-		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
+		wrapped := plutusV4BaseTransaction{
+			transactionWithoutGuardingRedeemers{Transaction: tx},
+		}
 
 		_, err := script.NewTxInfoV1FromTransaction(
 			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
@@ -2842,4 +2847,14 @@ func TestMinFeeIncludesDeclaredExecutionUnitsAcrossBatch(t *testing.T) {
 	noRedeemerFee, err := MinFeeTx(tx, pp)
 	require.NoError(t, err)
 	require.Equal(t, baseFee, noRedeemerFee)
+}
+
+// v1v3CheckSkipped leaves the transaction untouched but skips the Plutus V1 to
+// V3 feature check.
+type v1v3CheckSkipped struct {
+	common.Transaction
+}
+
+func (v1v3CheckSkipped) CheckPlutusV1V3Features() error {
+	return nil
 }
