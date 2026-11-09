@@ -1302,11 +1302,6 @@ func FirstInvalidNativeScriptIn(
 		for _, vkw := range witnesses.Vkey() {
 			keyHashes[Blake2b224Hash(vkw.Vkey)] = true
 		}
-		for _, bw := range witnesses.Bootstrap() {
-			if hash, err := bw.KeyHash(); err == nil {
-				keyHashes[hash] = true
-			}
-		}
 	}
 
 	validityStart, validityStartPresent := TransactionValidityIntervalLowerBound(
