@@ -2434,6 +2434,21 @@ func UtxoValidateBatchWithdrawals(
 		return nil
 	}
 
+	subBodies := common.SubTransactionBodiesFromTransaction(dijkstraTx)
+	hasWithdrawals := len(dijkstraTx.Body.Withdrawals()) > 0
+	for _, body := range subBodies {
+		if len(body.Withdrawals()) > 0 {
+			hasWithdrawals = true
+			break
+		}
+	}
+	if !hasWithdrawals {
+		// Legacy-mode detection resolves script witnesses, which can fail
+		// on inputs the input rules already reject; a batch without
+		// withdrawals must not surface those failures here.
+		return nil
+	}
+
 	// In legacy mode only sub-transaction withdrawals are bounded by the
 	// original balance. The top-level withdrawal is checked against the
 	// threaded account state by UtxoValidateWithdrawals, where it must
@@ -2442,17 +2457,11 @@ func UtxoValidateBatchWithdrawals(
 	if err != nil {
 		return err
 	}
-	bodies := make(
-		[]common.TransactionBody,
-		0,
-		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
-	)
+	bodies := make([]common.TransactionBody, 0, 1+len(subBodies))
 	if !legacyWithdrawalMode {
 		bodies = append(bodies, &dijkstraTx.Body)
 	}
-	bodies = append(
-		bodies,
-		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
+	bodies = append(bodies, subBodies...)
 
 	withdrawals := make(map[string]batchWithdrawal)
 	for _, body := range bodies {

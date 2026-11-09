@@ -1393,6 +1393,31 @@ func TestUtxoValidateBatchWithdrawalsLegacyMode(t *testing.T) {
 	require.ErrorAs(t, rule(tx, 0, ls, pp), &balanceErr)
 }
 
+func TestUtxoValidateBatchWithdrawalsIgnoresScriptsWithoutWithdrawals(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	tx, _ := testDijkstraWithdrawalTx(t, 0, nil)
+	tx.Body.TxWithdrawals = nil
+	tx.Body.TxReferenceInputs = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{
+			shelley.MustNewShelleyTransactionInput(
+				"5555555555555555555555555555555555555555555555555555555555555555",
+				0,
+			),
+		},
+		false,
+	)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	// Unresolvable reference inputs belong to the input rules; a batch
+	// without withdrawals has nothing for this rule to check.
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, ls, pp))
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, nil, pp))
+}
+
 func TestDijkstraLegacyTopLevelWithdrawalUsesPostSubTransactionBalance(
 	t *testing.T,
 ) {
