@@ -208,6 +208,80 @@ func TestJumpWithUnansweredRequestNextReturnsErrSyncInProgress(t *testing.T) {
 	}
 }
 
+// finishStoppedSync answers the pipelined batch of a sync whose callback has
+// been told to stop, and returns once the loop has exited and every reply has
+// been retired. Replies enqueue their ready signal before they are retired,
+// so all the signals the old loop left behind are buffered by then.
+func (h *reintersectHarness) finishStoppedSync() {
+	h.t.Helper()
+	h.client.lifecycleMutex.Lock()
+	loopDone := h.client.syncLoopDone
+	h.client.lifecycleMutex.Unlock()
+	h.release(3)
+	require.Equal(h.t, 3, recv(h.t, h.requests, "request 3"))
+	require.Equal(h.t, 4, recv(h.t, h.requests, "request 4"))
+	for want := uint64(2); want <= 4; want++ {
+		require.Equal(h.t, want, recv(h.t, h.rollbacks, "drained rollback"))
+	}
+	recv(h.t, loopDone, "sync loop exit")
+	require.Eventually(h.t, func() bool {
+		return h.outstanding() == 0
+	}, reintersectTestTimeout, time.Millisecond,
+		"stopped sync never retired its replies")
+}
+
+// The loop exits on the first stop signal, so the later replies' stop signals
+// outlive it. A new loop must not take one for its own and exit.
+func TestJumpDiscardsStopSignalsOfStoppedSync(t *testing.T) {
+	t.Parallel()
+	h := newReintersectHarness(t)
+	h.startPipelined()
+	h.stopSync.Store(true)
+	h.finishStoppedSync()
+	h.stopSync.Store(false)
+
+	_, _, found, err := h.client.Jump([]pcommon.Point{h.findPoint})
+	require.NoError(t, err)
+	require.True(t, found)
+	recv(t, h.finds, "jump")
+
+	require.NoError(t, h.client.Sync([]pcommon.Point{h.findPoint}))
+	recv(t, h.finds, "Sync FindIntersect")
+	require.Equal(t, 5, recv(t, h.requests, "request after jump"))
+	h.release(1)
+	require.Equal(t, uint64(5), recv(t, h.rollbacks, "rollback 5"))
+	require.Equal(t, 6, recv(t, h.requests,
+		"pipelined request from a loop not ended by a stale stop signal"))
+}
+
+// Replies after the stopping one signal ready. A new loop taking one would
+// send a MsgRequestNext with no reply to justify it, so the signals must be
+// gone when Jump returns.
+func TestJumpDiscardsReadySignalsOfStoppedSync(t *testing.T) {
+	t.Parallel()
+	h := newReintersectHarness(t)
+	h.startPipelined()
+	h.stopAtSlot.Store(2)
+	h.finishStoppedSync()
+
+	_, _, found, err := h.client.Jump([]pcommon.Point{h.findPoint})
+	require.NoError(t, err)
+	require.True(t, found)
+	recv(t, h.finds, "jump")
+
+	h.client.lifecycleMutex.Lock()
+	readyChan := h.client.readyForNextBlockChan
+	h.client.lifecycleMutex.Unlock()
+	require.Empty(t, readyChan, "stale ready signals survived Jump")
+
+	require.NoError(t, h.client.Sync([]pcommon.Point{h.findPoint}))
+	recv(t, h.finds, "Sync FindIntersect")
+	require.Equal(t, 5, recv(t, h.requests, "request after jump"))
+	h.release(1)
+	require.Equal(t, uint64(5), recv(t, h.rollbacks, "rollback 5"))
+	require.Equal(t, 6, recv(t, h.requests, "pipelined request"))
+}
+
 func TestJumpConnectionCloseDuringJump(t *testing.T) {
 	t.Parallel()
 	h := newReintersectHarness(t)

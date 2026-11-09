@@ -850,6 +850,24 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	return c.sendInitialRequestAndStartSyncLoop()
 }
 
+// discardReadySignals empties the ready channel of signals left by replies to
+// a sync loop that has exited, which would otherwise be read by the next loop.
+// The caller must hold busyMutex with the loop gone and no MsgRequestNext
+// unanswered: replies enqueue their signal before they are retired, so none
+// can arrive after this returns.
+func discardReadySignals(readyChan <-chan bool) error {
+	for {
+		select {
+		case _, ok := <-readyChan:
+			if !ok {
+				return protocol.ErrProtocolShuttingDown
+			}
+		default:
+			return nil
+		}
+	}
+}
+
 // findIntersect sends MsgFindIntersect and waits for the server's answer. The
 // caller must hold busyMutex and have the protocol in StIdle.
 func (c *Client) findIntersect(
@@ -914,18 +932,8 @@ func (c *Client) Reintersect(
 	}
 	defer c.busyMutex.Unlock()
 
-	// The old loop is gone, so the ready signals for the drained replies are
-	// stale. Replies enqueue their signal before they are retired, so none
-	// can arrive after this drain.
-	for drainedSignals := false; !drainedSignals; {
-		select {
-		case _, ok := <-readyChan:
-			if !ok {
-				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-			}
-		default:
-			drainedSignals = true
-		}
+	if err := discardReadySignals(readyChan); err != nil {
+		return pcommon.Point{}, Tip{}, err
 	}
 	c.lifecycleMutex.Lock()
 	stopped := c.syncStopRequests != stopsBefore
@@ -973,7 +981,7 @@ func (c *Client) Jump(
 	points []pcommon.Point,
 ) (pcommon.Point, Tip, bool, error) {
 	c.busyMutex.Lock()
-	proto, _, doneChan, endOperation, err := c.beginOperation()
+	proto, readyChan, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
 		c.busyMutex.Unlock()
 		return pcommon.Point{}, Tip{}, false, err
@@ -998,6 +1006,9 @@ func (c *Client) Jump(
 	c.lifecycleMutex.Unlock()
 	if loopRunning || unanswered > 0 {
 		return pcommon.Point{}, Tip{}, false, ErrSyncInProgress
+	}
+	if err := discardReadySignals(readyChan); err != nil {
+		return pcommon.Point{}, Tip{}, false, err
 	}
 
 	if len(points) == 0 {
