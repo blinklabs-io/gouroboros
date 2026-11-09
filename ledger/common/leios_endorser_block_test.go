@@ -242,6 +242,10 @@ func TestLeiosEndorserBlockRejectsMalformedIndefiniteMap(t *testing.T) {
 			t.Parallel()
 			_, err := NewLeiosEndorserBlockFromCbor(wire)
 			require.Error(t, err)
+			// cbor.Decode refuses ill-formed CBOR before UnmarshalCBOR
+			// runs, so call it directly to reach the decoder's own checks.
+			var block LeiosEndorserBlock
+			require.Error(t, block.UnmarshalCBOR(wire))
 		})
 	}
 	_, err := NewLeiosEndorserBlockFromCbor(
