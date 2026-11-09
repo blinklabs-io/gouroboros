@@ -652,6 +652,15 @@ func TestVerifyTransactionSubtransactionGuardControls(t *testing.T) {
 					dijkstraGuardTestPParams(),
 					[]common.UtxoValidationRuleFunc{UtxoValidatePlutusScripts},
 				)
+				if test.unsupported {
+					// A guard script's hash sits in the body's guards, which the
+					// Plutus V1 to V3 contexts cannot represent, so only a V4
+					// script can guard a transaction.
+					var ctxErr common.ScriptContextConstructionError
+					require.ErrorAs(t, err, &ctxErr)
+					require.ErrorContains(t, err, "script-hash guards")
+					return
+				}
 				if txIsValid {
 					require.NoError(t, err)
 				} else {

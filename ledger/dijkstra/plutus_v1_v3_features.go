@@ -25,20 +25,50 @@ import (
 // V1, V2 or V3 context for such a transaction fails, as in cardano-ledger's
 // guardDijkstraFeaturesForPlutusV1toV3. Key-hash guards are allowed.
 func (t DijkstraTransaction) CheckPlutusV1V3Features() error {
+	return checkPlutusV1V3Body(&t.Body)
+}
+
+// CheckPlutusV1V3Features applies the check to the body this level presents,
+// since the embedded transaction's own method would inspect the top-level body.
+func (t dijkstraConwayFeatureTransaction) CheckPlutusV1V3Features() error {
+	return checkPlutusV1V3Body(t.body)
+}
+
+func checkPlutusV1V3Body(body common.TransactionBody) error {
+	var (
+		deposits  DijkstraDirectDeposits
+		intervals DijkstraAccountBalanceIntervals
+		required  DijkstraRequiredTopLevelGuards
+		guards    *DijkstraGuards
+	)
+	switch b := body.(type) {
+	case *DijkstraTransactionBody:
+		deposits = b.TxDirectDeposits
+		intervals = b.TxBalanceIntervals
+		required = b.TxRequiredTopLevelGuards
+		guards = b.TxGuards
+	case *DijkstraSubTransactionBody:
+		deposits = b.TxDirectDeposits
+		intervals = b.TxAccountBalanceIntervals
+		required = b.TxRequiredTopLevelGuards
+		guards = b.TxGuards
+	default:
+		return nil
+	}
 	switch {
-	case len(t.Body.TxDirectDeposits) > 0:
+	case len(deposits) > 0:
 		return script.UnsupportedFeatureError{Feature: "direct deposits"}
-	case len(t.Body.TxBalanceIntervals) > 0:
+	case len(intervals) > 0:
 		return script.UnsupportedFeatureError{
 			Feature: "account balance intervals",
 		}
-	case len(t.Body.TxRequiredTopLevelGuards) > 0:
+	case len(required) > 0:
 		return script.UnsupportedFeatureError{
 			Feature: "required top-level guards",
 		}
 	}
-	if t.Body.TxGuards != nil {
-		for _, guard := range t.Body.TxGuards.Credentials {
+	if guards != nil {
+		for _, guard := range guards.Credentials {
 			if guard.CredType == common.CredentialTypeScriptHash {
 				return script.UnsupportedFeatureError{
 					Feature: "script-hash guards",
@@ -49,9 +79,18 @@ func (t DijkstraTransaction) CheckPlutusV1V3Features() error {
 	return nil
 }
 
-// CheckPlutusV1V3Features forwards the check through the wrapper, which hides
-// the optional interface of the transaction it embeds.
+// The evaluation wrappers embed the common.Transaction interface, which hides
+// the optional checker of the transaction they wrap, so each forwards it.
+
 func (t transactionWithoutGuardingRedeemers) CheckPlutusV1V3Features() error {
+	return script.CheckPlutusV1V3Features(t.Transaction)
+}
+
+func (t transactionWithoutRedeemers) CheckPlutusV1V3Features() error {
+	return script.CheckPlutusV1V3Features(t.Transaction)
+}
+
+func (t transactionWithAvailablePlutusScripts) CheckPlutusV1V3Features() error {
 	return script.CheckPlutusV1V3Features(t.Transaction)
 }
 

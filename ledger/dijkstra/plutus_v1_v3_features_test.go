@@ -21,6 +21,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/lang"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,22 +35,23 @@ type plutusV1V3Builder struct {
 }
 
 func plutusV1V3Builders() []plutusV1V3Builder {
+	ls := mockledger.NewLedgerStateBuilder().Build()
 	return []plutusV1V3Builder{
 		{"V1", func(tx common.Transaction) error {
 			_, err := script.NewTxInfoV1FromTransaction(
-				nil, tx, nil, true, common.ProtocolVersionDijkstra,
+				ls, tx, nil, true, common.ProtocolVersionDijkstra,
 			)
 			return err
 		}},
 		{"V2", func(tx common.Transaction) error {
 			_, err := script.NewTxInfoV2FromTransaction(
-				nil, tx, nil, true, common.ProtocolVersionDijkstra,
+				ls, tx, nil, true, common.ProtocolVersionDijkstra,
 			)
 			return err
 		}},
 		{"V3", func(tx common.Transaction) error {
 			_, err := script.NewTxInfoV3FromTransaction(
-				nil, tx, nil, common.ProtocolVersionDijkstra,
+				ls, tx, nil, common.ProtocolVersionDijkstra,
 			)
 			return err
 		}},
@@ -165,8 +168,78 @@ func TestDijkstraPlutusV1ToV3CheckThroughWrappers(t *testing.T) {
 	}
 
 	base := plutusV4BaseTransaction{wrapped}
+	ls := mockledger.NewLedgerStateBuilder().Build()
 	_, err := script.NewTxInfoV3FromTransaction(
-		nil, base, nil, common.ProtocolVersionDijkstra,
+		ls, base, nil, common.ProtocolVersionDijkstra,
 	)
 	require.NoError(t, err)
+}
+
+// Script evaluation reaches the V1 to V3 constructors through several
+// transaction projections, each of which has to preserve the check.
+func TestDijkstraEvaluationRejectsUnsupportedFieldsForPlutusV1ToV3(
+	t *testing.T,
+) {
+	t.Parallel()
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	// A reward-account header byte followed by a 28-byte credential, so the
+	// V4 context can convert it.
+	deposits := DijkstraDirectDeposits{
+		cbor.NewByteString(
+			append([]byte{0xe0}, bytes.Repeat([]byte{0x01}, 28)...),
+		): 50,
+	}
+
+	for name, version := range map[string][3]uint32{
+		"V1": lang.LanguageVersionV1,
+		"V2": lang.LanguageVersionV2,
+		"V3": lang.LanguageVersionV3,
+	} {
+		t.Run(name+" mint", func(t *testing.T) {
+			t.Parallel()
+			tx := evaluateTestMintTx(
+				t,
+				dijkstraGuardTestPlutus(t, version, false),
+			)
+			_, err := EvaluatePlutusScripts(
+				tx, ls, dijkstraGuardTestPParams(), evaluateTestBudget,
+			)
+			require.NoError(t, err)
+
+			tx.Body.TxDirectDeposits = deposits
+			_, err = EvaluatePlutusScripts(
+				tx, ls, dijkstraGuardTestPParams(), evaluateTestBudget,
+			)
+			var unsupported script.UnsupportedFeatureError
+			require.ErrorAs(t, err, &unsupported)
+			require.Equal(t, "direct deposits", unsupported.Feature)
+		})
+	}
+
+	t.Run("V3 top-level guard", func(t *testing.T) {
+		t.Parallel()
+		tx := evaluateTestTopLevelGuardTx(
+			t,
+			dijkstraGuardTestPlutus(t, lang.LanguageVersionV3, false),
+		)
+		tx.Body.TxDirectDeposits = deposits
+		_, err := EvaluatePlutusScripts(
+			tx, ls, dijkstraGuardTestPParams(), evaluateTestBudget,
+		)
+		var unsupported script.UnsupportedFeatureError
+		require.ErrorAs(t, err, &unsupported)
+	})
+
+	t.Run("V4 mint still evaluates", func(t *testing.T) {
+		t.Parallel()
+		tx := evaluateTestMintTx(
+			t,
+			dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false),
+		)
+		tx.Body.TxDirectDeposits = deposits
+		_, err := EvaluatePlutusScripts(
+			tx, ls, dijkstraGuardTestPParams(), evaluateTestBudget,
+		)
+		require.NoError(t, err)
+	})
 }

@@ -161,11 +161,11 @@ func TestEvaluatePlutusScriptsMatchesValidation(t *testing.T) {
 			tags:   []common.RedeemerTag{common.RedeemerTagMint},
 		},
 		{
-			name: "top-level Plutus V3 guard",
+			name: "top-level Plutus V4 guard",
 			build: func(t *testing.T) (*DijkstraTransaction, common.LedgerState) {
 				return evaluateTestTopLevelGuardTx(
 					t,
-					dijkstraGuardTestPlutus(t, lang.LanguageVersionV3, false),
+					dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false),
 				), mockledger.NewLedgerStateBuilder().Build()
 			},
 			subTxs: []*uint32{nil},
