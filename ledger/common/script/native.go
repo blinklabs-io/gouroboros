@@ -60,11 +60,6 @@ func NewNativeScriptEnv(
 		for _, vkw := range witnesses.Vkey() {
 			env.KeyHashes[lcommon.Blake2b224Hash(vkw.Vkey)] = true
 		}
-		for _, bw := range witnesses.Bootstrap() {
-			if hash, err := bw.KeyHash(); err == nil {
-				env.KeyHashes[hash] = true
-			}
-		}
 	}
 	return env
 }

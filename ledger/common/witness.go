@@ -41,16 +41,10 @@ type BootstrapWitness struct {
 	Attributes []byte
 }
 
-// KeyHash returns the key hash this bootstrap witness contributes to the
-// transaction's witnessed key hashes: the Byron address root of the witness,
-// Blake2b-224(SHA3-256(prefix || public key || chain code || attributes)),
-// as in bootstrapWitKeyHash (Keys/Bootstrap.hs). It is not
-// Blake2b-224(public key), so it cannot satisfy a RequireSignature for the
-// plain verification key hash.
-//
-// When the address root cannot be computed, an error is returned and the
-// witness contributes no key hash: callers must skip it rather than fall back
-// to the hash of the public key.
+// KeyHash returns the Byron address root authorized by this bootstrap witness:
+// Blake2b-224(SHA3-256(prefix || public key || chain code || attributes)), as
+// in bootstrapWitKeyHash (Keys/Bootstrap.hs). Bootstrap witnesses authorize
+// Byron addresses; they do not satisfy native-script key signatures.
 func (w BootstrapWitness) KeyHash() (Blake2b224, error) {
 	return computeByronAddressRoot(w.PublicKey, w.ChainCode, w.Attributes)
 }
