@@ -36,6 +36,7 @@ const (
 	UtxoValidationRuleWrongNetwork                 UtxoValidationRuleId = "wrong-network"
 	UtxoValidationRuleWrongNetworkWithdrawal       UtxoValidationRuleId = "wrong-network-withdrawal"
 	UtxoValidationRuleValueNotConserved            UtxoValidationRuleId = "value-not-conserved"
+	UtxoValidationRuleTreasuryDonationScripts      UtxoValidationRuleId = "treasury-donation-scripts"
 	UtxoValidationRuleOutputTooSmall               UtxoValidationRuleId = "output-too-small"
 	UtxoValidationRuleOutputBootAddrAttrsTooBig    UtxoValidationRuleId = "output-bootstrap-address-attributes-too-big"
 	UtxoValidationRuleMaxTxSize                    UtxoValidationRuleId = "max-transaction-size"

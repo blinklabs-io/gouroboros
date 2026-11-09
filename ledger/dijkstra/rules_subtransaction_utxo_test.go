@@ -427,7 +427,7 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
 		Build()
 	pp := &DijkstraProtocolParameters{}
-	rule := dijkstraRule(t, common.UtxoValidationRuleValueNotConserved)
+	rule := dijkstraRule(t, common.UtxoValidationRuleTreasuryDonationScripts)
 	v1Script := common.PlutusV1Script{0x41, 0}
 	v1 := DijkstraTransactionWitnessSet{
 		WsPlutusV1Scripts: cbor.NewSetType(

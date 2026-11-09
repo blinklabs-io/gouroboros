@@ -15,8 +15,11 @@
 package dijkstra
 
 import (
+	"errors"
+	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -86,4 +89,55 @@ func TestDijkstraDuplicateInputsSkippedForPhase2InvalidTransactions(
 	var target shelley.DuplicateInputError
 	require.ErrorAs(t, rule(build(true), 0, ls, pp), &target)
 	require.NoError(t, rule(build(false), 0, ls, pp))
+}
+
+// A treasury donation at a level whose needed scripts include Plutus V1 or V2
+// fails script-context translation in cardano-ledger, and that failure is
+// raised for phase-2-invalid transactions too, so it must not be skipped with
+// value conservation.
+func TestDijkstraDonationScriptCheckRunsForPhase2InvalidTransactions(
+	t *testing.T,
+) {
+	t.Parallel()
+	input, utxo := dijkstraSubUtxoInput(0)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{utxo}).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+	v1Script := common.PlutusV1Script{0x41, 0}
+	mint := common.NewMultiAsset[common.MultiAssetTypeMint](
+		map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeMint{
+			v1Script.Hash(): {
+				cbor.NewByteString([]byte("asset")): big.NewInt(1),
+			},
+		},
+	)
+	newTx := func(isValid bool) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			Body: DijkstraTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+				TxMint:     &mint,
+				TxDonation: dijkstraSubUtxoInputAmount,
+			},
+			WitnessSet: DijkstraTransactionWitnessSet{
+				WsPlutusV1Scripts: cbor.NewSetType(
+					[]common.PlutusV1Script{v1Script}, false,
+				),
+			},
+			TxIsValid: isValid,
+		}
+	}
+	rejected := func(isValid bool) bool {
+		for _, rule := range UtxoValidationRules {
+			var target conway.TreasuryDonationWithPlutusV1V2Error
+			if errors.As(rule(newTx(isValid), 0, ls, pp), &target) {
+				return true
+			}
+		}
+		return false
+	}
+	require.True(t, rejected(true))
+	require.True(t, rejected(false))
 }

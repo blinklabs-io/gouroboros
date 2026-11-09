@@ -189,6 +189,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateAccountBalanceIntervals,
 	},
 	{
+		Id:        common.UtxoValidationRuleTreasuryDonationScripts,
+		Validator: UtxoValidateTreasuryDonationScripts,
+	},
+	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
 		Validator: UtxoValidateValueNotConservedUtxo,
 	},
@@ -360,6 +364,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleRequiredRedeemers:            dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleBatchWithdrawals:             dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleTreasuryDonationScripts:      dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
@@ -2205,12 +2210,39 @@ func (t dijkstraProducedAdjustmentTransaction) Donation() *big.Int {
 	return nil
 }
 
+// UtxoValidateTreasuryDonationScripts rejects a treasury donation at a
+// transaction level whose needed scripts include Plutus V1 or V2, which have no
+// donation field. cardano-ledger raises this as a script-context translation
+// failure while collecting scripts, for phase-2-invalid transactions as well,
+// so it runs regardless of the validity flag.
+func UtxoValidateTreasuryDonationScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.ValidateTreasuryDonationScriptCompatibility(
+			level, ls,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UtxoValidateValueNotConservedUtxo balances consumed against produced value
 // across every transaction level. A sub-transaction's inputs, outputs,
 // withdrawals, certificates, mints, proposal deposits, treasury donation and
 // direct deposits all count towards the enclosing transaction's balance.
 // The production rule list skips it for phase-2-invalid transactions, which
-// change no ledger state that affects conservation.
+// change no ledger state that affects conservation. The treasury donation's
+// script compatibility is checked separately by
+// UtxoValidateTreasuryDonationScripts, which does not skip them.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2226,11 +2258,6 @@ func UtxoValidateValueNotConservedUtxo(
 	donations := new(big.Int)
 	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
 		for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-			if err := conway.ValidateTreasuryDonationScriptCompatibility(
-				level, ls,
-			); err != nil {
-				return err
-			}
 			if donation := level.Donation(); donation != nil {
 				donations.Add(donations, donation)
 			}
