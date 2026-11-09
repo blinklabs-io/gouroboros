@@ -480,6 +480,9 @@ func UtxoValidateValueNotConservedUtxo(
 	return nil
 }
 
+// UtxoValidateOutputTooSmallUtxo rejects outputs whose value is pointwise less
+// than the minimum coin. An output carrying a positive asset quantity is never
+// pointwise less, so only outputs without assets are compared on coin.
 func UtxoValidateOutputTooSmallUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -493,6 +496,9 @@ func UtxoValidateOutputTooSmallUtxo(
 	minCoinBigInt := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
+		if outputHasPositiveAsset(tmpOutput) {
+			continue
+		}
 		amount := tmpOutput.Amount()
 		if amount == nil {
 			amount = new(big.Int)
@@ -507,6 +513,22 @@ func UtxoValidateOutputTooSmallUtxo(
 	return shelley.OutputTooSmallUtxoError{
 		Outputs: badOutputs,
 	}
+}
+
+func outputHasPositiveAsset(output common.TransactionOutput) bool {
+	assets := output.Assets()
+	if assets == nil {
+		return false
+	}
+	for _, policy := range assets.Policies() {
+		for _, name := range assets.Assets(policy) {
+			if quantity := assets.Asset(policy, name); quantity != nil &&
+				quantity.Sign() > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func UtxoValidateOutputBootAddrAttrsTooBig(
