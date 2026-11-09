@@ -482,7 +482,8 @@ func UtxoValidateValueNotConservedUtxo(
 
 // UtxoValidateOutputTooSmallUtxo rejects outputs whose value is pointwise less
 // than the minimum coin. An output carrying a positive asset quantity is never
-// pointwise less, so only outputs without assets are compared on coin.
+// pointwise less, so outputs without a positive asset quantity are compared on
+// coin.
 func UtxoValidateOutputTooSmallUtxo(
 	tx common.Transaction,
 	slot uint64,
