@@ -848,7 +848,11 @@ func TestDijkstraPlutusV4GuardingSubTxIndex(t *testing.T) {
 	require.NoError(t, err)
 	topContext := requireDijkstraV4List(t, topContextData, 4)
 	requireDijkstraV4Integer(t, topContext.Items()[1], 91)
-	requireDijkstraV4Bytes(t, topContext.Items()[3], purpose.ScriptHash().Bytes())
+	requireDijkstraV4Bytes(
+		t,
+		topContext.Items()[3],
+		purpose.ScriptHash().Bytes(),
+	)
 	topTxInfo := requireDijkstraV4List(t, topContext.Items()[0], 19)
 	requireDijkstraV4Constr(t, topTxInfo.Items()[1], 1, 0)
 	topScriptInfo := requireDijkstraV4Constr(t, topContext.Items()[2], 6, 2)

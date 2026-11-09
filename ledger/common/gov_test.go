@@ -48,7 +48,10 @@ func TestGovernancePlutusDataUsesLedgerCredentialOrder(t *testing.T) {
 	action := &UpdateCommitteeGovAction{Credentials: removed, CredEpochs: added}
 	encodedAction := action.ToPlutusData().(*data.Constr)
 	removedData := encodedAction.Fields()[1].(*data.List)
-	require.True(t, scriptCredential.ToPlutusData().Equal(removedData.Items()[0]))
+	require.True(
+		t,
+		scriptCredential.ToPlutusData().Equal(removedData.Items()[0]),
+	)
 	require.True(t, keyCredential.ToPlutusData().Equal(removedData.Items()[1]))
 	addedData := encodedAction.Fields()[2].(*data.Map)
 	require.Equal(t, 2, len(addedData.Pairs()))

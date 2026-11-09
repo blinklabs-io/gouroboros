@@ -249,7 +249,8 @@ func dijkstraTopTxInfoSimplifiedV4(
 	}
 	donations := new(big.Int)
 	for _, txInfo := range txInfos {
-		donation, ok := txInfo.Items()[dijkstraTxInfoV4TreasuryDonation].(*data.Integer)
+		rawDonation := txInfo.Items()[dijkstraTxInfoV4TreasuryDonation]
+		donation, ok := rawDonation.(*data.Integer)
 		if !ok {
 			return nil, errors.New(
 				"plutus V4 TxInfo treasury donation is not an integer",
