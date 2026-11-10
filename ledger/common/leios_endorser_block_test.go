@@ -151,9 +151,25 @@ func TestLeiosEndorserBlockHashWithoutReceivedBytesIsCanonical(t *testing.T) {
 func TestLeiosEndorserBlockRejectsNonDefiniteEntries(t *testing.T) {
 	hash := make([]byte, Blake2b256Size)
 	tests := map[string][]byte{
-		"indefinite-length hash": append(
-			append([]byte{0xa1, 0x5f, 0x58, 0x20}, hash...),
+		"indefinite-length size": append(
+			append([]byte{0xa1, 0x58, 0x20}, hash...),
+			0x1f,
+		),
+		"text chunk in hash": append(
+			append([]byte{0xa1, 0x5f, 0x78, 0x20}, hash...),
 			0xff, 0x18, 0x26,
+		),
+		"nested indefinite hash chunk": append(
+			append([]byte{0xa1, 0x5f, 0x5f, 0x58, 0x20}, hash...),
+			0xff, 0xff, 0x18, 0x26,
+		),
+		"short indefinite-length hash": append(
+			append([]byte{0xa1, 0x5f, 0x58, 0x1f}, hash[1:]...),
+			0xff, 0x18, 0x26,
+		),
+		"unterminated indefinite-length hash": append(
+			append([]byte{0xa1, 0x5f, 0x58, 0x20}, hash...),
+			0x18, 0x26,
 		),
 		"tagged hash": append(
 			append([]byte{0xa1, 0xd8, 0x18, 0x58, 0x20}, hash...),
@@ -172,6 +188,9 @@ func TestLeiosEndorserBlockRejectsNonDefiniteEntries(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := NewLeiosEndorserBlockFromCbor(wire)
 			require.Error(t, err)
+			// cbor.Decode refuses ill-formed CBOR before UnmarshalCBOR runs.
+			var block LeiosEndorserBlock
+			require.Error(t, block.UnmarshalCBOR(wire))
 		})
 	}
 }
@@ -217,6 +236,46 @@ func TestLeiosEndorserBlockAcceptsIndefiniteMap(t *testing.T) {
 	require.NoError(t, block.Validate())
 }
 
+// At protocol version 12 the reference decodes the hash with
+// decodeBytesDefOrIndef, so a chunked hash names the same transaction.
+func TestLeiosEndorserBlockAcceptsIndefiniteLengthHash(t *testing.T) {
+	t.Parallel()
+	hash := make([]byte, Blake2b256Size)
+	for i := range hash {
+		hash[i] = byte(i)
+	}
+	chunked := []byte{0x5f, 0x50}
+	chunked = append(chunked, hash[:16]...)
+	chunked = append(chunked, 0x50)
+	chunked = append(chunked, hash[16:]...)
+	chunked = append(chunked, 0xff)
+	for name, wire := range map[string][]byte{
+		"definite map": append(
+			append([]byte{0xa1}, chunked...),
+			0x18, 0x26,
+		),
+		"indefinite map": append(
+			append([]byte{0xbf}, chunked...),
+			0x18, 0x26, 0xff,
+		),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			block, err := NewLeiosEndorserBlockFromCbor(wire)
+			require.NoError(t, err)
+			require.Equal(
+				t,
+				[]LeiosTransactionReference{{
+					TransactionHash: NewBlake2b256(hash),
+					TransactionSize: 0x26,
+				}},
+				block.TransactionReferences,
+			)
+			require.Equal(t, Blake2b256Hash(wire), block.Hash())
+		})
+	}
+}
+
 func TestLeiosEndorserBlockRejectsMalformedIndefiniteMap(t *testing.T) {
 	t.Parallel()
 	one := leiosIndefiniteMapWire([2]byte{1, 5})
@@ -230,9 +289,9 @@ func TestLeiosEndorserBlockRejectsMalformedIndefiniteMap(t *testing.T) {
 			leiosIndefiniteMapWire([2]byte{1, 5}, [2]byte{1, 6}),
 			0xff,
 		),
-		"break before value": append(append([]byte{}, cut...), 0xff),
-		"indefinite hash":    {0xbf, 0x5f, 0x40, 0xff, 0x01, 0xff},
-		"non-uint size":      append(append([]byte{}, cut...), 0x40, 0xff),
+		"break before value":    append(append([]byte{}, cut...), 0xff),
+		"empty indefinite hash": {0xbf, 0x5f, 0x40, 0xff, 0x01, 0xff},
+		"non-uint size":         append(append([]byte{}, cut...), 0x40, 0xff),
 		"oversized size": append(
 			append([]byte{}, cut...),
 			0x1b, 0, 0, 0, 1, 0, 0, 0, 0, 0xff,

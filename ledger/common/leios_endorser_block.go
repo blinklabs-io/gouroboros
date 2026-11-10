@@ -227,13 +227,15 @@ func decodeLeiosTransactionReferences(
 				break
 			}
 		}
-		// The reference decodes each entry with decodeBytes and decodeWord32,
-		// which accept a definite head of any width but no indefinite-length
-		// byte string and no tagged value, so a bignum size is refused too.
-		if err := requireLeiosDefiniteHead(
+		// The reference decodes each entry with decodeBytes and decodeWord32
+		// at protocol version 12. decodeBytes is then decodeBytesDefOrIndef,
+		// so the hash may be an indefinite-length byte string. Neither accepts
+		// a tagged value, so a bignum size is refused too.
+		if err := requireLeiosHead(
 			raw,
 			dec.Position(),
 			cbor.CborTypeByteString,
+			true,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"decode leios transaction reference %d hash: %w",
@@ -266,10 +268,11 @@ func decodeLeiosTransactionReferences(
 			)
 		}
 		seen[txHash] = struct{}{}
-		if err := requireLeiosDefiniteHead(
+		if err := requireLeiosHead(
 			raw,
 			dec.Position(),
 			cborTypeUnsignedInt,
+			false,
 		); err != nil {
 			return nil, fmt.Errorf(
 				"decode leios transaction reference %d size: %w",
@@ -309,9 +312,14 @@ func decodeLeiosTransactionReferences(
 	return refs, nil
 }
 
-// requireLeiosDefiniteHead checks that the data item at pos has the given
-// major type and a definite argument of any width.
-func requireLeiosDefiniteHead(raw []byte, pos int, major uint8) error {
+// requireLeiosHead checks that the data item at pos has the given major type
+// and a definite argument of any width, or an indefinite length when allowed.
+func requireLeiosHead(
+	raw []byte,
+	pos int,
+	major uint8,
+	allowIndefinite bool,
+) error {
 	if pos < 0 || pos >= len(raw) {
 		return errors.New("unexpected end of data")
 	}
@@ -321,6 +329,9 @@ func requireLeiosDefiniteHead(raw []byte, pos int, major uint8) error {
 	}
 	// Additional information 24-27 carries a 1-8 byte argument; 28-30 are
 	// reserved and 31 marks an indefinite length.
+	if allowIndefinite && head&0x1f == 31 {
+		return nil
+	}
 	if head&0x1f > 27 {
 		return errors.New("indefinite or reserved CBOR head")
 	}
