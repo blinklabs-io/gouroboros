@@ -147,12 +147,20 @@ func TestValidateResponse(t *testing.T) {
 			resp:    NewMsgBlock(eb1.raw),
 		},
 		{
-			// The reference hashes the canonical re-encoding of the
-			// references, not the bytes received, so wider CBOR heads must
-			// still match the hash announced for the block.
-			name:    "block with non-shortest heads accepted",
+			// The reference hashes the bytes received, so a block with
+			// wider heads matches the hash of those bytes.
+			name: "block with non-shortest heads accepted",
+			request: NewMsgBlockRequest(
+				pcommon.NewPoint(10, lcommon.Blake2b256Hash(wideEB1).Bytes()),
+			),
+			resp: NewMsgBlock(wideEB1),
+		},
+		{
+			// The canonical hash does not identify the wider bytes.
+			name:    "block with non-shortest heads under canonical hash",
 			request: NewMsgBlockRequest(pcommon.NewPoint(10, eb1.hash.Bytes())),
 			resp:    NewMsgBlock(wideEB1),
+			wantErr: true,
 		},
 		{
 			name:    "block for another point",
@@ -481,7 +489,7 @@ func widenEndorserBlock(t *testing.T, eb testEB) []byte {
 		t,
 		eb.hash,
 		lcommon.Blake2b256Hash(wide),
-		"the wide form must not hash to the canonical hash by itself",
+		"the wide form must not hash to the canonical hash",
 	)
 	return wide
 }
