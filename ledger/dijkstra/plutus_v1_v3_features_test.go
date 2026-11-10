@@ -129,6 +129,13 @@ func TestDijkstraPlutusV1ToV3RejectUnsupportedBodyFields(t *testing.T) {
 					Credentials: []common.Credential{keyGuard},
 				},
 			},
+			// cardano-ledger's V1-V3 guard inspects only the account balance
+			// intervals, not the starting intervals.
+			"starting balance intervals only": {
+				TxStartingBalanceIntervals: DijkstraAccountBalanceIntervals{
+					account: &DijkstraAccountBalanceInterval{},
+				},
+			},
 		} {
 			for _, builder := range plutusV1V3Builders() {
 				tx := &DijkstraTransaction{Body: body, TxIsValid: true}
