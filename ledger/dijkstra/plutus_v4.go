@@ -98,7 +98,9 @@ func (level dijkstraScriptLevel) cachedTxInfoV4() (data.PlutusData, error) {
 func dijkstraTxInfoV4(level dijkstraScriptLevel) (data.PlutusData, error) {
 	base, err := script.NewTxInfoV3FromTransaction(
 		level.slotState,
-		transactionWithoutGuardingRedeemers{Transaction: level.tx},
+		plutusV4BaseTransaction{
+			transactionWithoutGuardingRedeemers{Transaction: level.tx},
+		},
 		level.resolved,
 		common.ProtocolVersionDijkstra,
 	)
