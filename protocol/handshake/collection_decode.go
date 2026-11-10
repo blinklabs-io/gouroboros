@@ -288,7 +288,7 @@ func handshakeCollectionInfo(
 func skipHandshakeTags(data []byte, pos int) (int, error) {
 	for depth := 0; pos < len(data) &&
 		data[pos]&cbor.CborTypeMask == cbor.CborTypeTag; depth++ {
-		if depth >= cbor.MaxNestedLevels {
+		if depth >= cbor.MaxUntrustedNestedLevels {
 			return 0, errors.New("handshake tag nesting limit")
 		}
 		additional := data[pos] & 0x1f

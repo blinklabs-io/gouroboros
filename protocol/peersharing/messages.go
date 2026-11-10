@@ -49,9 +49,9 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	}
 	var err error
 	if sharePeers, ok := ret.(*MsgSharePeers); ok {
-		err = sharePeers.UnmarshalCBOR(data)
+		_, err = cbor.DecodeUntrustedExact(data, sharePeers)
 	} else {
-		_, err = cbor.Decode(data, ret)
+		_, err = cbor.DecodeUntrustedExact(data, ret)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)

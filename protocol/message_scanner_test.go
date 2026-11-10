@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/stretchr/testify/require"
 )
@@ -81,6 +82,24 @@ func TestMessageScannerHandlesIndefiniteProtocolMessage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.complete)
 	require.Equal(t, len(message), result.messageLength)
+}
+
+func TestMessageScannerRejectsNestingPastUntrustedLimit(t *testing.T) {
+	require.Less(t, cbor.MaxUntrustedNestedLevels, cbor.MaxNestedLevels)
+	message := make([]byte, 0, cbor.MaxUntrustedNestedLevels+2)
+	message = append(message, 0x82, 0x01)
+	message = append(
+		message,
+		bytes.Repeat([]byte{0x81}, cbor.MaxUntrustedNestedLevels)...,
+	)
+	message = append(message, 0x00)
+
+	scanner := messageScanner{}
+	result, err := scanner.scan(message, 0)
+	require.NoError(t, err)
+	require.True(t, result.hasMessageType)
+	_, err = scanner.scan(message, 0)
+	require.ErrorContains(t, err, "CBOR nesting exceeds maximum depth")
 }
 
 func TestReadLoopRejectsDeclaredOversizedMessageBeforeTypedDecode(

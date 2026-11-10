@@ -145,7 +145,10 @@ func unwrapBlockTx(data []byte) ([]byte, error) {
 		)
 	}
 	inner := data[offset:]
-	if length, err := cborwalk.ItemLength(inner); err != nil ||
+	if length, err := cborwalk.ItemLengthWithin(
+		inner,
+		cbor.MaxNestedLevels,
+	); err != nil ||
 		length != len(inner) {
 		return nil, errors.New("tag 24 bytes are not exactly one CBOR item")
 	}

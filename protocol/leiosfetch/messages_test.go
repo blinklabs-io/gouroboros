@@ -191,7 +191,13 @@ func TestBlockTxsClientRequiresRequestedCount(t *testing.T) {
 }
 
 func TestBlockTxsPreservesDeepRawTransaction(t *testing.T) {
-	tx := append(bytes.Repeat([]byte{0x81}, 64), 0)
+	tx := append(
+		bytes.Repeat(
+			[]byte{0x81},
+			cbor.MaxUntrustedNestedLevels+1,
+		),
+		0,
+	)
 	encoded, err := cbor.Encode(NewMsgBlockTxs([]cbor.RawMessage{tx}))
 	require.NoError(t, err)
 	client := &Client{}

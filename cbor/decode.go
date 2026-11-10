@@ -36,6 +36,14 @@ var (
 	cachedStrictDecModeErr  error
 	cachedStrictDecModeOnce sync.Once
 
+	cachedUntrustedDecMode     _cbor.DecMode
+	cachedUntrustedDecModeErr  error
+	cachedUntrustedDecModeOnce sync.Once
+
+	cachedExactDecMode     _cbor.DecMode
+	cachedExactDecModeErr  error
+	cachedExactDecModeOnce sync.Once
+
 	cachedLenientDecMode     _cbor.DecMode
 	cachedLenientDecModeErr  error
 	cachedLenientDecModeOnce sync.Once
@@ -61,12 +69,12 @@ const (
 // for the change to take effect.
 var MaxNestedLevels = 16384
 
-// MaxUntrustedNestedLevels names the limit used by decoders that process
-// peer-controlled data. It defaults to MaxNestedLevels because Decode is also
-// used by protocol message and block decoders; a separate strict mode cannot
-// protect those callers until they are migrated. Like MaxNestedLevels it is a
-// var; set it before the first Decode call for the change to take effect.
-var MaxUntrustedNestedLevels = MaxNestedLevels
+// MaxUntrustedNestedLevels is the nesting limit for peer-controlled CBOR.
+// Protocol envelopes have shallow fixed shapes, so this leaves wide headroom
+// while bounding their work more tightly than MaxNestedLevels. Like
+// MaxNestedLevels it is a var; set it before the first untrusted decode call
+// for the change to take effect.
+var MaxUntrustedNestedLevels = 1024
 
 // getDecMode returns a cached DecMode, initializing it on first use.
 // Uses sync.Once for thread-safe lazy initialization.
@@ -103,10 +111,52 @@ func Decode(dataBytes []byte, dest any) (int, error) {
 	return decode(dataBytes, dest, getDecMode, rejectDuplicateMapKeys)
 }
 
-// DecodeExact decodes one untrusted CBOR item, applies the strict network
-// collection limits, and rejects any trailing bytes.
+// DecodeExact decodes one complete CBOR item with the general nesting limit
+// and strict collection limits. The general nesting limit preserves Cardano
+// ledger compatibility for metadata and Plutus data whose depth is bounded by
+// encoded size rather than by the ledger specification.
 func DecodeExact(dataBytes []byte, dest any) (int, error) {
-	decMode, err := getStrictDecMode()
+	return decodeExact(dataBytes, dest, getExactDecMode)
+}
+
+// DecodeUntrustedExact decodes one peer-controlled CBOR item with the peer
+// nesting limit and rejects any trailing bytes.
+func DecodeUntrustedExact(dataBytes []byte, dest any) (int, error) {
+	if err := validateUntrustedStructure(dataBytes); err != nil {
+		return 0, err
+	}
+	return decodeExact(dataBytes, dest, getUntrustedDecMode)
+}
+
+// ValidateUntrustedExact validates one peer-controlled CBOR item without
+// constructing its decoded value.
+func ValidateUntrustedExact(dataBytes []byte) error {
+	if err := validateUntrustedStructure(dataBytes); err != nil {
+		return err
+	}
+	decMode, err := getUntrustedDecMode()
+	if err != nil {
+		return err
+	}
+	if decMode == nil {
+		return errors.New("CBOR decoder mode not initialized")
+	}
+	return decMode.Wellformed(dataBytes)
+}
+
+// validateUntrustedStructure iteratively enforces the peer nesting limit
+// before the recursive decoder validates or constructs a value. A complete
+// CBOR item cannot contain more data items than encoded bytes.
+func validateUntrustedStructure(dataBytes []byte) error {
+	return CheckItemBudget(dataBytes, len(dataBytes))
+}
+
+func decodeExact(
+	dataBytes []byte,
+	dest any,
+	getMode func() (_cbor.DecMode, error),
+) (int, error) {
+	decMode, err := getMode()
 	if err != nil {
 		return 0, err
 	}
@@ -225,6 +275,42 @@ func decodeWithMode(
 func IsDuplicateMapKeyError(err error) bool {
 	var dupErr *_cbor.DupMapKeyError
 	return errors.As(err, &dupErr)
+}
+
+// getExactDecMode returns a cached DecMode with the general nesting limit and
+// strict collection limits used by DecodeExact.
+func getExactDecMode() (_cbor.DecMode, error) {
+	cachedExactDecModeOnce.Do(func() {
+		decOptions := _cbor.DecOptions{
+			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
+			MaxNestedLevels:   MaxNestedLevels,
+			MaxMapPairs:       131072,
+			MaxArrayElements:  131072,
+		}
+		cachedExactDecMode, cachedExactDecModeErr = decOptions.DecModeWithTags(
+			customTagSet,
+		)
+	})
+	return cachedExactDecMode, cachedExactDecModeErr
+}
+
+// getUntrustedDecMode returns a cached DecMode with the peer nesting limit and
+// the general collection limits required by large valid protocol responses.
+func getUntrustedDecMode() (_cbor.DecMode, error) {
+	cachedUntrustedDecModeOnce.Do(func() {
+		decOptions := _cbor.DecOptions{
+			ExtraReturnErrors: _cbor.ExtraDecErrorUnknownField,
+			DupMapKey:         _cbor.DupMapKeyEnforcedAPF,
+			MaxNestedLevels:   MaxUntrustedNestedLevels,
+			MaxMapPairs:       10_000_000,
+			MaxArrayElements:  10_000_000,
+		}
+		cachedUntrustedDecMode, cachedUntrustedDecModeErr = decOptions.DecModeWithTags(
+			customTagSet,
+		)
+	})
+	return cachedUntrustedDecMode, cachedUntrustedDecModeErr
 }
 
 // getStrictDecMode returns a cached DecMode with stricter limits for untrusted
@@ -521,7 +607,20 @@ type StreamDecoder struct {
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
 func NewStreamDecoder(data []byte) (*StreamDecoder, error) {
-	decMode, err := getDecMode()
+	return newStreamDecoder(data, getDecMode)
+}
+
+// NewUntrustedStreamDecoder creates a sequential decoder with the peer nesting
+// limit and general collection limits.
+func NewUntrustedStreamDecoder(data []byte) (*StreamDecoder, error) {
+	return newStreamDecoder(data, getUntrustedDecMode)
+}
+
+func newStreamDecoder(
+	data []byte,
+	getMode func() (_cbor.DecMode, error),
+) (*StreamDecoder, error) {
+	decMode, err := getMode()
 	if err != nil {
 		return nil, err
 	}

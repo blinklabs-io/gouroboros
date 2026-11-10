@@ -17,6 +17,7 @@ package cbor_test
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -56,13 +57,13 @@ func (p *recursiveUnmarshalProbe) UnmarshalCBOR(data []byte) error {
 	return err
 }
 
-func TestDecodeExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
-	const childEnv = "GOUROBOROS_TEST_DECODE_EXACT_DEPTH_CHILD"
+func TestDecodeUntrustedExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
+	const childEnv = "GOUROBOROS_TEST_DECODE_UNTRUSTED_EXACT_DEPTH_CHILD"
 	if os.Getenv(childEnv) != "1" {
 		// The cached decoder mode keeps the depth limit from the first decode.
 		cmd := exec.Command(
 			os.Args[0],
-			"-test.run=^TestDecodeExactChecksDepthBeforeCustomUnmarshal$",
+			"-test.run=^TestDecodeUntrustedExactChecksDepthBeforeCustomUnmarshal$",
 		)
 		cmd.Env = append(os.Environ(), childEnv+"=1")
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -74,7 +75,7 @@ func TestDecodeExactChecksDepthBeforeCustomUnmarshal(t *testing.T) {
 	cbor.MaxUntrustedNestedLevels = 8
 	data := nestedArrays(cbor.MaxUntrustedNestedLevels + 1)
 	var dest recursiveUnmarshalProbe
-	if _, err := cbor.DecodeExact(data, &dest); err == nil {
+	if _, err := cbor.DecodeUntrustedExact(data, &dest); err == nil {
 		t.Fatalf("accepted nesting depth %d", cbor.MaxUntrustedNestedLevels+1)
 	}
 	if dest.calls != 0 {
@@ -139,5 +140,34 @@ func TestDecodeStrictAcceptsDeepTransactionNesting(t *testing.T) {
 			"DecodeStrict rejected valid deep transaction nesting: %v",
 			err,
 		)
+	}
+}
+
+func TestDecodeExactRetainsGeneralNestingLimit(t *testing.T) {
+	depth := cbor.MaxUntrustedNestedLevels + 1
+	var value cbor.Value
+	if _, err := cbor.DecodeExact(nestedArrays(depth), &value); err != nil {
+		t.Fatalf("DecodeExact rejected nesting depth %d: %v", depth, err)
+	}
+}
+
+func TestDecodeUntrustedExactUsesPeerNestingLimit(t *testing.T) {
+	var boundaryValue cbor.Value
+	if _, err := cbor.DecodeUntrustedExact(
+		nestedArrays(cbor.MaxUntrustedNestedLevels),
+		&boundaryValue,
+	); err != nil {
+		t.Fatalf(
+			"DecodeUntrustedExact rejected nesting at configured limit: %v",
+			err,
+		)
+	}
+
+	depth := cbor.MaxUntrustedNestedLevels + 1
+	var value cbor.Value
+	if _, err := cbor.DecodeUntrustedExact(nestedArrays(depth), &value); err == nil {
+		t.Fatalf("DecodeUntrustedExact accepted nesting depth %d", depth)
+	} else if !strings.Contains(err.Error(), "CBOR nesting too deep") {
+		t.Fatalf("DecodeUntrustedExact used recursive validation first: %v", err)
 	}
 }
