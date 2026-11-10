@@ -99,7 +99,8 @@ func (w *BootstrapWitness) UnmarshalCBOR(data []byte) error {
 }
 
 // ValidateCollateralVKeyWitnesses ensures every key-locked collateral input
-// has a matching vkey witness. This UTXOW requirement applies regardless of
+// has a matching witness: a vkey witness, or a bootstrap witness whose address
+// root equals the input's key hash. This UTXOW requirement applies regardless of
 // whether the transaction has redeemers.
 func ValidateCollateralVKeyWitnesses(
 	tx Transaction,

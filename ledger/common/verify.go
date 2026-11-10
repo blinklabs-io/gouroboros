@@ -124,8 +124,10 @@ func computeByronAddressRoot(
 	return addrHash, nil
 }
 
-// ValidateInputVKeyWitnesses ensures that for each key-locked input, a vkey witness
-// exists and the corresponding signature is valid for the transaction body.
+// ValidateInputVKeyWitnesses ensures that each key-locked input has a witness
+// providing its key hash: either a vkey witness whose key hashes to it, or a
+// bootstrap witness whose address root equals it. Signature validity is
+// checked separately.
 func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 	provided := witnessKeyHashes(tx.Witnesses())
 

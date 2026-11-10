@@ -928,9 +928,10 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 	)
 }
 
-// ValidateRequiredVKeyWitnesses checks that all required key credentials have a
-// vkey witness. This includes explicitly required signers and key-based reward
-// withdrawal credentials.
+// ValidateRequiredVKeyWitnesses checks that all required key credentials are
+// provided by a witness, either a vkey witness or a bootstrap witness whose
+// address root equals the credential. This includes explicitly required
+// signers and key-based reward withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
 		return err

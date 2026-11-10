@@ -78,7 +78,8 @@ func TestValidateRequiredVKeyWitnessesAcceptsBootstrapAddressRoot(
 		tx := mockledger.NewTransactionBuilder().
 			WithRequiredSigners(root).
 			WithWitnesses(bootstrapOnlyWitnesses(malformed))
-		require.Error(t, common.ValidateRequiredVKeyWitnesses(tx))
+		var target common.MissingVKeyWitnessesError
+		require.ErrorAs(t, common.ValidateRequiredVKeyWitnesses(tx), &target)
 	})
 }
 
@@ -148,6 +149,50 @@ func TestValidateInputVKeyWitnessesAcceptsBootstrapAddressRoot(t *testing.T) {
 			t,
 			common.ValidateInputVKeyWitnesses(tx, otherState),
 			"missing vkey witness for input",
+		)
+	})
+}
+
+func TestValidateInputVKeyWitnessesByronInputMessage(t *testing.T) {
+	t.Parallel()
+	witness := bootstrapTestWitness()
+	root := bootstrapTestAddrRoot(witness)
+	address, err := common.NewByronAddressFromParts(
+		common.ByronAddressTypePubkey,
+		root.Bytes(),
+		common.ByronAddressAttributes{},
+	)
+	require.NoError(t, err)
+	input := shelley.MustNewShelleyTransactionInput(
+		"0000000000000000000000000000000000000000000000000000000000000000", 0,
+	)
+	state := mockledger.NewLedgerStateBuilder().WithUtxoById(
+		func(common.TransactionInput) (common.Utxo, error) {
+			return common.Utxo{
+				Output: babbage.BabbageTransactionOutput{
+					OutputAddress: address,
+				},
+			}, nil
+		},
+	).Build()
+
+	t.Run("matching bootstrap witness", func(t *testing.T) {
+		t.Parallel()
+		tx := mockledger.NewTransactionBuilder().
+			WithWitnesses(bootstrapOnlyWitnesses(witness))
+		tx.WithInputs(input)
+		require.NoError(t, common.ValidateInputVKeyWitnesses(tx, state))
+	})
+
+	t.Run("no witness", func(t *testing.T) {
+		t.Parallel()
+		tx := mockledger.NewTransactionBuilder().
+			WithWitnesses(mockledger.NewMockTransactionWitnessSet())
+		tx.WithInputs(input)
+		require.ErrorContains(
+			t,
+			common.ValidateInputVKeyWitnesses(tx, state),
+			"missing bootstrap witness for Byron input",
 		)
 	})
 }
