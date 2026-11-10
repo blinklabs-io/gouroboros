@@ -19,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
@@ -181,6 +182,57 @@ func TestDijkstraBlockBodyAcceptsLargePerasCertificate(t *testing.T) {
 	var decoded DijkstraBlockBody
 	require.NoError(t, decoded.UnmarshalCBOR(bodyCbor))
 	require.Len(t, decoded.PerasCertificate, 1<<20)
+}
+
+// NewDijkstraBlockFromCbor is the entry point for blocks off the wire, so the
+// envelope and body-hash path must also accept a certified body with
+// transactions and leave the CIP-0164 exclusion to ValidateLeiosBlockBody.
+func TestDijkstraBlockDecodesCertifiedBodyWithTransactions(t *testing.T) {
+	body := DijkstraBlockBody{
+		Transactions: []DijkstraTransaction{
+			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+		},
+		LeiosCertificate: testLeiosCertificate(t, 1),
+	}
+	block := testDijkstraBlockWithBody(t, body)
+	blockCbor, err := block.MarshalCBOR()
+	require.NoError(t, err)
+
+	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, decoded.BlockBody.Transactions, 1)
+	require.NotNil(t, decoded.BlockBody.LeiosCertificate)
+	require.Len(t, decoded.BlockBody.LeiosCertificate.Signers, 1)
+}
+
+func testDijkstraBlockWithBody(
+	t *testing.T,
+	body DijkstraBlockBody,
+) DijkstraBlock {
+	t.Helper()
+	return DijkstraBlock{
+		BlockHeader: &DijkstraBlockHeader{
+			BabbageBlockHeader: babbage.BabbageBlockHeader{
+				Body: babbage.BabbageBlockHeaderBody{
+					BlockBodyHash: body.Hash(),
+					VrfKey:        make([]byte, 32),
+					VrfResult: common.VrfResult{
+						Output: make([]byte, 64),
+						Proof:  make([]byte, 80),
+					},
+					OpCert: babbage.BabbageOpCert{
+						HotVkey:   make([]byte, 32),
+						Signature: make([]byte, 64),
+					},
+					ProtoVersion: babbage.BabbageProtoVersion{
+						Major: MinProtocolVersionDijkstra,
+					},
+				},
+				Signature: make([]byte, 448),
+			},
+		},
+		BlockBody: body,
+	}
 }
 
 // Each one-byte entry would reserve a whole DijkstraTransaction if the
