@@ -296,7 +296,7 @@ func TestVerifyBlockDijkstraLeiosCertificationGap(t *testing.T) {
 
 // VerifyBlock and VerifyBlockState reject a certified block that also carries
 // transactions, as blockMatchesHeader does in ouroboros-consensus 5cc95f4c.
-// The decoder already refuses such a body, so the block is built directly.
+// The body decodes, so the rejection must come from block validation.
 func TestVerifyBlockDijkstraLeiosCertificateWithTransactions(t *testing.T) {
 	pp := leiosWiringParams()
 	header := signedDijkstraTestHeader(t, nil)
@@ -324,10 +324,8 @@ func TestVerifyBlockDijkstraLeiosCertificateWithTransactions(t *testing.T) {
 	require.NoError(t, err)
 	var decoded dijkstra.DijkstraBlockBody
 	_, err = cbor.Decode(encodedBody, &decoded)
-	var decodeErr *dijkstra.LeiosCertifiedBlockTransactionsError
-	require.ErrorAs(t, err, &decodeErr)
-
-	block := &dijkstra.DijkstraBlock{BlockHeader: header, BlockBody: body}
+	require.NoError(t, err)
+	block := &dijkstra.DijkstraBlock{BlockHeader: header, BlockBody: decoded}
 	valid, errs := verifyLeiosWiringBlock(t, block, pp, state)
 	require.False(t, valid)
 	for _, got := range errs {
