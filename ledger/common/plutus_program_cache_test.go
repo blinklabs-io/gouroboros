@@ -275,6 +275,47 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	require.Equal(t, 1, smallDecodes, "existing entry must survive")
 }
 
+// TestProgramCacheHashCollisionIsAMiss proves a cache entry is only returned
+// for the script it was prepared from: a different script under the same key
+// misses, and storing it leaves the existing entry in place.
+func TestProgramCacheHashCollisionIsAMiss(t *testing.T) {
+	t.Parallel()
+
+	cache := newProgramCache(1 << 20)
+	key := programCacheKey{
+		hash:           1,
+		ledgerLanguage: lang.LanguageVersionV3,
+		protoMajor:     10,
+	}
+	first := &cek.PreparedProgram{}
+	second := &cek.PreparedProgram{}
+	stored := cache.put(&programCacheEntry{
+		key:      key,
+		script:   []byte{1},
+		prepared: first,
+		size:     1,
+	})
+	require.Same(t, first, stored.prepared)
+
+	hit, ok := cache.get(key, []byte{1})
+	require.True(t, ok)
+	require.Same(t, first, hit.prepared)
+
+	_, ok = cache.get(key, []byte{2})
+	require.False(t, ok, "a different script under the same key must miss")
+
+	got := cache.put(&programCacheEntry{
+		key:      key,
+		script:   []byte{2},
+		prepared: second,
+		size:     1,
+	})
+	require.Same(t, second, got.prepared, "the colliding script gets its own program")
+	hit, ok = cache.get(key, []byte{1})
+	require.True(t, ok)
+	require.Same(t, first, hit.prepared, "the existing entry keeps its slot")
+}
+
 // TestProgramCacheCachesDecodeFailures proves a failed decode is decoded once
 // and its error replayed.
 func TestProgramCacheCachesDecodeFailures(t *testing.T) {
