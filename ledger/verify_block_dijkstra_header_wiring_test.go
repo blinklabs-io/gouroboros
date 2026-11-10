@@ -296,7 +296,7 @@ func TestVerifyBlockDijkstraLeiosCertificationGap(t *testing.T) {
 
 // VerifyBlock and VerifyBlockState reject a certified block that also carries
 // transactions, as blockMatchesHeader does in ouroboros-consensus 5cc95f4c.
-// The decoder already refuses such a body, so the block is built directly.
+// The body decodes, so the rejection must come from block validation.
 func TestVerifyBlockDijkstraLeiosCertificateWithTransactions(t *testing.T) {
 	pp := leiosWiringParams()
 	header := signedDijkstraTestHeader(t, nil)
