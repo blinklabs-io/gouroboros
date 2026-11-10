@@ -275,8 +275,6 @@ func TestProgramCacheOversizedEntryKeepsExistingEntries(t *testing.T) {
 	require.Equal(t, 1, smallDecodes, "existing entry must survive")
 }
 
-// TestProgramCacheCachesDecodeFailures proves a failed decode is decoded once
-// and its error replayed.
 // TestProgramCacheHashCollisionIsAMiss proves a cache entry is only returned
 // for the script it was prepared from: a different script under the same key
 // misses, and storing it leaves the existing entry in place.
@@ -318,6 +316,8 @@ func TestProgramCacheHashCollisionIsAMiss(t *testing.T) {
 	require.Same(t, first, hit.prepared, "the existing entry keeps its slot")
 }
 
+// TestProgramCacheCachesDecodeFailures proves a failed decode is decoded once
+// and its error replayed.
 func TestProgramCacheCachesDecodeFailures(t *testing.T) {
 	t.Parallel()
 

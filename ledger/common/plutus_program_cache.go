@@ -86,13 +86,16 @@ func newProgramCache(maxBytes int64) *programCache {
 
 var defaultProgramCache = newProgramCache(programCacheMaxBytes)
 
+// get returns the entry for script. An entry is immutable once stored, so
+// its script is compared outside the lock, which is then taken again only to
+// mark the entry recently used if it is still cached.
 func (c *programCache) get(
 	key programCacheKey,
 	script []byte,
 ) (*programCacheEntry, bool) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	elem, ok := c.entries[key]
+	c.mu.Unlock()
 	if !ok {
 		return nil, false
 	}
@@ -100,7 +103,11 @@ func (c *programCache) get(
 	if !bytes.Equal(entry.script, script) {
 		return nil, false
 	}
-	c.recency.MoveToFront(elem)
+	c.mu.Lock()
+	if current, ok := c.entries[key]; ok && current == elem {
+		c.recency.MoveToFront(elem)
+	}
+	c.mu.Unlock()
 	return entry, true
 }
 
