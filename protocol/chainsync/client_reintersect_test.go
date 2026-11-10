@@ -48,6 +48,12 @@ type reintersectHarness struct {
 	findPoint  pcommon.Point
 	notFound   atomic.Bool
 	stopSync   atomic.Bool
+	// holdFind makes the server withhold its FindIntersect reply until the
+	// test releases the gate.
+	holdFind atomic.Bool
+	// stopAtSlot makes only the callback for this slot return
+	// ErrStopSyncProcess. Slots start at 1, so zero matches nothing.
+	stopAtSlot atomic.Uint64
 
 	mu     sync.Mutex
 	events []string
@@ -126,6 +132,13 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 			) (pcommon.Point, Tip, error) {
 				h.log("find")
 				h.finds <- points
+				if h.holdFind.Load() {
+					select {
+					case <-h.gate:
+					case <-h.stop:
+						return pcommon.Point{}, tip, ErrIntersectNotFound
+					}
+				}
 				if h.notFound.Load() {
 					return pcommon.Point{}, tip, ErrIntersectNotFound
 				}
@@ -164,7 +177,7 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 			) error {
 				h.log("rb:%d", point.Slot)
 				h.rollbacks <- point.Slot
-				if h.stopSync.Load() {
+				if h.stopSync.Load() || point.Slot == h.stopAtSlot.Load() {
 					return ErrStopSyncProcess
 				}
 				return nil
