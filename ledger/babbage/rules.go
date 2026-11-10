@@ -334,7 +334,8 @@ func UtxoValidateExtraneousRedeemers(
 	return common.ValidateExactExtraneousRedeemers(tx, ls)
 }
 
-// UtxoValidateRequiredVKeyWitnesses ensures required signers are accompanied by vkey witnesses
+// UtxoValidateRequiredVKeyWitnesses ensures each required signer key hash is
+// provided by a vkey witness or a bootstrap witness address root
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
 	slot uint64,
@@ -353,7 +354,8 @@ func UtxoValidateProtocolParameterUpdates(
 	return shelley.UtxoValidateProtocolParameterUpdates(tx, slot, ls, pp)
 }
 
-// UtxoValidateCollateralVKeyWitnesses ensures collateral inputs are backed by vkey witnesses
+// UtxoValidateCollateralVKeyWitnesses ensures each key-locked collateral input
+// has its key hash provided by a vkey witness or a bootstrap witness address root
 func UtxoValidateCollateralVKeyWitnesses(
 	tx common.Transaction,
 	slot uint64,
