@@ -15,8 +15,9 @@
 package common
 
 import (
+	"bytes"
 	"container/list"
-	"crypto/sha256"
+	"hash/maphash"
 	"sync"
 
 	"github.com/blinklabs-io/plutigo/cek"
@@ -38,14 +39,21 @@ const (
 // on: the script bytes, the ledger language, and the protocol major version,
 // which gates builtin availability and the protocol-version-11 limits checked
 // by syn.DecodeDeBruijnWithContext and syn.ValidateTermVersionForExecution.
+// The script is keyed by a maphash under a per-process random seed, which is
+// far cheaper than a cryptographic hash of every evaluated script; an entry
+// keeps the script bytes and a hit compares them, so a collision is a miss.
 type programCacheKey struct {
-	sum            [sha256.Size]byte
+	hash           uint64
 	ledgerLanguage lang.LanguageVersion
 	protoMajor     uint
 }
 
+var programCacheSeed = maphash.MakeSeed()
+
 type programCacheEntry struct {
 	key programCacheKey
+	// script is a copy of the script bytes the entry was prepared from.
+	script []byte
 	// prepared is the program decoded and checked once by
 	// cek.PrepareProgram, so evaluations skip plutigo's per-run structure
 	// walk.
@@ -80,6 +88,7 @@ var defaultProgramCache = newProgramCache(programCacheMaxBytes)
 
 func (c *programCache) get(
 	key programCacheKey,
+	script []byte,
 ) (*programCacheEntry, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -87,8 +96,12 @@ func (c *programCache) get(
 	if !ok {
 		return nil, false
 	}
+	entry := elem.Value.(*programCacheEntry)
+	if !bytes.Equal(entry.script, script) {
+		return nil, false
+	}
 	c.recency.MoveToFront(elem)
-	return elem.Value.(*programCacheEntry), true
+	return entry, true
 }
 
 // put stores entry unless a concurrent caller stored one first, and returns
@@ -97,8 +110,13 @@ func (c *programCache) put(entry *programCacheEntry) *programCacheEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if elem, ok := c.entries[entry.key]; ok {
+		cached := elem.Value.(*programCacheEntry)
+		if !bytes.Equal(cached.script, entry.script) {
+			// A different script with the same hash keeps its slot.
+			return entry
+		}
 		c.recency.MoveToFront(elem)
-		return elem.Value.(*programCacheEntry)
+		return cached
 	}
 	if entry.size > c.maxBytes {
 		return entry
@@ -133,11 +151,11 @@ func (c *programCache) lookup(
 	prepareFn func() (*cek.PreparedProgram, error),
 ) *programCacheEntry {
 	key := programCacheKey{
-		sum:            sha256.Sum256(innerScript),
+		hash:           maphash.Bytes(programCacheSeed, innerScript),
 		ledgerLanguage: ledgerLanguage,
 		protoMajor:     protoMajor,
 	}
-	if hit, ok := c.get(key); ok {
+	if hit, ok := c.get(key, innerScript); ok {
 		return hit
 	}
 	prepared, err := prepareFn()
@@ -146,9 +164,10 @@ func (c *programCache) lookup(
 	}
 	return c.put(&programCacheEntry{
 		key:      key,
+		script:   bytes.Clone(innerScript),
 		prepared: prepared,
 		err:      err,
-		size:     programEntrySize(prepared),
+		size:     programEntrySize(prepared) + int64(len(innerScript)),
 	})
 }
 
