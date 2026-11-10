@@ -15,12 +15,10 @@
 package dijkstra
 
 import (
-	"errors"
 	"testing"
 	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
@@ -79,9 +77,9 @@ func TestDijkstraLeiosCertificateAcceptsEmptySigners(t *testing.T) {
 	require.Empty(t, cert.Signers)
 }
 
-// CIP-0164: "RB' contains either a certificate for the EB announced in RB, or
-// a list of transactions forming a valid extension of RB."
-func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
+// Decoding does not apply the CIP-0164 certificate-or-transaction rule.
+// ValidateLeiosBlockBody enforces it during validation.
+func TestDijkstraBlockBodyDecodesCertifiedBodyWithTransactions(t *testing.T) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
@@ -92,12 +90,11 @@ func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded DijkstraBlockBody
-	err = decoded.UnmarshalCBOR(bodyCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.ErrorAs(t, err, &target)
-	require.NotNil(t, target)
-	require.Equal(t, 1, target.TransactionCount)
+	require.NoError(t, decoded.UnmarshalCBOR(bodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.NotNil(t, decoded.LeiosCertificate)
+	require.Len(t, decoded.LeiosCertificate.Signers, 1)
+	require.Equal(t, bodyCbor, decoded.Cbor())
 }
 
 // The pre-respin four-element body is rejected before Leios semantics.
@@ -118,7 +115,7 @@ func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 }
 
 // An empty transaction list alongside a certificate is the legal certified
-// block shape, so the rejection is not unconditional.
+// block shape.
 func TestDijkstraBlockBodyAcceptsCertifiedBodyWithoutTransactions(
 	t *testing.T,
 ) {
@@ -184,58 +181,6 @@ func TestDijkstraBlockBodyAcceptsLargePerasCertificate(t *testing.T) {
 	var decoded DijkstraBlockBody
 	require.NoError(t, decoded.UnmarshalCBOR(bodyCbor))
 	require.Len(t, decoded.PerasCertificate, 1<<20)
-}
-
-func TestDijkstraBlockRejectsCertifiedBodyWithTransactions(t *testing.T) {
-	body := DijkstraBlockBody{
-		Transactions: []DijkstraTransaction{
-			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
-		},
-		LeiosCertificate: testLeiosCertificate(t, 1),
-	}
-	block := testDijkstraBlockWithBody(t, body)
-	blockCbor, err := block.MarshalCBOR()
-	require.NoError(t, err)
-
-	_, err = NewDijkstraBlockFromCbor(blockCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.True(
-		t,
-		errors.As(err, &target),
-		"expected LeiosCertifiedBlockTransactionsError, got %v",
-		err,
-	)
-}
-
-func testDijkstraBlockWithBody(
-	t *testing.T,
-	body DijkstraBlockBody,
-) DijkstraBlock {
-	t.Helper()
-	return DijkstraBlock{
-		BlockHeader: &DijkstraBlockHeader{
-			BabbageBlockHeader: babbage.BabbageBlockHeader{
-				Body: babbage.BabbageBlockHeaderBody{
-					BlockBodyHash: body.Hash(),
-					VrfKey:        make([]byte, 32),
-					VrfResult: common.VrfResult{
-						Output: make([]byte, 64),
-						Proof:  make([]byte, 80),
-					},
-					OpCert: babbage.BabbageOpCert{
-						HotVkey:   make([]byte, 32),
-						Signature: make([]byte, 64),
-					},
-					ProtoVersion: babbage.BabbageProtoVersion{
-						Major: MinProtocolVersionDijkstra,
-					},
-				},
-				Signature: make([]byte, 448),
-			},
-		},
-		BlockBody: body,
-	}
 }
 
 // Each one-byte entry would reserve a whole DijkstraTransaction if the

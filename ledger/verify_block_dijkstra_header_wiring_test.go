@@ -324,10 +324,8 @@ func TestVerifyBlockDijkstraLeiosCertificateWithTransactions(t *testing.T) {
 	require.NoError(t, err)
 	var decoded dijkstra.DijkstraBlockBody
 	_, err = cbor.Decode(encodedBody, &decoded)
-	var decodeErr *dijkstra.LeiosCertifiedBlockTransactionsError
-	require.ErrorAs(t, err, &decodeErr)
-
-	block := &dijkstra.DijkstraBlock{BlockHeader: header, BlockBody: body}
+	require.NoError(t, err)
+	block := &dijkstra.DijkstraBlock{BlockHeader: header, BlockBody: decoded}
 	valid, errs := verifyLeiosWiringBlock(t, block, pp, state)
 	require.False(t, valid)
 	for _, got := range errs {
