@@ -21,6 +21,7 @@ import (
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
 // LeiosMaxTxsPerEndorserBlock is the most transaction references an
@@ -163,6 +164,16 @@ func encodeLeiosTransactionReferences(
 func decodeLeiosTransactionReferences(
 	raw cbor.RawMessage,
 ) ([]LeiosTransactionReference, error) {
+	// The reference bounds an endorser block by its encoded bytes, not by its
+	// reference count, so wide CBOR heads can exceed the ceiling well under
+	// LeiosMaxTxsPerEndorserBlock references.
+	if len(raw) > pcommon.MaxLeiosEndorserBlockSize {
+		return nil, fmt.Errorf(
+			"leios endorser block of %d bytes exceeds %d",
+			len(raw),
+			pcommon.MaxLeiosEndorserBlockSize,
+		)
+	}
 	dec, err := cbor.NewStreamDecoder(raw)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -214,11 +225,6 @@ func decodeLeiosTransactionReferences(
 					return nil, err
 				}
 				break
-			}
-			// Each entry consumes input, so the loop is bounded by the
-			// data; the count bound stops an oversized map early.
-			if idx >= LeiosMaxTxsPerEndorserBlock {
-				return nil, leiosReferenceCountError(idx + 1)
 			}
 		}
 		// The reference decodes each entry with decodeBytes and decodeWord32,

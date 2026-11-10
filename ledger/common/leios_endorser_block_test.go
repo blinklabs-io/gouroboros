@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -267,8 +268,44 @@ func TestLeiosEndorserBlockIndefiniteMapCountBound(t *testing.T) {
 		wire = append(wire, 0x01)
 	}
 	wire = append(wire, 0xff)
+	// One reference over the cap already passes the byte ceiling, which is
+	// the bound the reference enforces.
 	_, err := NewLeiosEndorserBlockFromCbor(wire)
-	require.ErrorContains(t, err, "not in [1, 17142]")
+	require.ErrorContains(t, err, "exceeds 600000")
+}
+
+// Wide heads keep the reference count under LeiosMaxTxsPerEndorserBlock while
+// the encoded block passes the reference's byte ceiling.
+func TestLeiosEndorserBlockRejectsBytesOverCeiling(t *testing.T) {
+	t.Parallel()
+	for _, indefinite := range []bool{false, true} {
+		const count = 15000
+		var wire []byte
+		if indefinite {
+			wire = []byte{0xbf}
+		} else {
+			wire = []byte{0xb9, 0, 0}
+			binary.BigEndian.PutUint16(wire[1:], count)
+		}
+		for i := range count {
+			hash := make([]byte, Blake2b256Size)
+			binary.BigEndian.PutUint32(
+				hash[len(hash)-4:],
+				uint32(i),
+			) // #nosec G115
+			wire = append(wire, 0x5b, 0, 0, 0, 0, 0, 0, 0, Blake2b256Size)
+			wire = append(wire, hash...)
+			wire = append(wire, 0x1b, 0, 0, 0, 0, 0, 0, 0, 1)
+		}
+		if indefinite {
+			wire = append(wire, 0xff)
+		}
+		require.Greater(t, len(wire), pcommon.MaxLeiosEndorserBlockSize)
+		_, err := NewLeiosEndorserBlockFromCbor(wire)
+		require.ErrorContains(t, err, "exceeds 600000")
+		var block LeiosEndorserBlock
+		require.ErrorContains(t, block.UnmarshalCBOR(wire), "exceeds 600000")
+	}
 }
 
 func TestLeiosEndorserBlockRejectsDuplicateReferences(t *testing.T) {
@@ -371,7 +408,7 @@ func TestLeiosEndorserBlockReferenceCountBounds(t *testing.T) {
 	_, err = NewLeiosEndorserBlockFromCbor(
 		leiosEndorserBlockWire(LeiosMaxTxsPerEndorserBlock + 1),
 	)
-	require.ErrorContains(t, err, "not in [1, 17142]")
+	require.ErrorContains(t, err, "exceeds 600000")
 
 	refs := make([]LeiosTransactionReference, LeiosMaxTxsPerEndorserBlock+1)
 	for i := range refs {
