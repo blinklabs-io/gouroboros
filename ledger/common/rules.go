@@ -928,9 +928,10 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 	)
 }
 
-// ValidateRequiredVKeyWitnesses checks that all required key credentials have a
-// vkey witness. This includes explicitly required signers and key-based reward
-// withdrawal credentials.
+// ValidateRequiredVKeyWitnesses checks that all required key credentials are
+// provided by a witness, either a vkey witness or a bootstrap witness whose
+// address root equals the credential. This includes explicitly required
+// signers and key-based reward withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
 		return err
@@ -999,16 +1000,12 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if len(required) == 0 {
 		return nil
 	}
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
+	provided := witnessKeyHashes(tx.Witnesses())
+	if len(provided) == 0 {
 		return MissingVKeyWitnessesError{}
 	}
-	vkeyHashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
-	for _, vw := range w.Vkey() {
-		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
 	for req := range required {
-		if _, ok := vkeyHashes[req]; !ok {
+		if _, ok := provided[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
 		}
 	}
