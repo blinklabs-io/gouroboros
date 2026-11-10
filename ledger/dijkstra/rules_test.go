@@ -1353,6 +1353,8 @@ func TestUtxoValidateBatchWithdrawalsLegacyMode(t *testing.T) {
 	// Legacy mode: the top-level withdrawal is bounded by the current
 	// accounts, which include the sub-transaction direct deposit.
 	tx, address, ls := newTx(legacyScript, topWithdrawal, depositSub)
+	require.NotNil(t, address)
+	require.NotNil(t, ls)
 	require.NoError(t, UtxoValidateWithdrawals(tx, 0, ls, pp))
 	require.NoError(t, rule(tx, 0, ls, pp))
 
@@ -1379,6 +1381,7 @@ func TestUtxoValidateBatchWithdrawalsLegacyMode(t *testing.T) {
 			}
 		},
 	)
+	require.NotNil(t, address)
 	var balanceErr WithdrawalsExceedAccountBalanceError
 	require.ErrorAs(t, rule(tx, 0, ls, pp), &balanceErr)
 	require.Equal(
