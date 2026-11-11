@@ -536,7 +536,7 @@ func convertPoolRelays(relays []common.PoolRelay) []any {
 				ipv4 = relay.Ipv4.To4()
 			}
 			if relay.Ipv6 != nil {
-				ipv6 = relay.Ipv6.To16()
+				ipv6 = common.PoolRelayIpv6WireOrder(relay.Ipv6.To16())
 			}
 			if relay.Port != nil {
 				port = *relay.Port
