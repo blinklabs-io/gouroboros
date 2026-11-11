@@ -82,7 +82,37 @@ func VerifyDijkstraCertificateForDomain(
 	context common.DijkstraLeiosCertificateContext,
 	domain common.DijkstraBlsProofDomain,
 ) error {
+	return VerifyDijkstraCertificateForMessage(
+		signers,
+		signature,
+		committeeSize,
+		quorumStakeThreshold,
+		context,
+		domain,
+		common.DijkstraLeiosCertificateMessageRawHash,
+	)
+}
+
+// VerifyDijkstraCertificateForMessage is VerifyDijkstraCertificateForDomain
+// with an explicit choice of signed message. The aggregate signature is
+// checked over exactly the chosen encoding of the announcing block hash; the
+// other encoding is never tried as a fallback.
+func VerifyDijkstraCertificateForMessage(
+	signers, signature []byte,
+	committeeSize uint16,
+	quorumStakeThreshold *big.Rat,
+	context common.DijkstraLeiosCertificateContext,
+	domain common.DijkstraBlsProofDomain,
+	signedMessage common.DijkstraLeiosCertificateMessage,
+) error {
 	proofDST, err := proofDomainDST(domain)
+	if err != nil {
+		return err
+	}
+	message, err := certificateMessage(
+		signedMessage,
+		context.AnnouncingBlockHash,
+	)
 	if err != nil {
 		return err
 	}
@@ -190,9 +220,6 @@ func VerifyDijkstraCertificateForDomain(
 			ErrMalformedCommittee,
 		)
 	}
-	message := make([]byte, 2, 2+len(context.AnnouncingBlockHash))
-	message[0], message[1] = 0x58, 0x20 // CBOR header for a 32-byte hash.
-	message = append(message, context.AnnouncingBlockHash[:]...)
 	if err := verifySignature(
 		&aggregatePublicKey,
 		message,
@@ -238,6 +265,29 @@ func VerifyPossessionProofForDomain(
 		return fmt.Errorf("%w: %w", ErrInvalidProof, err)
 	}
 	return nil
+}
+
+func certificateMessage(
+	signedMessage common.DijkstraLeiosCertificateMessage,
+	hash common.Blake2b256,
+) ([]byte, error) {
+	switch signedMessage {
+	case common.DijkstraLeiosCertificateMessageRawHash:
+		return hash[:], nil
+	case common.DijkstraLeiosCertificateMessageCborHash:
+		// The prototype signs the hash's CBOR encoding: a 32-byte string
+		// header (0x58 0x20) followed by the hash.
+		message := make([]byte, 2, 2+len(hash))
+		message[0], message[1] = 0x58, 0x20
+		return append(message, hash[:]...), nil
+	default:
+		return nil, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"unsupported Dijkstra Leios certificate message",
+			map[string]any{"message": signedMessage},
+			nil,
+		)
+	}
 }
 
 func proofDomainDST(domain common.DijkstraBlsProofDomain) (string, error) {

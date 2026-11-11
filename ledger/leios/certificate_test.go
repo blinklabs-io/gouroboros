@@ -27,7 +27,7 @@ func TestVerifyDijkstraCertificate(t *testing.T) {
 	secret := big.NewInt(17)
 	key := makeLeiosTestKey(t, secret)
 	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
-	message := append([]byte{0x58, 0x20}, messageHash[:]...)
+	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
 		AnnouncingBlockHash: messageHash,
@@ -133,7 +133,7 @@ func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
 		),
 	}
 	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
-	message := append([]byte{0x58, 0x20}, messageHash[:]...)
+	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
 		AnnouncingBlockHash: messageHash,
@@ -165,5 +165,62 @@ func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
 	if configErr == nil {
 		t.Fatal("expected validation error")
 	}
+	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
+}
+
+func TestVerifyDijkstraCertificateForMessage(t *testing.T) {
+	t.Parallel()
+
+	secret := big.NewInt(29)
+	key := makeLeiosTestKey(t, secret)
+	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	framed := append([]byte{0x58, 0x20}, messageHash[:]...)
+	rawSignature := signLeiosTestMessage(
+		t, secret, messageHash[:], leiosSignatureDST,
+	)
+	framedSignature := signLeiosTestMessage(
+		t, secret, framed, leiosSignatureDST,
+	)
+	context := common.DijkstraLeiosCertificateContext{
+		AnnouncingBlockHash: messageHash,
+		TotalActiveStake:    1,
+		Committee: []common.DijkstraLeiosCommitteeMember{
+			{Stake: 1, Key: key},
+		},
+	}
+	quorum := big.NewRat(1, 1)
+	pop := common.DijkstraBlsProofDomainPop
+	raw := common.DijkstraLeiosCertificateMessageRawHash
+	cborHash := common.DijkstraLeiosCertificateMessageCborHash
+
+	require.NoError(t, VerifyDijkstraCertificate(
+		[]byte{0x80}, rawSignature, 1, quorum, context,
+	))
+	require.ErrorIs(t, VerifyDijkstraCertificate(
+		[]byte{0x80}, framedSignature, 1, quorum, context,
+	), ErrInvalidSignature)
+	require.NoError(t, VerifyDijkstraCertificateForDomain(
+		[]byte{0x80}, rawSignature, 1, quorum, context, pop,
+	))
+
+	require.NoError(t, VerifyDijkstraCertificateForMessage(
+		[]byte{0x80}, rawSignature, 1, quorum, context, pop, raw,
+	))
+	require.ErrorIs(t, VerifyDijkstraCertificateForMessage(
+		[]byte{0x80}, framedSignature, 1, quorum, context, pop, raw,
+	), ErrInvalidSignature)
+	require.NoError(t, VerifyDijkstraCertificateForMessage(
+		[]byte{0x80}, framedSignature, 1, quorum, context, pop, cborHash,
+	))
+	require.ErrorIs(t, VerifyDijkstraCertificateForMessage(
+		[]byte{0x80}, rawSignature, 1, quorum, context, pop, cborHash,
+	), ErrInvalidSignature)
+
+	err := VerifyDijkstraCertificateForMessage(
+		[]byte{0x80}, rawSignature, 1, quorum, context, pop,
+		common.DijkstraLeiosCertificateMessage(255),
+	)
+	var configErr *common.ValidationError
+	require.ErrorAs(t, err, &configErr)
 	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
 }

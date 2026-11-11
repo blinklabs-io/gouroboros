@@ -175,6 +175,15 @@ func (s dijkstraLeiosDomainState) DijkstraBlsProofDomain() common.DijkstraBlsPro
 	return s.domain
 }
 
+type dijkstraLeiosMessageState struct {
+	dijkstraLeiosTestState
+	message common.DijkstraLeiosCertificateMessage
+}
+
+func (s dijkstraLeiosMessageState) DijkstraLeiosCertificateMessage() common.DijkstraLeiosCertificateMessage {
+	return s.message
+}
+
 func TestValidateDijkstraBlockCertificatesUsesLedgerProofDomain(t *testing.T) {
 	t.Parallel()
 
@@ -192,7 +201,8 @@ func TestValidateDijkstraBlockCertificatesUsesLedgerProofDomain(t *testing.T) {
 	public.ScalarMultiplicationBase(secret)
 	encodedPublic := public.Bytes()
 	blockHash := common.Blake2b256Hash([]byte("announcing ranking block"))
-	message := append([]byte{0x58, 0x20}, blockHash[:]...)
+	message := blockHash[:]
+	framed := append([]byte{0x58, 0x20}, blockHash[:]...)
 	state := dijkstraLeiosTestState{
 		context: common.DijkstraLeiosCertificateContext{
 			AnnouncingBlockHash: blockHash,
@@ -229,6 +239,43 @@ func TestValidateDijkstraBlockCertificatesUsesLedgerProofDomain(t *testing.T) {
 		},
 	))
 	require.Error(t, validateDijkstraBlockCertificates(block, params, state))
+
+	// The ledger state also selects the signed message: a certificate over
+	// the raw hash fails under the prototype encoding and the reverse.
+	both := dijkstraLeiosMessageState{
+		dijkstraLeiosTestState: state,
+		message:                common.DijkstraLeiosCertificateMessageCborHash,
+	}
+	legacyState := func(
+		s dijkstraLeiosMessageState,
+	) dijkstraLeiosDomainStateWithMessage {
+		return dijkstraLeiosDomainStateWithMessage{
+			s, common.DijkstraBlsProofDomainLegacySig,
+		}
+	}
+	require.Error(t, validateDijkstraBlockCertificates(
+		block, params, legacyState(both),
+	))
+	block.BlockBody.LeiosCertificate.AggregatedSignature = sign(framed, secret)
+	require.NoError(t, validateDijkstraBlockCertificates(
+		block, params, legacyState(both),
+	))
+	require.Error(t, validateDijkstraBlockCertificates(
+		block, params,
+		legacyState(dijkstraLeiosMessageState{
+			dijkstraLeiosTestState: state,
+			message:                common.DijkstraLeiosCertificateMessageRawHash,
+		}),
+	))
+}
+
+type dijkstraLeiosDomainStateWithMessage struct {
+	dijkstraLeiosMessageState
+	domain common.DijkstraBlsProofDomain
+}
+
+func (s dijkstraLeiosDomainStateWithMessage) DijkstraBlsProofDomain() common.DijkstraBlsProofDomain {
+	return s.domain
 }
 
 func TestValidateDijkstraBlockCertificatesInvalidDomainIsConfigurationError(

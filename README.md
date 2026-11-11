@@ -155,6 +155,10 @@ This is not an exhaustive list of existing and planned features, but it covers t
       - Pool BLS proofs use the IETF proof domain by default. Networks that
         require the older signature domain can select it through
         `common.DijkstraBlsProofDomainState`; validation checks only that domain.
+      - Leios certificate signatures cover the raw announcing block hash by
+        default. Networks running the rc-2026w41 prototype, which signs the
+        hash's CBOR encoding, can select that through
+        `common.DijkstraLeiosCertificateMessageState`.
       - [X] Blocks
       - [X] Transactions
       - [X] TX inputs
