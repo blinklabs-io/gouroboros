@@ -1074,8 +1074,12 @@ func (p PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 		ret.IpV4 = []byte(*p.Ipv4)
 	}
 	if p.Ipv6 != nil {
+		normalized := p.Ipv6.To16()
+		if normalized == nil {
+			return nil, errors.New("invalid IPv6 relay address")
+		}
 		// UTxO RPC carries the ledger's wire bytes, as cardano-rpc does.
-		ret.IpV6 = []byte(PoolRelayIpv6WireOrder(*p.Ipv6))
+		ret.IpV6 = []byte(PoolRelayIpv6WireOrder(normalized))
 	}
 	return ret, nil
 }

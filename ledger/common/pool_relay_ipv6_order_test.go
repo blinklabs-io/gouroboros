@@ -1,7 +1,22 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package common_test
 
 import (
 	"encoding/hex"
+	"net"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -66,4 +81,24 @@ func TestPoolRelayIpv6UtxorpcWireOrder(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, raw[len(raw)-16:], r.IpV6)
 	assert.Equal(t, relayIpv6Std, relay.Ipv6.String())
+}
+
+func TestPoolRelayIpv6UtxorpcNormalizesShortForm(t *testing.T) {
+	t.Parallel()
+	short := net.IPv4(192, 0, 2, 1).To4()
+	relay := common.PoolRelay{Type: common.PoolRelayTypeSingleHostAddress, Ipv6: &short}
+	r, err := relay.Utxorpc()
+	require.NoError(t, err)
+	assert.Equal(t, []byte(common.PoolRelayIpv6WireOrder(short.To16())), r.IpV6)
+	out, err := relay.MarshalCBOR()
+	require.NoError(t, err)
+	assert.Contains(t, hex.EncodeToString(out), hex.EncodeToString(r.IpV6))
+}
+
+func TestPoolRelayIpv6UtxorpcRejectsInvalid(t *testing.T) {
+	t.Parallel()
+	bad := net.IP{1, 2, 3}
+	relay := common.PoolRelay{Type: common.PoolRelayTypeSingleHostAddress, Ipv6: &bad}
+	_, err := relay.Utxorpc()
+	require.Error(t, err)
 }
