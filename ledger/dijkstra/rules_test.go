@@ -2685,7 +2685,7 @@ func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	require.Zero(t, publishingFee)
 }
 
-func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
+func TestDijkstraRefScriptFeeIncludesSubTransactions(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -2716,10 +2716,10 @@ func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
 	}
 	ls := dijkstraRefScriptLedgerState(t, utxo)
 
-	t.Run("fee uses only top-level reference scripts", func(t *testing.T) {
+	t.Run("fee includes sub-transaction reference scripts", func(t *testing.T) {
 		minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 		require.NoError(t, err)
-		require.Zero(t, minFee)
+		require.Equal(t, uint64(102), minFee)
 	})
 
 	t.Run("per-tx limit uses batch reference scripts", func(t *testing.T) {
