@@ -5227,8 +5227,13 @@ func consumedRefScriptSize(
 	if err != nil {
 		return 0, err
 	}
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok {
+	var dijkstraTx *DijkstraTransaction
+	switch v := tx.(type) {
+	case *DijkstraTransaction:
+		dijkstraTx = v
+	case DijkstraTransaction:
+		dijkstraTx = &v
+	default:
 		return totalSize, nil
 	}
 	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
