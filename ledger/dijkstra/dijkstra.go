@@ -2522,7 +2522,17 @@ func NewDijkstraBlockFromCbor(
 			return nil, errors.New("dijkstra block header is nil")
 		}
 		expected := dijkstraBlock.BlockHeader.BlockBodyHash()
-		actual := dijkstraBlock.CalculatedBlockBodyHash()
+		var actual common.Blake2b256
+		if cfg.AllowCertifiedBlockInlinedTransactions &&
+			dijkstraBlock.HasInlinedCertifiedTransactions() {
+			onChain, err := dijkstraBlock.OnChainBlockBodyCbor()
+			if err != nil {
+				return nil, err
+			}
+			actual = common.Blake2b256Hash(onChain)
+		} else {
+			actual = dijkstraBlock.CalculatedBlockBodyHash()
+		}
 		actualBytes := actual[:]
 		expectedBytes := expected[:]
 		if len(actualBytes) != len(expectedBytes) ||
@@ -2540,6 +2550,42 @@ func NewDijkstraBlockFromCbor(
 		}
 	}
 	return &dijkstraBlock, nil
+}
+
+// HasInlinedCertifiedTransactions reports whether the block is a CertRB that
+// also has transactions, as sent over node-to-client.
+func (b *DijkstraBlock) HasInlinedCertifiedTransactions() bool {
+	if b.BlockHeader == nil || b.BlockBody.LeiosCertificate == nil ||
+		len(b.BlockBody.Transactions) == 0 {
+		return false
+	}
+	certified, _ := b.BlockHeader.LeiosCertified()
+	return certified
+}
+
+// OnChainBlockBodyCbor returns a CertRB body with its transactions removed,
+// which is what the header's block_body_hash and block_body_size cover.
+//
+// NOTE: re-encodes the body, since node-to-client never sends the on-chain
+// bytes. Assumes definite-length arrays; not yet checked on a real CertRB.
+func (b *DijkstraBlock) OnChainBlockBodyCbor() ([]byte, error) {
+	raw, err := b.BlockBody.MarshalCBOR()
+	if err != nil {
+		return nil, fmt.Errorf("encode Dijkstra block body: %w", err)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(raw, &fields); err != nil {
+		return nil, fmt.Errorf("decode Dijkstra block body fields: %w", err)
+	}
+	if len(fields) == 0 {
+		return nil, errors.New("dijkstra block body has no fields")
+	}
+	fields[0] = cbor.RawMessage{0x80}
+	onChain, err := cbor.Encode(fields)
+	if err != nil {
+		return nil, fmt.Errorf("encode Dijkstra on-chain block body: %w", err)
+	}
+	return onChain, nil
 }
 
 func NewDijkstraBlockHeaderFromCbor(data []byte) (*DijkstraBlockHeader, error) {

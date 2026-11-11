@@ -326,3 +326,118 @@ func TestDijkstraBlockBodyRejectsNonArrayTransactions(t *testing.T) {
 	err := body.UnmarshalCBOR([]byte{0x83, 0xa0, 0xf6, 0xf6})
 	require.ErrorContains(t, err, "decode Dijkstra transactions")
 }
+
+// testInlinedCertRb builds a CertRB as LocalChainSync sends it over
+// node-to-client: the header's block_body_hash covers the on-chain body (the
+// certificate alone), but the body also carries the endorser block's
+// transactions.
+func testInlinedCertRb(t *testing.T, certified bool) []byte {
+	t.Helper()
+	cert := testLeiosCertificate(t, 1)
+	return testInlinedCertRbWithCert(t, certified, cert, cert)
+}
+
+// testInlinedCertRbWithCert is testInlinedCertRb with the header's body hash
+// computed over onChainCert and the sent body carrying sentCert.
+func testInlinedCertRbWithCert(
+	t *testing.T,
+	certified bool,
+	onChainCert, sentCert *DijkstraLeiosCertificate,
+) []byte {
+	t.Helper()
+	onChain := DijkstraBlockBody{LeiosCertificate: onChainCert}
+	block := testDijkstraBlockWithBody(t, onChain)
+	certifiedField := cbor.RawMessage{0xf4}
+	if certified {
+		certifiedField = cbor.RawMessage{0xf5}
+	}
+	block.BlockHeader.LeiosHeaderExtension = []cbor.RawMessage{
+		certifiedField,
+		cbor.RawMessage{0xf6},
+	}
+	block.BlockBody = DijkstraBlockBody{
+		Transactions: []DijkstraTransaction{
+			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+		},
+		LeiosCertificate: sentCert,
+	}
+	blockCbor, err := block.MarshalCBOR()
+	require.NoError(t, err)
+	return blockCbor
+}
+
+func TestDijkstraBlockInlinedCertRbBodyHash(t *testing.T) {
+	t.Parallel()
+	n2c := common.VerifyConfig{AllowCertifiedBlockInlinedTransactions: true}
+
+	t.Run("rejected by default", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewDijkstraBlockFromCbor(testInlinedCertRb(t, true))
+		var vErr *common.ValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
+	})
+
+	t.Run("accepted on node-to-client", func(t *testing.T) {
+		t.Parallel()
+		decoded, err := NewDijkstraBlockFromCbor(
+			testInlinedCertRb(t, true),
+			n2c,
+		)
+		require.NoError(t, err)
+		require.Len(t, decoded.BlockBody.Transactions, 1)
+		require.NotNil(t, decoded.BlockBody.LeiosCertificate)
+		certified, present := decoded.BlockHeader.LeiosCertified()
+		require.True(t, present)
+		require.True(t, certified)
+	})
+
+	// Only the transactions are exempt: the rest of the body must still
+	// hash to the header's block_body_hash.
+	t.Run("tampered certificate rejected", func(t *testing.T) {
+		t.Parallel()
+		blockCbor := testInlinedCertRbWithCert(
+			t,
+			true,
+			testLeiosCertificate(t, 1),
+			testLeiosCertificate(t, 2),
+		)
+		_, err := NewDijkstraBlockFromCbor(blockCbor, n2c)
+		var vErr *common.ValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
+	})
+
+	// The exemption needs the header's certified flag, so an uncertified
+	// block with a mismatched body is still rejected.
+	t.Run("uncertified header still checked", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewDijkstraBlockFromCbor(testInlinedCertRb(t, false), n2c)
+		var vErr *common.ValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
+	})
+
+	// A certified block with no transactions is what appears on chain, so the
+	// body hash check still applies to it.
+	t.Run("certified without transactions still checked", func(t *testing.T) {
+		t.Parallel()
+		block := testDijkstraBlockWithBody(
+			t,
+			DijkstraBlockBody{LeiosCertificate: testLeiosCertificate(t, 2)},
+		)
+		block.BlockHeader.LeiosHeaderExtension = []cbor.RawMessage{
+			{0xf5},
+			{0xf6},
+		}
+		block.BlockBody = DijkstraBlockBody{
+			LeiosCertificate: testLeiosCertificate(t, 1),
+		}
+		blockCbor, err := block.MarshalCBOR()
+		require.NoError(t, err)
+		_, err = NewDijkstraBlockFromCbor(blockCbor, n2c)
+		var vErr *common.ValidationError
+		require.ErrorAs(t, err, &vErr)
+		require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
+	})
+}

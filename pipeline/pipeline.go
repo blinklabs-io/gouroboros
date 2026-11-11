@@ -66,6 +66,9 @@ func (p *BlockPipeline) validateOrdered(
 	if flag := validationBypassFlag(config); flag != "" {
 		return &ValidationBypassError{Flag: flag}
 	}
+	// Only blocks received over node-to-client may carry inlined EB
+	// transactions, whatever the provider returned.
+	config.AllowCertifiedBlockInlinedTransactions = item.NodeToClient()
 	if item.Block().Era().Id != ledger.EraIdByron {
 		if config.LedgerState == nil {
 			return errors.New("ordered validation requires ledger state")
@@ -680,6 +683,29 @@ func (p *BlockPipeline) Submit(
 	rawCbor []byte,
 	tip pcommon.Tip,
 ) error {
+	return p.submit(ctx, blockType, rawCbor, tip, false)
+}
+
+// SubmitNodeToClient is for a block received over node-to-client LocalChainSync. 
+// A CertRB also carries its EB's transactions, 
+// so the pipeline decodes and validates the block with
+// common.VerifyConfig.AllowCertifiedBlockInlinedTransactions set.
+func (p *BlockPipeline) SubmitNodeToClient(
+	ctx context.Context,
+	blockType uint,
+	rawCbor []byte,
+	tip pcommon.Tip,
+) error {
+	return p.submit(ctx, blockType, rawCbor, tip, true)
+}
+
+func (p *BlockPipeline) submit(
+	ctx context.Context,
+	blockType uint,
+	rawCbor []byte,
+	tip pcommon.Tip,
+	nodeToClient bool,
+) error {
 	// Early checks for common cases (before acquiring lock)
 	if !p.started.Load() {
 		return ErrPipelineNotStarted
@@ -723,6 +749,7 @@ func (p *BlockPipeline) Submit(
 	sequence := p.sequenceCounter.Load()
 	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
+	item.nodeToClient = nodeToClient
 	p.trackItem(item, retainedBytes)
 	reservationOwned = false
 	defer func() {

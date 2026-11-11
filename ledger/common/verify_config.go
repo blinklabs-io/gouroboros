@@ -112,6 +112,12 @@ type VerifyConfig struct {
 	// false (default), full block CBOR must be available for validation. Useful
 	// for scenarios where full block CBOR is unavailable.
 	SkipBodyHashValidation bool
+	// AllowCertifiedBlockInlinedTransactions accepts a Dijkstra CertRB whose
+	// body carries the certified EB's transactions, as
+	// LocalChainSync sends it. The body hash, body size and block limits are
+	// checked with those transactions removed, and the transactions are
+	// validated at the announcing RB's slot. Node-to-client only.
+	AllowCertifiedBlockInlinedTransactions bool
 	// SkipTransactionValidation disables transaction validation in VerifyBlock().
 	// When false (default), LedgerState and ProtocolParameters must be set.
 	SkipTransactionValidation bool

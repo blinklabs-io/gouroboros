@@ -164,6 +164,16 @@ func ValidateLeiosCertificateTiming(
 // the Leios clauses of blockMatchesHeader (Shelley/Ledger/Block.hs) at
 // ouroboros-consensus 5cc95f4c.
 func ValidateLeiosBlockBody(block *DijkstraBlock) error {
+	return validateLeiosBlockBody(block, false)
+}
+
+// ValidateLeiosBlockBodyNodeToClient is ValidateLeiosBlockBody for a block
+// received over node-to-client, where a CertRB carries its EB's transactions.
+func ValidateLeiosBlockBodyNodeToClient(block *DijkstraBlock) error {
+	return validateLeiosBlockBody(block, true)
+}
+
+func validateLeiosBlockBody(block *DijkstraBlock, allowInlined bool) error {
 	var certified bool
 	if block.BlockHeader != nil {
 		certified, _ = block.BlockHeader.LeiosCertified()
@@ -175,7 +185,7 @@ func ValidateLeiosBlockBody(block *DijkstraBlock) error {
 			BodyHasCertificate: hasCertificate,
 		}
 	}
-	if hasCertificate && len(block.BlockBody.Transactions) > 0 {
+	if hasCertificate && !allowInlined && len(block.BlockBody.Transactions) > 0 {
 		return &LeiosCertifiedBlockTransactionsError{
 			TransactionCount: len(block.BlockBody.Transactions),
 		}

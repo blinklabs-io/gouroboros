@@ -39,3 +39,55 @@ The `cardano-node-integration` workflow vets and lints the tagged suite, then
 runs it against a preview `cardano-node` container started without a Mithril
 snapshot, so it serves blocks from genesis shortly after startup. UNIX socket
 paths are limited to 108 bytes, so keep the socket path short.
+
+## Leios CertRBs
+
+`TestCardanoNodeInlinedCertRbs` checks that gouroboros can read CertRBs as a
+Leios node sends them over node-to-client, with the certified EB's
+transactions inlined into the block body. It runs only when
+`GOUROBOROS_LEIOS_MIN_CERTRB_BYTES` is also set.
+
+The test syncs from origin to the node's latest block at the time the test
+starts.
+For every block it checks that:
+
+- the block decodes. For a CertRB with inlined transactions, the decoder
+  checks the header's body hash against the body with those transactions
+  removed.
+- each CertRB passes `ValidateLeiosBlockBodyNodeToClient`: the header's
+  certificate flag matches the body's Leios certificate, and the body has no
+  Peras certificate.
+
+The test does not run `VerifyBlock` or any ledger validation. In particular,
+it does not check that the EB's transactions are applied before the tick to
+the CertRB's slot.
+
+The test needs:
+
+- **A Leios prototype node** whose LocalChainSync inlines EB transactions into
+  CertRBs. Against an older node, the test fails with "no CertRB with inlined
+  transactions on the chain".
+- **Transaction load on the devnet.** The test fails unless the largest CertRB
+  with inlined transactions is at least `GOUROBOROS_LEIOS_MIN_CERTRB_BYTES`
+  bytes, so some EB must be nearly full. An idle devnet fails even when
+  nothing is broken.
+- **A threshold that matches the devnet.** A full CertRB is roughly the
+  devnet's `MaxEndorserBlockTxsSize` protocol parameter plus the header and
+  on-chain body. Set the variable just below that. The `12000000` below is an
+  example, not a recommended value.
+
+CertRBs with no transactions (an empty EB) are counted and logged, not
+failed. At the end, the test logs how many CertRBs it saw and the size and
+transaction count of the largest one.
+
+The sync is limited to 30 minutes inside the test, so pass a `go test`
+`-timeout` longer than that:
+
+```sh
+GOUROBOROS_CARDANO_NODE_SOCKET_PATH=/path/to/node.socket \
+GOUROBOROS_CARDANO_NETWORK_MAGIC=42 \
+GOUROBOROS_LEIOS_MIN_CERTRB_BYTES=12000000 \
+go test -tags=cardano_node_integration -v -count=1 \
+  -run TestCardanoNodeInlinedCertRbs -timeout=40m \
+  ./internal/test/cardano-node-integration
+```

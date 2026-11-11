@@ -260,6 +260,26 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 		require.ErrorAs(t, err, &both)
 		require.Equal(t, 1, both.TransactionCount)
 	})
+	// Over node-to-client a CertRB carries its EB's transactions; the other
+	// rules still hold.
+	t.Run("node-to-client certificate and transactions", func(t *testing.T) {
+		require.NoError(t, ValidateLeiosBlockBodyNodeToClient(&DijkstraBlock{
+			BlockHeader: certified,
+			BlockBody: DijkstraBlockBody{
+				LeiosCertificate: cert,
+				Transactions:     []DijkstraTransaction{{}},
+			},
+		}))
+		err := ValidateLeiosBlockBodyNodeToClient(&DijkstraBlock{
+			BlockHeader: uncertified,
+			BlockBody: DijkstraBlockBody{
+				LeiosCertificate: cert,
+				Transactions:     []DijkstraTransaction{{}},
+			},
+		})
+		var mismatch *LeiosCertificateFlagMismatchError
+		require.ErrorAs(t, err, &mismatch)
+	})
 	t.Run("any Peras certificate", func(t *testing.T) {
 		for _, perasCert := range [][]byte{{}, {0x01}} {
 			err := ValidateLeiosBlockBody(&DijkstraBlock{

@@ -1656,16 +1656,15 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
 
-		// Pipeline path: submit to pipeline and signal ready immediately
-		// Skip pipeline path if firstBlockChan is set (GetAvailableBlockRange is waiting),
-		// so we fall through to the normal path that handles first-block signaling.
+		// Pipeline path. GetAvailableBlockRange (firstBlockChan set) takes the
+		// normal path below instead, which reports the first block.
 		// NOTE: RollBackward handling coordinates with the pipeline via WaitForDrain()
 		// to ensure pending blocks are processed before the rollback callback runs.
 		if c.config.Pipeline != nil && firstBlockChan == nil {
 			c.lifecycleMutex.Lock()
 			fenceCtx := c.awaitReplyCtx
 			c.lifecycleMutex.Unlock()
-			err := c.config.Pipeline.Submit(
+			err := c.config.Pipeline.SubmitNodeToClient(
 				fenceCtx,
 				msg.BlockType(),
 				msg.BlockCbor(),
@@ -1715,7 +1714,17 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			var err error
-			block, err = ledger.NewBlockFromCbor(msg.BlockType(), msg.BlockCbor(), lcommon.VerifyConfig{SkipBodyHashValidation: c.config != nil && c.config.SkipBlockValidation})
+			block, err = ledger.NewBlockFromCbor(
+				msg.BlockType(),
+				msg.BlockCbor(),
+				lcommon.VerifyConfig{
+					SkipBodyHashValidation: c.config != nil &&
+						c.config.SkipBlockValidation,
+					// Node-to-client LocalChainSync inlines the certified
+					// endorser block's transactions into each CertRB.
+					AllowCertifiedBlockInlinedTransactions: true,
+				},
+			)
 			if err != nil {
 				if firstBlockChan != nil {
 					firstBlockChan <- clientPointResult{error: err}

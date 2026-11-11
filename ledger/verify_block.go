@@ -127,7 +127,15 @@ func validateDijkstraBlockBodyHash(
 			nil,
 		)
 	}
-	actualBodyHash := common.Blake2b256Hash(raw[1])
+	return compareDijkstraBlockBodyHash(
+		common.Blake2b256Hash(raw[1]),
+		expectedBodyHash,
+	)
+}
+
+func compareDijkstraBlockBodyHash(
+	actualBodyHash, expectedBodyHash common.Blake2b256,
+) error {
 	if subtle.ConstantTimeCompare(actualBodyHash[:], expectedBodyHash[:]) != 1 {
 		return common.NewValidationError(
 			common.ValidationErrorTypeBodyHash,
@@ -254,10 +262,85 @@ func validateDijkstraLeiosHeader(
 	return nil
 }
 
+// inlinedCertRb returns block as a CertRB that carries its EB's transactions,
+// if config allows such blocks (node-to-client only).
+func inlinedCertRb(
+	block Block,
+	config common.VerifyConfig,
+) (*dijkstra.DijkstraBlock, bool) {
+	if !config.AllowCertifiedBlockInlinedTransactions {
+		return nil, false
+	}
+	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
+	if !ok || !dijkstraBlock.HasInlinedCertifiedTransactions() {
+		return nil, false
+	}
+	return dijkstraBlock, true
+}
+
+// blockBodySize returns the size of the block body the header signs. For a
+// CertRB with inlined EB transactions, that is the body without them.
+func blockBodySize(
+	block Block,
+	rawCbor []byte,
+	config common.VerifyConfig,
+) (uint64, error) {
+	if certRb, ok := inlinedCertRb(block, config); ok {
+		onChain, err := certRb.OnChainBlockBodyCbor()
+		if err != nil {
+			return 0, err
+		}
+		return uint64(len(onChain)), nil
+	}
+	return common.BlockBodySizeFromCbor(rawCbor)
+}
+
+// leiosAnnouncingSlot returns the slot of the block before a CertRB, which is
+// the RB that announced the CertRB's EB. The EB's transactions are validated
+// at that slot: they are applied right after the announcing RB, and the
+// ledger only ticks forward to the CertRB's slot once they have been applied.
+func leiosAnnouncingSlot(
+	header *dijkstra.DijkstraBlockHeader,
+	ledgerState common.LedgerState,
+) (uint64, error) {
+	state, ok := common.UnwrapLedgerState(ledgerState).(common.DijkstraLeiosHeaderState)
+	if !ok {
+		return 0, errors.New(
+			"ledger state does not provide the Dijkstra Leios header state",
+		)
+	}
+	context, err := state.DijkstraLeiosHeaderContext(header)
+	if err != nil {
+		return 0, fmt.Errorf("resolve Dijkstra Leios header state: %w", err)
+	}
+	if predecessor, typed := context.Predecessor.(*dijkstra.DijkstraBlockHeader); context.Predecessor == nil ||
+		(typed && predecessor == nil) {
+		return 0, errors.New("CertRB has no announcing block")
+	}
+	return context.Predecessor.SlotNumber(), nil
+}
+
 func validateDijkstraBlockCertificates(
 	block Block,
 	protocolParameters common.ProtocolParameters,
 	ledgerState common.LedgerState,
+) error {
+	return validateDijkstraBlockCertificatesWith(
+		block,
+		protocolParameters,
+		ledgerState,
+		false,
+	)
+}
+
+// validateDijkstraBlockCertificatesWith is validateDijkstraBlockCertificates
+// that, when allowInlined is set, accepts a CertRB carrying its EB's
+// transactions, as sent over node-to-client.
+func validateDijkstraBlockCertificatesWith(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+	allowInlined bool,
 ) error {
 	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
 	if !ok {
@@ -274,7 +357,11 @@ func validateDijkstraBlockCertificates(
 			)
 		}
 	}
-	if err := dijkstra.ValidateLeiosBlockBody(dijkstraBlock); err != nil {
+	validateBody := dijkstra.ValidateLeiosBlockBody
+	if allowInlined {
+		validateBody = dijkstra.ValidateLeiosBlockBodyNodeToClient
+	}
+	if err := validateBody(dijkstraBlock); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"invalid Dijkstra block body",
@@ -764,6 +851,18 @@ func VerifyBlockLocal(
 		common.VerifyConfig{}, true)
 }
 
+// VerifyBlockLocalNodeToClient is VerifyBlockLocal for a block received over
+// node-to-client, where a CertRB carries its EB's transactions (see
+// common.VerifyConfig.AllowCertifiedBlockInlinedTransactions).
+func VerifyBlockLocalNodeToClient(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod,
+		common.VerifyConfig{AllowCertifiedBlockInlinedTransactions: true}, true)
+}
+
 func verifyBlock(
 	block Block,
 	eta0Hex string,
@@ -1139,7 +1238,7 @@ func verifyBlock(
 				nil,
 			)
 		}
-		bodySize, sizeErr := common.BlockBodySizeFromCbor(rawCbor)
+		bodySize, sizeErr := blockBodySize(block, rawCbor, config)
 		if sizeErr != nil {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeProtocol,
@@ -1176,7 +1275,21 @@ func verifyBlock(
 			// A Dijkstra (prototype-2026w27) block is [header, block_body];
 			// its block_body_hash is blake2b256 over the block_body CBOR, not
 			// the pre-Dijkstra concatenation of per-segment hashes.
-			if err := validateDijkstraBlockBodyHash(rawCbor, expectedBodyHash); err != nil {
+			var hashErr error
+			if certRb, ok := inlinedCertRb(block, config); ok {
+				// The header signs the body without the EB's transactions.
+				onChain, err := certRb.OnChainBlockBodyCbor()
+				if err != nil {
+					return false, "", 0, 0, fmt.Errorf("VerifyBlock: %w", err)
+				}
+				hashErr = compareDijkstraBlockBodyHash(
+					common.Blake2b256Hash(onChain),
+					expectedBodyHash,
+				)
+			} else {
+				hashErr = validateDijkstraBlockBodyHash(rawCbor, expectedBodyHash)
+			}
+			if err := hashErr; err != nil {
 				return false, "", 0, 0, fmt.Errorf(
 					"VerifyBlock: %w",
 					err,
@@ -1243,13 +1356,19 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	); err != nil {
 		return err
 	}
-	if err := validateDijkstraBlockCertificates(
+	if err := validateDijkstraBlockCertificatesWith(
 		block,
 		config.ProtocolParameters,
 		config.LedgerState,
+		config.AllowCertifiedBlockInlinedTransactions,
 	); err != nil {
 		return err
 	}
+	// A CertRB with inlined EB transactions is checked against the RB
+	// limits as it is on chain, without those transactions. Its EB's
+	// transactions are applied at the announcing RB's slot.
+	certRb, isInlinedCertRb := inlinedCertRb(block, config)
+	txSlot := slot
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
 	// transaction's ExUnits must not exceed ppMaxBlockExUnits) and the block
@@ -1277,6 +1396,9 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	// opt out explicitly via config.SkipBlockLimitsValidation.
 	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation {
 		txs := block.Transactions()
+		if isInlinedCertRb {
+			txs = nil
+		}
 		rawBlockCbor := block.Cbor()
 		headerCbor := header.Cbor()
 		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
@@ -1372,7 +1494,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 			// not just at the comparison below, so it is never wastefully
 			// computed when the limit is disabled.
 			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
-				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
+				bodySize, sizeErr := blockBodySize(block, rawBlockCbor, config)
 				if sizeErr != nil {
 					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
@@ -1496,9 +1618,27 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				nil,
 			)
 		}
+		if isInlinedCertRb {
+			announcingSlot, err := leiosAnnouncingSlot(
+				certRb.BlockHeader,
+				config.LedgerState,
+			)
+			if err != nil {
+				return common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"failed to resolve the slot of the CertRB's announcing block",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+					},
+					err,
+				)
+			}
+			txSlot = announcingSlot
+		}
 		if idx, err := verifyBlockTransactions(
 			block.Transactions(),
-			slot,
+			txSlot,
 			config.LedgerState,
 			config.ProtocolParameters,
 			validationRules,
@@ -1517,7 +1657,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		}
 	}
 	var refScriptSizeErr error
-	if block.Era() != byron.EraByron &&
+	if block.Era() != byron.EraByron && !isInlinedCertRb &&
 		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {
 		switch typedBlock := block.(type) {
 		case *conway.ConwayBlock:
