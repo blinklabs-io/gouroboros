@@ -293,33 +293,35 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		dijkstra.UtxoValidateAccountBalanceIntervals,      // UtxoValidationRuleAccountBalanceIntervals
 		dijkstra.UtxoValidateTreasuryDonationScripts,      // UtxoValidationRuleTreasuryDonationScripts
 		dijkstra.UtxoValidateValueNotConservedUtxo,        // UtxoValidationRuleValueNotConserved
-		dijkstra.UtxoValidateOutputTooSmallUtxo,           // UtxoValidationRuleOutputTooSmall
-		dijkstra.UtxoValidateOutputTooBigUtxo,             // UtxoValidationRuleOutputTooBig
-		dijkstra.UtxoValidateOutputBootAddrAttrsTooBig,    // UtxoValidationRuleOutputBootAddrAttrsTooBig
-		dijkstra.UtxoValidateWrongNetwork,                 // UtxoValidationRuleWrongNetwork
-		dijkstra.UtxoValidateWrongNetworkWithdrawal,       // UtxoValidationRuleWrongNetworkWithdrawal
-		dijkstra.UtxoValidateTransactionNetworkId,         // UtxoValidationRuleTransactionNetworkId
-		dijkstra.UtxoValidateMaxTxSizeUtxo,                // UtxoValidationRuleMaxTxSize
-		dijkstra.UtxoValidateExUnitsTooBigUtxo,            // UtxoValidationRuleExUnitsTooBig
-		dijkstra.UtxoValidateTooManyCollateralInputs,      // UtxoValidationRuleTooManyCollateralInputs
-		dijkstra.UtxoValidateSupplementalDatums,           // UtxoValidationRuleSupplementalDatums
-		dijkstra.UtxoValidateExtraneousRedeemers,          // UtxoValidationRuleExtraneousRedeemers
-		dijkstra.UtxoValidateMalformedReferenceScripts,    // UtxoValidationRuleMalformedReferenceScripts
-		dijkstra.UtxoValidatePlutusScripts,                // UtxoValidationRulePlutusScripts
-		dijkstra.UtxoValidateNativeScripts,                // UtxoValidationRuleNativeScripts
-		dijkstra.UtxoValidateDelegation,                   // UtxoValidationRuleDelegation
-		dijkstra.UtxoValidateWithdrawals,                  // UtxoValidationRuleWithdrawals
-		dijkstra.UtxoValidateCertificateDeposits,          // UtxoValidationRuleCertificateDeposits
-		dijkstra.UtxoValidateCommitteeCertificates,        // UtxoValidationRuleCommitteeCertificates
-		dijkstra.UtxoValidateUnknownVoters,                // UtxoValidationRuleUnknownVoters
-		dijkstra.UtxoValidateUnknownGovActionIds,          // UtxoValidationRuleUnknownGovActionIds
-		dijkstra.UtxoValidateVotingOnExpiredGovAction,     // UtxoValidationRuleVotingOnExpiredGovAction
-		dijkstra.UtxoValidateBootstrapVotingRestrictions,  // UtxoValidationRuleBootstrapVotingRestrictions
-		dijkstra.UtxoValidateStakePoolVotingRestrictions,  // UtxoValidationRuleStakePoolVotingRestrictions
-		dijkstra.UtxoValidateCCVotingRestrictions,         // UtxoValidationRuleCCVotingRestrictions
-		dijkstra.UtxoValidateUnelectedCommitteeVoters,     // UtxoValidationRuleUnelectedCommitteeVoters
-		dijkstra.UtxoValidateRefScriptSizePerTx,           // UtxoValidationRuleRefScriptSizePerTx
-		dijkstra.UtxoValidatePoolCertificates,             // UtxoValidationRulePoolCertificates
+		// UtxoValidationRuleValueNotConservedLegacyMode
+		dijkstra.UtxoValidateValueNotConservedLegacyModeUtxo,
+		dijkstra.UtxoValidateOutputTooSmallUtxo,          // UtxoValidationRuleOutputTooSmall
+		dijkstra.UtxoValidateOutputTooBigUtxo,            // UtxoValidationRuleOutputTooBig
+		dijkstra.UtxoValidateOutputBootAddrAttrsTooBig,   // UtxoValidationRuleOutputBootAddrAttrsTooBig
+		dijkstra.UtxoValidateWrongNetwork,                // UtxoValidationRuleWrongNetwork
+		dijkstra.UtxoValidateWrongNetworkWithdrawal,      // UtxoValidationRuleWrongNetworkWithdrawal
+		dijkstra.UtxoValidateTransactionNetworkId,        // UtxoValidationRuleTransactionNetworkId
+		dijkstra.UtxoValidateMaxTxSizeUtxo,               // UtxoValidationRuleMaxTxSize
+		dijkstra.UtxoValidateExUnitsTooBigUtxo,           // UtxoValidationRuleExUnitsTooBig
+		dijkstra.UtxoValidateTooManyCollateralInputs,     // UtxoValidationRuleTooManyCollateralInputs
+		dijkstra.UtxoValidateSupplementalDatums,          // UtxoValidationRuleSupplementalDatums
+		dijkstra.UtxoValidateExtraneousRedeemers,         // UtxoValidationRuleExtraneousRedeemers
+		dijkstra.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
+		dijkstra.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
+		dijkstra.UtxoValidateNativeScripts,               // UtxoValidationRuleNativeScripts
+		dijkstra.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
+		dijkstra.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
+		dijkstra.UtxoValidateCertificateDeposits,         // UtxoValidationRuleCertificateDeposits
+		dijkstra.UtxoValidateCommitteeCertificates,       // UtxoValidationRuleCommitteeCertificates
+		dijkstra.UtxoValidateUnknownVoters,               // UtxoValidationRuleUnknownVoters
+		dijkstra.UtxoValidateUnknownGovActionIds,         // UtxoValidationRuleUnknownGovActionIds
+		dijkstra.UtxoValidateVotingOnExpiredGovAction,    // UtxoValidationRuleVotingOnExpiredGovAction
+		dijkstra.UtxoValidateBootstrapVotingRestrictions, // UtxoValidationRuleBootstrapVotingRestrictions
+		dijkstra.UtxoValidateStakePoolVotingRestrictions, // UtxoValidationRuleStakePoolVotingRestrictions
+		dijkstra.UtxoValidateCCVotingRestrictions,        // UtxoValidationRuleCCVotingRestrictions
+		dijkstra.UtxoValidateUnelectedCommitteeVoters,    // UtxoValidationRuleUnelectedCommitteeVoters
+		dijkstra.UtxoValidateRefScriptSizePerTx,          // UtxoValidationRuleRefScriptSizePerTx
+		dijkstra.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
 }
 
