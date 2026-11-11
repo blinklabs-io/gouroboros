@@ -1086,3 +1086,16 @@ func TestCardanoNodeDevnetGenesisPoolRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, wire, decodedWire)
 }
+
+func TestGenesisMarshalCBORRelayIpv6WireOrder(t *testing.T) {
+	t.Parallel()
+	genesis, err := shelley.NewShelleyGenesisFromFile(
+		"testdata/cardano-node-devnet-genesis.json",
+	)
+	require.NoError(t, err)
+	wire, err := genesis.MarshalCBOR()
+	require.NoError(t, err)
+	// 2001:db8:a::123 as four little-endian 32-bit words.
+	want := mustHex(t, "50b80d0120"+"00000a00"+"00000000"+"23010000")
+	assert.Contains(t, string(wire), string(want))
+}

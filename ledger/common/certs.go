@@ -16,6 +16,7 @@ package common
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -887,6 +888,23 @@ func decodeOptionalRelayAddress(
 	return &address, nil
 }
 
+// PoolRelayIpv6WireOrder reverses the bytes of each 32-bit word of a 16-byte
+// IPv6 address. The ledger serialises a relay's IPv6 address as four
+// little-endian words (ipv6ToBytes in Cardano/Ledger/Binary/Encoding/Encoder.hs),
+// so the same swap converts between network order and the wire form. It
+// returns nil for an address that is not 16 bytes.
+func PoolRelayIpv6WireOrder(ip net.IP) net.IP {
+	if len(ip) != poolRelayIpv6Size {
+		return nil
+	}
+	out := make(net.IP, poolRelayIpv6Size)
+	for i := 0; i < poolRelayIpv6Size; i += 4 {
+		word := binary.BigEndian.Uint32(ip[i : i+4])
+		binary.LittleEndian.PutUint32(out[i:i+4], word)
+	}
+	return out
+}
+
 func decodePoolRelayHostname(raw cbor.RawMessage) (string, error) {
 	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
 		return "", errors.New("pool relay hostname must be a CBOR text string")
@@ -932,6 +950,10 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 		}
 		if err := p.validateDecodedAddressWidths(); err != nil {
 			return err
+		}
+		if p.Ipv6 != nil {
+			standard := PoolRelayIpv6WireOrder(*p.Ipv6)
+			p.Ipv6 = &standard
 		}
 	case PoolRelayTypeSingleHostName:
 		var tmpData struct {
@@ -997,6 +1019,7 @@ func (p PoolRelay) MarshalCBOR() ([]byte, error) {
 			if normalized == nil {
 				return nil, errors.New("invalid IPv6 relay address")
 			}
+			normalized = PoolRelayIpv6WireOrder(normalized)
 			ipv6 = &normalized
 		}
 		return cbor.Encode(struct {
@@ -1051,10 +1074,12 @@ func (p PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 		ret.IpV4 = []byte(*p.Ipv4)
 	}
 	if p.Ipv6 != nil {
-		ret.IpV6 = []byte(*p.Ipv6)
-	}
-	if p.Port != nil {
-		ret.Port = *p.Port
+		normalized := p.Ipv6.To16()
+		if normalized == nil {
+			return nil, errors.New("invalid IPv6 relay address")
+		}
+		// UTxO RPC carries the ledger's wire bytes, as cardano-rpc does.
+		ret.IpV6 = []byte(PoolRelayIpv6WireOrder(normalized))
 	}
 	return ret, nil
 }
