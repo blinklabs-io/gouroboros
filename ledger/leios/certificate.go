@@ -73,8 +73,10 @@ func VerifyDijkstraCertificate(
 
 // VerifyDijkstraCertificateForDomain validates committee state, signer stake,
 // key possession proofs, and the aggregate signature in a Dijkstra
-// certificate. Committee seat keys are pool keys, so their proofs are checked
-// under the same domain the network's POOL rule used at registration.
+// certificate. The signature is checked over the raw announcing block hash;
+// see VerifyDijkstraCertificateForMessage for the prototype encoding.
+// Committee seat keys are pool keys, so their proofs are checked under the
+// same domain the network's POOL rule used at registration.
 func VerifyDijkstraCertificateForDomain(
 	signers, signature []byte,
 	committeeSize uint16,
