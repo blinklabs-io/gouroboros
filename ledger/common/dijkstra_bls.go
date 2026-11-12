@@ -39,3 +39,35 @@ func DijkstraBlsProofDomainFor(ls LedgerState) DijkstraBlsProofDomain {
 	}
 	return DijkstraBlsProofDomainPop
 }
+
+// DijkstraLeiosCertificateMessage selects the bytes a Leios certificate's
+// aggregate signature covers.
+type DijkstraLeiosCertificateMessage uint8
+
+const (
+	// DijkstraLeiosCertificateMessageRawHash signs the 32 bytes of the
+	// announcing ranking block hash, as the reference ledger verifies.
+	DijkstraLeiosCertificateMessageRawHash DijkstraLeiosCertificateMessage = iota
+	// DijkstraLeiosCertificateMessageCborHash signs the CBOR encoding of the
+	// announcing ranking block hash (a byte string header followed by the
+	// hash), as the rc-2026w41 prototype's votes do.
+	DijkstraLeiosCertificateMessageCborHash
+)
+
+// DijkstraLeiosCertificateMessageState supplies a network's certificate
+// signed-message encoding. A provider must select the network's rule, not
+// infer it from a signature.
+type DijkstraLeiosCertificateMessageState interface {
+	DijkstraLeiosCertificateMessage() DijkstraLeiosCertificateMessage
+}
+
+// DijkstraLeiosCertificateMessageFor returns the first provider's choice
+// through validation adapters, or the raw hash encoding when none is present.
+func DijkstraLeiosCertificateMessageFor(
+	ls LedgerState,
+) DijkstraLeiosCertificateMessage {
+	if state, ok := ledgerStateCapabilityFor[DijkstraLeiosCertificateMessageState](ls); ok {
+		return state.DijkstraLeiosCertificateMessage()
+	}
+	return DijkstraLeiosCertificateMessageRawHash
+}

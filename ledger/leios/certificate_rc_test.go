@@ -94,19 +94,34 @@ func TestVerifyDijkstraCertificateRcPrototypeCertificate(t *testing.T) {
 		},
 	}
 	quorum := big.NewRat(3, 4)
-	require.NoError(t, leios.VerifyDijkstraCertificate(
+	pop := common.DijkstraBlsProofDomainPop
+	cborHash := common.DijkstraLeiosCertificateMessageCborHash
+	verify := func(
+		signers []byte,
+		ctx common.DijkstraLeiosCertificateContext,
+		message common.DijkstraLeiosCertificateMessage,
+	) error {
+		return leios.VerifyDijkstraCertificateForMessage(
+			signers, cert.AggregatedSignature, 2, quorum, ctx, pop, message,
+		)
+	}
+	require.NoError(t, verify(cert.Signers, context, cborHash))
+
+	// The prototype signs the hash's CBOR encoding, so the default raw-hash
+	// message rejects its certificate.
+	require.ErrorIs(t, leios.VerifyDijkstraCertificate(
 		cert.Signers, cert.AggregatedSignature, 2, quorum, context,
-	))
+	), leios.ErrInvalidSignature)
 
 	// The signature covers the announcing block's hash.
 	wrongBlock := context
 	wrongBlock.AnnouncingBlockHash = certifying.Hash()
-	require.ErrorIs(t, leios.VerifyDijkstraCertificate(
-		cert.Signers, cert.AggregatedSignature, 2, quorum, wrongBlock,
-	), leios.ErrInvalidSignature)
+	require.ErrorIs(
+		t, verify(cert.Signers, wrongBlock, cborHash), leios.ErrInvalidSignature,
+	)
 
 	// Both seats signed; one seat's stake alone misses the quorum.
-	require.ErrorIs(t, leios.VerifyDijkstraCertificate(
-		[]byte{0x80}, cert.AggregatedSignature, 2, quorum, context,
-	), leios.ErrInsufficientQuorum)
+	require.ErrorIs(
+		t, verify([]byte{0x80}, context, cborHash), leios.ErrInsufficientQuorum,
+	)
 }
