@@ -719,4 +719,29 @@ func TestDelegMIREarlierTransactionsInBlockCount(t *testing.T) {
 		var target shelley.InsufficientForInstantaneousRewardsError
 		require.ErrorAs(t, validate(t, pparams, block, pay(501)), &target)
 	})
+
+	t.Run("pre-Alonzo rewards replace the wrapped state", func(t *testing.T) {
+		t.Parallel()
+		base := newMirPotState(500, 0)
+		base.totals = map[uint]int64{mirReserves: 300}
+		base.pending = map[[2]uint]*big.Int{{0, 0xab}: big.NewInt(300)}
+		block := common.NewBlockLedgerState(base)
+		pparams := maryPparams(0)
+		// 0xab's pending 300 becomes 100, so the pot holds 400 more.
+		require.NoError(t, block.ApplyTransaction(
+			poolCertTx(mirPay(mirReserves, map[byte]*big.Int{
+				0xab: big.NewInt(100),
+			})),
+			pparams,
+		))
+		pay := func(amount int64) common.Certificate {
+			return mirPay(mirReserves, map[byte]*big.Int{
+				0xcd: big.NewInt(amount),
+			})
+		}
+		require.NoError(t, validate(t, pparams, block, pay(400)))
+		var target shelley.InsufficientForInstantaneousRewardsError
+		require.ErrorAs(t, validate(t, pparams, block, pay(401)), &target)
+		assert.Equal(t, "501", target.Required.String())
+	})
 }
