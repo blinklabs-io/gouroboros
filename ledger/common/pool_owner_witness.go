@@ -38,17 +38,24 @@ type PendingPoolParametersState interface {
 type PoolOwnerWitnessPolicy func(*PoolRegistrationCertificate) bool
 
 // PoolOwnersWitnessRequired implements the Dijkstra needed-witness rule for
-// pool owners. Owners are required for a pool that is not registered, and
-// for a re-registration whose parameters, apart from the BLS key, differ from
-// the pending parameters or, with none pending, the current parameters.
+// pool owners. Owners are required for a pool that is not registered at
+// slot, and for a re-registration whose parameters, apart from the BLS key,
+// differ from the pending parameters or, with none pending, the current
+// parameters. A pool whose retirement epoch has been reached is not
+// registered; one whose retirement is still pending is.
 //
-// It fails closed: when ls is nil, cannot report the pool, or does not
-// implement PendingPoolParametersState, owners are required.
+// It fails closed: when ls is nil, cannot report the pool or its epoch, or
+// does not implement PendingPoolParametersState, owners are required.
 func PoolOwnersWitnessRequired(
 	ls LedgerState,
+	slot uint64,
 	cert *PoolRegistrationCertificate,
 ) bool {
 	if ls == nil || cert == nil {
+		return true
+	}
+	unregistered, err := PoolRegistrationDepositDue(ls, slot, cert.Operator)
+	if err != nil || unregistered {
 		return true
 	}
 	current, _, err := ls.PoolCurrentState(cert.Operator)
@@ -63,21 +70,27 @@ func PoolOwnersWitnessRequired(
 	if err != nil {
 		return true
 	}
-	latest := current
 	if pending != nil {
-		latest = pending
+		return !poolParametersEqualExceptBlsKey(cert, pending, true)
 	}
-	return !poolParametersEqualExceptBlsKey(cert, latest)
+	// The active pool state keeps only the reward credential, and the
+	// reference rebuilds its account with the certificate's network id.
+	return !poolParametersEqualExceptBlsKey(cert, current, false)
 }
 
-func poolParametersEqualExceptBlsKey(a, b *PoolRegistrationCertificate) bool {
+func poolParametersEqualExceptBlsKey(
+	a, b *PoolRegistrationCertificate,
+	compareNetwork bool,
+) bool {
+	if compareNetwork && !rewardAccountNetworkEqual(a, b) {
+		return false
+	}
 	if a.Operator != b.Operator ||
 		a.VrfKeyHash != b.VrfKeyHash ||
 		a.Pledge != b.Pledge ||
 		a.Cost != b.Cost ||
 		!ratEqual(a.Margin, b.Margin) ||
 		!rewardAccountCredentialEqual(a, b) ||
-		!rewardAccountNetworkEqual(a, b) ||
 		!poolOwnersEqual(a.PoolOwners, b.PoolOwners) ||
 		!slices.EqualFunc(a.Relays, b.Relays, poolRelayEqual) {
 		return false

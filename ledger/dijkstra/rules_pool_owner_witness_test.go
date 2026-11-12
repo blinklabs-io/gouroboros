@@ -306,3 +306,201 @@ func TestConwayPoolOwnerWitnessStillRequired(t *testing.T) {
 		&common.MissingRequiredVKeyWitnessForSignerError{},
 	)
 }
+
+// epochPendingPoolState adds the current epoch to pendingPoolState.
+type epochPendingPoolState struct {
+	pendingPoolState
+	epoch uint64
+}
+
+func (s epochPendingPoolState) EpochForSlot(uint64) (uint64, error) {
+	return s.epoch, nil
+}
+
+func poolOwnerRegistrations(
+	certs ...*common.PoolRegistrationCertificate,
+) []common.CertificateWrapper {
+	ret := make([]common.CertificateWrapper, 0, len(certs))
+	for _, cert := range certs {
+		ret = append(ret, common.CertificateWrapper{
+			Type:        uint(common.CertificateTypePoolRegistration),
+			Certificate: cert,
+		})
+	}
+	return ret
+}
+
+// Each level is checked against the pool state the earlier levels left, as
+// the reference threads the certificate state through SUBLEDGERS and gives
+// the top-level UTXOW the state after every sub-transaction.
+func TestDijkstraPoolOwnerWitnessFollowsEarlierLevels(t *testing.T) {
+	t.Parallel()
+	validator := dijkstraRule(
+		t,
+		common.UtxoValidationRuleRequiredVKeyWitnesses,
+	)
+	operator, owner := poolOwnerTestOperatorKey, poolOwnerTestOwnerKey
+	blsKey := &common.LeiosKey{PublicKey: []byte{0x0b}}
+	current := poolOwnerTestCert(t, 100, nil)
+
+	build := func(
+		sub *common.PoolRegistrationCertificate,
+		top *common.PoolRegistrationCertificate,
+	) *DijkstraTransaction {
+		return &DijkstraTransaction{
+			TxIsValid: true,
+			Body: DijkstraTransactionBody{
+				TxCertificates: poolOwnerRegistrations(top),
+				TxSubTransactions: cbor.NewSetType(
+					[]DijkstraSubTransaction{{
+						Body: DijkstraSubTransactionBody{
+							TxCertificates: poolOwnerRegistrations(sub),
+						},
+						WitnessSet: poolOwnerTestWitnesses(operator, owner),
+					}},
+					true,
+				),
+			},
+			WitnessSet: poolOwnerTestWitnesses(operator),
+		}
+	}
+
+	t.Run("sub-transaction update supersedes current params", func(
+		t *testing.T,
+	) {
+		t.Parallel()
+		tx := build(
+			poolOwnerTestCert(t, 200, nil),
+			poolOwnerTestCert(t, 100, blsKey),
+		)
+		err := validator(
+			tx,
+			0,
+			pendingPoolState{LedgerState: poolOwnerTestState(current)},
+			nil,
+		)
+		require.ErrorAs(
+			t,
+			err,
+			&common.MissingRequiredVKeyWitnessForSignerError{},
+		)
+	})
+
+	t.Run("sub-transaction update is the latest params", func(
+		t *testing.T,
+	) {
+		t.Parallel()
+		tx := build(
+			poolOwnerTestCert(t, 200, nil),
+			poolOwnerTestCert(t, 200, blsKey),
+		)
+		require.NoError(t, validator(
+			tx,
+			0,
+			pendingPoolState{LedgerState: poolOwnerTestState(current)},
+			nil,
+		))
+	})
+
+	t.Run("sub-transaction registers the pool", func(t *testing.T) {
+		t.Parallel()
+		tx := build(
+			poolOwnerTestCert(t, 100, nil),
+			poolOwnerTestCert(t, 100, blsKey),
+		)
+		require.NoError(t, validator(
+			tx,
+			0,
+			pendingPoolState{LedgerState: poolOwnerTestState(nil)},
+			nil,
+		))
+	})
+}
+
+// A pool whose retirement epoch has been reached is not registered, although
+// PoolCurrentState still reports its last registration; a pool whose
+// retirement is still pending is registered, so re-registering it unchanged
+// needs no owner.
+func TestDijkstraPoolOwnerWitnessRetiredPool(t *testing.T) {
+	t.Parallel()
+	validator := dijkstraRule(
+		t,
+		common.UtxoValidationRuleRequiredVKeyWitnesses,
+	)
+	current := poolOwnerTestCert(t, 100, nil)
+	retirement := uint64(5)
+	base := mockledger.NewLedgerStateBuilder().
+		WithPoolCurrentState(func(
+			common.PoolKeyHash,
+		) (*common.PoolRegistrationCertificate, *uint64, error) {
+			return current, &retirement, nil
+		}).
+		Build()
+	tx := poolOwnerTestTx(
+		poolOwnerTestCert(t, 100, nil),
+		true,
+		false,
+		[][]byte{poolOwnerTestOperatorKey},
+		nil,
+	)
+
+	retired := epochPendingPoolState{
+		pendingPoolState: pendingPoolState{LedgerState: base},
+		epoch:            retirement,
+	}
+	require.ErrorAs(
+		t,
+		validator(tx, 0, retired, nil),
+		&common.MissingRequiredVKeyWitnessForSignerError{},
+	)
+
+	retiring := epochPendingPoolState{
+		pendingPoolState: pendingPoolState{LedgerState: base},
+		epoch:            retirement - 1,
+	}
+	require.NoError(t, validator(tx, 0, retiring, nil))
+}
+
+// The active pool state keeps only the reward credential, and the reference
+// rebuilds the account with the certificate's own network id, so only pending
+// params can differ from the certificate in the reward account network.
+func TestDijkstraPoolOwnerWitnessRewardAccountNetwork(t *testing.T) {
+	t.Parallel()
+	validator := dijkstraRule(
+		t,
+		common.UtxoValidationRuleRequiredVKeyWitnesses,
+	)
+	onMainnet := func(
+		cert *common.PoolRegistrationCertificate,
+	) *common.PoolRegistrationCertificate {
+		require.NoError(t, cert.SetRewardAccountCredential(
+			cert.RewardAccountCredential(),
+			common.AddressNetworkMainnet,
+		))
+		return cert
+	}
+	tx := poolOwnerTestTx(
+		poolOwnerTestCert(t, 100, nil),
+		true,
+		false,
+		[][]byte{poolOwnerTestOperatorKey},
+		nil,
+	)
+
+	active := pendingPoolState{
+		LedgerState: poolOwnerTestState(
+			onMainnet(poolOwnerTestCert(t, 100, nil)),
+		),
+	}
+	require.NoError(t, validator(tx, 0, active, nil))
+
+	pending := pendingPoolState{
+		LedgerState: poolOwnerTestState(poolOwnerTestCert(t, 100, nil)),
+		pending:     onMainnet(poolOwnerTestCert(t, 100, nil)),
+	}
+	require.ErrorAs(
+		t,
+		validator(tx, 0, pending, nil),
+		&common.MissingRequiredVKeyWitnessForSignerError{},
+	)
+}
