@@ -18,7 +18,9 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
@@ -27,8 +29,9 @@ import (
 // legacyModeConservationTx builds a batch whose top level spends a UTxO of
 // 2,000,000 and pays out topOut, with one sub-transaction paying out subOut
 // from no inputs. The batch balances when topOut+subOut is 2,000,000. The top
-// level needs a Plutus script, which puts the transaction in legacy mode, only
-// when legacy is true.
+// level spends a Plutus-script-locked output and carries its witness, which
+// puts the transaction in legacy mode, only when legacy is true; otherwise it
+// spends a key-locked output.
 func legacyModeConservationTx(
 	t *testing.T,
 	legacy bool,
@@ -36,7 +39,18 @@ func legacyModeConservationTx(
 ) (*DijkstraTransaction, common.LedgerState) {
 	t.Helper()
 	v3 := common.PlutusV3Script{0x31}
-	input, utxo := dijkstraScriptLockedInput(t, v3, 981)
+	var (
+		input shelley.ShelleyTransactionInput
+		utxo  common.Utxo
+	)
+	if legacy {
+		input, utxo = dijkstraScriptLockedInput(t, v3, 981)
+	} else {
+		input, utxo = dijkstraSubUtxoInput(0)
+		utxo.Output = &babbage.BabbageTransactionOutput{
+			OutputAmount: mary.MaryTransactionOutputValue{Amount: 2_000_000},
+		}
+	}
 	tx := dijkstraSubUtxoTopLevelTx(
 		[]shelley.ShelleyTransactionInput{input},
 		[]DijkstraTransactionOutput{dijkstraSubUtxoOutput(t, topOut)},
@@ -190,4 +204,42 @@ func TestDijkstraLegacyModeValueConservationPoolRegisteredBySubTransaction(
 			target.Produced.Int64(),
 		)
 	})
+}
+
+// A credential a sub-transaction registered can be deregistered by the top
+// level, whose refund then counts as consumed value.
+func TestDijkstraLegacyModeValueConservationStakeRegisteredBySubTransaction(
+	t *testing.T,
+) {
+	t.Parallel()
+	const keyDeposit = 2_000_000
+	pp := dijkstraGuardTestPParams()
+	pp.KeyDeposit = keyDeposit
+	credential := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.CredentialHash{0x09},
+	}
+	tx, ls := legacyModeConservationTx(t, true, 2_000_000+keyDeposit, 0)
+	tx.Body.TxCertificates = []common.CertificateWrapper{{
+		Type: uint(common.CertificateTypeDeregistration),
+		Certificate: &common.DeregistrationCertificate{
+			CertType:        uint(common.CertificateTypeDeregistration),
+			StakeCredential: credential,
+			Amount:          keyDeposit,
+		},
+	}}
+	subTxs := tx.Body.TxSubTransactions.Items()
+	subTxs[0].Body.TxCertificates = []common.CertificateWrapper{{
+		Type: uint(common.CertificateTypeRegistration),
+		Certificate: &common.RegistrationCertificate{
+			CertType:        uint(common.CertificateTypeRegistration),
+			StakeCredential: credential,
+			Amount:          keyDeposit,
+		},
+	}}
+	tx.Body.TxSubTransactions = cbor.NewSetType(subTxs, true)
+	require.NoError(
+		t,
+		UtxoValidateValueNotConservedLegacyModeUtxo(tx, 0, ls, pp),
+	)
 }

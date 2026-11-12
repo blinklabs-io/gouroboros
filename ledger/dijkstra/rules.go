@@ -2285,9 +2285,10 @@ func UtxoValidateValueNotConservedUtxo(
 
 // UtxoValidateValueNotConservedLegacyModeUtxo repeats value conservation for
 // the top-level body alone when the transaction is in Plutus legacy mode.
-// The sub-transactions are removed, and pool registrations are judged against
-// the pool state as the sub-transactions left it, so a pool a sub-transaction
-// already registered owes no second deposit. Legacy-mode scripts cannot see
+// The sub-transactions are removed, and the body is judged against the pool,
+// stake and DRep state as the sub-transactions left it, so a pool a
+// sub-transaction already registered owes no second deposit and a credential
+// a sub-transaction registered can be deregistered at the top level. Legacy-mode scripts cannot see
 // the sub-transactions, so the top-level body must balance on its own.
 // Like UtxoValidateValueNotConservedUtxo, the production rule list skips it
 // for phase-2-invalid transactions.
@@ -2334,13 +2335,25 @@ func UtxoValidateValueNotConservedLegacyModeUtxo(
 			donations:      donations,
 		}
 	}
+	effects, err := dijkstraTx.LedgerEffectLevels()
+	if err != nil {
+		return err
+	}
+	state := common.NewBlockLedgerState(ls)
+	for _, level := range effects[:len(effects)-1] {
+		if err := state.ApplyCertificateDepositLevel(level, pp); err != nil {
+			return err
+		}
+		if err := state.ApplyPoolCertificates(
+			level.Body.Certificates(),
+		); err != nil {
+			return err
+		}
+	}
 	err = conway.UtxoValidateValueNotConservedUtxo(
 		view,
 		slot,
-		dijkstraPostSubTransactionPoolState{
-			LedgerState: ls,
-			subTxs:      subTxs,
-		},
+		state,
 		tmpPparams,
 	)
 	var notConserved shelley.ValueNotConservedUtxoError
@@ -2351,39 +2364,6 @@ func UtxoValidateValueNotConservedLegacyModeUtxo(
 		}
 	}
 	return err
-}
-
-// dijkstraPostSubTransactionPoolState answers pool queries as if the
-// sub-transactions' pool certificates had already been applied, in order, to
-// the wrapped ledger state.
-type dijkstraPostSubTransactionPoolState struct {
-	common.LedgerState
-	subTxs []DijkstraSubTransaction
-}
-
-func (s dijkstraPostSubTransactionPoolState) PoolCurrentState(
-	operator common.PoolKeyHash,
-) (*common.PoolRegistrationCertificate, *uint64, error) {
-	reg, retirement, err := s.LedgerState.PoolCurrentState(operator)
-	if err != nil {
-		return nil, nil, err
-	}
-	for idx := range s.subTxs {
-		for _, cert := range s.subTxs[idx].Body.Certificates() {
-			switch c := cert.(type) {
-			case *common.PoolRegistrationCertificate:
-				if common.PoolKeyHash(c.Operator) == operator {
-					reg, retirement = c, nil
-				}
-			case *common.PoolRetirementCertificate:
-				if c.PoolKeyHash == operator && reg != nil {
-					epoch := c.Epoch
-					retirement = &epoch
-				}
-			}
-		}
-	}
-	return reg, retirement, nil
 }
 
 // UtxoValidateBadInputsUtxo requires every transaction level's inputs to
