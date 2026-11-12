@@ -169,3 +169,31 @@ func TestUpdateCommitteeGovActionBoundsRawQuorum(t *testing.T) {
 	assert.Regexp(t, `numerator \d+ bits, denominator \d+ bits`, err.Error())
 	assert.Less(t, len(err.Error()), 300)
 }
+
+// The domain reasons are matched by consumers, so the raw rational check must
+// keep them when a field is not a tag-30 rational at all.
+func TestProtocolParameterUpdateDomainsKeepRationalReasons(t *testing.T) {
+	t.Parallel()
+	emptyMap := []byte{0xa0}
+	_, err := ValidateProtocolParameterUpdateDomains(
+		updateWithField(t, 9, emptyMap),
+		ProtocolParameterUpdateEraShelley,
+	)
+	require.ErrorContains(
+		t,
+		err,
+		"protocol parameter update a0: must be a bounded rational",
+	)
+
+	prices, err := cbor.Encode([]cbor.RawMessage{emptyMap, emptyMap})
+	require.NoError(t, err)
+	_, err = ValidateProtocolParameterUpdateDomains(
+		updateWithField(t, 19, prices),
+		ProtocolParameterUpdateEraAlonzo,
+	)
+	require.ErrorContains(
+		t,
+		err,
+		"protocol parameter update execution prices: must contain bounded non-negative memory and step prices",
+	)
+}

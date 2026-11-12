@@ -178,7 +178,7 @@ func ValidateProtocolParameterUpdateDomains(
 		if err := ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
 			return nil, ProtocolParameterUpdateDomainError{
 				Field:  protocolParameterUpdateFieldName(key),
-				Reason: err.Error(),
+				Reason: "must be a bounded rational: " + err.Error(),
 			}
 		}
 		var value cbor.Rat
@@ -214,8 +214,9 @@ func ValidateProtocolParameterUpdateDomains(
 		if raw, ok := fields[19]; ok {
 			if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err != nil {
 				return nil, ProtocolParameterUpdateDomainError{
-					Field:  "execution prices",
-					Reason: err.Error(),
+					Field: "execution prices",
+					Reason: "must contain bounded non-negative memory and step prices: " +
+						err.Error(),
 				}
 			}
 			var prices ExUnitPrice
