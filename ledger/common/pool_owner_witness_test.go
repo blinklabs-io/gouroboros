@@ -170,3 +170,21 @@ func TestPoolOwnersWitnessRequiredParameterEquality(t *testing.T) {
 		})
 	}
 }
+
+func TestPoolOwnersWitnessRequiredWithoutLedgerState(t *testing.T) {
+	cert := &common.PoolRegistrationCertificate{
+		Operator: common.PoolKeyHash{0x01},
+	}
+	for name, ls := range map[string]common.LedgerState{
+		"nil":       nil,
+		"typed nil": (*mockledger.MockLedgerState)(nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			var required bool
+			require.NotPanics(t, func() {
+				required = common.PoolOwnersWitnessRequired(ls, 0, cert)
+			})
+			require.True(t, required)
+		})
+	}
+}

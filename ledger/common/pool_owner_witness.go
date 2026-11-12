@@ -17,6 +17,7 @@ package common
 import (
 	"bytes"
 	"net"
+	"reflect"
 	"slices"
 )
 
@@ -44,14 +45,17 @@ type PoolOwnerWitnessPolicy func(*PoolRegistrationCertificate) bool
 // parameters. A pool whose retirement epoch has been reached is not
 // registered; one whose retirement is still pending is.
 //
-// It fails closed: when ls is nil, cannot report the pool or its epoch, or
-// does not implement PendingPoolParametersState, owners are required.
+// It fails closed: when ls is nil or a nil pointer, cannot report the pool or
+// its epoch, or does not implement PendingPoolParametersState, owners are
+// required.
 func PoolOwnersWitnessRequired(
 	ls LedgerState,
 	slot uint64,
 	cert *PoolRegistrationCertificate,
 ) bool {
-	if ls == nil || cert == nil {
+	if ls == nil || cert == nil ||
+		(reflect.ValueOf(ls).Kind() == reflect.Pointer &&
+			reflect.ValueOf(ls).IsNil()) {
 		return true
 	}
 	unregistered, err := PoolRegistrationDepositDue(ls, slot, cert.Operator)

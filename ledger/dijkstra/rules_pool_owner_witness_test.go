@@ -504,3 +504,71 @@ func TestDijkstraPoolOwnerWitnessRewardAccountNetwork(t *testing.T) {
 		&common.MissingRequiredVKeyWitnessForSignerError{},
 	)
 }
+
+// Without a ledger state the owners cannot be shown exempt, so a phase-2
+// valid registration requires them; the phase-2 invalid exemption does not
+// depend on the state.
+func TestDijkstraPoolOwnerWitnessWithoutLedgerState(t *testing.T) {
+	t.Parallel()
+	validator := dijkstraRule(
+		t,
+		common.UtxoValidationRuleRequiredVKeyWitnesses,
+	)
+	operator, owner := poolOwnerTestOperatorKey, poolOwnerTestOwnerKey
+	for _, state := range []struct {
+		name string
+		ls   common.LedgerState
+	}{
+		{name: "nil", ls: nil},
+		{name: "typed nil", ls: (*mockledger.MockLedgerState)(nil)},
+	} {
+		for _, inSub := range []bool{false, true} {
+			for _, tc := range []struct {
+				name    string
+				valid   bool
+				keys    [][]byte
+				wantErr bool
+			}{
+				{
+					name:  "valid with owner",
+					valid: true,
+					keys:  [][]byte{operator, owner},
+				},
+				{
+					name:    "valid without owner",
+					valid:   true,
+					keys:    [][]byte{operator},
+					wantErr: true,
+				},
+				{
+					name: "phase-2 invalid without owner",
+					keys: [][]byte{operator},
+				},
+			} {
+				t.Run(state.name+"/"+tc.name, func(t *testing.T) {
+					cert := poolOwnerTestCert(t, 100, nil)
+					var top, sub [][]byte
+					if inSub {
+						sub = tc.keys
+					} else {
+						top = tc.keys
+					}
+					tx := poolOwnerTestTx(cert, tc.valid, inSub, top, sub)
+					var err error
+					require.NotPanics(t, func() {
+						err = validator(tx, 0, state.ls, nil)
+					})
+					if !tc.wantErr {
+						require.NoError(t, err)
+						return
+					}
+					require.ErrorAs(
+						t,
+						err,
+						&common.MissingRequiredVKeyWitnessForSignerError{},
+					)
+				})
+			}
+		}
+	}
+}

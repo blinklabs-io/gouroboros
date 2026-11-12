@@ -1749,9 +1749,15 @@ func UtxoValidateRequiredVKeyWitnesses(
 		return conway.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 	}
 	valid := dijkstraTx.IsValid()
-	state := common.NewBlockLedgerState(ls)
+	// Without a ledger state no owner can be shown exempt, and wrapping a nil
+	// state would make every pool lookup panic.
+	var state *common.BlockLedgerState
+	if ls != nil && !dijkstraLedgerStateIsNil(ls) {
+		state = common.NewBlockLedgerState(ls)
+	}
 	ownersRequired := func(cert *common.PoolRegistrationCertificate) bool {
-		return valid && common.PoolOwnersWitnessRequired(state, slot, cert)
+		return valid && (state == nil ||
+			common.PoolOwnersWitnessRequired(state, slot, cert))
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := common.ValidateRequiredVKeyWitnessesWithPoolOwners(
@@ -1761,7 +1767,7 @@ func UtxoValidateRequiredVKeyWitnesses(
 			return err
 		}
 		// A phase-2 invalid transaction applies no certificates.
-		if !valid {
+		if !valid || state == nil {
 			continue
 		}
 		if err := state.ApplyPoolCertificates(level.Certificates()); err != nil {
