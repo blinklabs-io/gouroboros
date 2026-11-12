@@ -143,18 +143,33 @@ func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error
 	if err != nil {
 		return fmt.Errorf("decode rational denominator: %w", err)
 	}
-	if denominator.Sign() == 0 {
-		return errors.New("rational denominator must not be zero")
-	}
-	reduced := new(big.Rat).SetFrac(numerator, denominator)
-	if !reduced.Num().IsUint64() {
-		return errors.New("rational numerator must be in Word64")
-	}
-	if !reduced.Denom().IsUint64() {
-		return errors.New("rational denominator must be positive Word64")
+	if _, _, err := reduceWord64Rational(numerator, denominator); err != nil {
+		return describeRationalReductionError(err, numerator, denominator)
 	}
 	return nil
 }
+
+// describeRationalReductionError reports a reduceWord64Rational failure
+// without printing the components, which are peer controlled and unbounded.
+func describeRationalReductionError(
+	err error,
+	numerator, denominator *big.Int,
+) error {
+	if errors.Is(err, errRationalNotWord64) {
+		return fmt.Errorf(
+			"%w (numerator %d bits, denominator %d bits)",
+			err,
+			numerator.BitLen(),
+			denominator.BitLen(),
+		)
+	}
+	return err
+}
+
+// maxBoundedRatArrayItems is the widest rational record in a protocol
+// parameter update: the ten DRep voting thresholds. Execution prices hold two
+// and pool voting thresholds five; the typed decoders enforce exact lengths.
+const maxBoundedRatArrayItems = 10
 
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
 // in a struct-as-array CBOR value.
@@ -170,6 +185,21 @@ func ValidateNonNegativeBoundedRatArrayCBORForVersion(
 ) error {
 	if len(raw) == 0 || raw[0]>>5 != 4 {
 		return errors.New("expected CBOR array")
+	}
+	// Count before decoding: the decode below retains every item, and a
+	// peer can declare or stream far more items than any rational record
+	// holds. ListLength answers a definite array from its header and walks
+	// an indefinite one without retaining items.
+	count, err := cbor.ListLength(raw)
+	if err != nil {
+		return err
+	}
+	if count > maxBoundedRatArrayItems {
+		return fmt.Errorf(
+			"expected at most %d rationals, got %d",
+			maxBoundedRatArrayItems,
+			count,
+		)
 	}
 	var values []cbor.RawMessage
 	if _, err := cbor.Decode(raw, &values); err != nil {
@@ -187,6 +217,13 @@ func ValidateNonNegativeBoundedRatArrayCBORForVersion(
 }
 
 func rawCBORInteger(raw []byte) (*big.Int, error) {
+	// An integer or bignum is a major type 0, 1 or 2 item under any tags.
+	// Anything else is rejected from its header, because decoding a
+	// registered tag such as a nested rational into an interface runs its
+	// unbounded decoder.
+	if item := cbor.SkipTags(raw); len(item) == 0 || item[0]>>5 > 2 {
+		return nil, errors.New("expected integer")
+	}
 	var value any
 	if _, err := cbor.Decode(raw, &value); err != nil {
 		return nil, err

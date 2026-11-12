@@ -1335,6 +1335,57 @@ func validatePoolMarginCBOR(data []byte, requireUintComponents bool) error {
 			}
 		}
 	}
+	// The components are untrusted and unbounded, so the unit-interval and
+	// Word64 checks run on the step-limited reduction before GenesisRat
+	// decodes them with big.Rat.SetFrac.
+	numerator, err := rawCBORInteger(components[0])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: numerator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	denominator, err := rawCBORInteger(components[1])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: denominator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	reducedNum, reducedDenom, err := reduceWord64Rational(
+		numerator,
+		denominator,
+	)
+	switch {
+	case errors.Is(err, errRationalZeroDenominator):
+		return fmt.Errorf(
+			"%w: denominator must be positive",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	case errors.Is(err, errRationalNegative):
+		return fmt.Errorf(
+			"%w: margin is negative",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	case err != nil:
+		return fmt.Errorf(
+			"%w: %w (numerator %d bits, denominator %d bits)",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+			numerator.BitLen(),
+			denominator.BitLen(),
+		)
+	}
+	if reducedNum > reducedDenom {
+		return fmt.Errorf(
+			"%w: got %d/%d",
+			ErrPoolMarginOutsideUnitInterval,
+			reducedNum,
+			reducedDenom,
+		)
+	}
 	var margin GenesisRat
 	if _, err := cbor.Decode(data, &margin); err != nil {
 		return fmt.Errorf("%w: %w", ErrPoolMarginOutsideUnitInterval, err)

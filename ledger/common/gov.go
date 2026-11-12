@@ -1169,6 +1169,20 @@ func (a *UpdateCommitteeGovAction) UnmarshalCBOR(cborData []byte) error {
 	); err != nil {
 		return err
 	}
+	// The quorum is checked on its raw components before the struct decode
+	// reduces it with big.Rat.SetFrac, whose cost is quadratic in their size.
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return err
+	}
+	if len(fields) != 5 {
+		return errors.New(
+			"update committee governance action requires 5 fields",
+		)
+	}
+	if err := ValidateNonNegativeBoundedRatCBOR(fields[4]); err != nil {
+		return fmt.Errorf("update committee quorum: %w", err)
+	}
 	type tUpdateCommitteeGovAction UpdateCommitteeGovAction
 	var tmp tUpdateCommitteeGovAction
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
