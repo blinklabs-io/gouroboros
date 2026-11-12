@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
+	"github.com/blinklabs-io/plutigo/data"
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
 	"github.com/stretchr/testify/require"
 )
@@ -271,6 +272,51 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 		var tooBig *dijkstra.LeiosClosureTooBigError
 		require.ErrorAs(t, err, &tooBig)
 		require.Equal(t, total, tooBig.ClosureSize)
+	})
+
+	// The node doesn't check maxEndorserBlockExUnits on a received EB, so
+	// going over it is only logged: the CertRB is still accepted.
+	t.Run("EB ExUnits over maxEndorserBlockExUnits only logged", func(t *testing.T) {
+		t.Parallel()
+		tx := dijkstra.DijkstraTransaction{
+			Body: dijkstra.DijkstraTransactionBody{TxFee: 1},
+			WitnessSet: dijkstra.DijkstraTransactionWitnessSet{
+				WsRedeemers: dijkstra.DijkstraRedeemers{
+					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+						{Tag: common.RedeemerTagSpend, Index: 0}: {
+							Data: common.Datum{
+								Data: data.NewInteger(big.NewInt(0)),
+							},
+							ExUnits: common.ExUnits{Memory: 100, Steps: 200},
+						},
+					},
+				},
+			},
+			TxIsValid: true,
+		}
+		block, state, _ := newCertRbTestBlock(
+			t,
+			[]dijkstra.DijkstraTransaction{tx},
+		)
+		pp := certRbTestParams()
+		pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
+
+		total, over := leiosClosureExUnitsOverLimit(block, pp)
+		require.True(t, over)
+		require.Equal(t, common.ExUnits{Memory: 100, Steps: 200}, total)
+
+		pp.MaxEndorserBlockExUnits.Steps = 200
+		_, over = leiosClosureExUnitsOverLimit(block, pp)
+		require.False(t, over, "a total equal to the maximum is not over")
+
+		pp.MaxEndorserBlockExUnits.Steps = 199
+		require.NoError(t, VerifyBlockState(block, common.VerifyConfig{
+			ProtocolParameters:                     pp,
+			LedgerState:                            state,
+			SkipTransactionValidation:              true,
+			SkipStakePoolValidation:                true,
+			AllowCertifiedBlockInlinedTransactions: true,
+		}))
 	})
 
 	// The EB's transactions are applied before the tick to the CertRB's

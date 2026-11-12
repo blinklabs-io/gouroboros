@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -320,22 +321,9 @@ func leiosAnnouncingSlot(
 	return context.Predecessor.SlotNumber(), nil
 }
 
-func validateDijkstraBlockCertificates(
-	block Block,
-	protocolParameters common.ProtocolParameters,
-	ledgerState common.LedgerState,
-) error {
-	return validateDijkstraBlockCertificatesWith(
-		block,
-		protocolParameters,
-		ledgerState,
-		false,
-	)
-}
-
-// validateDijkstraBlockCertificatesWith is validateDijkstraBlockCertificates
-// that, when allowInlined is set, accepts a CertRB carrying its EB's
-// transactions, as sent over node-to-client.
+// validateDijkstraBlockCertificatesWith validates a Dijkstra block's
+// certificates. When allowInlined is set, it accepts a CertRB carrying its
+// EB's transactions, as sent over node-to-client.
 func validateDijkstraBlockCertificatesWith(
 	block Block,
 	protocolParameters common.ProtocolParameters,
@@ -691,6 +679,21 @@ func blockLevelLimits(
 			pp,
 		)
 	}
+}
+
+// leiosClosureExUnitsOverLimit sums the ExUnits of a CertRB's EB transactions
+// and reports if they exceed maxEndorserBlockExUnits. If the sum fails, it
+// reports false; the per-transaction rules catch bad redeemers.
+func leiosClosureExUnitsOverLimit(
+	block *dijkstra.DijkstraBlock,
+	pparams *dijkstra.DijkstraProtocolParameters,
+) (common.ExUnits, bool) {
+	total, err := sumBlockExUnits(block.Transactions())
+	if err != nil {
+		return common.ExUnits{}, false
+	}
+	limit := pparams.MaxEndorserBlockExUnits
+	return total, total.Memory > limit.Memory || total.Steps > limit.Steps
 }
 
 // sumBlockExUnits sums the ExUnits (memory, steps) across every redeemer in
@@ -1459,6 +1462,24 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 							"era":          era,
 						},
 						err,
+					)
+				}
+				// NOTE: logged, not rejected. The node doesn't check
+				// maxEndorserBlockExUnits on an EB it receives, so rejecting
+				// here could stop sync on a CertRB the node accepted.
+				if total, over := leiosClosureExUnitsOverLimit(
+					certRb,
+					pparams,
+				); over {
+					slog.Warn(
+						"CertRB's inlined EB transactions exceed maxEndorserBlockExUnits",
+						"block_slot", slot,
+						"block_number", blockNo,
+						"block_hash", block.Hash().String(),
+						"memory", total.Memory,
+						"steps", total.Steps,
+						"max_memory", pparams.MaxEndorserBlockExUnits.Memory,
+						"max_steps", pparams.MaxEndorserBlockExUnits.Steps,
 					)
 				}
 			}

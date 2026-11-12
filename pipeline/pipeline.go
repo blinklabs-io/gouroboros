@@ -686,8 +686,8 @@ func (p *BlockPipeline) Submit(
 	return p.submit(ctx, blockType, rawCbor, tip, false)
 }
 
-// SubmitNodeToClient is for a block received over node-to-client LocalChainSync. 
-// A CertRB also carries its EB's transactions, 
+// SubmitNodeToClient is for a block received over node-to-client LocalChainSync.
+// A CertRB also carries its EB's transactions,
 // so the pipeline decodes and validates the block with
 // common.VerifyConfig.AllowCertifiedBlockInlinedTransactions set.
 func (p *BlockPipeline) SubmitNodeToClient(
