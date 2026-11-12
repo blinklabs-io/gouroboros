@@ -939,6 +939,17 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 // address root equals the credential. This includes explicitly required
 // signers and key-based reward withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
+	return ValidateRequiredVKeyWitnessesWithPoolOwners(tx, nil)
+}
+
+// ValidateRequiredVKeyWitnessesWithPoolOwners is
+// ValidateRequiredVKeyWitnesses with a policy deciding, per pool
+// registration, whether the pool owners must also witness. A nil policy
+// requires them, as every era before Dijkstra does.
+func ValidateRequiredVKeyWitnessesWithPoolOwners(
+	tx Transaction,
+	ownersRequired PoolOwnerWitnessPolicy,
+) error {
 	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
 		return err
 	}
@@ -975,6 +986,9 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 				continue
 			}
 			required[Blake2b224(c.Operator)] = struct{}{}
+			if ownersRequired != nil && !ownersRequired(c) {
+				continue
+			}
 			for _, owner := range c.PoolOwners {
 				required[Blake2b224(owner)] = struct{}{}
 			}
