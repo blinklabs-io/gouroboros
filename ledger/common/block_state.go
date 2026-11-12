@@ -657,6 +657,25 @@ func (b *BlockLedgerState) PoolCurrentState(
 	return reg, retirement, nil
 }
 
+// PoolPendingParameters reports the parameters an earlier transaction in the
+// block registered for the pool, and otherwise defers to the wrapped state.
+// It fails when the wrapped state cannot report pending parameters, so a
+// caller never treats an unknown pending update as absent.
+func (b *BlockLedgerState) PoolPendingParameters(
+	pool PoolKeyHash,
+) (*PoolRegistrationCertificate, error) {
+	if state, ok := b.pools[pool]; ok && state.future != nil {
+		return state.future, nil
+	}
+	pending, ok := ledgerStateCapabilityFor[PendingPoolParametersState](
+		b.base,
+	)
+	if !ok {
+		return nil, PendingPoolParametersStateUnavailableError{}
+	}
+	return pending.PoolPendingParameters(pool)
+}
+
 // IsPoolRegistered reports a pool an earlier transaction registered as
 // registered. Retirement takes effect at an epoch boundary, so it does not
 // unregister a pool within the block.

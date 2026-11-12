@@ -619,6 +619,14 @@ func (EpochStateUnavailableError) Error() string {
 	return "ledger state does not provide epoch state"
 }
 
+// PendingPoolParametersStateUnavailableError indicates that the ledger state
+// cannot report pending pool parameters.
+type PendingPoolParametersStateUnavailableError struct{}
+
+func (PendingPoolParametersStateUnavailableError) Error() string {
+	return "ledger state does not provide pending pool parameters"
+}
+
 // FuturePoolParametersStateUnavailableError indicates that PV11+ pool
 // registration validation cannot inspect deferred pool parameters.
 type FuturePoolParametersStateUnavailableError struct{}

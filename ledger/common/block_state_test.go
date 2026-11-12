@@ -477,3 +477,56 @@ func TestBlockLedgerStateNestedStakeDepositsComposeInLedgerOrder(
 }
 
 func uint64Ptr(v uint64) *uint64 { return &v }
+
+type pendingPoolBase struct {
+	common.LedgerState
+	pending *common.PoolRegistrationCertificate
+}
+
+func (s pendingPoolBase) PoolPendingParameters(
+	common.PoolKeyHash,
+) (*common.PoolRegistrationCertificate, error) {
+	return s.pending, nil
+}
+
+func TestBlockLedgerStatePoolPendingParameters(t *testing.T) {
+	t.Parallel()
+	pool := common.PoolKeyHash(bytes.Repeat([]byte{0x32}, 28))
+	current := &common.PoolRegistrationCertificate{Operator: pool, Pledge: 1}
+	inherited := &common.PoolRegistrationCertificate{Operator: pool, Pledge: 2}
+	reregistered := &common.PoolRegistrationCertificate{
+		Operator: pool,
+		Pledge:   3,
+	}
+	base := mockledger.NewLedgerStateBuilder().
+		WithPoolCurrentState(func(
+			common.PoolKeyHash,
+		) (*common.PoolRegistrationCertificate, *uint64, error) {
+			return current, nil, nil
+		}).
+		Build()
+
+	// A base that cannot report pending parameters is an error, not "none".
+	plain := common.NewBlockLedgerState(base)
+	_, err := plain.PoolPendingParameters(pool)
+	require.ErrorIs(
+		t,
+		err,
+		common.PendingPoolParametersStateUnavailableError{},
+	)
+
+	state := common.NewBlockLedgerState(
+		pendingPoolBase{LedgerState: base, pending: inherited},
+	)
+	got, err := state.PoolPendingParameters(pool)
+	require.NoError(t, err)
+	require.Same(t, inherited, got)
+
+	// An earlier transaction's re-registration supersedes the inherited one.
+	applyBlockTestTxs(t, state,
+		blockTestTx(t, 0xb1, true).WithCertificates(reregistered),
+	)
+	got, err = state.PoolPendingParameters(pool)
+	require.NoError(t, err)
+	require.Same(t, reregistered, got)
+}

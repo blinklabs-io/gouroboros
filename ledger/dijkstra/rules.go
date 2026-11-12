@@ -1730,6 +1730,13 @@ func UtxoValidateIsValidFlag(
 
 // UtxoValidateRequiredVKeyWitnesses validates required signers independently
 // at the transaction level where the requirement occurs.
+//
+// Pool owners are exempt from witnessing a pool registration when the
+// transaction is phase-2 invalid, and when the registration only changes the
+// BLS key of a registered pool (see common.PoolOwnersWitnessRequired). Every
+// level uses the top-level transaction's validity and the ledger state before
+// the transaction, so an earlier level's registration does not change a later
+// level's requirement. The operator witness is always required.
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
 	slot uint64,
@@ -1740,8 +1747,15 @@ func UtxoValidateRequiredVKeyWitnesses(
 	if !ok {
 		return conway.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 	}
+	ownersRequired := func(cert *common.PoolRegistrationCertificate) bool {
+		return dijkstraTx.IsValid() &&
+			common.PoolOwnersWitnessRequired(ls, cert)
+	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := common.ValidateRequiredVKeyWitnesses(level); err != nil {
+		if err := common.ValidateRequiredVKeyWitnessesWithPoolOwners(
+			level,
+			ownersRequired,
+		); err != nil {
 			return err
 		}
 	}
