@@ -67,6 +67,7 @@ func certRbTestParams() *dijkstra.DijkstraProtocolParameters {
 		LeiosVotePeriodLength:          4000,
 		LeiosDiffusionPeriodLength:     2500,
 		MaxEndorserBlockReferencesSize: 1000,
+		MaxEndorserBlockTxsSize:        12_500_000,
 		LeiosCommitteeSize:             1,
 		LeiosQuorumStakeThreshold:      &cbor.Rat{Rat: big.NewRat(1, 1)},
 	}
@@ -241,6 +242,35 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 			AllowCertifiedBlockInlinedTransactions: true,
 		})
 		require.ErrorIs(t, err, common.ErrBlockBodySizeTooBig)
+	})
+
+	// The inlined EB transactions are bounded by maxEndorserBlockTxsSize:
+	// a total equal to the maximum is accepted, one byte more is rejected.
+	t.Run("EB transactions bounded by maxEndorserBlockTxsSize", func(t *testing.T) {
+		t.Parallel()
+		block, state, _ := newCertRbTestBlock(t, certRbTestTxs())
+		var total uint64
+		for _, tx := range block.Transactions() {
+			size, err := common.TxSize(tx)
+			require.NoError(t, err)
+			total += uint64(size)
+		}
+		verify := func(maximum uint64) error {
+			pp := certRbTestParams()
+			pp.MaxEndorserBlockTxsSize = uint32(maximum)
+			return VerifyBlockState(block, common.VerifyConfig{
+				ProtocolParameters:                     pp,
+				LedgerState:                            state,
+				SkipTransactionValidation:              true,
+				SkipStakePoolValidation:                true,
+				AllowCertifiedBlockInlinedTransactions: true,
+			})
+		}
+		require.NoError(t, verify(total))
+		err := verify(total - 1)
+		var tooBig *dijkstra.LeiosClosureTooBigError
+		require.ErrorAs(t, err, &tooBig)
+		require.Equal(t, total, tooBig.ClosureSize)
 	})
 
 	// The EB's transactions are applied before the tick to the CertRB's

@@ -2563,11 +2563,12 @@ func (b *DijkstraBlock) HasInlinedCertifiedTransactions() bool {
 	return certified
 }
 
-// OnChainBlockBodyCbor returns a CertRB body with its transactions removed,
-// which is what the header's block_body_hash and block_body_size cover.
+// OnChainBlockBodyCbor returns the CertRB body without its inlined
+// transactions. The header's body hash and size cover these bytes.
 //
-// NOTE: re-encodes the body, since node-to-client never sends the on-chain
-// bytes. Assumes definite-length arrays; not yet checked on a real CertRB.
+// NOTE: node-to-client never sends these bytes, so they are rebuilt by
+// re-encoding. TestOnChainBlockBodyCborMatchesRealCertRbs checks this against
+// real Musashi CertRBs.
 func (b *DijkstraBlock) OnChainBlockBodyCbor() ([]byte, error) {
 	raw, err := b.BlockBody.MarshalCBOR()
 	if err != nil {

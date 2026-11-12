@@ -173,6 +173,39 @@ func ValidateLeiosBlockBodyNodeToClient(block *DijkstraBlock) error {
 	return validateLeiosBlockBody(block, true)
 }
 
+// ValidateLeiosClosureSize rejects a CertRB whose inlined EB transactions
+// total more than maxEndorserBlockTxsSize bytes, as the reference node does.
+//
+// NOTE: maxEndorserBlockExUnits and maxRefScriptSizePerEndorserBlock are not
+// checked on purpose. The node only applies them when building an EB, never
+// to one it receives, so checking them here could reject a CertRB the node
+// accepted.
+func ValidateLeiosClosureSize(
+	block *DijkstraBlock,
+	pparams *DijkstraProtocolParameters,
+) error {
+	if pparams == nil {
+		return errors.New(
+			"EB transaction size validation requires Dijkstra protocol parameters",
+		)
+	}
+	var total uint64
+	for _, tx := range block.Transactions() {
+		size, err := common.TxSize(tx)
+		if err != nil {
+			return err
+		}
+		total += uint64(size)
+	}
+	if total > uint64(pparams.MaxEndorserBlockTxsSize) {
+		return &LeiosClosureTooBigError{
+			ClosureSize: total,
+			Maximum:     pparams.MaxEndorserBlockTxsSize,
+		}
+	}
+	return nil
+}
+
 func validateLeiosBlockBody(block *DijkstraBlock, allowInlined bool) error {
 	var certified bool
 	if block.BlockHeader != nil {

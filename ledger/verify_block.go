@@ -1401,7 +1401,8 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		}
 		rawBlockCbor := block.Cbor()
 		headerCbor := header.Cbor()
-		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
+		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 ||
+			isInlinedCertRb {
 			if config.ProtocolParameters == nil {
 				return common.NewValidationError(
 					common.ValidationErrorTypeConfiguration,
@@ -1428,6 +1429,38 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					},
 					limitsErr,
 				)
+			}
+			// Inlined EB transactions are limited by maxEndorserBlockTxsSize,
+			// not the RB limits above.
+			if isInlinedCertRb {
+				pparams, ok := config.ProtocolParameters.(*dijkstra.DijkstraProtocolParameters)
+				if !ok {
+					return common.NewValidationError(
+						common.ValidationErrorTypeConfiguration,
+						"EB transaction size validation requires Dijkstra protocol parameters",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						nil,
+					)
+				}
+				if err := dijkstra.ValidateLeiosClosureSize(
+					certRb,
+					pparams,
+				); err != nil {
+					return common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"CertRB's inlined EB transactions exceed the protocol maximum",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						err,
+					)
+				}
 			}
 			if hasMaxExUnits && len(txs) > 0 {
 				totalExUnits, sumErr := sumBlockExUnits(txs)

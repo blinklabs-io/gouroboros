@@ -291,3 +291,38 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 		}
 	})
 }
+
+// ValidateLeiosClosureSize sums the ledger size of every inlined transaction
+// and rejects only a total strictly greater than maxEndorserBlockTxsSize.
+func TestValidateLeiosClosureSize(t *testing.T) {
+	t.Parallel()
+	block := &DijkstraBlock{
+		BlockBody: DijkstraBlockBody{
+			Transactions: []DijkstraTransaction{
+				{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+				{Body: DijkstraTransactionBody{TxFee: 2}, TxIsValid: true},
+				{Body: DijkstraTransactionBody{TxFee: 3}, TxIsValid: true},
+			},
+		},
+	}
+	var total uint64
+	for _, tx := range block.Transactions() {
+		size, err := common.TxSize(tx)
+		require.NoError(t, err)
+		require.Positive(t, size)
+		total += uint64(size)
+	}
+	pp := testLeiosParams()
+
+	pp.MaxEndorserBlockTxsSize = uint32(total)
+	require.NoError(t, ValidateLeiosClosureSize(block, pp))
+
+	pp.MaxEndorserBlockTxsSize = uint32(total - 1)
+	err := ValidateLeiosClosureSize(block, pp)
+	var tooBig *LeiosClosureTooBigError
+	require.ErrorAs(t, err, &tooBig)
+	require.Equal(t, total, tooBig.ClosureSize)
+	require.Equal(t, uint32(total-1), tooBig.Maximum)
+
+	require.Error(t, ValidateLeiosClosureSize(block, nil))
+}
