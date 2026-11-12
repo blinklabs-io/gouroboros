@@ -166,6 +166,11 @@ func describeRationalReductionError(
 	return err
 }
 
+// maxBoundedRatArrayItems is the widest rational record in a protocol
+// parameter update: the ten DRep voting thresholds. Execution prices hold two
+// and pool voting thresholds five; the typed decoders enforce exact lengths.
+const maxBoundedRatArrayItems = 10
+
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational
 // in a struct-as-array CBOR value.
 func ValidateNonNegativeBoundedRatArrayCBOR(raw []byte) error {
@@ -180,6 +185,21 @@ func ValidateNonNegativeBoundedRatArrayCBORForVersion(
 ) error {
 	if len(raw) == 0 || raw[0]>>5 != 4 {
 		return errors.New("expected CBOR array")
+	}
+	// Count before decoding: the decode below retains every item, and a
+	// peer can declare or stream far more items than any rational record
+	// holds. ListLength answers a definite array from its header and walks
+	// an indefinite one without retaining items.
+	count, err := cbor.ListLength(raw)
+	if err != nil {
+		return err
+	}
+	if count > maxBoundedRatArrayItems {
+		return fmt.Errorf(
+			"expected at most %d rationals, got %d",
+			maxBoundedRatArrayItems,
+			count,
+		)
 	}
 	var values []cbor.RawMessage
 	if _, err := cbor.Decode(raw, &values); err != nil {

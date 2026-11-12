@@ -197,3 +197,31 @@ func TestProtocolParameterUpdateDomainsKeepRationalReasons(t *testing.T) {
 		"protocol parameter update execution prices: must contain bounded non-negative memory and step prices",
 	)
 }
+
+func TestValidateNonNegativeBoundedRatArrayCBORCountsBeforeDecoding(t *testing.T) {
+	const items = 1 << 16
+	definite := append([]byte{0x9a, 0x00, 0x01, 0x00, 0x00}, make([]byte, items)...)
+	for i := 5; i < len(definite); i++ {
+		definite[i] = 0xf6 // null
+	}
+	indefinite := append([]byte{0x9f}, definite[5:]...)
+	indefinite = append(indefinite, 0xff)
+	for name, raw := range map[string][]byte{
+		"definite":   definite,
+		"indefinite": indefinite,
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.Error(t, ValidateNonNegativeBoundedRatArrayCBOR(raw))
+			allocs := testing.AllocsPerRun(3, func() {
+				_ = ValidateNonNegativeBoundedRatArrayCBOR(raw)
+			})
+			assert.Less(t, allocs, float64(items/16))
+		})
+	}
+	// The widest valid record still passes.
+	widest := []byte{0x8a}
+	for range maxBoundedRatArrayItems {
+		widest = append(widest, 0xd8, 0x1e, 0x82, 0x01, 0x02)
+	}
+	require.NoError(t, ValidateNonNegativeBoundedRatArrayCBOR(widest))
+}
