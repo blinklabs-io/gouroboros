@@ -66,6 +66,22 @@ func requestedTxIdsAreOutstanding(
 	return nil
 }
 
+// checkAdvertisedTxSizes refuses an announcement whose advertised size
+// exceeds maxTxSize, as the reference implementation does for max_TX_SIZE.
+func checkAdvertisedTxSizes(reply []TxIdAndSize, maxTxSize int) error {
+	for _, txIdAndSize := range reply {
+		if int64(txIdAndSize.Size) > int64(maxTxSize) {
+			return invalidTxSubmissionMessage(
+				"transaction ID %x advertised size %d exceeds the limit %d",
+				txIdAndSize.TxId.TxId,
+				txIdAndSize.Size,
+				maxTxSize,
+			)
+		}
+	}
+	return nil
+}
+
 func reconcileTxIds(
 	outstanding []TxIdAndSize,
 	ack int,
@@ -130,6 +146,7 @@ func validateAndOrderTxBodies(
 	requested []TxId,
 	bodies []TxBody,
 	advertisedSizes map[TxId]uint32,
+	maxTxSize int,
 ) ([]TxBody, error) {
 	if len(requested) > MaxUnackedTxIds {
 		return nil, fmt.Errorf(
@@ -170,6 +187,16 @@ func validateAndOrderTxBodies(
 				"transaction body size %d is outside the accepted range 1..%d",
 				bodySize,
 				MaxTxSizeBytes,
+			)
+		}
+		// The check precedes the decode below: the decoder's work grows
+		// with the body, and the peer controls the advertised size that the
+		// later comparison trusts.
+		if bodySize > maxTxSize {
+			return nil, invalidTxSubmissionMessage(
+				"transaction body size %d exceeds the configured limit %d",
+				bodySize,
+				maxTxSize,
 			)
 		}
 		if bodySize > MaxPendingMessageBytes-retainedBytes {

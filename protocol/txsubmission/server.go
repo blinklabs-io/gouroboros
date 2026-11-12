@@ -400,6 +400,12 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 		pending.blocking,
 		msgReplyTxIds.TxIds,
 	)
+	if err == nil {
+		err = checkAdvertisedTxSizes(
+			msgReplyTxIds.TxIds,
+			s.config.effectiveMaxTxSize(),
+		)
+	}
 	s.stateMu.Lock()
 	if s.pendingTxIds != pending {
 		s.stateMu.Unlock()
@@ -442,6 +448,7 @@ func (s *Server) handleReplyTxs(msg protocol.Message) error {
 		pending.requested,
 		msgReplyTxs.Txs,
 		pending.advertisedSizes,
+		s.config.effectiveMaxTxSize(),
 	)
 	s.stateMu.Lock()
 	if s.pendingTxs != pending {

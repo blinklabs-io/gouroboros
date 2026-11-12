@@ -157,6 +157,23 @@ type Config struct {
 	// OnDone is an optional notification called on the server when the
 	// client ends the session with Done.
 	OnDone func(connection.ConnectionId)
+	// MaxTxSize is the largest transaction body, in bytes, the server
+	// accepts from a peer, normally the ledger's maximum transaction size.
+	// The server refuses an advertised size or a received body above it as a
+	// protocol violation, and checks the body length before any decoding.
+	// Zero or a negative value selects MaxTxSizeBytes, and a value above
+	// MaxTxSizeBytes is clamped to it. The client validates its own
+	// RequestTxsFunc output against MaxTxSizeBytes only.
+	MaxTxSize int
+}
+
+// effectiveMaxTxSize returns the per-transaction size limit the server
+// enforces for the configuration, never above MaxTxSizeBytes.
+func (c *Config) effectiveMaxTxSize() int {
+	if c == nil || c.MaxTxSize <= 0 || c.MaxTxSize > MaxTxSizeBytes {
+		return MaxTxSizeBytes
+	}
+	return c.MaxTxSize
 }
 
 // Wire ranges of the MsgRequestTxIds count fields. They are the ranges of the
@@ -332,5 +349,13 @@ func WithOnInit(callback func(connection.ConnectionId)) TxSubmissionOptionFunc {
 func WithOnDone(callback func(connection.ConnectionId)) TxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.OnDone = callback
+	}
+}
+
+// WithMaxTxSize sets the largest transaction body, in bytes, the server
+// accepts from a peer. See Config.MaxTxSize for the accepted range.
+func WithMaxTxSize(maxTxSize int) TxSubmissionOptionFunc {
+	return func(c *Config) {
+		c.MaxTxSize = maxTxSize
 	}
 }
