@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -741,9 +742,15 @@ func UtxoValidateMetadata(
 }
 
 // UtxoValidateDelegation validates delegation certificates against ledger state.
-// For Shelley, it checks StakeDelegationCertificate:
-// - Pool registration status
-// - Stake credential registration status
+// Certificates apply in order, each seeing the state earlier ones produced.
+// It checks:
+//   - StakeRegistrationCertificate: the credential is not registered
+//     (StakeKeyAlreadyRegisteredError)
+//   - StakeDeregistrationCertificate: the credential is registered
+//     (StakeKeyNotRegisteredError) and its reward balance, after the
+//     transaction's withdrawals, is zero (StakeKeyNonZeroAccountBalanceError)
+//   - StakeDelegationCertificate: the pool and the stake credential are
+//     registered
 //
 // It also enforces the DELEG predicates of move instantaneous rewards
 // certificates; see validateMirCertificates.
@@ -753,7 +760,7 @@ func UtxoValidateDelegation(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	if err := validateMirCertificates(tx, ls, pp); err != nil {
+	if err := validateMirCertificates(tx, slot, ls, pp); err != nil {
 		return err
 	}
 
@@ -784,13 +791,67 @@ func UtxoValidateDelegation(
 		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
 	}
 
+	// Withdrawals are applied before the certificates, and
+	// UtxoValidateWithdrawals rejects one that does not drain its account,
+	// so a credential the transaction withdraws from has an empty account at
+	// deregistration.
+	withdrawn := make(map[stakeCredentialKey]struct{})
+	for addr := range tx.Withdrawals() {
+		if addr == nil {
+			continue
+		}
+		// An invalid reward address is the withdrawals rule's to reject.
+		if cred, err := addr.RewardAccountCredential(); err == nil {
+			withdrawn[stakeKey(cred)] = struct{}{}
+		}
+	}
+
+	var genesis *genesisDelegations
 	for _, cert := range tx.Certificates() {
 		switch c := cert.(type) {
 		case *common.StakeRegistrationCertificate:
+			if isStakeRegistered(c.StakeCredential) {
+				return StakeKeyAlreadyRegisteredError{
+					Credential: c.StakeCredential,
+				}
+			}
 			inTxStakeState[stakeKey(c.StakeCredential)] = true
 
 		case *common.StakeDeregistrationCertificate:
+			if !isStakeRegistered(c.StakeCredential) {
+				return StakeKeyNotRegisteredError{
+					Credential: c.StakeCredential,
+				}
+			}
+			// An account registered earlier in this transaction holds no
+			// rewards, and a ledger-state balance is only live for an
+			// account that existed before it.
+			_, openedInTx := inTxStakeState[stakeKey(c.StakeCredential)]
+			_, drained := withdrawn[stakeKey(c.StakeCredential)]
+			if !openedInTx && !drained {
+				balance, err := ls.RewardAccountBalance(c.StakeCredential)
+				if err != nil {
+					return err
+				}
+				if balance != nil && *balance != 0 {
+					return StakeKeyNonZeroAccountBalanceError{
+						Credential: c.StakeCredential,
+						Balance:    *balance,
+					}
+				}
+			}
 			inTxStakeState[stakeKey(c.StakeCredential)] = false
+
+		case *common.GenesisKeyDelegationCertificate:
+			if genesis == nil {
+				genesis = &genesisDelegations{}
+				if err := genesis.load(ls, slot); err != nil {
+					return err
+				}
+			}
+			if err := genesis.apply(c); err != nil {
+				return err
+			}
 
 		case *common.PoolRegistrationCertificate:
 			inTxPoolRegs[c.Operator] = true
@@ -811,20 +872,129 @@ func UtxoValidateDelegation(
 	return nil
 }
 
+// genesisDelegations is the genesis delegation state a transaction's genesis
+// key delegation certificates are checked against: the delegations in force,
+// and those scheduled by earlier certificates.
+type genesisDelegations struct {
+	current []common.GenesisDelegation
+	future  []common.GenesisDelegation
+	// scheduled holds this slot's delegations, keyed by genesis key.
+	scheduled []common.GenesisDelegation
+}
+
+func (g *genesisDelegations) load(
+	ls common.LedgerState,
+	slot uint64,
+) error {
+	current, future, scheduled, known, err := common.GenesisDelegationsFor(
+		ls,
+		slot,
+	)
+	if err != nil {
+		return err
+	}
+	if !known {
+		return common.GenesisDelegationRegistryStateUnavailableError{}
+	}
+	g.current = current
+	g.future = future
+	g.scheduled = scheduled
+	return nil
+}
+
+// apply checks a genesis key delegation certificate and schedules its
+// delegation, replacing one this slot scheduled for the same genesis key. The
+// delegate and VRF key may not belong to any other genesis key, current or
+// scheduled; the certificate's own genesis key may reuse its keys.
+//
+// Reference: the GenesisDelegTxCert case of delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+func (g *genesisDelegations) apply(
+	cert *common.GenesisKeyDelegationCertificate,
+) error {
+	genesisKey, err := common.NewBlake2b224Checked(cert.GenesisHash)
+	if err != nil {
+		return fmt.Errorf("genesis key hash: %w", err)
+	}
+	delegation, err := common.GenesisDelegationFromCertificate(cert)
+	if err != nil {
+		return err
+	}
+	inMapping := false
+	for _, current := range g.current {
+		if current.GenesisKeyHash == genesisKey {
+			inMapping = true
+			break
+		}
+	}
+	if !inMapping {
+		return GenesisKeyNotInMappingError{GenesisKeyHash: genesisKey}
+	}
+	var otherDelegates []common.Blake2b224
+	var otherVrfs []common.Blake2b256
+	for _, others := range [][]common.GenesisDelegation{
+		g.current,
+		g.future,
+		g.scheduled,
+	} {
+		for _, other := range others {
+			if other.GenesisKeyHash == genesisKey {
+				continue
+			}
+			otherDelegates = append(otherDelegates, other.DelegateKeyHash)
+			otherVrfs = append(otherVrfs, other.VrfKeyHash)
+		}
+	}
+	if slices.Contains(otherDelegates, delegation.DelegateKeyHash) {
+		return DuplicateGenesisDelegateError{
+			DelegateKeyHash: delegation.DelegateKeyHash,
+		}
+	}
+	if slices.Contains(otherVrfs, delegation.VrfKeyHash) {
+		return DuplicateGenesisVRFError{VrfKeyHash: delegation.VrfKeyHash}
+	}
+	g.scheduled = common.ScheduleGenesisDelegation(g.scheduled, delegation)
+	return nil
+}
+
 // validateMirCertificates enforces the DELEG predicates of move instantaneous
-// rewards certificates. Before the Alonzo hard fork a pot-to-pot transfer
+// rewards certificates, in certificate order. Each certificate must come
+// before the cutoff slot, the first slot of the next epoch minus the stability
+// window (MIRCertificateTooLateinEpochError), and the ledger state must
+// provide common.StabilityWindowState and
+// common.InstantaneousRewardsTotalsState; without them the certificate cannot
+// be checked and is rejected.
+//
+// Before the Alonzo hard fork a pot-to-pot transfer
 // (MIRTransferNotCurrentlyAllowed) and a negative delta
-// (MIRNegativesNotCurrentlyAllowed) are rejected. From Alonzo a delta is
+// (MIRNegativesNotCurrentlyAllowed) are rejected, and a credential's delta
+// replaces its pending rewards. From Alonzo a delta adds to them and is
 // rejected when it drives the credential's pending rewards in its pot below
 // zero (MIRProducesNegativeUpdate); the pending rewards are those the ledger
 // state reports through common.PendingInstantaneousRewardsState plus the
-// deltas of earlier certificates in the block and transaction. When the state
-// does not report them, a delta those deltas do not cover is rejected with
-// PendingInstantaneousRewardsUnavailableError.
+// deltas of earlier certificates in the block and transaction. A state that
+// does not report them but reports nothing accumulated in the pot through
+// common.InstantaneousRewardsTotalsState has nothing pending. Otherwise a
+// pre-Alonzo certificate, or a delta those deltas do not cover, is rejected
+// with PendingInstantaneousRewardsUnavailableError.
 //
-// Reference: delegTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+// The rewards accumulated for stake credentials in a pot may not exceed the
+// pot (InsufficientForInstantaneousRewardsError), and a pot-to-pot transfer
+// may not exceed the pot net of its accumulated rewards
+// (InsufficientForTransferError). From Alonzo the pot includes its pending
+// pot-to-pot transfers. Totals are summed as arbitrary precision integers so
+// an oversized delta is rejected rather than wrapped.
+//
+// A negative pot-to-pot amount (MIRNegativeTransfer) cannot occur: the amount
+// is an unsigned integer on the wire and in
+// common.MoveInstantaneousRewardsCertificateReward.
+//
+// Reference: delegationTransition, checkSlotNotTooLate and
+// updateReservesAndTreasury, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs;
+// availableAfterMIR, eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/NewEpochState.hs.
 func validateMirCertificates(
 	tx common.Transaction,
+	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
@@ -850,6 +1020,9 @@ func validateMirCertificates(
 	allowed := common.MirTransferAllowed(
 		versionedPparams.ProtocolMajorVersion(),
 	)
+	if err := validateMirNotTooLate(slot, ls); err != nil {
+		return err
+	}
 	type pendingKey struct {
 		source   uint
 		credType uint
@@ -859,7 +1032,40 @@ func validateMirCertificates(
 		amount *big.Int
 		known  bool
 	}
+	type potTotals struct {
+		accumulated *big.Int
+		transfer    *big.Int
+	}
 	pending := make(map[pendingKey]pendingTotal)
+	pots := make(map[uint]*potTotals)
+	loadPot := func(source uint) (*potTotals, error) {
+		if source > 1 {
+			return nil, fmt.Errorf("invalid MIR source pot: %d", source)
+		}
+		if pot, ok := pots[source]; ok {
+			return pot, nil
+		}
+		accumulated, transfer, known, err := common.InstantaneousRewardsTotalsFor(
+			ls,
+			source,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !known {
+			return nil, common.InstantaneousRewardsTotalsStateUnavailableError{}
+		}
+		pot := &potTotals{accumulated: accumulated, transfer: transfer}
+		pots[source] = pot
+		return pot, nil
+	}
+	potAmount := func(source uint) *big.Int {
+		adaPots := ls.GetAdaPots()
+		if source == 0 {
+			return new(big.Int).SetUint64(adaPots.Reserves)
+		}
+		return new(big.Int).SetUint64(adaPots.Treasury)
+	}
 	for _, cert := range mirCerts {
 		reward := cert.Reward
 		if reward.Rewards == nil {
@@ -869,8 +1075,38 @@ func validateMirCertificates(
 					Amount: reward.OtherPot,
 				}
 			}
+			pot, err := loadPot(reward.Source)
+			if err != nil {
+				return err
+			}
+			other, err := loadPot(1 - reward.Source)
+			if err != nil {
+				return err
+			}
+			available := potAmount(reward.Source)
+			available.Add(available, pot.transfer)
+			available.Sub(available, pot.accumulated)
+			amount := new(big.Int).SetUint64(reward.OtherPot)
+			if amount.Cmp(available) > 0 {
+				return InsufficientForTransferError{
+					Source:    reward.Source,
+					Amount:    reward.OtherPot,
+					Available: available,
+				}
+			}
+			pot.transfer.Sub(pot.transfer, amount)
+			other.transfer.Add(other.transfer, amount)
 			continue
 		}
+		pot, err := loadPot(reward.Source)
+		if err != nil {
+			return err
+		}
+		// replaced is what the certificate's credentials held before it,
+		// which a pre-Alonzo certificate overwrites; sum is what it sets
+		// them to, or adds to them from Alonzo.
+		replaced := new(big.Int)
+		sum := new(big.Int)
 		for cred, delta := range reward.Rewards {
 			if delta == nil {
 				continue
@@ -879,14 +1115,11 @@ func validateMirCertificates(
 			if cred != nil {
 				tmpCred = *cred
 			}
-			if !allowed {
-				if delta.Sign() < 0 {
-					return MIRNegativesNotCurrentlyAllowedError{
-						Credential: tmpCred,
-						Delta:      new(big.Int).Set(delta),
-					}
+			if !allowed && delta.Sign() < 0 {
+				return MIRNegativesNotCurrentlyAllowedError{
+					Credential: tmpCred,
+					Delta:      new(big.Int).Set(delta),
 				}
-				continue
 			}
 			key := pendingKey{
 				source:   reward.Source,
@@ -904,6 +1137,22 @@ func validateMirCertificates(
 					return err
 				}
 				total = pendingTotal{amount: amount, known: known}
+			}
+			sum.Add(sum, delta)
+			if !allowed {
+				if !total.known {
+					return PendingInstantaneousRewardsUnavailableError{
+						Credential: tmpCred,
+						Source:     reward.Source,
+						Delta:      new(big.Int).Set(delta),
+					}
+				}
+				replaced.Add(replaced, total.amount)
+				pending[key] = pendingTotal{
+					amount: new(big.Int).Set(delta),
+					known:  total.known,
+				}
+				continue
 			}
 			next := new(big.Int).Add(total.amount, delta)
 			if next.Sign() < 0 {
@@ -924,6 +1173,46 @@ func validateMirCertificates(
 			}
 			pending[key] = pendingTotal{amount: next, known: total.known}
 		}
+		required := new(big.Int).Sub(pot.accumulated, replaced)
+		required.Add(required, sum)
+		available := potAmount(reward.Source)
+		if allowed {
+			available.Add(available, pot.transfer)
+		}
+		if required.Cmp(available) > 0 {
+			return InsufficientForInstantaneousRewardsError{
+				Source:    reward.Source,
+				Required:  required,
+				Available: available,
+			}
+		}
+		pot.accumulated = required
+	}
+	return nil
+}
+
+// validateMirNotTooLate rejects a slot at or after the first slot of the next
+// epoch minus the stability window.
+func validateMirNotTooLate(slot uint64, ls common.LedgerState) error {
+	windowState, ok := common.StabilityWindowStateFor(ls)
+	if !ok {
+		return common.StabilityWindowStateUnavailableError{}
+	}
+	nextEpoch, err := windowState.NextEpochFirstSlot(slot)
+	if err != nil {
+		return err
+	}
+	window, err := windowState.StabilityWindow()
+	if err != nil {
+		return err
+	}
+	// A window longer than the epoch leaves no slot for a certificate.
+	var cutoff uint64
+	if nextEpoch > window {
+		cutoff = nextEpoch - window
+	}
+	if slot >= cutoff {
+		return MIRCertificateTooLateinEpochError{Slot: slot, Cutoff: cutoff}
 	}
 	return nil
 }
@@ -1052,7 +1341,11 @@ func UtxoValidateWithdrawals(
 //
 // The era-specific pool metadata URL bound (64 bytes before protocol version 9,
 // 128 thereafter) is enforced while decoding pool metadata, including genesis
-// pool configuration, rather than by the reference POOL predicate.
+// pool configuration, rather than by the reference POOL predicate. The relay
+// dns_name bound (64 bytes before protocol version 9, 128 thereafter) is also a
+// decoder bound in the reference; the wire decoder here carries no protocol
+// version, so registration applies it through
+// common.ValidatePoolRelaysForProtocolVersion.
 func UtxoValidatePoolCertificates(
 	tx common.Transaction,
 	slot uint64,
@@ -1217,6 +1510,12 @@ func validatePoolRegistration(
 ) error {
 	if err := common.ValidatePoolMetadataForProtocolVersion(
 		cert.PoolMetadata,
+		protocolMajor,
+	); err != nil {
+		return err
+	}
+	if err := common.ValidatePoolRelaysForProtocolVersion(
+		cert.Relays,
 		protocolMajor,
 	); err != nil {
 		return err

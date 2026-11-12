@@ -320,6 +320,12 @@ func EpochStateFor(ls LedgerState) (EpochState, bool) {
 	return ledgerStateCapabilityFor[EpochState](ls)
 }
 
+// StabilityWindowStateFor returns the first stability window provider in ls's
+// validation adapter chain.
+func StabilityWindowStateFor(ls LedgerState) (StabilityWindowState, bool) {
+	return ledgerStateCapabilityFor[StabilityWindowState](ls)
+}
+
 // UtxoValidateOutsideForecast requires a transaction's upper validity bound
 // to be convertible when the transaction has redeemers. SlotToTime is
 // supplied by the caller's validation state and carries its forecast

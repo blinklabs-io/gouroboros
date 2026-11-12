@@ -66,6 +66,13 @@ type BlockLedgerState struct {
 	committeeColdHot map[credOverlayKey]*credOverlayKey
 	proposals        map[GovActionId]GovActionState
 	mirPending       map[mirPendingKey]*big.Int
+	// mirTotals and mirTransfers hold, per pot, the change this block's
+	// certificates made to the pot's accumulated instantaneous rewards and
+	// to its pending pot-to-pot transfers.
+	mirTotals    map[uint]*big.Int
+	mirTransfers map[uint]*big.Int
+	// genesisFuture holds the genesis delegations this block scheduled.
+	genesisFuture []GenesisDelegation
 }
 
 // mirPendingKey identifies a credential's pending instantaneous rewards in
@@ -161,6 +168,8 @@ func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 		committeeColdHot: make(map[credOverlayKey]*credOverlayKey),
 		proposals:        make(map[GovActionId]GovActionState),
 		mirPending:       make(map[mirPendingKey]*big.Int),
+		mirTotals:        make(map[uint]*big.Int),
+		mirTransfers:     make(map[uint]*big.Int),
 	}
 }
 
@@ -374,6 +383,63 @@ func (b *BlockLedgerState) drep(cred Credential) *blockDRep {
 	return drep
 }
 
+// applyMoveInstantaneousRewards records the effect of a move instantaneous
+// rewards certificate on the pending rewards and pot totals. From the Alonzo
+// hard fork a certificate's deltas add to the credential's pending rewards;
+// before it they replace them (the left-biased Map.union of delegTransition in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs).
+func (b *BlockLedgerState) applyMoveInstantaneousRewards(
+	c *MoveInstantaneousRewardsCertificate,
+	pp ProtocolParameters,
+) error {
+	source := c.Reward.Source
+	if source > 1 {
+		return fmt.Errorf("invalid MIR source pot: %d", source)
+	}
+	adds := true
+	if versioned, ok := pp.(interface{ ProtocolMajorVersion() uint }); ok {
+		adds = MirTransferAllowed(versioned.ProtocolMajorVersion())
+	}
+	if c.Reward.Rewards == nil {
+		if adds {
+			amount := new(big.Int).SetUint64(c.Reward.OtherPot)
+			addBigInt(b.mirTransfers, source, new(big.Int).Neg(amount))
+			addBigInt(b.mirTransfers, 1-source, amount)
+		}
+		return nil
+	}
+	for cred, delta := range c.Reward.Rewards {
+		if cred == nil || delta == nil {
+			continue
+		}
+		change := new(big.Int).Set(delta)
+		if !adds {
+			pending, _, err := PendingInstantaneousRewardsFor(b, source, *cred)
+			if err != nil {
+				return err
+			}
+			change.Sub(change, pending)
+		}
+		key := mirPendingKey{source: source, cred: blockCredKey(*cred)}
+		prior := b.mirPending[key]
+		if prior == nil {
+			prior = new(big.Int)
+		}
+		b.mirPending[key] = new(big.Int).Add(prior, change)
+		addBigInt(b.mirTotals, source, change)
+	}
+	return nil
+}
+
+// addBigInt adds delta to m[key], creating the entry when it is missing.
+func addBigInt(m map[uint]*big.Int, key uint, delta *big.Int) {
+	total := new(big.Int)
+	if prior, ok := m[key]; ok {
+		total.Set(prior)
+	}
+	m[key] = total.Add(total, delta)
+}
+
 func (b *BlockLedgerState) applyCertificate(
 	cert Certificate,
 	pp ProtocolParameters,
@@ -408,16 +474,15 @@ func (b *BlockLedgerState) applyCertificate(
 	case *StakeVoteDelegationCertificate:
 		b.delegateVote(c.StakeCredential, c.Drep)
 	case *MoveInstantaneousRewardsCertificate:
-		for cred, delta := range c.Reward.Rewards {
-			if cred == nil || delta == nil {
-				continue
-			}
-			key := mirPendingKey{source: c.Reward.Source, cred: blockCredKey(*cred)}
-			total := new(big.Int).Set(delta)
-			if prior, ok := b.mirPending[key]; ok {
-				total.Add(total, prior)
-			}
-			b.mirPending[key] = total
+		if err := b.applyMoveInstantaneousRewards(c, pp); err != nil {
+			return err
+		}
+	case *GenesisKeyDelegationCertificate:
+		if delegation, err := GenesisDelegationFromCertificate(c); err == nil {
+			b.genesisFuture = ScheduleGenesisDelegation(
+				b.genesisFuture,
+				delegation,
+			)
 		}
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
@@ -976,15 +1041,19 @@ func blockLedgerStateChain(ls LedgerState) []*BlockLedgerState {
 // PendingInstantaneousRewardsFor returns the instantaneous rewards pending for
 // cred in the pot named by source: those the wrapped state reports through
 // PendingInstantaneousRewardsState plus those earlier transactions in the
-// block added. The boolean is false when the wrapped state does not implement
-// the capability, in which case the total holds only the block's deltas.
+// block added. A wrapped state without that capability whose
+// InstantaneousRewardsTotalsState reports nothing accumulated in the pot has
+// nothing pending for any credential. Otherwise the boolean is false and the
+// total holds only the block's deltas.
 func PendingInstantaneousRewardsFor(
 	ls LedgerState,
 	source uint,
 	cred Credential,
 ) (*big.Int, bool, error) {
 	total := new(big.Int)
-	base, known := UnwrapLedgerState(ls).(PendingInstantaneousRewardsState)
+	base, known := ledgerStateCapabilityFor[PendingInstantaneousRewardsState](
+		ls,
+	)
 	if known {
 		pending, err := base.PendingInstantaneousRewards(source, cred)
 		if err != nil {
@@ -992,6 +1061,17 @@ func PendingInstantaneousRewardsFor(
 		}
 		if pending != nil {
 			total.Set(pending)
+		}
+	} else {
+		totals, ok := ledgerStateCapabilityFor[InstantaneousRewardsTotalsState](
+			ls,
+		)
+		if ok {
+			accumulated, err := totals.InstantaneousRewardsTotal(source)
+			if err != nil {
+				return nil, false, err
+			}
+			known = accumulated == nil || accumulated.Sign() == 0
 		}
 	}
 	if b := findBlockLedgerState(ls); b != nil {
@@ -1003,6 +1083,123 @@ func PendingInstantaneousRewardsFor(
 		}
 	}
 	return total, known, nil
+}
+
+// InstantaneousRewardsTotalsFor returns the instantaneous rewards accumulated
+// for stake credentials in the pot named by source, and the pot's pending
+// pot-to-pot transfer: those the wrapped state reports through
+// InstantaneousRewardsTotalsState plus those earlier transactions in the block
+// added. The boolean is false when the wrapped state does not implement the
+// capability, in which case the totals are not meaningful.
+func InstantaneousRewardsTotalsFor(
+	ls LedgerState,
+	source uint,
+) (total, transfer *big.Int, known bool, err error) {
+	base, known := ledgerStateCapabilityFor[InstantaneousRewardsTotalsState](
+		ls,
+	)
+	if !known {
+		return nil, nil, false, nil
+	}
+	total, err = base.InstantaneousRewardsTotal(source)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	transfer, err = base.InstantaneousPotTransfer(source)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	// Copy so the provider's values are never mutated through the result.
+	total = new(big.Int).Set(orZero(total))
+	transfer = new(big.Int).Set(orZero(transfer))
+	if b := findBlockLedgerState(ls); b != nil {
+		if delta, ok := b.mirTotals[source]; ok {
+			total.Add(total, delta)
+		}
+		if delta, ok := b.mirTransfers[source]; ok {
+			transfer.Add(transfer, delta)
+		}
+	}
+	return total, transfer, true, nil
+}
+
+func orZero(v *big.Int) *big.Int {
+	if v == nil {
+		return new(big.Int)
+	}
+	return v
+}
+
+// GenesisDelegationFromCertificate returns the delegation a genesis key
+// delegation certificate schedules, or an error when one of its hashes has the
+// wrong length.
+func GenesisDelegationFromCertificate(
+	cert *GenesisKeyDelegationCertificate,
+) (GenesisDelegation, error) {
+	genesis, err := NewBlake2b224Checked(cert.GenesisHash)
+	if err != nil {
+		return GenesisDelegation{}, fmt.Errorf("genesis key hash: %w", err)
+	}
+	delegate, err := NewBlake2b224Checked(cert.GenesisDelegateHash)
+	if err != nil {
+		return GenesisDelegation{}, fmt.Errorf("genesis delegate hash: %w", err)
+	}
+	return GenesisDelegation{
+		GenesisKeyHash:  genesis,
+		DelegateKeyHash: delegate,
+		VrfKeyHash:      Blake2b256(cert.VrfKeyHash),
+	}, nil
+}
+
+// GenesisDelegationsFor returns the genesis delegations at slot: current and
+// future are those the wrapped state reports through
+// GenesisDelegationRegistryState, and scheduled holds those earlier
+// transactions in the block scheduled, at most one per genesis key. The
+// boolean is false when the wrapped state does not implement the capability.
+//
+// Every certificate in a block shares its slot, and so its activation slot,
+// which keys the reference futureGenDelegs map together with the genesis key.
+// A later certificate in the block for a genesis key therefore replaces the
+// scheduled entry (see ScheduleGenesisDelegation), while a future delegation
+// from an earlier slot stays.
+func GenesisDelegationsFor(
+	ls LedgerState,
+	slot uint64,
+) (current, future, scheduled []GenesisDelegation, known bool, err error) {
+	base, known := ledgerStateCapabilityFor[GenesisDelegationRegistryState](
+		ls,
+	)
+	if !known {
+		return nil, nil, nil, false, nil
+	}
+	current, err = base.CurrentGenesisDelegations(slot)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	future, err = base.FutureGenesisDelegations(slot)
+	if err != nil {
+		return nil, nil, nil, false, err
+	}
+	if b := findBlockLedgerState(ls); b != nil {
+		scheduled = slices.Clone(b.genesisFuture)
+	}
+	return current, slices.Clone(future), scheduled, true, nil
+}
+
+// ScheduleGenesisDelegation returns scheduled with delegation added, replacing
+// the entry for the same genesis key. scheduled must hold only delegations
+// scheduled in the current slot, which share their activation slot.
+func ScheduleGenesisDelegation(
+	scheduled []GenesisDelegation,
+	delegation GenesisDelegation,
+) []GenesisDelegation {
+	for i, other := range scheduled {
+		if other.GenesisKeyHash == delegation.GenesisKeyHash {
+			scheduled[i] = delegation
+			return scheduled
+		}
+	}
+	return append(scheduled, delegation)
 }
 
 // StakeCredentialDepositStateFor returns ls's StakeCredentialDepositState

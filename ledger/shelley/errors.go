@@ -226,6 +226,57 @@ func (e DelegateUnregisteredStakeCredentialError) Error() string {
 	)
 }
 
+// StakeKeyAlreadyRegisteredError indicates a stake registration certificate
+// for a credential that is already registered.
+//
+// Reference: AccountAlreadyRegistered (DelegAccountAlreadyRegistered) in
+// delegationTransition, eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyAlreadyRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeKeyAlreadyRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake credential already registered: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeKeyNotRegisteredError indicates a stake deregistration certificate for
+// a credential that is not registered.
+//
+// Reference: StakeKeyNotRegisteredDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyNotRegisteredError struct {
+	Credential common.Credential
+}
+
+func (e StakeKeyNotRegisteredError) Error() string {
+	return fmt.Sprintf(
+		"stake deregistration of unregistered credential: %x",
+		e.Credential.Credential[:],
+	)
+}
+
+// StakeKeyNonZeroAccountBalanceError indicates a stake deregistration
+// certificate for a credential whose reward balance, after the transaction's
+// withdrawals, is not zero. Balance is the remaining balance.
+//
+// Reference: StakeKeyNonZeroAccountBalanceDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type StakeKeyNonZeroAccountBalanceError struct {
+	Credential common.Credential
+	Balance    uint64
+}
+
+func (e StakeKeyNonZeroAccountBalanceError) Error() string {
+	return fmt.Sprintf(
+		"stake deregistration with non-zero reward balance: credential %x balance %d",
+		e.Credential.Credential[:],
+		e.Balance,
+	)
+}
+
 // MIRNegativesNotCurrentlyAllowedError indicates a move instantaneous rewards
 // certificate carrying a negative reward delta at a protocol version before
 // the Alonzo hard fork, which is the first version that permits one.
@@ -304,6 +355,127 @@ func (e MIRProducesNegativeUpdateError) Error() string {
 		pending,
 		delta,
 		pendingAfter,
+	)
+}
+
+// MIRCertificateTooLateinEpochError indicates a move instantaneous rewards
+// certificate in a slot at or after the cutoff: the first slot of the next
+// epoch minus the stability window.
+//
+// Reference: MIRCertificateTooLateinEpochDELEG in checkSlotNotTooLate,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type MIRCertificateTooLateinEpochError struct {
+	Slot   uint64
+	Cutoff uint64
+}
+
+func (e MIRCertificateTooLateinEpochError) Error() string {
+	return fmt.Sprintf(
+		"instantaneous rewards certificate too late in epoch: slot %d cutoff %d",
+		e.Slot,
+		e.Cutoff,
+	)
+}
+
+// InsufficientForInstantaneousRewardsError indicates a move instantaneous
+// rewards certificate that would leave the stake credential rewards
+// accumulated in a pot exceeding what the pot holds. Required is the total
+// accumulated after the certificate and Available is the pot plus its pending
+// pot-to-pot transfers.
+//
+// Reference: InsufficientForInstantaneousRewardsDELEG in
+// updateReservesAndTreasury,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type InsufficientForInstantaneousRewardsError struct {
+	Source    uint
+	Required  *big.Int
+	Available *big.Int
+}
+
+func (e InsufficientForInstantaneousRewardsError) Error() string {
+	return fmt.Sprintf(
+		"insufficient funds for instantaneous rewards: source pot %d required %s available %s",
+		e.Source,
+		bigIntString(e.Required),
+		bigIntString(e.Available),
+	)
+}
+
+// InsufficientForTransferError indicates a pot-to-pot move instantaneous
+// rewards certificate that moves more than the pot holds after its pending
+// instantaneous rewards and transfers. Available may be negative.
+//
+// Reference: InsufficientForTransferDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type InsufficientForTransferError struct {
+	Source    uint
+	Amount    uint64
+	Available *big.Int
+}
+
+func (e InsufficientForTransferError) Error() string {
+	return fmt.Sprintf(
+		"insufficient funds for pot-to-pot transfer: source pot %d amount %d available %s",
+		e.Source,
+		e.Amount,
+		bigIntString(e.Available),
+	)
+}
+
+func bigIntString(v *big.Int) string {
+	if v == nil {
+		return "nil"
+	}
+	return v.String()
+}
+
+// GenesisKeyNotInMappingError indicates a genesis key delegation certificate
+// for a genesis key that is not in the genesis delegation map.
+//
+// Reference: GenesisKeyNotInMappingDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type GenesisKeyNotInMappingError struct {
+	GenesisKeyHash common.Blake2b224
+}
+
+func (e GenesisKeyNotInMappingError) Error() string {
+	return fmt.Sprintf(
+		"genesis key not in genesis delegation mapping: %x",
+		e.GenesisKeyHash[:],
+	)
+}
+
+// DuplicateGenesisDelegateError indicates a genesis key delegation
+// certificate whose delegate key hash is already the delegate, current or
+// scheduled, of another genesis key.
+//
+// Reference: DuplicateGenesisDelegateDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type DuplicateGenesisDelegateError struct {
+	DelegateKeyHash common.Blake2b224
+}
+
+func (e DuplicateGenesisDelegateError) Error() string {
+	return fmt.Sprintf(
+		"genesis delegate already delegated to by another genesis key: %x",
+		e.DelegateKeyHash[:],
+	)
+}
+
+// DuplicateGenesisVRFError indicates a genesis key delegation certificate
+// whose VRF key hash is already used by the delegate, current or scheduled, of
+// another genesis key.
+//
+// Reference: DuplicateGenesisVRFDELEG in delegationTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
+type DuplicateGenesisVRFError struct {
+	VrfKeyHash common.Blake2b256
+}
+
+func (e DuplicateGenesisVRFError) Error() string {
+	return fmt.Sprintf(
+		"genesis delegate VRF key already used by another genesis key: %x",
+		e.VrfKeyHash[:],
 	)
 }
 
