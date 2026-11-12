@@ -331,6 +331,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleAccountBalanceIntervals,
 				common.UtxoValidationRuleTreasuryDonationScripts,
 				common.UtxoValidationRuleValueNotConserved,
+				common.UtxoValidationRuleValueNotConservedLegacyMode,
 				common.UtxoValidationRuleOutputTooSmall,
 				common.UtxoValidationRuleOutputTooBig,
 				common.UtxoValidationRuleOutputBootAddrAttrsTooBig,

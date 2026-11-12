@@ -197,6 +197,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateValueNotConservedUtxo,
 	},
 	{
+		Id:        common.UtxoValidationRuleValueNotConservedLegacyMode,
+		Validator: UtxoValidateValueNotConservedLegacyModeUtxo,
+	},
+	{
 		Id:        common.UtxoValidationRuleOutputTooSmall,
 		Validator: UtxoValidateOutputTooSmallUtxo,
 	},
@@ -366,6 +370,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleTreasuryDonationScripts:      dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleValueNotConservedLegacyMode:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputBootAddrAttrsTooBig:    dijkstraUtxoValidationAlways,
@@ -2276,6 +2281,89 @@ func UtxoValidateValueNotConservedUtxo(
 		ls,
 		tmpPparams,
 	)
+}
+
+// UtxoValidateValueNotConservedLegacyModeUtxo repeats value conservation for
+// the top-level body alone when the transaction is in Plutus legacy mode.
+// The sub-transactions are removed, and the body is judged against the pool,
+// stake and DRep state as the sub-transactions left it, so a pool a
+// sub-transaction already registered owes no second deposit and a credential
+// a sub-transaction registered can be deregistered at the top level. Legacy-mode scripts cannot see
+// the sub-transactions, so the top-level body must balance on its own.
+// Like UtxoValidateValueNotConservedUtxo, the production rule list skips it
+// for phase-2-invalid transactions.
+func UtxoValidateValueNotConservedLegacyModeUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	if len(subTxs) == 0 {
+		// Without sub-transactions the batch check already covers exactly
+		// the top-level body; script resolution is not needed.
+		return nil
+	}
+	levels, _, err := dijkstraScriptLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	if !dijkstraPlutusLegacyMode(levels[len(levels)-1]) {
+		return nil
+	}
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	directDeposits := new(big.Int)
+	for _, amount := range dijkstraTx.Body.TxDirectDeposits {
+		directDeposits.Add(directDeposits, new(big.Int).SetUint64(amount))
+	}
+	donations := new(big.Int)
+	if donation := dijkstraTx.Body.Donation(); donation != nil {
+		donations.Set(donation)
+	}
+	var view common.Transaction = dijkstraTx
+	if directDeposits.Sign() > 0 || donations.Sign() > 0 {
+		view = dijkstraProducedAdjustmentTransaction{
+			Transaction:    dijkstraTx,
+			directDeposits: directDeposits,
+			donations:      donations,
+		}
+	}
+	effects, err := dijkstraTx.LedgerEffectLevels()
+	if err != nil {
+		return err
+	}
+	state := common.NewBlockLedgerState(ls)
+	for _, level := range effects[:len(effects)-1] {
+		if err := state.ApplyCertificateDepositLevel(level, pp); err != nil {
+			return err
+		}
+		if err := state.ApplyPoolCertificates(
+			level.Body.Certificates(),
+		); err != nil {
+			return err
+		}
+	}
+	err = conway.UtxoValidateValueNotConservedUtxo(
+		view,
+		slot,
+		state,
+		tmpPparams,
+	)
+	var notConserved shelley.ValueNotConservedUtxoError
+	if errors.As(err, &notConserved) {
+		return ValueNotConservedInLegacyModeError{
+			Consumed: notConserved.Consumed,
+			Produced: notConserved.Produced,
+		}
+	}
+	return err
 }
 
 // UtxoValidateBadInputsUtxo requires every transaction level's inputs to

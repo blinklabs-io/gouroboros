@@ -268,6 +268,7 @@ func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 		common.UtxoValidationRuleBootstrapAllowedGovActions:  {},
 		common.UtxoValidationRuleBatchWithdrawals:            {},
 		common.UtxoValidationRuleAccountBalanceIntervals:     {},
+		common.UtxoValidationRuleValueNotConservedLegacyMode: {},
 		common.UtxoValidationRuleDelegation:                  {},
 		common.UtxoValidationRuleWithdrawals:                 {},
 		common.UtxoValidationRuleCertificateDeposits:         {},
