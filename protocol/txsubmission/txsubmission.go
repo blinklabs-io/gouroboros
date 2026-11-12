@@ -157,13 +157,17 @@ type Config struct {
 	// OnDone is an optional notification called on the server when the
 	// client ends the session with Done.
 	OnDone func(connection.ConnectionId)
-	// MaxTxSize is the largest transaction body, in bytes, the server
-	// accepts from a peer, normally the ledger's maximum transaction size.
-	// The server refuses an advertised size or a received body above it as a
-	// protocol violation, and checks the body length before any decoding.
-	// Zero or a negative value selects MaxTxSizeBytes, and a value above
-	// MaxTxSizeBytes is clamped to it. The client validates its own
-	// RequestTxsFunc output against MaxTxSizeBytes only.
+	// MaxTxSize is the largest transaction body, in bytes, the server accepts
+	// in a ReplyTxs, normally the ledger's maximum transaction size. The server
+	// checks the body length against it before decoding the body and refuses a
+	// longer body as a protocol violation, so it should not be below the size
+	// of a transaction a peer may still legitimately relay, such as across a
+	// change of the ledger limit. Advertised sizes in ReplyTxIds are checked
+	// against MaxTxSizeBytes instead, because a peer advertises the wrapped
+	// wire size, a few bytes more than the body. Zero or a negative value
+	// selects MaxTxSizeBytes, and a value above MaxTxSizeBytes is clamped to
+	// it. The client validates its own RequestTxsFunc output against
+	// MaxTxSizeBytes only.
 	MaxTxSize int
 }
 

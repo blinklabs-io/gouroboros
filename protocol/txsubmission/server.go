@@ -401,10 +401,7 @@ func (s *Server) handleReplyTxIds(msg protocol.Message) error {
 		msgReplyTxIds.TxIds,
 	)
 	if err == nil {
-		err = checkAdvertisedTxSizes(
-			msgReplyTxIds.TxIds,
-			s.config.effectiveMaxTxSize(),
-		)
+		err = checkAdvertisedTxSizes(msgReplyTxIds.TxIds)
 	}
 	s.stateMu.Lock()
 	if s.pendingTxIds != pending {

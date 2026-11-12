@@ -67,15 +67,19 @@ func requestedTxIdsAreOutstanding(
 }
 
 // checkAdvertisedTxSizes refuses an announcement whose advertised size
-// exceeds maxTxSize, as the reference implementation does for max_TX_SIZE.
-func checkAdvertisedTxSizes(reply []TxIdAndSize, maxTxSize int) error {
+// exceeds MaxTxSizeBytes, as the reference implementation does for
+// max_TX_SIZE. It deliberately ignores Config.MaxTxSize: a peer advertises the
+// wrapped wire size of a reply item, a few bytes more than the body that
+// limit is compared with, so a body exactly at the limit is advertised above
+// it.
+func checkAdvertisedTxSizes(reply []TxIdAndSize) error {
 	for _, txIdAndSize := range reply {
-		if int64(txIdAndSize.Size) > int64(maxTxSize) {
+		if txIdAndSize.Size > MaxTxSizeBytes {
 			return invalidTxSubmissionMessage(
 				"transaction ID %x advertised size %d exceeds the limit %d",
 				txIdAndSize.TxId.TxId,
 				txIdAndSize.Size,
-				maxTxSize,
+				MaxTxSizeBytes,
 			)
 		}
 	}

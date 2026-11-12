@@ -488,7 +488,7 @@ func TestServerRequestTxIdsRejectsAdvertisedSizeOverLimit(t *testing.T) {
 		cfg   Config
 		limit uint32
 	}{
-		"configured": {NewConfig(WithMaxTxSize(1024)), 1024},
+		"configured": {NewConfig(WithMaxTxSize(1024)), MaxTxSizeBytes},
 		"default":    {Config{}, MaxTxSizeBytes},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -526,6 +526,33 @@ func TestServerRequestTxIdsAcceptsAdvertisedSizeAtLimit(t *testing.T) {
 		NewConfig(WithMaxTxSize(1024)),
 	)
 	peer.announceTxIds(t, []TxIdAndSize{
-		{TxId: testTxId(uint16(ledger.TxTypeShelley), 0x01), Size: 1024},
+		{
+			TxId: testTxId(uint16(ledger.TxTypeShelley), 0x01),
+			Size: MaxTxSizeBytes,
+		},
 	})
+}
+
+func TestServerRequestTxsAcceptsWireSizeAdvertisementAtConfiguredLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+	body, txId := testShelleyTxBody(t, 1)
+	// A cardano-node peer advertises the size of the whole wrapped reply
+	// item, [eraId, #6.24(bytes)], which exceeds the body by a few bytes. A
+	// limit equal to the body length must still admit it.
+	wireItem, err := cbor.Encode(&body)
+	require.NoError(t, err)
+	require.Greater(t, len(wireItem), len(body.TxBody))
+	peer := newReplyValidationPeerWithConfig(
+		t,
+		NewConfig(WithMaxTxSize(len(body.TxBody))),
+	)
+	peer.announceTxIds(t, []TxIdAndSize{
+		{TxId: txId, Size: uint32(len(wireItem))},
+	})
+
+	got, err := peer.requestTxs(t, []TxId{txId}, []TxBody{body})
+	require.NoError(t, err)
+	require.Equal(t, []TxBody{body}, got)
 }
