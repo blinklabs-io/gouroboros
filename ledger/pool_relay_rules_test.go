@@ -90,6 +90,7 @@ func TestPoolRelayHostnameBoundThroughPoolRule(t *testing.T) {
 				{"Conway 64 bytes", common.ProtocolVersionConway, 64, false},
 				{"Conway 100 bytes", common.ProtocolVersionConway, 100, false},
 				{"Conway 128 bytes", common.ProtocolVersionConway, 128, false},
+				{"Conway 129 bytes", common.ProtocolVersionConway, 129, true},
 			} {
 				t.Run(
 					era.name+"/"+relayType.name+"/"+test.name,
