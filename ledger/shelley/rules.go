@@ -791,8 +791,10 @@ func UtxoValidateDelegation(
 		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
 	}
 
-	// Withdrawals are applied before the certificates, so a credential the
-	// transaction withdraws from has an empty account at deregistration.
+	// Withdrawals are applied before the certificates, and
+	// UtxoValidateWithdrawals rejects one that does not drain its account,
+	// so a credential the transaction withdraws from has an empty account at
+	// deregistration.
 	withdrawn := make(map[stakeCredentialKey]struct{})
 	for addr := range tx.Withdrawals() {
 		if addr == nil {
@@ -876,13 +878,18 @@ func UtxoValidateDelegation(
 type genesisDelegations struct {
 	current []common.GenesisDelegation
 	future  []common.GenesisDelegation
+	// scheduled holds this slot's delegations, keyed by genesis key.
+	scheduled []common.GenesisDelegation
 }
 
 func (g *genesisDelegations) load(
 	ls common.LedgerState,
 	slot uint64,
 ) error {
-	current, future, known, err := common.GenesisDelegationsFor(ls, slot)
+	current, future, scheduled, known, err := common.GenesisDelegationsFor(
+		ls,
+		slot,
+	)
 	if err != nil {
 		return err
 	}
@@ -891,13 +898,14 @@ func (g *genesisDelegations) load(
 	}
 	g.current = current
 	g.future = future
+	g.scheduled = scheduled
 	return nil
 }
 
 // apply checks a genesis key delegation certificate and schedules its
-// delegation. The delegate and VRF key may not belong to any other genesis
-// key, current or scheduled; the certificate's own genesis key may reuse its
-// keys.
+// delegation, replacing one this slot scheduled for the same genesis key. The
+// delegate and VRF key may not belong to any other genesis key, current or
+// scheduled; the certificate's own genesis key may reuse its keys.
 //
 // Reference: the GenesisDelegTxCert case of delegationTransition,
 // eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs.
@@ -924,7 +932,11 @@ func (g *genesisDelegations) apply(
 	}
 	var otherDelegates []common.Blake2b224
 	var otherVrfs []common.Blake2b256
-	for _, others := range [][]common.GenesisDelegation{g.current, g.future} {
+	for _, others := range [][]common.GenesisDelegation{
+		g.current,
+		g.future,
+		g.scheduled,
+	} {
 		for _, other := range others {
 			if other.GenesisKeyHash == genesisKey {
 				continue
@@ -941,7 +953,7 @@ func (g *genesisDelegations) apply(
 	if slices.Contains(otherVrfs, delegation.VrfKeyHash) {
 		return DuplicateGenesisVRFError{VrfKeyHash: delegation.VrfKeyHash}
 	}
-	g.future = append(g.future, delegation)
+	g.scheduled = common.ScheduleGenesisDelegation(g.scheduled, delegation)
 	return nil
 }
 
@@ -960,9 +972,11 @@ func (g *genesisDelegations) apply(
 // rejected when it drives the credential's pending rewards in its pot below
 // zero (MIRProducesNegativeUpdate); the pending rewards are those the ledger
 // state reports through common.PendingInstantaneousRewardsState plus the
-// deltas of earlier certificates in the block and transaction. When the state
-// does not report them, a delta those deltas do not cover is rejected with
-// PendingInstantaneousRewardsUnavailableError.
+// deltas of earlier certificates in the block and transaction. A state that
+// does not report them but reports nothing accumulated in the pot through
+// common.InstantaneousRewardsTotalsState has nothing pending. Otherwise a
+// pre-Alonzo certificate, or a delta those deltas do not cover, is rejected
+// with PendingInstantaneousRewardsUnavailableError.
 //
 // The rewards accumulated for stake credentials in a pot may not exceed the
 // pot (InsufficientForInstantaneousRewardsError), and a pot-to-pot transfer
@@ -1126,7 +1140,7 @@ func validateMirCertificates(
 			}
 			sum.Add(sum, delta)
 			if !allowed {
-				if !total.known && pot.accumulated.Sign() != 0 {
+				if !total.known {
 					return PendingInstantaneousRewardsUnavailableError{
 						Credential: tmpCred,
 						Source:     reward.Source,

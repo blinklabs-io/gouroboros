@@ -431,3 +431,96 @@ func TestVerifyTransactionCacheIsSafeForConcurrentRules(t *testing.T) {
 	)
 	require.NoError(t, err)
 }
+
+// mirGenesisAdapterState is a validation adapter that itself provides the
+// MIR and genesis delegation capabilities its wrapped state lacks.
+type mirGenesisAdapterState struct {
+	common.LedgerState
+}
+
+func (s mirGenesisAdapterState) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
+}
+
+func (mirGenesisAdapterState) InstantaneousRewardsTotal(
+	uint,
+) (*big.Int, error) {
+	return big.NewInt(7), nil
+}
+
+func (mirGenesisAdapterState) InstantaneousPotTransfer(
+	uint,
+) (*big.Int, error) {
+	return big.NewInt(3), nil
+}
+
+func (mirGenesisAdapterState) PendingInstantaneousRewards(
+	uint,
+	common.Credential,
+) (*big.Int, error) {
+	return big.NewInt(5), nil
+}
+
+func (mirGenesisAdapterState) CurrentGenesisDelegations(
+	uint64,
+) ([]common.GenesisDelegation, error) {
+	return []common.GenesisDelegation{
+		{GenesisKeyHash: common.Blake2b224{1}},
+	}, nil
+}
+
+func (mirGenesisAdapterState) FutureGenesisDelegations(
+	uint64,
+) ([]common.GenesisDelegation, error) {
+	return []common.GenesisDelegation{
+		{GenesisKeyHash: common.Blake2b224{2}},
+	}, nil
+}
+
+// TestDelegCapabilityLookupPreservesImplementingAdapter covers the DELEG
+// capability lookups against an adapter that implements the capability
+// itself, both as the state the rule receives and beneath a block view.
+func TestDelegCapabilityLookupPreservesImplementingAdapter(t *testing.T) {
+	t.Parallel()
+	adapter := mirGenesisAdapterState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+	}
+	for name, ls := range map[string]common.LedgerState{
+		"adapter":    adapter,
+		"block view": common.NewBlockLedgerState(adapter),
+		"nested block views": common.NewBlockLedgerState(
+			common.NewBlockLedgerState(adapter),
+		),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			total, transfer, known, err := common.InstantaneousRewardsTotalsFor(
+				ls,
+				0,
+			)
+			require.NoError(t, err)
+			require.True(t, known)
+			require.Equal(t, "7", total.String())
+			require.Equal(t, "3", transfer.String())
+
+			pending, known, err := common.PendingInstantaneousRewardsFor(
+				ls,
+				0,
+				common.Credential{},
+			)
+			require.NoError(t, err)
+			require.True(t, known)
+			require.Equal(t, "5", pending.String())
+
+			current, future, scheduled, known, err := common.GenesisDelegationsFor(
+				ls,
+				0,
+			)
+			require.NoError(t, err)
+			require.True(t, known)
+			require.Len(t, current, 1)
+			require.Len(t, future, 1)
+			require.Empty(t, scheduled)
+		})
+	}
+}

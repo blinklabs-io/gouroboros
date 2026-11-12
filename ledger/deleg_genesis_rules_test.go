@@ -304,3 +304,86 @@ func TestDelegGenesisKeyDelegationEarlierTransactionsInBlock(t *testing.T) {
 	require.NoError(t, validate(genesisDelegCert(0x01, 0x31, 0x41)))
 	require.NoError(t, validate(genesisDelegCert(0x02, 0x32, 0x42)))
 }
+
+// TestDelegGenesisKeyDelegationSameSlotReplaces pins the futureGenDelegs key
+// of the reference rule, the activation slot and the genesis key: every
+// certificate in a block shares the slot, so a later certificate for a genesis
+// key replaces the delegation an earlier one in the block scheduled, while a
+// delegation scheduled in an earlier slot stays.
+func TestDelegGenesisKeyDelegationSameSlotReplaces(t *testing.T) {
+	t.Parallel()
+
+	pparams := maryPparams(0)
+	validate := func(
+		ls common.LedgerState,
+		certs ...common.Certificate,
+	) error {
+		return shelley.UtxoValidateDelegation(
+			poolCertTx(certs...), 0, ls, pparams,
+		)
+	}
+
+	t.Run("within a transaction", func(t *testing.T) {
+		t.Parallel()
+		require.NoError(t, validate(
+			newGenesisRegistry(),
+			genesisDelegCert(0x01, 0x31, 0x41),
+			genesisDelegCert(0x01, 0x32, 0x42),
+			genesisDelegCert(0x02, 0x31, 0x41),
+		))
+	})
+
+	t.Run("across transactions in a block", func(t *testing.T) {
+		t.Parallel()
+		block := common.NewBlockLedgerState(newGenesisRegistry())
+		for _, cert := range []common.Certificate{
+			genesisDelegCert(0x01, 0x31, 0x41),
+			genesisDelegCert(0x01, 0x32, 0x42),
+		} {
+			require.NoError(
+				t,
+				block.ApplyTransaction(poolCertTx(cert), pparams),
+			)
+		}
+		require.NoError(t, validate(block, genesisDelegCert(0x02, 0x31, 0x41)))
+		var delegate shelley.DuplicateGenesisDelegateError
+		require.ErrorAs(
+			t,
+			validate(block, genesisDelegCert(0x02, 0x32, 0x43)),
+			&delegate,
+		)
+	})
+
+	t.Run(
+		"a transaction replaces an earlier one in the block",
+		func(t *testing.T) {
+			t.Parallel()
+			block := common.NewBlockLedgerState(newGenesisRegistry())
+			require.NoError(t, block.ApplyTransaction(
+				poolCertTx(genesisDelegCert(0x01, 0x31, 0x41)),
+				pparams,
+			))
+			require.NoError(t, validate(
+				block,
+				genesisDelegCert(0x01, 0x32, 0x42),
+				genesisDelegCert(0x02, 0x31, 0x41),
+			))
+		},
+	)
+
+	t.Run("an earlier slot's delegation stays", func(t *testing.T) {
+		t.Parallel()
+		var delegate shelley.DuplicateGenesisDelegateError
+		require.ErrorAs(t, validate(
+			newGenesisRegistry(),
+			genesisDelegCert(0x01, 0x31, 0x41),
+			genesisDelegCert(0x02, 0x13, 0x43),
+		), &delegate)
+		var vrf shelley.DuplicateGenesisVRFError
+		require.ErrorAs(t, validate(
+			newGenesisRegistry(),
+			genesisDelegCert(0x01, 0x31, 0x41),
+			genesisDelegCert(0x02, 0x33, 0x23),
+		), &vrf)
+	})
+}

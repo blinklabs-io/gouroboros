@@ -105,10 +105,11 @@ func (mirTotalsOnlyLedgerState) InstantaneousPotTransfer(
 	return new(big.Int), nil
 }
 
-// mirNoPendingLedgerState provides the epoch-end and pot-total capabilities
-// with nothing accumulated, and no PendingInstantaneousRewardsState.
+// mirNoPendingLedgerState provides the epoch-end and pot-total capabilities,
+// with accumulated in each pot, and no PendingInstantaneousRewardsState.
 type mirNoPendingLedgerState struct {
 	common.LedgerState
+	accumulated int64
 }
 
 func (mirNoPendingLedgerState) NextEpochFirstSlot(uint64) (uint64, error) {
@@ -119,10 +120,10 @@ func (mirNoPendingLedgerState) StabilityWindow() (uint64, error) {
 	return 100, nil
 }
 
-func (mirNoPendingLedgerState) InstantaneousRewardsTotal(
+func (s mirNoPendingLedgerState) InstantaneousRewardsTotal(
 	uint,
 ) (*big.Int, error) {
-	return new(big.Int), nil
+	return big.NewInt(s.accumulated), nil
 }
 
 func (mirNoPendingLedgerState) InstantaneousPotTransfer(
@@ -743,5 +744,53 @@ func TestDelegMIREarlierTransactionsInBlockCount(t *testing.T) {
 		var target shelley.InsufficientForInstantaneousRewardsError
 		require.ErrorAs(t, validate(t, pparams, block, pay(401)), &target)
 		assert.Equal(t, "501", target.Required.String())
+	})
+}
+
+// TestDelegMIRPreAlonzoZeroTotalsLeavePendingKnown covers a ledger state
+// without PendingInstantaneousRewardsState that reports nothing accumulated
+// in the pot: every credential's pending rewards are then zero, so a later
+// certificate for a credential an earlier one in the block paid replaces that
+// amount.
+func TestDelegMIRPreAlonzoZeroTotalsLeavePendingKnown(t *testing.T) {
+	t.Parallel()
+
+	const pot = 1_000_000_000_000
+	pparams := maryPparams(0)
+	validate := func(ls common.LedgerState, certs ...common.Certificate) error {
+		return shelley.UtxoValidateDelegation(
+			poolCertTx(certs...), 0, ls, pparams,
+		)
+	}
+	pay := func(cred byte, amount int64) common.Certificate {
+		return mirPay(mirReserves, map[byte]*big.Int{cred: big.NewInt(amount)})
+	}
+
+	t.Run("within a transaction", func(t *testing.T) {
+		t.Parallel()
+		// Replacement leaves pot in use; addition would need twice that.
+		require.NoError(t, validate(
+			newMirNoPendingState(), pay(0xab, pot), pay(0xab, pot),
+		))
+		var target shelley.InsufficientForInstantaneousRewardsError
+		require.ErrorAs(t, validate(
+			newMirNoPendingState(), pay(0xab, pot), pay(0xab, pot+1),
+		), &target)
+		require.NoError(t, validate(
+			newMirNoPendingState(), pay(0xab, 1), pay(0xcd, 1),
+		))
+	})
+
+	t.Run("across transactions in a block", func(t *testing.T) {
+		t.Parallel()
+		block := common.NewBlockLedgerState(newMirNoPendingState())
+		require.NoError(t, block.ApplyTransaction(
+			poolCertTx(pay(0xab, 300)),
+			pparams,
+		))
+		require.NoError(t, validate(block, pay(0xab, pot)))
+		require.NoError(t, validate(block, pay(0xcd, pot-300)))
+		var target shelley.InsufficientForInstantaneousRewardsError
+		require.ErrorAs(t, validate(block, pay(0xcd, pot-299)), &target)
 	})
 }

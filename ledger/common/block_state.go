@@ -479,7 +479,10 @@ func (b *BlockLedgerState) applyCertificate(
 		}
 	case *GenesisKeyDelegationCertificate:
 		if delegation, err := GenesisDelegationFromCertificate(c); err == nil {
-			b.genesisFuture = append(b.genesisFuture, delegation)
+			b.genesisFuture = ScheduleGenesisDelegation(
+				b.genesisFuture,
+				delegation,
+			)
 		}
 	case *RegistrationDrepCertificate:
 		deposit := blockAmount(c.Amount)
@@ -1038,15 +1041,19 @@ func blockLedgerStateChain(ls LedgerState) []*BlockLedgerState {
 // PendingInstantaneousRewardsFor returns the instantaneous rewards pending for
 // cred in the pot named by source: those the wrapped state reports through
 // PendingInstantaneousRewardsState plus those earlier transactions in the
-// block added. The boolean is false when the wrapped state does not implement
-// the capability, in which case the total holds only the block's deltas.
+// block added. A wrapped state without that capability whose
+// InstantaneousRewardsTotalsState reports nothing accumulated in the pot has
+// nothing pending for any credential. Otherwise the boolean is false and the
+// total holds only the block's deltas.
 func PendingInstantaneousRewardsFor(
 	ls LedgerState,
 	source uint,
 	cred Credential,
 ) (*big.Int, bool, error) {
 	total := new(big.Int)
-	base, known := UnwrapLedgerState(ls).(PendingInstantaneousRewardsState)
+	base, known := ledgerStateCapabilityFor[PendingInstantaneousRewardsState](
+		ls,
+	)
 	if known {
 		pending, err := base.PendingInstantaneousRewards(source, cred)
 		if err != nil {
@@ -1054,6 +1061,17 @@ func PendingInstantaneousRewardsFor(
 		}
 		if pending != nil {
 			total.Set(pending)
+		}
+	} else {
+		totals, ok := ledgerStateCapabilityFor[InstantaneousRewardsTotalsState](
+			ls,
+		)
+		if ok {
+			accumulated, err := totals.InstantaneousRewardsTotal(source)
+			if err != nil {
+				return nil, false, err
+			}
+			known = accumulated == nil || accumulated.Sign() == 0
 		}
 	}
 	if b := findBlockLedgerState(ls); b != nil {
@@ -1077,7 +1095,9 @@ func InstantaneousRewardsTotalsFor(
 	ls LedgerState,
 	source uint,
 ) (total, transfer *big.Int, known bool, err error) {
-	base, known := UnwrapLedgerState(ls).(InstantaneousRewardsTotalsState)
+	base, known := ledgerStateCapabilityFor[InstantaneousRewardsTotalsState](
+		ls,
+	)
 	if !known {
 		return nil, nil, false, nil
 	}
@@ -1131,32 +1151,55 @@ func GenesisDelegationFromCertificate(
 	}, nil
 }
 
-// GenesisDelegationsFor returns the current and scheduled genesis delegations
-// at slot: those the wrapped state reports through
-// GenesisDelegationRegistryState, with the delegations earlier transactions in
-// the block scheduled appended to the scheduled ones. The boolean is false
-// when the wrapped state does not implement the capability.
+// GenesisDelegationsFor returns the genesis delegations at slot: current and
+// future are those the wrapped state reports through
+// GenesisDelegationRegistryState, and scheduled holds those earlier
+// transactions in the block scheduled, at most one per genesis key. The
+// boolean is false when the wrapped state does not implement the capability.
+//
+// Every certificate in a block shares its slot, and so its activation slot,
+// which keys the reference futureGenDelegs map together with the genesis key.
+// A later certificate in the block for a genesis key therefore replaces the
+// scheduled entry (see ScheduleGenesisDelegation), while a future delegation
+// from an earlier slot stays.
 func GenesisDelegationsFor(
 	ls LedgerState,
 	slot uint64,
-) (current, future []GenesisDelegation, known bool, err error) {
-	base, known := UnwrapLedgerState(ls).(GenesisDelegationRegistryState)
+) (current, future, scheduled []GenesisDelegation, known bool, err error) {
+	base, known := ledgerStateCapabilityFor[GenesisDelegationRegistryState](
+		ls,
+	)
 	if !known {
-		return nil, nil, false, nil
+		return nil, nil, nil, false, nil
 	}
 	current, err = base.CurrentGenesisDelegations(slot)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
-	baseFuture, err := base.FutureGenesisDelegations(slot)
+	future, err = base.FutureGenesisDelegations(slot)
 	if err != nil {
-		return nil, nil, false, err
+		return nil, nil, nil, false, err
 	}
-	future = slices.Clone(baseFuture)
 	if b := findBlockLedgerState(ls); b != nil {
-		future = append(future, b.genesisFuture...)
+		scheduled = slices.Clone(b.genesisFuture)
 	}
-	return current, future, true, nil
+	return current, slices.Clone(future), scheduled, true, nil
+}
+
+// ScheduleGenesisDelegation returns scheduled with delegation added, replacing
+// the entry for the same genesis key. scheduled must hold only delegations
+// scheduled in the current slot, which share their activation slot.
+func ScheduleGenesisDelegation(
+	scheduled []GenesisDelegation,
+	delegation GenesisDelegation,
+) []GenesisDelegation {
+	for i, other := range scheduled {
+		if other.GenesisKeyHash == delegation.GenesisKeyHash {
+			scheduled[i] = delegation
+			return scheduled
+		}
+	}
+	return append(scheduled, delegation)
 }
 
 // StakeCredentialDepositStateFor returns ls's StakeCredentialDepositState

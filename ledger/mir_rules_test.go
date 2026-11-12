@@ -232,11 +232,17 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 	t.Run(
 		"negative delta without pending rewards state is unavailable",
 		func(t *testing.T) {
+			// Something accumulated in the pot, so the credential's share
+			// cannot be known.
+			noPendingState := mirNoPendingLedgerState{
+				LedgerState: newMirFixtureLedger(),
+				accumulated: 1,
+			}
 			var unavailable shelley.PendingInstantaneousRewardsUnavailableError
 			require.ErrorAs(
 				t,
 				validate(
-					newMirNoPendingState(),
+					noPendingState,
 					reserves(-1),
 				),
 				&unavailable,
@@ -246,10 +252,21 @@ func TestUtxoValidateDelegationMirProducesNegativeUpdate(t *testing.T) {
 			assert.Equal(t, "-1", unavailable.Delta.String())
 			assert.Contains(t, unavailable.Error(), "delta -1")
 			require.NoError(t, validate(
-				newMirNoPendingState(),
+				noPendingState,
 				reserves(4),
 				reserves(-4),
 			))
+		},
+	)
+
+	t.Run(
+		"negative delta with nothing accumulated in the pot is rejected",
+		func(t *testing.T) {
+			require.ErrorAs(
+				t,
+				validate(newMirNoPendingState(), reserves(-1)),
+				&target,
+			)
 		},
 	)
 
