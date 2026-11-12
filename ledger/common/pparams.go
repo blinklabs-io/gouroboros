@@ -143,17 +143,27 @@ func ValidateNonNegativeBoundedRatCBORForVersion(raw []byte, version uint) error
 	if err != nil {
 		return fmt.Errorf("decode rational denominator: %w", err)
 	}
-	if denominator.Sign() == 0 {
-		return errors.New("rational denominator must not be zero")
-	}
-	reduced := new(big.Rat).SetFrac(numerator, denominator)
-	if !reduced.Num().IsUint64() {
-		return errors.New("rational numerator must be in Word64")
-	}
-	if !reduced.Denom().IsUint64() {
-		return errors.New("rational denominator must be positive Word64")
+	if _, _, err := reduceWord64Rational(numerator, denominator); err != nil {
+		return describeRationalReductionError(err, numerator, denominator)
 	}
 	return nil
+}
+
+// describeRationalReductionError reports a reduceWord64Rational failure
+// without printing the components, which are peer controlled and unbounded.
+func describeRationalReductionError(
+	err error,
+	numerator, denominator *big.Int,
+) error {
+	if errors.Is(err, errRationalNotWord64) {
+		return fmt.Errorf(
+			"%w (numerator %d bits, denominator %d bits)",
+			err,
+			numerator.BitLen(),
+			denominator.BitLen(),
+		)
+	}
+	return err
 }
 
 // ValidateNonNegativeBoundedRatArrayCBOR validates every raw tag-30 rational

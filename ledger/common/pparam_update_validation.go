@@ -173,6 +173,14 @@ func ValidateProtocolParameterUpdateDomains(
 		if !ok {
 			continue
 		}
+		// The check on the raw components comes first: cbor.Rat reduces
+		// them with big.Rat.SetFrac, whose cost is quadratic in their size.
+		if err := ValidateNonNegativeBoundedRatCBOR(raw); err != nil {
+			return nil, ProtocolParameterUpdateDomainError{
+				Field:  protocolParameterUpdateFieldName(key),
+				Reason: err.Error(),
+			}
+		}
 		var value cbor.Rat
 		if _, err := cbor.Decode(raw, &value); err != nil || value.Rat == nil {
 			return nil, ProtocolParameterUpdateDomainError{
@@ -204,6 +212,12 @@ func ValidateProtocolParameterUpdateDomains(
 	}
 	if era >= ProtocolParameterUpdateEraAlonzo {
 		if raw, ok := fields[19]; ok {
+			if err := ValidateNonNegativeBoundedRatArrayCBOR(raw); err != nil {
+				return nil, ProtocolParameterUpdateDomainError{
+					Field:  "execution prices",
+					Reason: err.Error(),
+				}
+			}
 			var prices ExUnitPrice
 			if _, err := cbor.Decode(raw, &prices); err != nil {
 				return nil, ProtocolParameterUpdateDomainError{
