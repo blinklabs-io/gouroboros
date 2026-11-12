@@ -199,6 +199,84 @@ func TestReduceWord64RationalCostIsBounded(t *testing.T) {
 	assert.Equal(t, maxEuclidSteps, steps)
 }
 
+// A partial quotient wider than Word64 cannot occur in the reduction of a
+// Word64 pair, so a division whose operands differ by more than 64 bits is
+// rejected before it runs; a long lopsided division is not linear in the
+// operand length.
+func TestReduceWord64RationalRejectsWideQuotientBeforeDividing(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewSource(11))
+	d := randomBig(rng, 64*1024)
+	for _, test := range []struct {
+		name     string
+		n, d     *big.Int
+		maxSteps int
+	}{
+		{"first quotient", new(big.Int).Lsh(d, 256*1024), d, 0},
+		{
+			"second quotient",
+			new(big.Int).Add(d, randomBig(rng, 32*1024)),
+			d,
+			1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, _, steps, err := reduceWord64RationalSteps(test.n, test.d)
+			require.ErrorIs(t, err, errRationalNotWord64)
+			assert.LessOrEqual(t, steps, test.maxSteps)
+		})
+	}
+	// The widest quotient a Word64 pair produces is still accepted.
+	maxU64 := new(big.Int).SetUint64(math.MaxUint64)
+	g := scaledBig(big.NewInt(1), 80_000, 3)
+	p, q, err := reduceWord64Rational(
+		new(big.Int).Mul(g, maxU64),
+		g,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, uint64(math.MaxUint64), p)
+	assert.Equal(t, uint64(1), q)
+}
+
+// A component that is itself a tag-30 rational must be rejected from its
+// header: decoding it into an interface would reduce it with big.Rat.SetFrac.
+// The inner zero denominator is reported only if that decode runs.
+func TestRawCBORIntegerRejectsNestedRationalUndecoded(t *testing.T) {
+	t.Parallel()
+	inner := []byte{0xd8, 0x1e, 0x82, 0x01, 0x00}
+	for _, component := range [][]byte{
+		inner,
+		append([]byte{0xd9, 0xd9, 0xf7}, inner...),
+	} {
+		_, err := rawCBORInteger(component)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "denominator")
+		assert.Contains(t, err.Error(), "expected integer")
+
+		content := append(append([]byte{0x82}, component...), 0x01)
+		raw, err := cbor.Encode(
+			cbor.RawTag{Number: cbor.CborTagRational, Content: content},
+		)
+		require.NoError(t, err)
+		err = ValidateNonNegativeBoundedRatCBOR(raw)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "denominator cannot be zero")
+		err = validatePoolMarginCBOR(raw, false)
+		require.Error(t, err)
+		assert.NotContains(t, err.Error(), "denominator cannot be zero")
+	}
+	for _, component := range [][]byte{
+		{0x01},
+		{0x38, 0x00},
+		{0xc2, 0x41, 0x01},
+		{0xd9, 0xd9, 0xf7, 0x01},
+	} {
+		_, err := rawCBORInteger(component)
+		require.NoError(t, err, "%x", component)
+	}
+}
+
 func BenchmarkReduceWord64Rational128KB(b *testing.B) {
 	rng := rand.New(rand.NewSource(7))
 	n := randomBig(rng, 128*1024)

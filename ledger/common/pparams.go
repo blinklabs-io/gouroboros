@@ -197,6 +197,13 @@ func ValidateNonNegativeBoundedRatArrayCBORForVersion(
 }
 
 func rawCBORInteger(raw []byte) (*big.Int, error) {
+	// An integer or bignum is a major type 0, 1 or 2 item under any tags.
+	// Anything else is rejected from its header, because decoding a
+	// registered tag such as a nested rational into an interface runs its
+	// unbounded decoder.
+	if item := cbor.SkipTags(raw); len(item) == 0 || item[0]>>5 > 2 {
+		return nil, errors.New("expected integer")
+	}
 	var value any
 	if _, err := cbor.Decode(raw, &value); err != nil {
 		return nil, err

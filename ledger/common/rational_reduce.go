@@ -39,7 +39,8 @@ var (
 // numerator, as the reference decodeRationalWithTag followed by boundRational
 // does below protocol version 12, and rejects a result that is negative or
 // whose components exceed Word64. Unlike big.Rat.SetFrac, its cost is linear
-// in the operand length because the Euclidean algorithm is step limited.
+// in the operand length: the Euclidean algorithm is step limited and every
+// division it performs has a quotient narrower than 66 bits.
 func reduceWord64Rational(n, d *big.Int) (uint64, uint64, error) {
 	p, q, _, err := reduceWord64RationalSteps(n, d)
 	return p, q, err
@@ -65,6 +66,12 @@ func reduceWord64RationalSteps(
 	steps := 0
 	for b.Sign() != 0 {
 		if steps == maxEuclidSteps {
+			return 0, 0, steps, errRationalNotWord64
+		}
+		// Every partial quotient of a reduced Word64 pair is below 2^64, so
+		// a > 2^64*b is already out of domain. Rejecting it keeps each
+		// division linear; a wide quotient would make it superlinear.
+		if a.BitLen() > b.BitLen()+64 {
 			return 0, 0, steps, errRationalNotWord64
 		}
 		rem.Rem(a, b)
