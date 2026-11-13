@@ -54,7 +54,7 @@ For every block it checks that:
 - the block decodes. For a CertRB with inlined transactions, the decoder
   checks the header's body hash against the body with those transactions
   removed.
-- each CertRB passes `ValidateLeiosBlockBodyNodeToClient`: the header's
+- each Dijkstra block passes `ValidateLeiosBlockBodyNodeToClient`: the header's
   certificate flag matches the body's Leios certificate, and the body has no
   Peras certificate.
 

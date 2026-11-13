@@ -2527,7 +2527,12 @@ func NewDijkstraBlockFromCbor(
 			dijkstraBlock.HasInlinedCertifiedTransactions() {
 			onChain, err := dijkstraBlock.OnChainBlockBodyCbor()
 			if err != nil {
-				return nil, err
+				return nil, common.NewValidationError(
+					common.ValidationErrorTypeBodyHash,
+					"failed to rebuild the CertRB's on-chain body during parsing",
+					map[string]any{"era": EraNameDijkstra},
+					err,
+				)
 			}
 			actual = common.Blake2b256Hash(onChain)
 		} else {
@@ -2566,26 +2571,45 @@ func (b *DijkstraBlock) HasInlinedCertifiedTransactions() bool {
 // OnChainBlockBodyCbor returns the CertRB body without its inlined
 // transactions. The header's body hash and size cover these bytes.
 //
-// NOTE: node-to-client never sends these bytes, so they are rebuilt by
-// re-encoding. TestOnChainBlockBodyCborMatchesRealCertRbs checks this against
-// real Musashi CertRBs.
+// NOTE: node-to-client doesn't send these bytes, so they are rebuilt from the
+// received body: the transactions field becomes an empty array (0x80) and all
+// other bytes stay the same. TestOnChainBlockBodyCborMatchesRealCertRbs checks
+// the result against real CertRBs.
 func (b *DijkstraBlock) OnChainBlockBodyCbor() ([]byte, error) {
 	raw, err := b.BlockBody.MarshalCBOR()
 	if err != nil {
 		return nil, fmt.Errorf("encode Dijkstra block body: %w", err)
 	}
 	var fields []cbor.RawMessage
-	if _, err := cbor.Decode(raw, &fields); err != nil {
+	n, err := cbor.Decode(raw, &fields)
+	if err != nil {
 		return nil, fmt.Errorf("decode Dijkstra block body fields: %w", err)
+	}
+	if n != len(raw) {
+		return nil, errors.New("dijkstra block body has trailing bytes")
 	}
 	if len(fields) == 0 {
 		return nil, errors.New("dijkstra block body has no fields")
 	}
-	fields[0] = cbor.RawMessage{0x80}
-	onChain, err := cbor.Encode(fields)
-	if err != nil {
-		return nil, fmt.Errorf("encode Dijkstra on-chain block body: %w", err)
+	// The fields sit back to back after the array header, followed by a
+	// 0xff break byte when the array is indefinite-length.
+	fieldsLen := 0
+	for _, field := range fields {
+		fieldsLen += len(field)
 	}
+	trailerLen := 0
+	if raw[0] == 0x9f {
+		trailerLen = 1
+	}
+	headerLen := len(raw) - fieldsLen - trailerLen
+	if headerLen < 1 {
+		return nil, errors.New("dijkstra block body has an invalid array header")
+	}
+	txsEnd := headerLen + len(fields[0])
+	onChain := make([]byte, 0, len(raw)-len(fields[0])+1)
+	onChain = append(onChain, raw[:headerLen]...)
+	onChain = append(onChain, 0x80)
+	onChain = append(onChain, raw[txsEnd:]...)
 	return onChain, nil
 }
 

@@ -189,14 +189,9 @@ func ValidateLeiosClosureSize(
 			"EB transaction size validation requires Dijkstra protocol parameters",
 		)
 	}
-	var total uint64
-	for _, tx := range block.Transactions() {
-		size, err := common.TxSize(tx)
-		if err != nil {
-			return err
-		}
-		// TxSize is a byte length, never negative.
-		total += uint64(size) // #nosec G115
+	total, err := LeiosClosureSize(block)
+	if err != nil {
+		return err
 	}
 	if total > uint64(pparams.MaxEndorserBlockTxsSize) {
 		return &LeiosClosureTooBigError{
@@ -205,6 +200,22 @@ func ValidateLeiosClosureSize(
 		}
 	}
 	return nil
+}
+
+// LeiosClosureSize returns the total size in bytes of a CertRB's inlined EB
+// transactions, the value ValidateLeiosClosureSize checks against
+// maxEndorserBlockTxsSize.
+func LeiosClosureSize(block *DijkstraBlock) (uint64, error) {
+	var total uint64
+	for _, tx := range block.Transactions() {
+		size, err := common.TxSize(tx)
+		if err != nil {
+			return 0, err
+		}
+		// TxSize is a byte length, never negative.
+		total += uint64(size) // #nosec G115
+	}
+	return total, nil
 }
 
 func validateLeiosBlockBody(block *DijkstraBlock, allowInlined bool) error {

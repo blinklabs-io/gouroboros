@@ -40,16 +40,33 @@ const (
 	certRbSyncLimit   = 30 * time.Minute
 )
 
-// certRbStats summarizes the CertRBs received while syncing.
+// syncedCertRb is a CertRB received while syncing.
+type syncedCertRb struct {
+	slot      uint64
+	inlined   bool
+	sizeBytes int
+	txCount   int
+}
+
+// certRbStats summarizes the blocks received while syncing.
 type certRbStats struct {
 	mu          sync.Mutex
 	blocks      uint64
-	inlined     uint64
-	withoutTxs  uint64
-	maxBytes    int
-	maxTxCount  int
+	certRbs     []syncedCertRb
 	lastBlockNo uint64
 	err         error
+}
+
+// rollBack drops the CertRBs after point, so a CertRB from an abandoned fork
+// doesn't count toward the checks.
+func (s *certRbStats) rollBack(point pcommon.Point) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	keep := len(s.certRbs)
+	for keep > 0 && s.certRbs[keep-1].slot > point.Slot {
+		keep--
+	}
+	s.certRbs = s.certRbs[:keep]
 }
 
 func (s *certRbStats) record(block any) {
@@ -66,31 +83,28 @@ func (s *certRbStats) record(block any) {
 	if !ok || dijkstraBlock.BlockHeader == nil {
 		return
 	}
-	if certified, _ := dijkstraBlock.BlockHeader.LeiosCertified(); !certified {
-		return
-	}
+	// Check every Dijkstra body, not only CertRBs, so a body with a
+	// certificate under an uncertified header is caught.
 	if err := dijkstra.ValidateLeiosBlockBodyNodeToClient(
 		dijkstraBlock,
 	); err != nil {
 		s.err = fmt.Errorf(
-			"CertRB %d at slot %d: %w",
+			"block %d at slot %d: %w",
 			dijkstraBlock.BlockNumber(),
 			dijkstraBlock.SlotNumber(),
 			err,
 		)
 		return
 	}
-	if !dijkstraBlock.HasInlinedCertifiedTransactions() {
-		// Ticket 1 makes the server inline every CertRB's transactions; an
-		// EB may still be empty, so this is reported, not failed.
-		s.withoutTxs++
+	if certified, _ := dijkstraBlock.BlockHeader.LeiosCertified(); !certified {
 		return
 	}
-	s.inlined++
-	if size := len(dijkstraBlock.Cbor()); size > s.maxBytes {
-		s.maxBytes = size
-		s.maxTxCount = len(dijkstraBlock.BlockBody.Transactions)
-	}
+	s.certRbs = append(s.certRbs, syncedCertRb{
+		slot:      dijkstraBlock.SlotNumber(),
+		inlined:   dijkstraBlock.HasInlinedCertifiedTransactions(),
+		sizeBytes: len(dijkstraBlock.Cbor()),
+		txCount:   len(dijkstraBlock.BlockBody.Transactions),
+	})
 }
 
 // TestCardanoNodeInlinedCertRbs syncs a Leios devnet from origin over
@@ -120,7 +134,12 @@ func TestCardanoNodeInlinedCertRbs(t *testing.T) {
 	var reachedOnce sync.Once
 	chainSyncConfig := chainsync.NewConfig(
 		chainsync.WithRollBackwardFunc(
-			func(chainsync.CallbackContext, pcommon.Point, chainsync.Tip) error {
+			func(
+				_ chainsync.CallbackContext,
+				point pcommon.Point,
+				_ chainsync.Tip,
+			) error {
+				stats.rollBack(point)
 				return nil
 			},
 		),
@@ -188,22 +207,36 @@ func TestCardanoNodeInlinedCertRbs(t *testing.T) {
 	if stats.err != nil {
 		t.Fatal(stats.err)
 	}
+	var inlined, withoutTxs, maxBytes, maxTxCount int
+	for _, certRb := range stats.certRbs {
+		if !certRb.inlined {
+			// The node inlines every CertRB's transactions, but an EB can be
+			// empty, so this is reported, not failed.
+			withoutTxs++
+			continue
+		}
+		inlined++
+		if certRb.sizeBytes > maxBytes {
+			maxBytes = certRb.sizeBytes
+			maxTxCount = certRb.txCount
+		}
+	}
 	t.Logf(
 		"%d blocks: %d CertRBs with inlined transactions, %d without; "+
 			"largest %d bytes with %d transactions",
 		stats.blocks,
-		stats.inlined,
-		stats.withoutTxs,
-		stats.maxBytes,
-		stats.maxTxCount,
+		inlined,
+		withoutTxs,
+		maxBytes,
+		maxTxCount,
 	)
-	if stats.inlined == 0 {
+	if inlined == 0 {
 		t.Fatal("no CertRB with inlined transactions on the chain")
 	}
-	if stats.maxBytes < minBytes {
+	if maxBytes < minBytes {
 		t.Fatalf(
 			"largest CertRB is %d bytes, want at least %d (%s)",
-			stats.maxBytes,
+			maxBytes,
 			minBytes,
 			minCertRbBytesEnv,
 		)

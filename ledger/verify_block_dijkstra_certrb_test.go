@@ -133,7 +133,7 @@ func newCertRbTestBlock(
 	var public bls12381.G2Affine
 	public.ScalarMultiplicationBase(secret)
 	encodedPublic := public.Bytes()
-	message := append([]byte{0x58, 0x20}, announcingHash[:]...)
+	message := announcingHash[:]
 	cert := &dijkstra.DijkstraLeiosCertificate{
 		Signers:             []byte{0x80},
 		AggregatedSignature: sign(message, secret),
@@ -250,12 +250,8 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 	t.Run("EB transactions bounded by maxEndorserBlockTxsSize", func(t *testing.T) {
 		t.Parallel()
 		block, state, _ := newCertRbTestBlock(t, certRbTestTxs())
-		var total uint64
-		for _, tx := range block.Transactions() {
-			size, err := common.TxSize(tx)
-			require.NoError(t, err)
-			total += uint64(size)
-		}
+		total, err := dijkstra.LeiosClosureSize(block)
+		require.NoError(t, err)
 		verify := func(maximum uint64) error {
 			pp := certRbTestParams()
 			pp.MaxEndorserBlockTxsSize = uint32(maximum)
@@ -268,7 +264,7 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 			})
 		}
 		require.NoError(t, verify(total))
-		err := verify(total - 1)
+		err = verify(total - 1)
 		var tooBig *dijkstra.LeiosClosureTooBigError
 		require.ErrorAs(t, err, &tooBig)
 		require.Equal(t, total, tooBig.ClosureSize)
@@ -309,7 +305,11 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 		_, over = leiosClosureExUnitsOverLimit(block, pp)
 		require.False(t, over, "a total equal to the maximum is not over")
 
-		pp.MaxEndorserBlockExUnits.Steps = 199
+		pp.MaxEndorserBlockExUnits = common.ExUnits{}
+		_, over = leiosClosureExUnitsOverLimit(block, pp)
+		require.False(t, over, "a zero limit counts as unset")
+
+		pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
 		require.NoError(t, VerifyBlockState(block, common.VerifyConfig{
 			ProtocolParameters:                     pp,
 			LedgerState:                            state,

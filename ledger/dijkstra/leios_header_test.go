@@ -297,28 +297,25 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 func TestValidateLeiosClosureSize(t *testing.T) {
 	t.Parallel()
 	block := &DijkstraBlock{
-		BlockBody: DijkstraBlockBody{
-			Transactions: []DijkstraTransaction{
-				{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
-				{Body: DijkstraTransactionBody{TxFee: 2}, TxIsValid: true},
-				{Body: DijkstraTransactionBody{TxFee: 3}, TxIsValid: true},
-			},
-		},
+		BlockBody: DijkstraBlockBody{Transactions: testFeeTxs(3)},
 	}
-	var total uint64
+	var want uint64
 	for _, tx := range block.Transactions() {
 		size, err := common.TxSize(tx)
 		require.NoError(t, err)
 		require.Positive(t, size)
-		total += uint64(size)
+		want += uint64(size)
 	}
+	total, err := LeiosClosureSize(block)
+	require.NoError(t, err)
+	require.Equal(t, want, total)
 	pp := testLeiosParams()
 
 	pp.MaxEndorserBlockTxsSize = uint32(total)
 	require.NoError(t, ValidateLeiosClosureSize(block, pp))
 
 	pp.MaxEndorserBlockTxsSize = uint32(total - 1)
-	err := ValidateLeiosClosureSize(block, pp)
+	err = ValidateLeiosClosureSize(block, pp)
 	var tooBig *LeiosClosureTooBigError
 	require.ErrorAs(t, err, &tooBig)
 	require.Equal(t, total, tooBig.ClosureSize)

@@ -279,19 +279,25 @@ func inlinedCertRb(
 	return dijkstraBlock, true
 }
 
-// blockBodySize returns the size of the block body the header signs. For a
-// CertRB with inlined EB transactions, that is the body without them.
-func blockBodySize(
+// inlinedCertRbOnChainBody returns the body the header signs for a CertRB that
+// carries its EB's transactions: the body without them. For any other block
+// it returns nil, as the body in the block's own CBOR is the signed one.
+func inlinedCertRbOnChainBody(
 	block Block,
-	rawCbor []byte,
 	config common.VerifyConfig,
-) (uint64, error) {
-	if certRb, ok := inlinedCertRb(block, config); ok {
-		onChain, err := certRb.OnChainBlockBodyCbor()
-		if err != nil {
-			return 0, err
-		}
-		return uint64(len(onChain)), nil
+) ([]byte, error) {
+	certRb, ok := inlinedCertRb(block, config)
+	if !ok {
+		return nil, nil
+	}
+	return certRb.OnChainBlockBodyCbor()
+}
+
+// blockBodySize returns the size of the block body the header signs:
+// onChainBody when set, otherwise the body in rawCbor.
+func blockBodySize(rawCbor, onChainBody []byte) (uint64, error) {
+	if onChainBody != nil {
+		return uint64(len(onChainBody)), nil
 	}
 	return common.BlockBodySizeFromCbor(rawCbor)
 }
@@ -682,12 +688,16 @@ func blockLevelLimits(
 }
 
 // leiosClosureExUnitsOverLimit sums the ExUnits of a CertRB's EB transactions
-// and reports if they exceed maxEndorserBlockExUnits. If the sum fails, it
-// reports false; the per-transaction rules catch bad redeemers.
+// and reports if they exceed maxEndorserBlockExUnits. A zero limit counts as
+// unset, so it never reports. If the sum fails, it reports false; the
+// per-transaction rules catch bad redeemers.
 func leiosClosureExUnitsOverLimit(
 	block *dijkstra.DijkstraBlock,
 	pparams *dijkstra.DijkstraProtocolParameters,
 ) (common.ExUnits, bool) {
+	if pparams.MaxEndorserBlockExUnits == (common.ExUnits{}) {
+		return common.ExUnits{}, false
+	}
 	total, err := sumBlockExUnits(block.Transactions())
 	if err != nil {
 		return common.ExUnits{}, false
@@ -1241,7 +1251,11 @@ func verifyBlock(
 				nil,
 			)
 		}
-		bodySize, sizeErr := blockBodySize(block, rawCbor, config)
+		onChainBody, sizeErr := inlinedCertRbOnChainBody(block, config)
+		var bodySize uint64
+		if sizeErr == nil {
+			bodySize, sizeErr = blockBodySize(rawCbor, onChainBody)
+		}
 		if sizeErr != nil {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeProtocol,
@@ -1279,14 +1293,10 @@ func verifyBlock(
 			// its block_body_hash is blake2b256 over the block_body CBOR, not
 			// the pre-Dijkstra concatenation of per-segment hashes.
 			var hashErr error
-			if certRb, ok := inlinedCertRb(block, config); ok {
+			if onChainBody != nil {
 				// The header signs the body without the EB's transactions.
-				onChain, err := certRb.OnChainBlockBodyCbor()
-				if err != nil {
-					return false, "", 0, 0, fmt.Errorf("VerifyBlock: %w", err)
-				}
 				hashErr = compareDijkstraBlockBodyHash(
-					common.Blake2b256Hash(onChain),
+					common.Blake2b256Hash(onChainBody),
 					expectedBodyHash,
 				)
 			} else {
@@ -1548,7 +1558,11 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 			// not just at the comparison below, so it is never wastefully
 			// computed when the limit is disabled.
 			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
-				bodySize, sizeErr := blockBodySize(block, rawBlockCbor, config)
+				onChainBody, sizeErr := inlinedCertRbOnChainBody(block, config)
+				var bodySize uint64
+				if sizeErr == nil {
+					bodySize, sizeErr = blockBodySize(rawBlockCbor, onChainBody)
+				}
 				if sizeErr != nil {
 					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,

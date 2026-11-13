@@ -117,6 +117,14 @@ type VerifyConfig struct {
 	// LocalChainSync sends it. The body hash, body size and block limits are
 	// checked with those transactions removed, and the transactions are
 	// validated at the announcing RB's slot. Node-to-client only.
+	//
+	// The node applies the EB's transactions before ticking to the CertRB's
+	// slot. So for such a CertRB, LedgerState and ProtocolParameters must be
+	// those of the announcing RB's epoch, which differs from the CertRB's at
+	// an epoch boundary.
+	//
+	// NOTE: the inlined transactions are not checked against the EB the
+	// announcing RB committed to. The client trusts its local node for them.
 	AllowCertifiedBlockInlinedTransactions bool
 	// SkipTransactionValidation disables transaction validation in VerifyBlock().
 	// When false (default), LedgerState and ProtocolParameters must be set.

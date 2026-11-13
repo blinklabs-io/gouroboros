@@ -327,6 +327,19 @@ func TestDijkstraBlockBodyRejectsNonArrayTransactions(t *testing.T) {
 	require.ErrorContains(t, err, "decode Dijkstra transactions")
 }
 
+// testFeeTxs returns count distinct minimal transactions, with fees 1 to
+// count.
+func testFeeTxs(count int) []DijkstraTransaction {
+	txs := make([]DijkstraTransaction, count)
+	for i := range txs {
+		txs[i] = DijkstraTransaction{
+			Body:      DijkstraTransactionBody{TxFee: uint64(i + 1)}, // #nosec G115
+			TxIsValid: true,
+		}
+	}
+	return txs
+}
+
 // testInlinedCertRb builds a CertRB as LocalChainSync sends it over
 // node-to-client: the header's block_body_hash covers the on-chain body (the
 // certificate alone), but the body also carries the endorser block's
@@ -356,9 +369,7 @@ func testInlinedCertRbWithCert(
 		cbor.RawMessage{0xf6},
 	}
 	block.BlockBody = DijkstraBlockBody{
-		Transactions: []DijkstraTransaction{
-			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
-		},
+		Transactions:     testFeeTxs(1),
 		LeiosCertificate: sentCert,
 	}
 	blockCbor, err := block.MarshalCBOR()
@@ -440,4 +451,63 @@ func TestDijkstraBlockInlinedCertRbBodyHash(t *testing.T) {
 		require.ErrorAs(t, err, &vErr)
 		require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
 	})
+}
+
+// OnChainBlockBodyCbor must keep the body's own outer array header, whatever
+// framing the decoder accepted, and replace only the transactions field.
+func TestOnChainBlockBodyCborKeepsArrayFraming(t *testing.T) {
+	t.Parallel()
+	sent, err := cbor.Encode(DijkstraBlockBody{
+		Transactions:     testFeeTxs(1),
+		LeiosCertificate: testLeiosCertificate(t, 1),
+	})
+	require.NoError(t, err)
+	var fields []cbor.RawMessage
+	_, err = cbor.Decode(sent, &fields)
+	require.NoError(t, err)
+	require.Len(t, fields, 3)
+	// The indefinite case below swaps this one-byte header for 0x9f.
+	require.Equal(t, byte(0x81), fields[0][0], "one-transaction array header")
+	rest := append(append([]byte{}, fields[1]...), fields[2]...)
+
+	tests := []struct {
+		name   string
+		header []byte
+		txs    []byte
+		footer []byte
+	}{
+		{name: "definite", header: []byte{0x83}, txs: fields[0]},
+		{
+			name:   "indefinite",
+			header: []byte{0x9f},
+			txs:    fields[0],
+			footer: []byte{0xff},
+		},
+		{name: "non-minimal length", header: []byte{0x98, 0x03}, txs: fields[0]},
+		{
+			name:   "indefinite transactions",
+			header: []byte{0x83},
+			txs: append(
+				append([]byte{0x9f}, fields[0][1:]...),
+				0xff,
+			),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw := append(append([]byte{}, tc.header...), tc.txs...)
+			raw = append(append(raw, rest...), tc.footer...)
+			var body DijkstraBlockBody
+			require.NoError(t, body.UnmarshalCBOR(raw))
+			require.Len(t, body.Transactions, 1)
+			block := DijkstraBlock{BlockBody: body}
+
+			got, err := block.OnChainBlockBodyCbor()
+			require.NoError(t, err)
+			want := append(append([]byte{}, tc.header...), 0x80)
+			want = append(append(want, rest...), tc.footer...)
+			require.Equal(t, want, got)
+		})
+	}
 }

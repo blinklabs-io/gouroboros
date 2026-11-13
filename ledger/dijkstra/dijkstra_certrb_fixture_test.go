@@ -137,10 +137,7 @@ func TestOnChainBlockBodyCborMatchesRealCertRbs(t *testing.T) {
 
 			// The same CertRB with transactions inlined, as sent over
 			// node-to-client.
-			inlined := inlineTransactions(t, blockCbor, []DijkstraTransaction{
-				{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
-				{Body: DijkstraTransactionBody{TxFee: 2}, TxIsValid: true},
-			})
+			inlined := inlineTransactions(t, blockCbor, testFeeTxs(2))
 
 			_, err = NewDijkstraBlockFromCbor(inlined)
 			var vErr *common.ValidationError
