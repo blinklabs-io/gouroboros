@@ -635,10 +635,11 @@ type babbageAuxiliaryData struct {
 }
 
 func (a *babbageAuxiliaryData) UnmarshalCBOR(data []byte) error {
-	if _, err := DecodeAuxiliaryDataForEra(data, AuxiliaryDataEraBabbage); err != nil {
+	auxData, err := DecodeAuxiliaryDataForEra(data, AuxiliaryDataEraBabbage)
+	if err != nil {
 		return err
 	}
-	metadata, err := DecodeAuxiliaryDataToMetadata(data)
+	metadata, err := auxData.Metadata()
 	if err != nil {
 		return err
 	}
