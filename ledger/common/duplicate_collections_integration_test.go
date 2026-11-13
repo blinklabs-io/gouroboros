@@ -98,7 +98,7 @@ func requireDuplicateLogicalMapKey(t *testing.T, err error) {
 	require.ErrorAs(t, err, &duplicateError)
 }
 
-func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
+func TestTransactionBodiesWithdrawalDuplicatesRespectEra(t *testing.T) {
 	address1 := testRewardAddress(t)
 	address2 := address1
 	duplicateWithdrawals := map[*common.Address]uint64{
@@ -125,7 +125,11 @@ func TestTransactionBodiesRejectDuplicateLogicalWithdrawalKeys(t *testing.T) {
 	for era, newBody := range transactionBodyDecoders() {
 		t.Run(era, func(t *testing.T) {
 			err := newBody().UnmarshalCBOR(duplicateBody)
-			require.ErrorContains(t, err, "duplicate withdrawal reward account")
+			if era == "babbage" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "duplicate withdrawal reward account")
+			}
 			require.NoError(t, newBody().UnmarshalCBOR(validBody))
 		})
 	}
