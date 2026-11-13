@@ -248,10 +248,14 @@ type MaryTransactionBody struct {
 
 func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tMaryTransactionBody MaryTransactionBody
-	var tmp tMaryTransactionBody
+	var tmp struct {
+		tMaryTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -261,7 +265,7 @@ func (b *MaryTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
-	*b = MaryTransactionBody(tmp)
+	*b = MaryTransactionBody(tmp.tMaryTransactionBody)
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err
 	}

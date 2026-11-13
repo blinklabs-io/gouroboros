@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package babbage
+package common
 
 import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // A value key lets the decoder retain the last occurrence in wire order.
@@ -26,7 +25,7 @@ import (
 type withdrawalRewardAccount string
 
 func (a *withdrawalRewardAccount) UnmarshalCBOR(data []byte) error {
-	var address common.Address
+	var address Address
 	if err := address.UnmarshalCBOR(data); err != nil {
 		return err
 	}
@@ -41,9 +40,12 @@ func (a *withdrawalRewardAccount) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-type babbageWithdrawals map[*common.Address]uint64
+// PreConwayWithdrawals decodes withdrawal maps with the pre-version-9
+// last-occurrence policy while validating every reward account.
+type PreConwayWithdrawals map[*Address]uint64
 
-func (w *babbageWithdrawals) UnmarshalCBOR(data []byte) error {
+// UnmarshalCBOR retains the final amount for each logical reward account.
+func (w *PreConwayWithdrawals) UnmarshalCBOR(data []byte) error {
 	var entries map[withdrawalRewardAccount]uint64
 	// The key decoder validates every occurrence before duplicate resolution.
 	if _, err := cbor.DecodeLenient(data, &entries); err != nil {
@@ -53,9 +55,9 @@ func (w *babbageWithdrawals) UnmarshalCBOR(data []byte) error {
 		*w = nil
 		return nil
 	}
-	withdrawals := make(babbageWithdrawals, len(entries))
+	withdrawals := make(PreConwayWithdrawals, len(entries))
 	for raw, amount := range entries {
-		address, err := common.NewAddressFromBytes([]byte(raw))
+		address, err := NewAddressFromBytes([]byte(raw))
 		if err != nil {
 			return err
 		}

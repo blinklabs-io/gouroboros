@@ -125,7 +125,7 @@ func TestTransactionBodiesWithdrawalDuplicatesRespectEra(t *testing.T) {
 	for era, newBody := range transactionBodyDecoders() {
 		t.Run(era, func(t *testing.T) {
 			err := newBody().UnmarshalCBOR(duplicateBody)
-			if era == "babbage" {
+			if era != "conway" && era != "dijkstra" {
 				require.NoError(t, err)
 			} else {
 				require.ErrorContains(t, err, "duplicate withdrawal reward account")

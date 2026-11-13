@@ -12,21 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package babbage_test
+package common_test
 
 import (
 	"bytes"
+	"math/big"
+	"testing"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
+
+type withdrawalBodyDecoder interface {
+	UnmarshalCBOR([]byte) error
+	Withdrawals() map[*common.Address]*big.Int
+	Cbor() []byte
+	Id() common.Blake2b256
+}
 
 func withdrawalBody(withdrawals []byte) []byte {
 	// These are decoder fixtures, not signed or ledger-valid transactions.
-	return append([]byte{0xa4, 0, 0x80, 1, 0x80, 2, 0, 5}, withdrawals...)
+	return append([]byte{0xa5, 0, 0x80, 1, 0x80, 2, 0, 3, 0, 5}, withdrawals...)
 }
 
 func withdrawalEntry(address, amount []byte) []byte {
@@ -47,7 +55,7 @@ func withdrawalMap(indefinite bool, entries ...[]byte) []byte {
 	return raw
 }
 
-func TestBabbageWithdrawalsKeepLastOccurrence(t *testing.T) {
+func TestPreConwayWithdrawalsKeepLastOccurrence(t *testing.T) {
 	account := append([]byte{0xe0}, make([]byte, 28)...)
 	key := append([]byte{0x58, 29}, account...)
 	wideKey := append([]byte{0x59, 0, 29}, account...)
@@ -70,40 +78,42 @@ func TestBabbageWithdrawalsKeepLastOccurrence(t *testing.T) {
 		{"wide key", withdrawalMap(false, withdrawalEntry(key, []byte{1}), withdrawalEntry(wideKey, []byte{2})), 2, 1},
 		{"chunked key", withdrawalMap(false, withdrawalEntry(key, []byte{1}), withdrawalEntry(chunkedKey, []byte{2})), 2, 1},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := withdrawalBody(tc.raw)
-			var body babbage.BabbageTransactionBody
-			require.NoError(t, body.UnmarshalCBOR(raw))
-			require.Len(t, body.TxWithdrawals, tc.count)
-			found := false
-			for address, amount := range body.TxWithdrawals {
-				encoded, err := address.Bytes()
-				require.NoError(t, err)
-				if bytes.Equal(encoded, account) {
-					found = true
-					require.Equal(t, tc.last, amount)
-				} else {
-					require.Equal(t, otherAccount, encoded)
-					require.Equal(t, uint64(3), amount)
+		for era, newBody := range preConwayTransactionBodyDecoders() {
+			t.Run(era+"/"+tc.name, func(t *testing.T) {
+				raw := withdrawalBody(tc.raw)
+				body := newBody().(withdrawalBodyDecoder)
+				require.NoError(t, body.UnmarshalCBOR(raw))
+				require.Len(t, body.Withdrawals(), tc.count)
+				found := false
+				for address, amount := range body.Withdrawals() {
+					encoded, err := address.Bytes()
+					require.NoError(t, err)
+					if bytes.Equal(encoded, account) {
+						found = true
+						require.Equal(t, tc.last, amount.Uint64())
+					} else {
+						require.Equal(t, otherAccount, encoded)
+						require.Equal(t, uint64(3), amount.Uint64())
+					}
 				}
-			}
-			require.True(t, found)
-			require.Equal(t, raw, body.Cbor())
-			require.Equal(t, common.Blake2b256Hash(raw), body.Id())
-			encoded, err := cbor.Encode(&body)
-			require.NoError(t, err)
-			require.Equal(t, raw, encoded)
-			var strict conway.ConwayTransactionBody
-			require.ErrorContains(
-				t,
-				strict.UnmarshalCBOR(raw),
-				"duplicate withdrawal reward account",
-			)
-		})
+				require.True(t, found)
+				require.Equal(t, raw, body.Cbor())
+				require.Equal(t, common.Blake2b256Hash(raw), body.Id())
+				encoded, err := cbor.Encode(body)
+				require.NoError(t, err)
+				require.Equal(t, raw, encoded)
+				var strict conway.ConwayTransactionBody
+				require.ErrorContains(
+					t,
+					strict.UnmarshalCBOR(raw),
+					"duplicate withdrawal reward account",
+				)
+			})
+		}
 	}
 }
 
-func TestBabbageWithdrawalsValidateEveryEntry(t *testing.T) {
+func TestPreConwayWithdrawalsValidateEveryEntry(t *testing.T) {
 	account := append([]byte{0xe0}, make([]byte, 28)...)
 	key := append([]byte{0x58, 29}, account...)
 	badNetwork := bytes.Clone(key)
@@ -121,16 +131,18 @@ func TestBabbageWithdrawalsValidateEveryEntry(t *testing.T) {
 		{"text amount", withdrawalEntry(key, []byte{0x61, 0x31})},
 		{"integer key", []byte{0, 1}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			for _, entries := range [][][]byte{{tc.entry, valid}, {valid, tc.entry}} {
-				var body babbage.BabbageTransactionBody
-				require.Error(
-					t,
-					body.UnmarshalCBOR(
-						withdrawalBody(withdrawalMap(false, entries...)),
-					),
-				)
-			}
-		})
+		for era, newBody := range preConwayTransactionBodyDecoders() {
+			t.Run(era+"/"+tc.name, func(t *testing.T) {
+				for _, entries := range [][][]byte{{tc.entry, valid}, {valid, tc.entry}} {
+					body := newBody().(withdrawalBodyDecoder)
+					require.Error(
+						t,
+						body.UnmarshalCBOR(
+							withdrawalBody(withdrawalMap(false, entries...)),
+						),
+					)
+				}
+			})
+		}
 	}
 }

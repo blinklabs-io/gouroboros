@@ -577,7 +577,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionBody BabbageTransactionBody
 	var tmp struct {
 		tBabbageTransactionBody
-		Withdrawals babbageWithdrawals `cbor:"5,keyasint,omitempty"`
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
 	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err

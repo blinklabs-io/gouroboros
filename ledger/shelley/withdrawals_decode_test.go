@@ -146,17 +146,17 @@ func TestShelleyTransactionBodyRejectsInvalidWithdrawalAddresses(t *testing.T) {
 	}
 }
 
-func TestShelleyTransactionBodyRejectsSemanticDuplicateWithdrawal(
+func TestShelleyTransactionBodyKeepsLastSemanticDuplicateWithdrawal(
 	t *testing.T,
 ) {
 	addr := rewardAccountBytes(
 		0xe1,
 		bytes.Repeat([]byte{0x55}, common.AddressHashSize),
 	)
-	// {5: {_ <addr>: 1, <addr>: 2}}. The first key is an indefinite-length
+	// {3: 0, 5: {_ <addr>: 1, <addr>: 2}}. The first key is an indefinite-length
 	// byte string and the second is definite-length. Both decode to the same
 	// reward account and must not survive as distinct pointer map keys.
-	bodyCbor := []byte{0xa1, 0x05, 0xa2, 0x5f, 0x58, 0x1d}
+	bodyCbor := []byte{0xa2, 0x03, 0x00, 0x05, 0xa2, 0x5f, 0x58, 0x1d}
 	bodyCbor = append(bodyCbor, addr...)
 	bodyCbor = append(bodyCbor, 0xff, 0x01, 0x58, 0x1d)
 	bodyCbor = append(bodyCbor, addr...)
@@ -164,7 +164,11 @@ func TestShelleyTransactionBodyRejectsSemanticDuplicateWithdrawal(
 
 	var body shelley.ShelleyTransactionBody
 	_, err := cbor.Decode(bodyCbor, &body)
-	require.ErrorContains(t, err, "duplicate withdrawal reward account")
+	require.NoError(t, err)
+	require.Len(t, body.TxWithdrawals, 1)
+	for _, amount := range body.TxWithdrawals {
+		require.Equal(t, uint64(2), amount)
+	}
 }
 
 func TestShelleyFamilyBodiesRejectNonRewardWithdrawals(t *testing.T) {

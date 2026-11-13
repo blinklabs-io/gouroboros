@@ -323,10 +323,14 @@ type AlonzoTransactionBody struct {
 
 func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tAlonzoTransactionBody AlonzoTransactionBody
-	var tmp tAlonzoTransactionBody
+	var tmp struct {
+		tAlonzoTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
@@ -343,7 +347,7 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
-	*b = AlonzoTransactionBody(tmp)
+	*b = AlonzoTransactionBody(tmp.tAlonzoTransactionBody)
 	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
