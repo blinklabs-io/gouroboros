@@ -109,6 +109,10 @@ func NewMsgDone() *MsgDone {
 	return m
 }
 
+// PeerAddress is a shared peer. On the wire an IPv6 address is the four
+// endianness-independent words of the reference HostAddress6 (::1 is
+// 0, 0, 0, 1), so each word is big-endian. An IPv4 address is a single word
+// in network order as read on a little-endian host, so it is little-endian.
 type PeerAddress struct {
 	IP   net.IP
 	Port uint16
@@ -144,10 +148,10 @@ func (p PeerAddress) MarshalCBOR() ([]byte, error) {
 		Port     uint16
 	}{
 		PeerType: 1,
-		Address1: binary.LittleEndian.Uint32(ipv6[0:4]),
-		Address2: binary.LittleEndian.Uint32(ipv6[4:8]),
-		Address3: binary.LittleEndian.Uint32(ipv6[8:12]),
-		Address4: binary.LittleEndian.Uint32(ipv6[12:16]),
+		Address1: binary.BigEndian.Uint32(ipv6[0:4]),
+		Address2: binary.BigEndian.Uint32(ipv6[4:8]),
+		Address3: binary.BigEndian.Uint32(ipv6[8:12]),
+		Address4: binary.BigEndian.Uint32(ipv6[12:16]),
 		Port:     p.Port,
 	}
 	return cbor.Encode(tmpPeer)
@@ -197,10 +201,10 @@ func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
 				return err
 			}
 			p.IP = make(net.IP, net.IPv6len)
-			binary.LittleEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
-			binary.LittleEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
-			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
-			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
+			binary.BigEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
+			binary.BigEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
+			binary.BigEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
+			binary.BigEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
 			p.Port = tmpPeer.Port
 		case 6:
 			// V13+
@@ -217,10 +221,10 @@ func (p *PeerAddress) UnmarshalCBOR(cborData []byte) error {
 				return err
 			}
 			p.IP = make(net.IP, net.IPv6len)
-			binary.LittleEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
-			binary.LittleEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
-			binary.LittleEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
-			binary.LittleEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
+			binary.BigEndian.PutUint32(p.IP[0:], tmpPeer.Address1)
+			binary.BigEndian.PutUint32(p.IP[4:], tmpPeer.Address2)
+			binary.BigEndian.PutUint32(p.IP[8:], tmpPeer.Address3)
+			binary.BigEndian.PutUint32(p.IP[12:], tmpPeer.Address4)
 			p.Port = tmpPeer.Port
 		default:
 			return fmt.Errorf("invalid peer address length: %d", cborListLen)
