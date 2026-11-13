@@ -81,11 +81,14 @@ func replaceAuxiliaryIndexMap(t *testing.T, raw, auxiliary []byte) []byte {
 	var parts, header, body []cbor.RawMessage
 	_, err := cbor.Decode(raw, &parts)
 	require.NoError(t, err)
+	require.Len(t, parts, 5)
 	parts[3] = auxiliary
 	_, err = cbor.Decode(parts[0], &header)
 	require.NoError(t, err)
+	require.Len(t, header, 2)
 	_, err = cbor.Decode(header[0], &body)
 	require.NoError(t, err)
+	require.Len(t, body, 10)
 	var hashes []byte
 	for _, part := range parts[1:] {
 		hashes = append(hashes, common.Blake2b256Hash(part).Bytes()...)
@@ -124,6 +127,7 @@ func TestBlockAuxiliaryDuplicateIndexesRespectEra(t *testing.T) {
 		var parts []cbor.RawMessage
 		_, err = cbor.Decode(raw, &parts)
 		require.NoError(t, err)
+		require.Len(t, parts, 5)
 		parts[3] = mustEncodeCBOR(t, map[uint]cbor.RawMessage{0: last})
 		_, err = babbage.NewBabbageBlockFromCbor(mustEncodeCBOR(t, parts))
 		require.ErrorContains(t, err, "body hash mismatch")
@@ -144,6 +148,7 @@ func TestBabbageDuplicateAuxiliaryIndexesStillCheckBounds(t *testing.T) {
 	var parts, bodies []cbor.RawMessage
 	_, err := cbor.Decode(raw, &parts)
 	require.NoError(t, err)
+	require.Len(t, parts, 5)
 	_, err = cbor.Decode(parts[1], &bodies)
 	require.NoError(t, err)
 	index := mustEncodeCBOR(t, uint(len(bodies)))
