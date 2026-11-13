@@ -224,9 +224,10 @@ The wire format depends on the negotiated handshake version:
 | 11, 12 | `[0, addrLE32, port]` (3 elements) | `[1, a1..a4, flowInfo, scopeId, port]` (8 elements) |
 | 13+ | `[0, addrLE32, port]` (3 elements) | `[1, a1..a4, port]` (6 elements) |
 
-`IP` is represented in little-endian 32-bit words on the wire, matching the
-Haskell reference implementation. The decoder accepts both v11/v12 and v13+
-IPv6 shapes.
+An IPv4 address is one little-endian 32-bit word. An IPv6 address is four
+big-endian 32-bit words (`::1` is `0, 0, 0, 1`), matching the reference
+`HostAddress6` encoding. The decoder accepts both v11/v12 and v13+ IPv6
+shapes.
 
 ## Notes
 

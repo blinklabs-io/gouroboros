@@ -115,7 +115,8 @@ func TestPeerAddressEncodeDecodeIPv6(t *testing.T) {
 // shape used by handshake versions 11 and 12 (FlowInfo and ScopeId fields
 // present, then ignored) round-trips through Decode.
 func TestPeerAddressDecodeIPv6V11(t *testing.T) {
-	// CBOR array of 8 elements: [1, addr1..addr4 (big-endian u32), flowInfo, scopeId, port].
+	// CBOR array of 8 elements:
+	// [1, addr1..addr4 (big-endian u32), flowInfo, scopeId, port].
 	// Same address as the v13 test above so we can compare results.
 	v11Hex := "88011a20010db80000010000190bb9"
 	cborData, err := hex.DecodeString(v11Hex)
