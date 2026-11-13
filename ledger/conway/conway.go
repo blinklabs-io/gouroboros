@@ -70,18 +70,26 @@ type ConwayBlock struct {
 }
 
 func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
-	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	// Retain the wire type of the required invalid-transaction array.
 	type tmpConwayBlock struct {
 		cbor.StructAsArray
 		BlockHeader            *ConwayBlockHeader
 		TransactionBodies      []ConwayTransactionBody
 		TransactionWitnessSets []ConwayTransactionWitnessSet
 		TransactionMetadataSet common.TransactionMetadataSet
-		InvalidTransactions    []uint64
+		InvalidTransactions    cbor.RawMessage
 	}
 
 	var tmp tmpConwayBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if len(tmp.InvalidTransactions) == 0 ||
+		tmp.InvalidTransactions[0]&0xe0 != 0x80 {
+		return errors.New("block invalid transactions must be a CBOR array")
+	}
+	var invalidTransactions []uint64
+	if _, err := cbor.Decode(tmp.InvalidTransactions, &invalidTransactions); err != nil {
 		return err
 	}
 	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
@@ -91,8 +99,8 @@ func (b *ConwayBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Convert the wire indices to the platform type without discarding values.
-	result := make([]uint, 0, len(tmp.InvalidTransactions))
-	for _, val := range tmp.InvalidTransactions {
+	result := make([]uint, 0, len(invalidTransactions))
+	for _, val := range invalidTransactions {
 		if val >= uint64(len(tmp.TransactionBodies)) {
 			return fmt.Errorf(
 				"invalid transaction index %d outside transaction list length %d",

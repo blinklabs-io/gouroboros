@@ -601,6 +601,9 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 }
 
 func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
+	if len(cborData) == 0 || cborData[0]&cborTypeMask != cborTypeMap {
+		return errors.New("block auxiliary-data set must be a CBOR map")
+	}
 	s.SetCbor(cborData)
 	s.data = make(map[uint]cbor.RawMessage)
 	if _, err := cbor.Decode(cborData, &s.data); err != nil {
