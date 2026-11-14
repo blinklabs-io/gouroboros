@@ -2522,7 +2522,22 @@ func NewDijkstraBlockFromCbor(
 			return nil, errors.New("dijkstra block header is nil")
 		}
 		expected := dijkstraBlock.BlockHeader.BlockBodyHash()
-		actual := dijkstraBlock.CalculatedBlockBodyHash()
+		var actual common.Blake2b256
+		if cfg.AllowCertifiedBlockInlinedTransactions &&
+			dijkstraBlock.HasInlinedCertifiedTransactions() {
+			onChain, err := dijkstraBlock.OnChainBlockBodyCbor()
+			if err != nil {
+				return nil, common.NewValidationError(
+					common.ValidationErrorTypeBodyHash,
+					"failed to rebuild the CertRB's on-chain body during parsing",
+					map[string]any{"era": EraNameDijkstra},
+					err,
+				)
+			}
+			actual = common.Blake2b256Hash(onChain)
+		} else {
+			actual = dijkstraBlock.CalculatedBlockBodyHash()
+		}
 		actualBytes := actual[:]
 		expectedBytes := expected[:]
 		if len(actualBytes) != len(expectedBytes) ||
@@ -2540,6 +2555,62 @@ func NewDijkstraBlockFromCbor(
 		}
 	}
 	return &dijkstraBlock, nil
+}
+
+// HasInlinedCertifiedTransactions reports whether the block is a CertRB that
+// also has transactions, as sent over node-to-client.
+func (b *DijkstraBlock) HasInlinedCertifiedTransactions() bool {
+	if b.BlockHeader == nil || b.BlockBody.LeiosCertificate == nil ||
+		len(b.BlockBody.Transactions) == 0 {
+		return false
+	}
+	certified, _ := b.BlockHeader.LeiosCertified()
+	return certified
+}
+
+// OnChainBlockBodyCbor returns the CertRB body without its inlined
+// transactions. The header's body hash and size cover these bytes.
+//
+// NOTE: node-to-client doesn't send these bytes, so they are rebuilt from the
+// received body: the transactions field becomes an empty array (0x80) and all
+// other bytes stay the same. TestOnChainBlockBodyCborMatchesRealCertRbs checks
+// the result against real CertRBs.
+func (b *DijkstraBlock) OnChainBlockBodyCbor() ([]byte, error) {
+	raw, err := b.BlockBody.MarshalCBOR()
+	if err != nil {
+		return nil, fmt.Errorf("encode Dijkstra block body: %w", err)
+	}
+	var fields []cbor.RawMessage
+	n, err := cbor.Decode(raw, &fields)
+	if err != nil {
+		return nil, fmt.Errorf("decode Dijkstra block body fields: %w", err)
+	}
+	if n != len(raw) {
+		return nil, errors.New("dijkstra block body has trailing bytes")
+	}
+	if len(fields) == 0 {
+		return nil, errors.New("dijkstra block body has no fields")
+	}
+	// The fields sit back to back after the array header, followed by a
+	// 0xff break byte when the array is indefinite-length.
+	fieldsLen := 0
+	for _, field := range fields {
+		fieldsLen += len(field)
+	}
+	trailerLen := 0
+	if raw[0] == 0x9f {
+		trailerLen = 1
+	}
+	headerLen := len(raw) - fieldsLen - trailerLen
+	if headerLen < 1 {
+		return nil, errors.New("dijkstra block body has an invalid array header")
+	}
+	txsEnd := headerLen + len(fields[0])
+	onChain := make([]byte, 0, len(raw)-len(fields[0])+1)
+	onChain = append(onChain, raw[:headerLen]...)
+	onChain = append(onChain, 0x80)
+	onChain = append(onChain, raw[txsEnd:]...)
+	return onChain, nil
 }
 
 func NewDijkstraBlockHeaderFromCbor(data []byte) (*DijkstraBlockHeader, error) {

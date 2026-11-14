@@ -109,7 +109,8 @@ func (s *DecodeStage) Process(ctx context.Context, item *BlockItem) error {
 	}
 
 	config := common.VerifyConfig{
-		SkipBodyHashValidation: s.SkipBodyHashValidation,
+		SkipBodyHashValidation:                 s.SkipBodyHashValidation,
+		AllowCertifiedBlockInlinedTransactions: item.NodeToClient(),
 	}
 
 	block, err := ledger.NewBlockFromCbor(

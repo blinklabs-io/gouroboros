@@ -164,6 +164,61 @@ func ValidateLeiosCertificateTiming(
 // the Leios clauses of blockMatchesHeader (Shelley/Ledger/Block.hs) at
 // ouroboros-consensus 5cc95f4c.
 func ValidateLeiosBlockBody(block *DijkstraBlock) error {
+	return validateLeiosBlockBody(block, false)
+}
+
+// ValidateLeiosBlockBodyNodeToClient is ValidateLeiosBlockBody for a block
+// received over node-to-client, where a CertRB carries its EB's transactions.
+func ValidateLeiosBlockBodyNodeToClient(block *DijkstraBlock) error {
+	return validateLeiosBlockBody(block, true)
+}
+
+// ValidateLeiosClosureSize rejects a CertRB whose inlined EB transactions
+// total more than maxEndorserBlockTxsSize bytes, as the reference node does.
+//
+// NOTE: maxEndorserBlockExUnits and maxRefScriptSizePerEndorserBlock are not
+// checked on purpose. The node only applies them when building an EB, never
+// to one it receives, so checking them here could reject a CertRB the node
+// accepted. VerifyBlockState logs a warning when the ExUnits total is over.
+func ValidateLeiosClosureSize(
+	block *DijkstraBlock,
+	pparams *DijkstraProtocolParameters,
+) error {
+	if pparams == nil {
+		return errors.New(
+			"EB transaction size validation requires Dijkstra protocol parameters",
+		)
+	}
+	total, err := LeiosClosureSize(block)
+	if err != nil {
+		return err
+	}
+	if total > uint64(pparams.MaxEndorserBlockTxsSize) {
+		return &LeiosClosureTooBigError{
+			ClosureSize: total,
+			Maximum:     pparams.MaxEndorserBlockTxsSize,
+		}
+	}
+	return nil
+}
+
+// LeiosClosureSize returns the total size in bytes of a CertRB's inlined EB
+// transactions, the value ValidateLeiosClosureSize checks against
+// maxEndorserBlockTxsSize.
+func LeiosClosureSize(block *DijkstraBlock) (uint64, error) {
+	var total uint64
+	for _, tx := range block.Transactions() {
+		size, err := common.TxSize(tx)
+		if err != nil {
+			return 0, err
+		}
+		// TxSize is a byte length, never negative.
+		total += uint64(size) // #nosec G115
+	}
+	return total, nil
+}
+
+func validateLeiosBlockBody(block *DijkstraBlock, allowInlined bool) error {
 	var certified bool
 	if block.BlockHeader != nil {
 		certified, _ = block.BlockHeader.LeiosCertified()
@@ -175,7 +230,7 @@ func ValidateLeiosBlockBody(block *DijkstraBlock) error {
 			BodyHasCertificate: hasCertificate,
 		}
 	}
-	if hasCertificate && len(block.BlockBody.Transactions) > 0 {
+	if hasCertificate && !allowInlined && len(block.BlockBody.Transactions) > 0 {
 		return &LeiosCertifiedBlockTransactionsError{
 			TransactionCount: len(block.BlockBody.Transactions),
 		}

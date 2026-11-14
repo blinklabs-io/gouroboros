@@ -23,6 +23,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -127,7 +128,15 @@ func validateDijkstraBlockBodyHash(
 			nil,
 		)
 	}
-	actualBodyHash := common.Blake2b256Hash(raw[1])
+	return compareDijkstraBlockBodyHash(
+		common.Blake2b256Hash(raw[1]),
+		expectedBodyHash,
+	)
+}
+
+func compareDijkstraBlockBodyHash(
+	actualBodyHash, expectedBodyHash common.Blake2b256,
+) error {
 	if subtle.ConstantTimeCompare(actualBodyHash[:], expectedBodyHash[:]) != 1 {
 		return common.NewValidationError(
 			common.ValidationErrorTypeBodyHash,
@@ -254,10 +263,78 @@ func validateDijkstraLeiosHeader(
 	return nil
 }
 
-func validateDijkstraBlockCertificates(
+// inlinedCertRb returns block as a CertRB that carries its EB's transactions,
+// if config allows such blocks (node-to-client only).
+func inlinedCertRb(
+	block Block,
+	config common.VerifyConfig,
+) (*dijkstra.DijkstraBlock, bool) {
+	if !config.AllowCertifiedBlockInlinedTransactions {
+		return nil, false
+	}
+	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
+	if !ok || !dijkstraBlock.HasInlinedCertifiedTransactions() {
+		return nil, false
+	}
+	return dijkstraBlock, true
+}
+
+// inlinedCertRbOnChainBody returns the body the header signs for a CertRB that
+// carries its EB's transactions: the body without them. For any other block
+// it returns nil, as the body in the block's own CBOR is the signed one.
+func inlinedCertRbOnChainBody(
+	block Block,
+	config common.VerifyConfig,
+) ([]byte, error) {
+	certRb, ok := inlinedCertRb(block, config)
+	if !ok {
+		return nil, nil
+	}
+	return certRb.OnChainBlockBodyCbor()
+}
+
+// blockBodySize returns the size of the block body the header signs:
+// onChainBody when set, otherwise the body in rawCbor.
+func blockBodySize(rawCbor, onChainBody []byte) (uint64, error) {
+	if onChainBody != nil {
+		return uint64(len(onChainBody)), nil
+	}
+	return common.BlockBodySizeFromCbor(rawCbor)
+}
+
+// leiosAnnouncingSlot returns the slot of the block before a CertRB, which is
+// the RB that announced the CertRB's EB. The EB's transactions are validated
+// at that slot: they are applied right after the announcing RB, and the
+// ledger only ticks forward to the CertRB's slot once they have been applied.
+func leiosAnnouncingSlot(
+	header *dijkstra.DijkstraBlockHeader,
+	ledgerState common.LedgerState,
+) (uint64, error) {
+	state, ok := common.UnwrapLedgerState(ledgerState).(common.DijkstraLeiosHeaderState)
+	if !ok {
+		return 0, errors.New(
+			"ledger state does not provide the Dijkstra Leios header state",
+		)
+	}
+	context, err := state.DijkstraLeiosHeaderContext(header)
+	if err != nil {
+		return 0, fmt.Errorf("resolve Dijkstra Leios header state: %w", err)
+	}
+	if predecessor, typed := context.Predecessor.(*dijkstra.DijkstraBlockHeader); context.Predecessor == nil ||
+		(typed && predecessor == nil) {
+		return 0, errors.New("CertRB has no announcing block")
+	}
+	return context.Predecessor.SlotNumber(), nil
+}
+
+// validateDijkstraBlockCertificatesWith validates a Dijkstra block's
+// certificates. When allowInlined is set, it accepts a CertRB carrying its
+// EB's transactions, as sent over node-to-client.
+func validateDijkstraBlockCertificatesWith(
 	block Block,
 	protocolParameters common.ProtocolParameters,
 	ledgerState common.LedgerState,
+	allowInlined bool,
 ) error {
 	dijkstraBlock, ok := block.(*dijkstra.DijkstraBlock)
 	if !ok {
@@ -274,7 +351,11 @@ func validateDijkstraBlockCertificates(
 			)
 		}
 	}
-	if err := dijkstra.ValidateLeiosBlockBody(dijkstraBlock); err != nil {
+	validateBody := dijkstra.ValidateLeiosBlockBody
+	if allowInlined {
+		validateBody = dijkstra.ValidateLeiosBlockBodyNodeToClient
+	}
+	if err := validateBody(dijkstraBlock); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
 			"invalid Dijkstra block body",
@@ -606,6 +687,25 @@ func blockLevelLimits(
 	}
 }
 
+// leiosClosureExUnitsOverLimit sums the ExUnits of a CertRB's EB transactions
+// and reports if they exceed maxEndorserBlockExUnits. A zero limit counts as
+// unset, so it never reports. If the sum fails, it reports false; the
+// per-transaction rules catch bad redeemers.
+func leiosClosureExUnitsOverLimit(
+	block *dijkstra.DijkstraBlock,
+	pparams *dijkstra.DijkstraProtocolParameters,
+) (common.ExUnits, bool) {
+	if pparams.MaxEndorserBlockExUnits == (common.ExUnits{}) {
+		return common.ExUnits{}, false
+	}
+	total, err := sumBlockExUnits(block.Transactions())
+	if err != nil {
+		return common.ExUnits{}, false
+	}
+	limit := pparams.MaxEndorserBlockExUnits
+	return total, total.Memory > limit.Memory || total.Steps > limit.Steps
+}
+
 // sumBlockExUnits sums the ExUnits (memory, steps) across every redeemer in
 // every transaction level in the block. This reuses the same
 // TransactionWitnessRedeemers mechanism that each era's per-transaction
@@ -762,6 +862,18 @@ func VerifyBlockLocal(
 ) (bool, string, uint64, uint64, error) {
 	return verifyBlock(block, eta0Hex, slotsPerKesPeriod,
 		common.VerifyConfig{}, true)
+}
+
+// VerifyBlockLocalNodeToClient is VerifyBlockLocal for a block received over
+// node-to-client, where a CertRB carries its EB's transactions (see
+// common.VerifyConfig.AllowCertifiedBlockInlinedTransactions).
+func VerifyBlockLocalNodeToClient(
+	block Block,
+	eta0Hex string,
+	slotsPerKesPeriod uint64,
+) (bool, string, uint64, uint64, error) {
+	return verifyBlock(block, eta0Hex, slotsPerKesPeriod,
+		common.VerifyConfig{AllowCertifiedBlockInlinedTransactions: true}, true)
 }
 
 func verifyBlock(
@@ -1139,7 +1251,11 @@ func verifyBlock(
 				nil,
 			)
 		}
-		bodySize, sizeErr := common.BlockBodySizeFromCbor(rawCbor)
+		onChainBody, sizeErr := inlinedCertRbOnChainBody(block, config)
+		var bodySize uint64
+		if sizeErr == nil {
+			bodySize, sizeErr = blockBodySize(rawCbor, onChainBody)
+		}
 		if sizeErr != nil {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeProtocol,
@@ -1176,7 +1292,17 @@ func verifyBlock(
 			// A Dijkstra (prototype-2026w27) block is [header, block_body];
 			// its block_body_hash is blake2b256 over the block_body CBOR, not
 			// the pre-Dijkstra concatenation of per-segment hashes.
-			if err := validateDijkstraBlockBodyHash(rawCbor, expectedBodyHash); err != nil {
+			var hashErr error
+			if onChainBody != nil {
+				// The header signs the body without the EB's transactions.
+				hashErr = compareDijkstraBlockBodyHash(
+					common.Blake2b256Hash(onChainBody),
+					expectedBodyHash,
+				)
+			} else {
+				hashErr = validateDijkstraBlockBodyHash(rawCbor, expectedBodyHash)
+			}
+			if err := hashErr; err != nil {
 				return false, "", 0, 0, fmt.Errorf(
 					"VerifyBlock: %w",
 					err,
@@ -1243,13 +1369,19 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	); err != nil {
 		return err
 	}
-	if err := validateDijkstraBlockCertificates(
+	if err := validateDijkstraBlockCertificatesWith(
 		block,
 		config.ProtocolParameters,
 		config.LedgerState,
+		config.AllowCertifiedBlockInlinedTransactions,
 	); err != nil {
 		return err
 	}
+	// A CertRB with inlined EB transactions is checked against the RB
+	// limits as it is on chain, without those transactions. Its EB's
+	// transactions are applied at the announcing RB's slot.
+	certRb, isInlinedCertRb := inlinedCertRb(block, config)
+	txSlot := slot
 
 	// Verify block-wide execution-unit budget (BBODY: sum of every
 	// transaction's ExUnits must not exceed ppMaxBlockExUnits) and the block
@@ -1277,9 +1409,13 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	// opt out explicitly via config.SkipBlockLimitsValidation.
 	if block.Era() != byron.EraByron && !config.SkipBlockLimitsValidation {
 		txs := block.Transactions()
+		if isInlinedCertRb {
+			txs = nil
+		}
 		rawBlockCbor := block.Cbor()
 		headerCbor := header.Cbor()
-		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 {
+		if len(txs) > 0 || len(rawBlockCbor) > 0 || len(headerCbor) > 0 ||
+			isInlinedCertRb {
 			if config.ProtocolParameters == nil {
 				return common.NewValidationError(
 					common.ValidationErrorTypeConfiguration,
@@ -1306,6 +1442,56 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					},
 					limitsErr,
 				)
+			}
+			// Inlined EB transactions are limited by maxEndorserBlockTxsSize,
+			// not the RB limits above.
+			if isInlinedCertRb {
+				pparams, ok := config.ProtocolParameters.(*dijkstra.DijkstraProtocolParameters)
+				if !ok {
+					return common.NewValidationError(
+						common.ValidationErrorTypeConfiguration,
+						"EB transaction size validation requires Dijkstra protocol parameters",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						nil,
+					)
+				}
+				if err := dijkstra.ValidateLeiosClosureSize(
+					certRb,
+					pparams,
+				); err != nil {
+					return common.NewValidationError(
+						common.ValidationErrorTypeProtocol,
+						"CertRB's inlined EB transactions exceed the protocol maximum",
+						map[string]any{
+							"block_slot":   slot,
+							"block_number": blockNo,
+							"era":          era,
+						},
+						err,
+					)
+				}
+				// NOTE: logged, not rejected. The node doesn't check
+				// maxEndorserBlockExUnits on an EB it receives, so rejecting
+				// here could stop sync on a CertRB the node accepted.
+				if total, over := leiosClosureExUnitsOverLimit(
+					certRb,
+					pparams,
+				); over {
+					slog.Warn(
+						"CertRB's inlined EB transactions exceed maxEndorserBlockExUnits",
+						"block_slot", slot,
+						"block_number", blockNo,
+						"block_hash", block.Hash().String(),
+						"memory", total.Memory,
+						"steps", total.Steps,
+						"max_memory", pparams.MaxEndorserBlockExUnits.Memory,
+						"max_steps", pparams.MaxEndorserBlockExUnits.Steps,
+					)
+				}
 			}
 			if hasMaxExUnits && len(txs) > 0 {
 				totalExUnits, sumErr := sumBlockExUnits(txs)
@@ -1372,7 +1558,11 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 			// not just at the comparison below, so it is never wastefully
 			// computed when the limit is disabled.
 			if len(rawBlockCbor) > 0 && maxBodySize > 0 {
-				bodySize, sizeErr := common.BlockBodySizeFromCbor(rawBlockCbor)
+				onChainBody, sizeErr := inlinedCertRbOnChainBody(block, config)
+				var bodySize uint64
+				if sizeErr == nil {
+					bodySize, sizeErr = blockBodySize(rawBlockCbor, onChainBody)
+				}
 				if sizeErr != nil {
 					return common.NewValidationError(
 						common.ValidationErrorTypeProtocol,
@@ -1496,9 +1686,27 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				nil,
 			)
 		}
+		if isInlinedCertRb {
+			announcingSlot, err := leiosAnnouncingSlot(
+				certRb.BlockHeader,
+				config.LedgerState,
+			)
+			if err != nil {
+				return common.NewValidationError(
+					common.ValidationErrorTypeConfiguration,
+					"failed to resolve the slot of the CertRB's announcing block",
+					map[string]any{
+						"block_slot":   slot,
+						"block_number": blockNo,
+					},
+					err,
+				)
+			}
+			txSlot = announcingSlot
+		}
 		if idx, err := verifyBlockTransactions(
 			block.Transactions(),
-			slot,
+			txSlot,
 			config.LedgerState,
 			config.ProtocolParameters,
 			validationRules,
@@ -1517,7 +1725,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		}
 	}
 	var refScriptSizeErr error
-	if block.Era() != byron.EraByron &&
+	if block.Era() != byron.EraByron && !isInlinedCertRb &&
 		!config.SkipBlockLimitsValidation && len(block.Transactions()) > 0 {
 		switch typedBlock := block.(type) {
 		case *conway.ConwayBlock:

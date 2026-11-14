@@ -260,6 +260,26 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 		require.ErrorAs(t, err, &both)
 		require.Equal(t, 1, both.TransactionCount)
 	})
+	// Over node-to-client a CertRB carries its EB's transactions; the other
+	// rules still hold.
+	t.Run("node-to-client certificate and transactions", func(t *testing.T) {
+		require.NoError(t, ValidateLeiosBlockBodyNodeToClient(&DijkstraBlock{
+			BlockHeader: certified,
+			BlockBody: DijkstraBlockBody{
+				LeiosCertificate: cert,
+				Transactions:     []DijkstraTransaction{{}},
+			},
+		}))
+		err := ValidateLeiosBlockBodyNodeToClient(&DijkstraBlock{
+			BlockHeader: uncertified,
+			BlockBody: DijkstraBlockBody{
+				LeiosCertificate: cert,
+				Transactions:     []DijkstraTransaction{{}},
+			},
+		})
+		var mismatch *LeiosCertificateFlagMismatchError
+		require.ErrorAs(t, err, &mismatch)
+	})
 	t.Run("any Peras certificate", func(t *testing.T) {
 		for _, perasCert := range [][]byte{{}, {0x01}} {
 			err := ValidateLeiosBlockBody(&DijkstraBlock{
@@ -270,4 +290,36 @@ func TestValidateLeiosBlockBody(t *testing.T) {
 			require.ErrorAs(t, err, &peras)
 		}
 	})
+}
+
+// ValidateLeiosClosureSize sums the ledger size of every inlined transaction
+// and rejects only a total strictly greater than maxEndorserBlockTxsSize.
+func TestValidateLeiosClosureSize(t *testing.T) {
+	t.Parallel()
+	block := &DijkstraBlock{
+		BlockBody: DijkstraBlockBody{Transactions: testFeeTxs(3)},
+	}
+	var want uint64
+	for _, tx := range block.Transactions() {
+		size, err := common.TxSize(tx)
+		require.NoError(t, err)
+		require.Positive(t, size)
+		want += uint64(size)
+	}
+	total, err := LeiosClosureSize(block)
+	require.NoError(t, err)
+	require.Equal(t, want, total)
+	pp := testLeiosParams()
+
+	pp.MaxEndorserBlockTxsSize = uint32(total)
+	require.NoError(t, ValidateLeiosClosureSize(block, pp))
+
+	pp.MaxEndorserBlockTxsSize = uint32(total - 1)
+	err = ValidateLeiosClosureSize(block, pp)
+	var tooBig *LeiosClosureTooBigError
+	require.ErrorAs(t, err, &tooBig)
+	require.Equal(t, total, tooBig.ClosureSize)
+	require.Equal(t, uint32(total-1), tooBig.Maximum)
+
+	require.Error(t, ValidateLeiosClosureSize(block, nil))
 }
