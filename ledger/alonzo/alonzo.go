@@ -77,11 +77,19 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 		TransactionBodies      []AlonzoTransactionBody
 		TransactionWitnessSets []AlonzoTransactionWitnessSet
 		TransactionMetadataSet common.TransactionMetadataSet
-		InvalidTransactions    []uint64
+		InvalidTransactions    cbor.RawMessage
 	}
 
 	var tmp tmpAlonzoBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if len(tmp.InvalidTransactions) == 0 ||
+		tmp.InvalidTransactions[0]&0xe0 != 0x80 {
+		return errors.New("block invalid transactions must be a CBOR array")
+	}
+	var invalidTransactions []uint64
+	if _, err := cbor.Decode(tmp.InvalidTransactions, &invalidTransactions); err != nil {
 		return err
 	}
 	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
@@ -91,8 +99,8 @@ func (b *AlonzoBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	// Convert the wire indices to the platform type without discarding values.
-	result := make([]uint, 0, len(tmp.InvalidTransactions))
-	for _, val := range tmp.InvalidTransactions {
+	result := make([]uint, 0, len(invalidTransactions))
+	for _, val := range invalidTransactions {
 		converted := uint(val)
 		if uint64(converted) != val {
 			return fmt.Errorf(
