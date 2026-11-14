@@ -302,6 +302,38 @@ func TestNonMyopicMemberRewardsRejectsNonCanonicalReplies(t *testing.T) {
 			name: "negative reward",
 			wire: "a1" + nmKeyCoin5 + "a1" + nmHash(1) + "20",
 		},
+		{
+			name: "null coin",
+			wire: "a1" + "8200f6" + pools,
+		},
+		{
+			name: "undefined coin",
+			wire: "a1" + "8200f7" + pools,
+		},
+		{
+			name: "null Either tag",
+			wire: "a1" + "82f605" + pools,
+		},
+		{
+			name: "null credential tag",
+			wire: "a1" + "8201" + "82f6" + nmHash(1) + pools,
+		},
+		{
+			name: "null credential hash",
+			wire: "a1" + "82018200f6" + pools,
+		},
+		{
+			name: "null pool id",
+			wire: "a1" + nmKeyCoin5 + "a1f601",
+		},
+		{
+			name: "null reward",
+			wire: "a1" + nmKeyCoin5 + "a1" + nmHash(1) + "f6",
+		},
+		{
+			name: "undefined reward",
+			wire: "a1" + nmKeyCoin5 + "a1" + nmHash(1) + "f7",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -320,6 +352,33 @@ func TestNonMyopicMemberRewardsKeyRejectsUnknownCredentialTag(t *testing.T) {
 	)
 	_, err := cbor.Encode(key)
 	require.Error(t, err)
+}
+
+func TestNonMyopicMemberRewardsRejectsAliasedKeys(t *testing.T) {
+	t.Parallel()
+	coin := localstatequery.NewNonMyopicCoinKey(5)
+	coinAlias := coin
+	coinAlias.Credential.Tag = 1
+	credential := localstatequery.NewNonMyopicCredentialKey(
+		localstatequery.StakeCredential{Tag: 0, Bytes: nmBlake(1)},
+	)
+	credentialAlias := credential
+	credentialAlias.Coin = 9
+	pools := map[ledger.Blake2b224]uint64{nmBlake(1): 1}
+	for name, keys := range map[string][2]localstatequery.NonMyopicMemberRewardsKey{
+		"coin":       {coin, coinAlias},
+		"credential": {credential, credentialAlias},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			result := localstatequery.NonMyopicMemberRewardsResult{
+				keys[0]: pools,
+				keys[1]: pools,
+			}
+			_, err := cbor.Encode(result)
+			require.Error(t, err)
+		})
+	}
 }
 
 // Not t.Parallel: runTest verifies goroutine leaks for the whole process.

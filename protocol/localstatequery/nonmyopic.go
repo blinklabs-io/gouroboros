@@ -135,13 +135,13 @@ func (k *NonMyopicMemberRewardsKey) UnmarshalCBOR(data []byte) error {
 		)
 	}
 	var tag uint64
-	if _, err := cbor.Decode(items[0], &tag); err != nil {
+	if err := decodeNonMyopicUint(items[0], &tag); err != nil {
 		return fmt.Errorf("non-myopic member rewards key tag: %w", err)
 	}
 	switch tag {
 	case nonMyopicLeftTag:
 		var coin uint64
-		if _, err := cbor.Decode(items[1], &coin); err != nil {
+		if err := decodeNonMyopicUint(items[1], &coin); err != nil {
 			return fmt.Errorf("non-myopic member rewards coin: %w", err)
 		}
 		*k = NewNonMyopicCoinKey(coin)
@@ -160,6 +160,17 @@ func (k *NonMyopicMemberRewardsKey) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// decodeNonMyopicUint decodes an unsigned integer. The CBOR decoder leaves
+// the destination untouched for null and undefined and reports no error, which
+// would turn a malformed field into zero, so the item type is checked first.
+func decodeNonMyopicUint(data []byte, dst *uint64) error {
+	if len(data) == 0 || data[0]>>5 != 0 {
+		return errors.New("expected an unsigned integer")
+	}
+	_, err := cbor.Decode(data, dst)
+	return err
+}
+
 func decodeStakeCredential(data []byte) (StakeCredential, error) {
 	items, err := cborpreflight.ArrayItems(data, 2, "staking credential")
 	if err != nil {
@@ -172,7 +183,7 @@ func decodeStakeCredential(data []byte) (StakeCredential, error) {
 		)
 	}
 	var credential StakeCredential
-	if _, err := cbor.Decode(items[0], &credential.Tag); err != nil {
+	if err := decodeNonMyopicUint(items[0], &credential.Tag); err != nil {
 		return StakeCredential{}, fmt.Errorf("staking credential tag: %w", err)
 	}
 	if credential.Tag != stakeCredentialKeyHashTag &&
@@ -214,7 +225,14 @@ func (r NonMyopicMemberRewardsResult) MarshalCBOR() ([]byte, error) {
 	}
 	slices.SortFunc(keys, NonMyopicMemberRewardsKey.Compare)
 	out := appendMapHeader(nil, len(keys))
-	for _, key := range keys {
+	for i, key := range keys {
+		// Keys that differ only in a field their form does not encode would
+		// write the same wire key twice.
+		if i > 0 && key.Compare(keys[i-1]) == 0 {
+			return nil, errors.New(
+				"non-myopic member rewards: keys share a wire encoding",
+			)
+		}
 		encodedKey, err := key.MarshalCBOR()
 		if err != nil {
 			return nil, err
@@ -290,7 +308,7 @@ func (r *NonMyopicMemberRewardsResult) UnmarshalCBOR(data []byte) error {
 					}
 					previousPool = poolId
 					var reward uint64
-					if _, err := cbor.Decode(rawReward, &reward); err != nil {
+					if err := decodeNonMyopicUint(rawReward, &reward); err != nil {
 						return err
 					}
 					pools[poolId] = reward
