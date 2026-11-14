@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2004,12 +2005,23 @@ func (s *GovActionState) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// GovStateResult represents the full governance state.
-// This includes proposals, committee, constitution, protocol parameters,
-// and DRep pulsing state.
-// The raw messages can be further decoded based on the era.
+// GovStateResult is cardano-ledger's ConwayGovState, the value the node
+// returns for GetGovState in the Conway and Dijkstra eras. On the wire it is a
+// seven-element array:
+//
+//	[ [roots, proposals], committee, constitution, curPParams, prevPParams,
+//	  futurePParams, drepPulsingState ]
+//
+// ProposalRoots and Proposals are the two halves of the first element.
+// Committee is a StrictMaybe, an empty list or a one-element list; decode it
+// with [GovStateResult.DecodeCommittee]. The protocol parameters are
+// era-specific and kept as raw CBOR. FuturePParams and DRepPulsingState are
+// kept as raw CBOR so they re-encode unchanged; decode them with
+// [GovStateResult.DecodeFuturePParams] and
+// [GovStateResult.DecodeDRepPulsingState].
 type GovStateResult struct {
 	cbor.StructAsArray
+	ProposalRoots    PrevGovActionIds // Root of each governance action purpose
 	Proposals        []GovActionState // Governance proposals with voting state
 	Committee        cbor.RawMessage  // StrictMaybe Committee
 	Constitution     ConstitutionResult
@@ -2022,7 +2034,11 @@ type GovStateResult struct {
 func (g *GovStateResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Proposals        growingArray[GovActionState]
+		Proposals struct {
+			cbor.StructAsArray
+			Roots PrevGovActionIds
+			Items growingArray[GovActionState]
+		}
 		Committee        cbor.RawMessage
 		Constitution     ConstitutionResult
 		CurrentPParams   cbor.RawMessage
@@ -2034,7 +2050,8 @@ func (g *GovStateResult) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	*g = GovStateResult{
-		Proposals:        tmp.Proposals,
+		ProposalRoots:    tmp.Proposals.Roots,
+		Proposals:        tmp.Proposals.Items,
 		Committee:        tmp.Committee,
 		Constitution:     tmp.Constitution,
 		CurrentPParams:   tmp.CurrentPParams,
@@ -2045,46 +2062,86 @@ func (g *GovStateResult) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// DecodeCommittee decodes the Committee field from its StrictMaybe CBOR encoding.
-// In Cardano, StrictMaybe is encoded as:
-//   - [0] for SNothing (no committee)
-//   - [1, data] for SJust (committee present)
+// MarshalCBOR encodes the state as the node does. An empty Committee encodes
+// as no committee; every other raw field must be set.
+func (g GovStateResult) MarshalCBOR() ([]byte, error) {
+	roots, err := g.ProposalRoots.MarshalCBOR()
+	if err != nil {
+		return nil, err
+	}
+	proposals := make([][]byte, 0, len(g.Proposals))
+	for _, p := range g.Proposals {
+		enc, err := p.MarshalCBOR()
+		if err != nil {
+			return nil, err
+		}
+		proposals = append(proposals, enc)
+	}
+	committee := []byte(g.Committee)
+	if len(committee) == 0 {
+		committee = []byte{0x80}
+	}
+	anchor, err := cbor.Encode(g.Constitution.Anchor)
+	if err != nil {
+		return nil, err
+	}
+	guardrails := []byte{0xf6}
+	if g.Constitution.ScriptHash != nil {
+		guardrails, err = cbor.Encode([]byte(g.Constitution.ScriptHash))
+		if err != nil {
+			return nil, err
+		}
+	}
+	raws := []struct {
+		name string
+		data cbor.RawMessage
+	}{
+		{"current protocol parameters", g.CurrentPParams},
+		{"previous protocol parameters", g.PrevPParams},
+		{"future protocol parameters", g.FuturePParams},
+		{"DRep pulsing state", g.DRepPulsingState},
+	}
+	for _, r := range raws {
+		if len(r.data) == 0 {
+			return nil, fmt.Errorf("governance state: missing %s", r.name)
+		}
+	}
+	return bytes.Join([][]byte{
+		{0x87, 0x82},
+		roots,
+		encodeLedgerList(proposals),
+		committee,
+		{0x82},
+		anchor,
+		guardrails,
+		g.CurrentPParams,
+		g.PrevPParams,
+		g.FuturePParams,
+		g.DRepPulsingState,
+	}, nil), nil
+}
+
+// DecodeCommittee decodes the Committee field from its StrictMaybe encoding,
+// which cardano-ledger writes as a list of zero or one items: [] for no
+// committee and [committee] otherwise.
 //
-// Returns nil if the committee is absent (SNothing or empty/nil wrapper).
+// Returns nil if the committee is absent.
 func (g *GovStateResult) DecodeCommittee() (*Committee, error) {
 	if len(g.Committee) == 0 {
 		return nil, nil
 	}
-	// CBOR null (0xf6) means no committee present
-	if len(g.Committee) == 1 && g.Committee[0] == 0xf6 {
-		return nil, nil
-	}
-	wrapper, err := decodeBoundedArray(g.Committee, 2, "committee")
+	wrapper, err := decodeBoundedArray(g.Committee, 1, "committee")
 	if err != nil {
 		return nil, err
 	}
 	if len(wrapper) == 0 {
 		return nil, nil
 	}
-	var tag uint64
-	if _, err := cbor.Decode(wrapper[0], &tag); err != nil {
+	var committee Committee
+	if _, err := cbor.Decode(wrapper[0], &committee); err != nil {
 		return nil, err
 	}
-	switch tag {
-	case 0:
-		return nil, nil
-	case 1:
-		if len(wrapper) < 2 {
-			return nil, errors.New("invalid StrictMaybe SJust: missing data")
-		}
-		var committee Committee
-		if _, err := cbor.Decode(wrapper[1], &committee); err != nil {
-			return nil, err
-		}
-		return &committee, nil
-	default:
-		return nil, fmt.Errorf("unknown StrictMaybe tag: %d", tag)
-	}
+	return &committee, nil
 }
 
 // DRepStateEntry represents the state of a single DRep.
