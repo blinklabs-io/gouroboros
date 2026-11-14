@@ -361,14 +361,14 @@ func (c *Client) GetEpochNo() (int, error) {
 	return result[0], nil
 }
 
-// GetNonMyopicMemberRewards returns the non-myopic member rewards for the given stakes
-// stakes should be an array of [tag, stake_amount] pairs where tag is 0 for KeyHash credentials
-// The array must be sorted by stake amount
+// GetNonMyopicMemberRewards returns the non-myopic member rewards for the
+// given keys, each a stake amount or a staking credential. The keys are sent
+// as the sorted set the node requires, and duplicates are collapsed.
 func (c *Client) GetNonMyopicMemberRewards(
-	stakes []any,
+	keys []NonMyopicMemberRewardsKey,
 ) (*NonMyopicMemberRewardsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(stakes: %+v)", stakes),
+		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(keys: %+v)", keys),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -376,19 +376,18 @@ func (c *Client) GetNonMyopicMemberRewards(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	if err := validateLocalStateQuerySet(stakes, "stakes"); err != nil {
+	stakesSet, err := encodeNonMyopicMemberRewardsSet(keys)
+	if err != nil {
 		return nil, err
 	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the stakes in a CBOR set (tag 258)
-	stakesSet := cbor.NewSetType(stakes, true)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyNonMyopicMemberRewards,
-		stakesSet,
+		cbor.RawMessage(stakesSet),
 	)
 	return runWrappedQuery[NonMyopicMemberRewardsResult](
 		c,
