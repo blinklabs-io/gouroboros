@@ -1201,10 +1201,11 @@ type StakeCredential struct {
 	Bytes ledger.Blake2b224
 }
 
-// NonMyopicMemberRewardsResult represents the non-myopic member rewards result
-// The result is a map where each key is a stake credential
-// and each value is a map of pool IDs to their reward amounts in lovelaces
-type NonMyopicMemberRewardsResult map[StakeCredential]map[ledger.Blake2b224]uint64
+// NonMyopicMemberRewardsResult represents the non-myopic member rewards result.
+// Each key is either a stake amount or a staking credential, and each value is
+// a map of pool IDs to their reward amounts in lovelaces. It encodes and
+// decodes as the node does, in ascending key order.
+type NonMyopicMemberRewardsResult map[NonMyopicMemberRewardsKey]map[ledger.Blake2b224]uint64
 
 type CurrentProtocolParamsResult interface {
 	ledger.AlonzoProtocolParameters |
