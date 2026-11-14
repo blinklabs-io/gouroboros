@@ -243,17 +243,21 @@ type AllegraTransactionBody struct {
 
 func (b *AllegraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tAllegraTransactionBody AllegraTransactionBody
-	var tmp tAllegraTransactionBody
+	var tmp struct {
+		tAllegraTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
-	*b = AllegraTransactionBody(tmp)
+	*b = AllegraTransactionBody(tmp.tAllegraTransactionBody)
 	if err := b.DecodeValidityIntervalUpperBoundPresence(cborData, b.Ttl); err != nil {
 		return err
 	}

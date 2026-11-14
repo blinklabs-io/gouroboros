@@ -575,10 +575,14 @@ type BabbageTransactionBody struct {
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionBody BabbageTransactionBody
-	var tmp tBabbageTransactionBody
+	var tmp struct {
+		tBabbageTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	for idx := range tmp.TxOutputs {
 		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
@@ -611,7 +615,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
-	*b = BabbageTransactionBody(tmp)
+	*b = BabbageTransactionBody(tmp.tBabbageTransactionBody)
 	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}
