@@ -1305,9 +1305,9 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 // [Client.GetDRepState], [Client.GetCommitteeMembersState]) when you only need
 // one piece, as this query returns and decodes considerably more data.
 //
-// Response: a [GovStateResult]. Several fields are returned as raw CBOR
-// because their shape is era-specific; the Committee field is a StrictMaybe
-// and can be decoded with [GovStateResult.DecodeCommittee].
+// Response: a [GovStateResult]. The protocol parameters are returned as raw
+// CBOR because their shape is era-specific; the Committee, FuturePParams and
+// DRepPulsingState fields have typed decoders on the result.
 //
 // Era: requires the Conway era or later. Returns an error if the acquired
 // ledger state is on an earlier era.
@@ -1335,11 +1335,15 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 		currentEra,
 		QueryTypeShelleyGovState,
 	)
-	var result GovStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The state arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		State GovStateResult
+	}
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.State, nil
 }
 
 // GetDRepState returns the registration state of delegate representatives

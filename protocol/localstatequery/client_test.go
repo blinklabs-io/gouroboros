@@ -545,7 +545,7 @@ func TestGetGovState(t *testing.T) {
 	// GovState with empty proposals list
 	expectedResult := localstatequery.GovStateResult{
 		Proposals: []localstatequery.GovActionState{}, // Empty proposals
-		Committee: cbor.RawMessage([]byte{0xf6}),      // null
+		Committee: cbor.RawMessage([]byte{0x80}),      // SNothing
 		Constitution: localstatequery.ConstitutionResult{
 			Anchor: lcommon.GovAnchor{
 				Url:      "https://constitution.cardano.org",
@@ -558,8 +558,10 @@ func TestGetGovState(t *testing.T) {
 		FuturePParams:    cbor.RawMessage([]byte{0xa0}),
 		DRepPulsingState: cbor.RawMessage([]byte{0x80}),
 	}
-	cborData, err := cbor.Encode(expectedResult)
+	stateCbor, err := cbor.Encode(expectedResult)
 	require.NoError(t, err, "unexpected error encoding")
+	// The era query result wrapper is a single-element array.
+	cborData := append([]byte{0x81}, stateCbor...)
 	conversation := append(
 		conversationConwayEra,
 		ouroboros_mock.ConversationEntryInput{
@@ -618,7 +620,7 @@ func TestGetGovStateWithProposals(t *testing.T) {
 	}
 	expectedResult := localstatequery.GovStateResult{
 		Proposals: []localstatequery.GovActionState{proposal},
-		Committee: cbor.RawMessage([]byte{0xf6}),
+		Committee: cbor.RawMessage([]byte{0x80}),
 		Constitution: localstatequery.ConstitutionResult{
 			Anchor: lcommon.GovAnchor{
 				Url:      "https://constitution.cardano.org",
@@ -630,8 +632,10 @@ func TestGetGovStateWithProposals(t *testing.T) {
 		FuturePParams:    cbor.RawMessage([]byte{0xa0}),
 		DRepPulsingState: cbor.RawMessage([]byte{0x80}),
 	}
-	cborData, err := cbor.Encode(expectedResult)
+	stateCbor, err := cbor.Encode(expectedResult)
 	require.NoError(t, err, "unexpected error encoding")
+	// The era query result wrapper is a single-element array.
+	cborData := append([]byte{0x81}, stateCbor...)
 	conversation := append(
 		conversationConwayEra,
 		ouroboros_mock.ConversationEntryInput{
@@ -674,7 +678,7 @@ func TestGetGovStateWithProposals(t *testing.T) {
 }
 
 func TestDecodeCommitteeSJust(t *testing.T) {
-	// Build a StrictMaybe SJust committee: [1, committee]
+	// Build a StrictMaybe SJust committee: [committee]
 	threshold := cbor.Rat{Rat: big.NewRat(2, 3)}
 	committee := localstatequery.Committee{
 		Members: map[localstatequery.StakeCredential]uint64{
@@ -684,9 +688,7 @@ func TestDecodeCommitteeSJust(t *testing.T) {
 	}
 	committeeCbor, err := cbor.Encode(committee)
 	require.NoError(t, err)
-	tagCbor, err := cbor.Encode(1)
-	require.NoError(t, err)
-	wrapper := []cbor.RawMessage{tagCbor, committeeCbor}
+	wrapper := []cbor.RawMessage{committeeCbor}
 	wrapperCbor, err := cbor.Encode(wrapper)
 	require.NoError(t, err)
 
@@ -704,22 +706,6 @@ func TestDecodeCommitteeSJust(t *testing.T) {
 	assert.Equal(t, big.NewRat(2, 3), result.Threshold.Rat)
 }
 
-func TestDecodeCommitteeSNothing(t *testing.T) {
-	// Build a StrictMaybe SNothing: [0]
-	tagCbor, err := cbor.Encode(0)
-	require.NoError(t, err)
-	wrapper := []cbor.RawMessage{tagCbor}
-	wrapperCbor, err := cbor.Encode(wrapper)
-	require.NoError(t, err)
-
-	govState := &localstatequery.GovStateResult{
-		Committee: wrapperCbor,
-	}
-	result, err := govState.DecodeCommittee()
-	require.NoError(t, err)
-	assert.Nil(t, result, "expected nil for SNothing")
-}
-
 func TestDecodeCommitteeEmptyWrapper(t *testing.T) {
 	// Build an empty wrapper: []
 	wrapper := []cbor.RawMessage{}
@@ -732,16 +718,6 @@ func TestDecodeCommitteeEmptyWrapper(t *testing.T) {
 	result, err := govState.DecodeCommittee()
 	require.NoError(t, err)
 	assert.Nil(t, result, "expected nil for empty wrapper")
-}
-
-func TestDecodeCommitteeCborNull(t *testing.T) {
-	// CBOR null (0xf6) is what Cardano nodes send when no committee is present
-	govState := &localstatequery.GovStateResult{
-		Committee: cbor.RawMessage([]byte{0xf6}),
-	}
-	result, err := govState.DecodeCommittee()
-	require.NoError(t, err)
-	assert.Nil(t, result, "expected nil for CBOR null committee")
 }
 
 func TestGetGovStatePreConway(t *testing.T) {
