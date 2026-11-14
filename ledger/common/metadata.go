@@ -145,6 +145,13 @@ func DecodeMetadatumRaw(b []byte) (TransactionMetadatum, error) {
 }
 
 func decodeTransactionMetadataRaw(b []byte) (TransactionMetadatum, error) {
+	return decodeTransactionMetadataLabels(b, false)
+}
+
+func decodeTransactionMetadataLabels(
+	b []byte,
+	rejectDuplicates bool,
+) (TransactionMetadatum, error) {
 	md, err := DecodeMetadatumRaw(b)
 	if err != nil {
 		return nil, err
@@ -153,6 +160,8 @@ func decodeTransactionMetadataRaw(b []byte) (TransactionMetadatum, error) {
 	if !ok {
 		return nil, errors.New("transaction metadata must be a map")
 	}
+	positions := make(map[uint64]int, len(metadata.Pairs))
+	pairs := make([]MetaPair, 0, len(metadata.Pairs))
 	for _, pair := range metadata.Pairs {
 		label, ok := pair.Key.(MetaInt)
 		if !ok || label.Value == nil || !label.Value.IsUint64() {
@@ -160,7 +169,23 @@ func decodeTransactionMetadataRaw(b []byte) (TransactionMetadatum, error) {
 				"transaction metadata labels must be unsigned 64-bit integers",
 			)
 		}
+		key := label.Value.Uint64()
+		if position, exists := positions[key]; exists {
+			if rejectDuplicates {
+				return nil, fmt.Errorf(
+					"duplicate transaction metadata label %d",
+					key,
+				)
+			}
+			pairs[position] = pair
+		} else {
+			positions[key] = len(pairs)
+			pairs = append(pairs, pair)
+		}
 	}
+	// Only the label map is a typed map. Nested metadatum maps retain all pairs.
+	// Keep the original CBOR even when the historical projection drops duplicates.
+	metadata.Pairs = pairs
 	return metadata, nil
 }
 
@@ -705,10 +730,11 @@ const (
 )
 
 type auxiliaryDataEraRules struct {
-	allowArray                 bool
-	allowTaggedMap             bool
-	maxNativeScriptConstructor uint
-	maxPlutusVersion           uint
+	rejectDuplicateMetadataLabels bool
+	allowArray                    bool
+	allowTaggedMap                bool
+	maxNativeScriptConstructor    uint
+	maxPlutusVersion              uint
 }
 
 func auxiliaryDataRulesForEra(
@@ -738,17 +764,19 @@ func auxiliaryDataRulesForEra(
 		}, nil
 	case AuxiliaryDataEraConway:
 		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 5,
-			maxPlutusVersion:           3,
+			rejectDuplicateMetadataLabels: true,
+			allowArray:                    true,
+			allowTaggedMap:                true,
+			maxNativeScriptConstructor:    5,
+			maxPlutusVersion:              3,
 		}, nil
 	case AuxiliaryDataEraDijkstra:
 		return auxiliaryDataEraRules{
-			allowArray:                 true,
-			allowTaggedMap:             true,
-			maxNativeScriptConstructor: 6,
-			maxPlutusVersion:           4,
+			rejectDuplicateMetadataLabels: true,
+			allowArray:                    true,
+			allowTaggedMap:                true,
+			maxNativeScriptConstructor:    6,
+			maxPlutusVersion:              4,
 		}, nil
 	default:
 		return auxiliaryDataEraRules{}, fmt.Errorf(
@@ -788,6 +816,13 @@ func (s *ShelleyAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
 }
 
 func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	return s.unmarshalCBOR(data, auxiliaryDataEraRules{})
+}
+
+func (s *ShelleyAuxiliaryData) unmarshalCBOR(
+	data []byte,
+	rules auxiliaryDataEraRules,
+) error {
 	s.SetCbor(data)
 
 	// Shelley auxiliary data may be wrapped in CBOR tag 259 (0xD90103)
@@ -799,7 +834,10 @@ func (s *ShelleyAuxiliaryData) UnmarshalCBOR(data []byte) error {
 		dataToUse = data[3:]
 	}
 
-	md, err := decodeTransactionMetadataRaw(dataToUse)
+	md, err := decodeTransactionMetadataLabels(
+		dataToUse,
+		rules.rejectDuplicateMetadataLabels,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to decode Shelley auxiliary data: %w", err)
 	}
@@ -848,6 +886,13 @@ func (s *ShelleyMaAuxiliaryData) PlutusV4Scripts() ([]PlutusV4Script, error) {
 }
 
 func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	return s.unmarshalCBOR(data, auxiliaryDataEraRules{})
+}
+
+func (s *ShelleyMaAuxiliaryData) unmarshalCBOR(
+	data []byte,
+	rules auxiliaryDataEraRules,
+) error {
 	s.SetCbor(data)
 	var arr []cbor.RawMessage
 	if _, err := cbor.Decode(data, &arr); err != nil {
@@ -867,7 +912,10 @@ func (s *ShelleyMaAuxiliaryData) UnmarshalCBOR(data []byte) error {
 	if len(arr[0]) == 0 || arr[0][0]&cborTypeMask != cborTypeMap {
 		return errors.New("Shelley-MA metadata must be a CBOR map")
 	}
-	md, err := decodeTransactionMetadataRaw(arr[0])
+	md, err := decodeTransactionMetadataLabels(
+		arr[0],
+		rules.rejectDuplicateMetadataLabels,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to decode metadata: %w", err)
 	}
@@ -1044,7 +1092,10 @@ func (a *AlonzoAuxiliaryData) decodeTaggedAuxiliaryDataField(
 	var err error
 	switch key {
 	case 0:
-		a.metadata, err = decodeTransactionMetadataRaw(value)
+		a.metadata, err = decodeTransactionMetadataLabels(
+			value,
+			rules.rejectDuplicateMetadataLabels,
+		)
 		if err != nil {
 			return fmt.Errorf("decode auxiliary-data metadata: %w", err)
 		}
@@ -1210,7 +1261,7 @@ func DecodeAuxiliaryDataForEra(
 			)
 		}
 		auxData := &ShelleyAuxiliaryData{}
-		if _, err := cbor.Decode(raw, auxData); err != nil {
+		if err := auxData.unmarshalCBOR(raw, rules); err != nil {
 			return nil, err
 		}
 		return auxData, nil
@@ -1242,7 +1293,7 @@ func DecodeAuxiliaryDataForEra(
 			return nil, err
 		}
 		auxData := &ShelleyMaAuxiliaryData{}
-		if _, err := cbor.Decode(raw, auxData); err != nil {
+		if err := auxData.unmarshalCBOR(raw, rules); err != nil {
 			return nil, err
 		}
 		if err := ValidateNativeScriptConstructors(
