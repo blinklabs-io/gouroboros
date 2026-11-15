@@ -167,9 +167,15 @@ func (s *Server) RollForward(blockType uint, blockData []byte, tip Tip) error {
 		if !ok {
 			return fmt.Errorf("unknown block type: %d", blockType)
 		}
+		// A Byron header carries whether it is a boundary (0) or regular
+		// (1) header; for every other era the value is unused.
+		var byronType uint
+		if eraId == ledger.BlockHeaderTypeByron {
+			byronType = blockType
+		}
 		msg, err := NewMsgRollForwardNtN(
 			eraId,
-			0,
+			byronType,
 			blockData,
 			tip,
 		)

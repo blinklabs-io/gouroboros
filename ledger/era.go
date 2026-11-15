@@ -41,11 +41,13 @@ var BlockHeaderToBlockTypeMap = map[uint]uint{
 // BlockToBlockHeaderTypeMap is a mapping of NtC chainsync block types
 // to NtN block header types (era ID)
 var BlockToBlockHeaderTypeMap = map[uint]uint{
-	BlockTypeShelley:  BlockHeaderTypeShelley,
-	BlockTypeAllegra:  BlockHeaderTypeAllegra,
-	BlockTypeMary:     BlockHeaderTypeMary,
-	BlockTypeAlonzo:   BlockHeaderTypeAlonzo,
-	BlockTypeBabbage:  BlockHeaderTypeBabbage,
-	BlockTypeConway:   BlockHeaderTypeConway,
-	BlockTypeDijkstra: BlockHeaderTypeDijkstra,
+	BlockTypeByronEbb:  BlockHeaderTypeByron,
+	BlockTypeByronMain: BlockHeaderTypeByron,
+	BlockTypeShelley:   BlockHeaderTypeShelley,
+	BlockTypeAllegra:   BlockHeaderTypeAllegra,
+	BlockTypeMary:      BlockHeaderTypeMary,
+	BlockTypeAlonzo:    BlockHeaderTypeAlonzo,
+	BlockTypeBabbage:   BlockHeaderTypeBabbage,
+	BlockTypeConway:    BlockHeaderTypeConway,
+	BlockTypeDijkstra:  BlockHeaderTypeDijkstra,
 }
