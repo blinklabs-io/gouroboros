@@ -400,55 +400,61 @@ func UtxoValidateValueNotConservedUtxo(
 			continue
 		}
 		if assets := tmpUtxo.Output.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if consumedAssets[key] == nil {
-						consumedAssets[key] = new(big.Int)
-					}
-					consumedAssets[key].Add(consumedAssets[key], amount)
-				}
-			}
-		}
-	}
-
-	// Add minted/burned assets to consumed (positive for mint, negative for burn)
-	if mint := tx.AssetMint(); mint != nil {
-		for _, policy := range mint.Policies() {
-			for _, assetName := range mint.Assets(policy) {
-				amount := mint.Asset(policy, assetName)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
 				if amount == nil {
-					continue
+					return true
 				}
 				key := assetKey{policy: policy, asset: string(assetName)}
 				if consumedAssets[key] == nil {
 					consumedAssets[key] = new(big.Int)
 				}
 				consumedAssets[key].Add(consumedAssets[key], amount)
-			}
+				return true
+			})
 		}
+	}
+
+	// Add minted/burned assets to consumed (positive for mint, negative for burn)
+	if mint := tx.AssetMint(); mint != nil {
+		mint.RangeUnordered(func(
+			policy common.Blake2b224,
+			assetName []byte,
+			amount common.MultiAssetTypeOutput,
+		) bool {
+			if amount == nil {
+				return true
+			}
+			key := assetKey{policy: policy, asset: string(assetName)}
+			if consumedAssets[key] == nil {
+				consumedAssets[key] = new(big.Int)
+			}
+			consumedAssets[key].Add(consumedAssets[key], amount)
+			return true
+		})
 	}
 
 	// Collect produced multi-assets from outputs
 	for _, tmpOutput := range tx.Outputs() {
 		if assets := tmpOutput.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if producedAssets[key] == nil {
-						producedAssets[key] = new(big.Int)
-					}
-					producedAssets[key].Add(producedAssets[key], amount)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
+				if amount == nil {
+					return true
 				}
-			}
+				key := assetKey{policy: policy, asset: string(assetName)}
+				if producedAssets[key] == nil {
+					producedAssets[key] = new(big.Int)
+				}
+				producedAssets[key].Add(producedAssets[key], amount)
+				return true
+			})
 		}
 	}
 
@@ -521,15 +527,16 @@ func outputHasPositiveAsset(output common.TransactionOutput) bool {
 	if assets == nil {
 		return false
 	}
-	for _, policy := range assets.Policies() {
-		for _, name := range assets.Assets(policy) {
-			if quantity := assets.Asset(policy, name); quantity != nil &&
-				quantity.Sign() > 0 {
-				return true
-			}
-		}
-	}
-	return false
+	found := false
+	assets.RangeUnordered(func(
+		_ common.Blake2b224,
+		_ []byte,
+		quantity common.MultiAssetTypeOutput,
+	) bool {
+		found = quantity != nil && quantity.Sign() > 0
+		return !found
+	})
+	return found
 }
 
 func UtxoValidateOutputBootAddrAttrsTooBig(

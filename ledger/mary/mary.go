@@ -826,7 +826,7 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 }
 
 func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
-	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
+	if v.Assets == nil || v.Assets.PolicyCount() == 0 {
 		return cbor.Encode(v.Amount)
 	} else {
 		return cbor.EncodeGeneric(v)
@@ -839,7 +839,7 @@ func (v *MaryTransactionOutputValue) MarshalCBOR() ([]byte, error) {
 // entries.
 func (v *MaryTransactionOutputValue) LedgerSerializedSize() (int, error) {
 	amountSize := cborUintSize(v.Amount)
-	if v.Assets == nil || len(v.Assets.Policies()) == 0 {
+	if v.Assets == nil || v.Assets.PolicyCount() == 0 {
 		return amountSize, nil
 	}
 	assetsSize, err := v.Assets.EncodedSize()

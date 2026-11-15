@@ -692,8 +692,18 @@ func (m *MultiAsset[T]) ValidateMintQuantities() error {
 
 func (m MultiAsset[T]) MarshalJSON() ([]byte, error) {
 	tmpAssets := make([]multiAssetJson[T], 0, len(m.data))
-	for policyId, policyData := range m.data {
-		for assetName, amount := range policyData {
+	policies := slices.Collect(maps.Keys(m.data))
+	slices.SortFunc(policies, func(a, b Blake2b224) int {
+		return bytes.Compare(a.Bytes(), b.Bytes())
+	})
+	for _, policyId := range policies {
+		policyData := m.data[policyId]
+		names := slices.Collect(maps.Keys(policyData))
+		slices.SortFunc(names, func(a, b cbor.ByteString) int {
+			return bytes.Compare(a.Bytes(), b.Bytes())
+		})
+		for _, assetName := range names {
+			amount := policyData[assetName]
 			tmpObj := multiAssetJson[T]{
 				Name:     string(assetName.Bytes()),
 				NameHex:  hex.EncodeToString(assetName.Bytes()),
@@ -785,14 +795,40 @@ func (m *MultiAsset[T]) ToPlutusData() data.PlutusData {
 	return data.NewMap(tmpData)
 }
 
+// Policies returns the policy IDs in byte-lexicographic order.
 func (m *MultiAsset[T]) Policies() []Blake2b224 {
 	ret := make([]Blake2b224, 0, len(m.data))
 	for policyId := range m.data {
 		ret = append(ret, policyId)
 	}
+	slices.SortFunc(ret, func(a, b Blake2b224) int {
+		return bytes.Compare(a.Bytes(), b.Bytes())
+	})
 	return ret
 }
 
+// PolicyCount returns the number of policies without sorting them.
+func (m *MultiAsset[T]) PolicyCount() int {
+	return len(m.data)
+}
+
+// RangeUnordered calls fn for every policy, asset name and amount in
+// unspecified order, stopping when fn returns false. Entries of one policy
+// are visited consecutively. It avoids the sorting cost of Policies and
+// Assets, so use it only where the result cannot depend on order.
+func (m *MultiAsset[T]) RangeUnordered(
+	fn func(policyId Blake2b224, assetName []byte, amount T) bool,
+) {
+	for policyId, assets := range m.data {
+		for assetName, amount := range assets {
+			if !fn(policyId, assetName.Bytes(), amount) {
+				return
+			}
+		}
+	}
+}
+
+// Assets returns the asset names of a policy in byte-lexicographic order.
 func (m *MultiAsset[T]) Assets(policyId Blake2b224) [][]byte {
 	assets, ok := m.data[policyId]
 	if !ok {
@@ -802,6 +838,7 @@ func (m *MultiAsset[T]) Assets(policyId Blake2b224) [][]byte {
 	for assetName := range assets {
 		ret = append(ret, assetName.Bytes())
 	}
+	slices.SortFunc(ret, bytes.Compare)
 	return ret
 }
 

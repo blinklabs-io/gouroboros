@@ -699,7 +699,7 @@ func UtxoValidateCollateralContainsNonAda(
 		// An explicitly encoded empty multi-asset map is ADA-only, as in
 		// cardano-ledger, so only a non-empty map makes the collateral bad.
 		if assets := utxo.Output.Assets(); assets == nil ||
-			len(assets.Policies()) == 0 {
+			assets.PolicyCount() == 0 {
 			continue
 		}
 		badOutputs = append(badOutputs, utxo.Output)
@@ -871,58 +871,64 @@ func UtxoValidateValueNotConservedUtxo(
 			continue
 		}
 		if assets := tmpUtxo.Output.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if consumedAssets[key] == nil {
-						consumedAssets[key] = new(big.Int)
-					}
-					consumedAssets[key].Add(consumedAssets[key], amount)
-				}
-			}
-		}
-	}
-
-	// Add minted/burned assets to consumed (positive for mint, negative for burn)
-	if mint := tx.AssetMint(); mint != nil {
-		for _, policy := range mint.Policies() {
-			for _, assetName := range mint.Assets(policy) {
-				if policy == (common.Blake2b224{}) && len(assetName) == 0 {
-					continue
-				}
-				amount := mint.Asset(policy, assetName)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
 				if amount == nil {
-					continue
+					return true
 				}
 				key := assetKey{policy: policy, asset: string(assetName)}
 				if consumedAssets[key] == nil {
 					consumedAssets[key] = new(big.Int)
 				}
 				consumedAssets[key].Add(consumedAssets[key], amount)
-			}
+				return true
+			})
 		}
+	}
+
+	// Add minted/burned assets to consumed (positive for mint, negative for burn)
+	if mint := tx.AssetMint(); mint != nil {
+		mint.RangeUnordered(func(
+			policy common.Blake2b224,
+			assetName []byte,
+			amount common.MultiAssetTypeMint,
+		) bool {
+			if policy == (common.Blake2b224{}) && len(assetName) == 0 {
+				return true
+			}
+			if amount == nil {
+				return true
+			}
+			key := assetKey{policy: policy, asset: string(assetName)}
+			if consumedAssets[key] == nil {
+				consumedAssets[key] = new(big.Int)
+			}
+			consumedAssets[key].Add(consumedAssets[key], amount)
+			return true
+		})
 	}
 
 	// Collect produced multi-assets from outputs
 	for _, tmpOutput := range tx.Outputs() {
 		if assets := tmpOutput.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if producedAssets[key] == nil {
-						producedAssets[key] = new(big.Int)
-					}
-					producedAssets[key].Add(producedAssets[key], amount)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
+				if amount == nil {
+					return true
 				}
-			}
+				key := assetKey{policy: policy, asset: string(assetName)}
+				if producedAssets[key] == nil {
+					producedAssets[key] = new(big.Int)
+				}
+				producedAssets[key].Add(producedAssets[key], amount)
+				return true
+			})
 		}
 	}
 
@@ -1133,21 +1139,24 @@ func alonzoValueSize(
 	numAssets := 0
 	numPolicies := 0
 	assetNames := make(map[string]struct{})
-	for _, policyId := range assets.Policies() {
-		names := assets.Assets(policyId)
-		if len(names) == 0 {
-			// representationSize counts policy IDs appearing in the
-			// flattened triples, so a policy with no assets contributes
-			// nothing.
-			continue
+	// Entries of one policy are visited consecutively, so a change of policy
+	// marks the next distinct policy. A policy with no assets has no entries
+	// and contributes nothing, as in representationSize.
+	var lastPolicy common.Blake2b224
+	assets.RangeUnordered(func(
+		policyId common.Blake2b224,
+		name []byte,
+		_ common.MultiAssetTypeOutput,
+	) bool {
+		if numPolicies == 0 || policyId != lastPolicy {
+			numPolicies++
+			lastPolicy = policyId
 		}
-		numPolicies++
-		for _, name := range names {
-			numAssets++
-			assetNames[string(name)] = struct{}{}
-		}
-	}
-	if numAssets == 0 && len(assets.Policies()) == 0 {
+		numAssets++
+		assetNames[string(name)] = struct{}{}
+		return true
+	})
+	if numAssets == 0 && assets.PolicyCount() == 0 {
 		return alonzoAdaOnlyValueSize
 	}
 	nameBytes := 0
