@@ -16,6 +16,7 @@ package common
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -635,6 +636,36 @@ func ValidatePoolMetadataForProtocolVersion(
 	return validatePoolMetadataURL(metadata, maxURLLength)
 }
 
+// ValidatePoolRelaysForProtocolVersion verifies the protocol-version-aware
+// bound on relay dns_name values. Protocol versions before Conway use the
+// legacy 64-byte bound; Conway and later use the 128-byte bound.
+//
+// The wire decoder carries no protocol version and accepts the larger bound,
+// so a rule validating a transaction applies this check to what it decoded.
+func ValidatePoolRelaysForProtocolVersion(
+	relays []PoolRelay,
+	protocolMajor uint,
+) error {
+	maxLength := poolRelayMaxHostnameLen
+	if protocolMajor < ProtocolVersionConway {
+		maxLength = poolRelayMaxHostnameLenLegacy
+	}
+	for _, relay := range relays {
+		switch relay.Type {
+		case PoolRelayTypeSingleHostName, PoolRelayTypeMultiHostName:
+			if relay.Hostname != nil && len(*relay.Hostname) > maxLength {
+				return fmt.Errorf(
+					"%w: maximum %d bytes, got %d",
+					ErrPoolRelayHostnameTooLong,
+					maxLength,
+					len(*relay.Hostname),
+				)
+			}
+		}
+	}
+	return nil
+}
+
 func validatePoolMetadataURL(metadata *PoolMetadata, maxURLLength int) error {
 	if metadata == nil || len(metadata.Url) <= maxURLLength {
 		return nil
@@ -720,8 +751,16 @@ const (
 	PoolRelayTypeMultiHostName            = 2
 	poolRelayMaxPort               uint32 = 65535
 	poolRelayMaxHostnameLen               = 128
+	poolRelayMaxHostnameLenLegacy         = 64
 	poolRelayIpv4Size                     = 4
 	poolRelayIpv6Size                     = 16
+)
+
+// ErrPoolRelayHostnameTooLong identifies a single_host_name or multi_host_name
+// relay whose dns_name exceeds the bound of the protocol version it is
+// validated at.
+var ErrPoolRelayHostnameTooLong = errors.New(
+	"pool relay dns_name exceeds the protocol length limit",
 )
 
 // ErrPoolRelayAddressWidth identifies a single_host_addr relay whose ipv4 or
@@ -887,6 +926,23 @@ func decodeOptionalRelayAddress(
 	return &address, nil
 }
 
+// PoolRelayIpv6WireOrder reverses the bytes of each 32-bit word of a 16-byte
+// IPv6 address. The ledger serialises a relay's IPv6 address as four
+// little-endian words (ipv6ToBytes in Cardano/Ledger/Binary/Encoding/Encoder.hs),
+// so the same swap converts between network order and the wire form. It
+// returns nil for an address that is not 16 bytes.
+func PoolRelayIpv6WireOrder(ip net.IP) net.IP {
+	if len(ip) != poolRelayIpv6Size {
+		return nil
+	}
+	out := make(net.IP, poolRelayIpv6Size)
+	for i := 0; i < poolRelayIpv6Size; i += 4 {
+		word := binary.BigEndian.Uint32(ip[i : i+4])
+		binary.LittleEndian.PutUint32(out[i:i+4], word)
+	}
+	return out
+}
+
 func decodePoolRelayHostname(raw cbor.RawMessage) (string, error) {
 	if len(raw) == 0 || raw[0]&cbor.CborTypeMask != cbor.CborTypeTextString {
 		return "", errors.New("pool relay hostname must be a CBOR text string")
@@ -932,6 +988,10 @@ func (p *PoolRelay) UnmarshalCBOR(data []byte) error {
 		}
 		if err := p.validateDecodedAddressWidths(); err != nil {
 			return err
+		}
+		if p.Ipv6 != nil {
+			standard := PoolRelayIpv6WireOrder(*p.Ipv6)
+			p.Ipv6 = &standard
 		}
 	case PoolRelayTypeSingleHostName:
 		var tmpData struct {
@@ -997,6 +1057,7 @@ func (p PoolRelay) MarshalCBOR() ([]byte, error) {
 			if normalized == nil {
 				return nil, errors.New("invalid IPv6 relay address")
 			}
+			normalized = PoolRelayIpv6WireOrder(normalized)
 			ipv6 = &normalized
 		}
 		return cbor.Encode(struct {
@@ -1051,10 +1112,12 @@ func (p PoolRelay) Utxorpc() (*utxorpc.Relay, error) {
 		ret.IpV4 = []byte(*p.Ipv4)
 	}
 	if p.Ipv6 != nil {
-		ret.IpV6 = []byte(*p.Ipv6)
-	}
-	if p.Port != nil {
-		ret.Port = *p.Port
+		normalized := p.Ipv6.To16()
+		if normalized == nil {
+			return nil, errors.New("invalid IPv6 relay address")
+		}
+		// UTxO RPC carries the ledger's wire bytes, as cardano-rpc does.
+		ret.IpV6 = []byte(PoolRelayIpv6WireOrder(normalized))
 	}
 	return ret, nil
 }
@@ -1271,6 +1334,57 @@ func validatePoolMarginCBOR(data []byte, requireUintComponents bool) error {
 				)
 			}
 		}
+	}
+	// The components are untrusted and unbounded, so the unit-interval and
+	// Word64 checks run on the step-limited reduction before GenesisRat
+	// decodes them with big.Rat.SetFrac.
+	numerator, err := rawCBORInteger(components[0])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: numerator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	denominator, err := rawCBORInteger(components[1])
+	if err != nil {
+		return fmt.Errorf(
+			"%w: denominator: %w",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+		)
+	}
+	reducedNum, reducedDenom, err := reduceWord64Rational(
+		numerator,
+		denominator,
+	)
+	switch {
+	case errors.Is(err, errRationalZeroDenominator):
+		return fmt.Errorf(
+			"%w: denominator must be positive",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	case errors.Is(err, errRationalNegative):
+		return fmt.Errorf(
+			"%w: margin is negative",
+			ErrPoolMarginOutsideUnitInterval,
+		)
+	case err != nil:
+		return fmt.Errorf(
+			"%w: %w (numerator %d bits, denominator %d bits)",
+			ErrPoolMarginOutsideUnitInterval,
+			err,
+			numerator.BitLen(),
+			denominator.BitLen(),
+		)
+	}
+	if reducedNum > reducedDenom {
+		return fmt.Errorf(
+			"%w: got %d/%d",
+			ErrPoolMarginOutsideUnitInterval,
+			reducedNum,
+			reducedDenom,
+		)
 	}
 	var margin GenesisRat
 	if _, err := cbor.Decode(data, &margin); err != nil {

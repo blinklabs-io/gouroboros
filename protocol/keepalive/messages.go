@@ -47,7 +47,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			msgType,
 		)
 	}
-	if _, err := cbor.Decode(data, ret); err != nil {
+	if _, err := cbor.DecodeUntrustedExact(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
 	if ret != nil {

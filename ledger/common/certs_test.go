@@ -560,7 +560,7 @@ func TestPoolRelayCBORRoundTrip(t *testing.T) {
 		},
 		{
 			name: "single host address with ipv6",
-			raw:  "8400190bb9f65020010db8000000000000000000000001",
+			raw:  "8400190bb9f650b80d0120000000000000000001000000",
 			want: PoolRelay{
 				Type: PoolRelayTypeSingleHostAddress,
 				Port: &port,

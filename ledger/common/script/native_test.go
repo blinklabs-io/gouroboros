@@ -26,7 +26,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/sha3"
 )
 
 func nativeScriptHashes(scripts []common.NativeScript) []common.ScriptHash {
@@ -207,71 +206,6 @@ func TestNewNativeScriptEnv(t *testing.T) {
 		require.Equal(t, uint64(42), env.ValidityEnd)
 		require.True(t, env.ValidityEndPresent)
 		require.True(t, env.KeyHashes[common.Blake2b224Hash(vkey)])
-		bootstrapHash, err := common.BootstrapWitness{
-			PublicKey: bootstrapKey,
-		}.KeyHash()
-		require.NoError(t, err)
-		require.True(t, env.KeyHashes[bootstrapHash])
-		require.False(
-			t,
-			env.KeyHashes[common.Blake2b224Hash(bootstrapKey)],
-		)
+		require.Len(t, env.KeyHashes, 1)
 	})
-}
-
-func TestNativeScriptEnvBootstrapKeyHash(t *testing.T) {
-	t.Parallel()
-	w := common.BootstrapWitness{
-		PublicKey:  bytes.Repeat([]byte{0x41}, 32),
-		Signature:  bytes.Repeat([]byte{0x42}, 64),
-		ChainCode:  bytes.Repeat([]byte{0x43}, 32),
-		Attributes: []byte{0xa0},
-	}
-	// Spelled out independently of the production helper.
-	payload := []byte{0x83, 0x00, 0x82, 0x00, 0x58, 0x40}
-	payload = append(payload, w.PublicKey...)
-	payload = append(payload, w.ChainCode...)
-	payload = append(payload, w.Attributes...)
-	sum := sha3.Sum256(payload)
-	addrRoot := common.Blake2b224Hash(sum[:])
-	pubKeyHash := common.Blake2b224Hash(w.PublicKey)
-
-	requireHash := func(t *testing.T, hash common.Blake2b224) common.NativeScript {
-		t.Helper()
-		scriptCbor, err := cbor.Encode(common.NativeScriptPubkey{
-			Type: 0,
-			Hash: hash.Bytes(),
-		})
-		require.NoError(t, err)
-		var ns common.NativeScript
-		require.NoError(t, ns.UnmarshalCBOR(scriptCbor))
-		return ns
-	}
-	evaluate := func(
-		ns common.NativeScript,
-		env script.NativeScriptEnv,
-	) bool {
-		return ns.EvaluateWithBounds(
-			env.Slot,
-			env.ValidityStart,
-			env.ValidityEnd,
-			env.ValidityStartPresent,
-			env.ValidityEndPresent,
-			env.KeyHashes,
-		)
-	}
-
-	bootstrapOnly := mockledger.NewTransactionBuilder().WithWitnesses(
-		mockledger.NewMockTransactionWitnessSet().WithBootstrapWitnesses(w),
-	)
-	env := script.NewNativeScriptEnv(bootstrapOnly, 0)
-	require.False(t, evaluate(requireHash(t, pubKeyHash), env))
-	require.True(t, evaluate(requireHash(t, addrRoot), env))
-
-	vkeyTx := mockledger.NewTransactionBuilder().WithWitnesses(
-		mockledger.NewMockTransactionWitnessSet().
-			WithVkeyWitnesses(common.VkeyWitness{Vkey: w.PublicKey}),
-	)
-	vkeyEnv := script.NewNativeScriptEnv(vkeyTx, 0)
-	require.True(t, evaluate(requireHash(t, pubKeyHash), vkeyEnv))
 }

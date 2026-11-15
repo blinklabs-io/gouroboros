@@ -44,22 +44,21 @@ const (
 // Client implements the ChainSync client
 type Client struct {
 	*protocol.Protocol
-	protocolMu               sync.RWMutex
-	config                   *Config
-	callbackContext          CallbackContext
-	busyMutex                sync.Mutex
-	lifecycleMutex           sync.Mutex
-	lifecycleState           clientLifecycleState
-	startingDone             chan struct{}
-	stoppingDone             chan struct{}
-	activeOperations         int
-	operationsDrained        chan struct{}
-	protocolStarted          bool
-	readyForNextBlockChan    chan bool
-	syncLoopWaitGroup        sync.WaitGroup
-	syncPipelinedRequestNext int
-	outstandingRequestNext   int
-	requestNextDrained       chan struct{}
+	protocolMu             sync.RWMutex
+	config                 *Config
+	callbackContext        CallbackContext
+	busyMutex              sync.Mutex
+	lifecycleMutex         sync.Mutex
+	lifecycleState         clientLifecycleState
+	startingDone           chan struct{}
+	stoppingDone           chan struct{}
+	activeOperations       int
+	operationsDrained      chan struct{}
+	protocolStarted        bool
+	readyForNextBlockChan  chan bool
+	syncLoopWaitGroup      sync.WaitGroup
+	outstandingRequestNext int
+	requestNextDrained     chan struct{}
 	// syncLoopStop and syncLoopDone belong to the most recently started sync
 	// loop. Closing syncLoopStop makes that loop exit; the loop closes
 	// syncLoopDone on its way out.
@@ -338,7 +337,6 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				c.syncPipelinedRequestNext = 0
 				// Requests sent on the stopped instance are never answered.
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
@@ -850,6 +848,24 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	return c.sendInitialRequestAndStartSyncLoop()
 }
 
+// discardReadySignals empties the ready channel of signals left by replies to
+// a sync loop that has exited, which would otherwise be read by the next loop.
+// The caller must hold busyMutex with the loop gone and no MsgRequestNext
+// unanswered: replies enqueue their signal before they are retired, so none
+// can arrive after this returns.
+func discardReadySignals(readyChan <-chan bool) error {
+	for {
+		select {
+		case _, ok := <-readyChan:
+			if !ok {
+				return protocol.ErrProtocolShuttingDown
+			}
+		default:
+			return nil
+		}
+	}
+}
+
 // findIntersect sends MsgFindIntersect and waits for the server's answer. The
 // caller must hold busyMutex and have the protocol in StIdle.
 func (c *Client) findIntersect(
@@ -914,18 +930,8 @@ func (c *Client) Reintersect(
 	}
 	defer c.busyMutex.Unlock()
 
-	// The old loop is gone, so the ready signals for the drained replies are
-	// stale. Replies enqueue their signal before they are retired, so none
-	// can arrive after this drain.
-	for drainedSignals := false; !drainedSignals; {
-		select {
-		case _, ok := <-readyChan:
-			if !ok {
-				return pcommon.Point{}, Tip{}, protocol.ErrProtocolShuttingDown
-			}
-		default:
-			drainedSignals = true
-		}
+	if err := discardReadySignals(readyChan); err != nil {
+		return pcommon.Point{}, Tip{}, err
 	}
 	c.lifecycleMutex.Lock()
 	stopped := c.syncStopRequests != stopsBefore
@@ -945,6 +951,75 @@ func (c *Client) Reintersect(
 		return pcommon.Point{}, Tip{}, err
 	}
 	return result.point, result.tip, nil
+}
+
+// Jump sends a single MsgFindIntersect and returns the server's answer
+// without starting a sync. It is the operation ChainSync Jumping performs on
+// a jumper: a peer whose client is started but not streaming, and which is
+// periodically asked whether it agrees with a point on another peer's chain.
+// Only MsgFindIntersect is sent, so the exchange is the one cardano-node
+// already serves; no MsgRequestNext is sent and the protocol is left in
+// StIdle, where further Jump calls, Sync or Reintersect are all legal. Sync
+// with the returned point makes the jumper stream from there.
+//
+// found reports whether the server returned MsgIntersectFound. An absent
+// intersection is not an error: Jump returns found false, the zero point and
+// the server's tip. As with Sync, an empty points slice offers the origin.
+// The IntersectFoundFunc callback runs for a found intersection, as it does
+// for every MsgIntersectFound.
+//
+// Jump returns ErrSyncInProgress, without sending anything, while a sync loop
+// is running or a MsgRequestNext is still unanswered, since the protocol is
+// then not in StIdle; use Reintersect to move a running sync. Concurrent Jump
+// calls are serialized with each other and with Sync. A callback must not
+// call Jump, because the reply is delivered on the goroutine that runs the
+// callbacks. If the client is not running, or Stop or loss of the connection
+// interrupts the wait, Jump returns protocol.ErrProtocolShuttingDown.
+func (c *Client) Jump(
+	points []pcommon.Point,
+) (pcommon.Point, Tip, bool, error) {
+	c.busyMutex.Lock()
+	proto, readyChan, doneChan, endOperation, err := c.beginOperation()
+	if err != nil {
+		c.busyMutex.Unlock()
+		return pcommon.Point{}, Tip{}, false, err
+	}
+	defer func() {
+		c.busyMutex.Unlock()
+		endOperation()
+	}()
+
+	// busyMutex is held, so no loop can start and no RequestNext can be sent
+	// until this exchange completes.
+	c.lifecycleMutex.Lock()
+	loopRunning := false
+	if c.syncLoopDone != nil {
+		select {
+		case <-c.syncLoopDone:
+		default:
+			loopRunning = true
+		}
+	}
+	unanswered := c.outstandingRequestNext
+	c.lifecycleMutex.Unlock()
+	if loopRunning || unanswered > 0 {
+		return pcommon.Point{}, Tip{}, false, ErrSyncInProgress
+	}
+	if err := discardReadySignals(readyChan); err != nil {
+		return pcommon.Point{}, Tip{}, false, err
+	}
+
+	if len(points) == 0 {
+		points = []pcommon.Point{pcommon.NewPointOrigin()}
+	}
+	result, err := c.findIntersect(proto, doneChan, points)
+	if errors.Is(err, ErrIntersectNotFound) {
+		return pcommon.Point{}, result.tip, false, nil
+	}
+	if err != nil {
+		return pcommon.Point{}, Tip{}, false, err
+	}
+	return result.point, result.tip, true, nil
 }
 
 // quiesceSync stops the sync loop, then waits until every MsgRequestNext
@@ -1158,8 +1233,6 @@ func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 		c.syncLoopWaitGroup.Done()
 		return protocol.ErrProtocolShuttingDown
 	}
-	// Reset pipelined message counter before starting a new loop.
-	c.syncPipelinedRequestNext = 0
 	// Start a sync loop bound to this protocol instance. Stop waits for every
 	// active loop before Start can replace the protocol and its channels.
 	loopDone := make(chan struct{})
@@ -1184,6 +1257,9 @@ func (c *Client) syncLoop(
 	c.lifecycleMutex.Lock()
 	stopChan := c.syncLoopStop
 	c.lifecycleMutex.Unlock()
+	// inFlight counts the requests this loop has sent whose replies it has not
+	// yet consumed. The request sent before the loop started is the first.
+	inFlight := 1
 	for {
 		// Wait for a block to be received
 		select {
@@ -1218,15 +1294,16 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		// Wait for next block if we have pipelined messages
-		if c.syncPipelinedRequestNext > 0 {
-			c.syncPipelinedRequestNext--
+		// One reply was consumed: top the window back up so PipelineLimit
+		// requests stay outstanding. Sending only after the window empties
+		// leaves the link idle for a round trip per batch.
+		inFlight--
+		msgCount := max(c.config.PipelineLimit, 1) - inFlight
+		if msgCount <= 0 {
 			c.lifecycleMutex.Unlock()
 			c.busyMutex.Unlock()
 			continue
 		}
-		// Request the next block(s)
-		msgCount := max(c.config.PipelineLimit, 1)
 		proto := c.ProtocolInstance()
 		c.lifecycleMutex.Unlock()
 		if c.testSyncLoopBeforeRequestNext != nil {
@@ -1249,7 +1326,7 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		c.syncPipelinedRequestNext = msgCount - 1
+		inFlight += msgCount
 		c.lifecycleMutex.Unlock()
 		c.busyMutex.Unlock()
 	}

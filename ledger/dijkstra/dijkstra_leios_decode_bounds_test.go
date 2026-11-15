@@ -15,7 +15,6 @@
 package dijkstra
 
 import (
-	"errors"
 	"testing"
 	"unsafe"
 
@@ -79,9 +78,9 @@ func TestDijkstraLeiosCertificateAcceptsEmptySigners(t *testing.T) {
 	require.Empty(t, cert.Signers)
 }
 
-// CIP-0164: "RB' contains either a certificate for the EB announced in RB, or
-// a list of transactions forming a valid extension of RB."
-func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
+// Decoding does not apply the CIP-0164 certificate-or-transaction rule.
+// ValidateLeiosBlockBody enforces it during validation.
+func TestDijkstraBlockBodyDecodesCertifiedBodyWithTransactions(t *testing.T) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
@@ -92,12 +91,11 @@ func TestDijkstraBlockBodyRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	require.NoError(t, err)
 
 	var decoded DijkstraBlockBody
-	err = decoded.UnmarshalCBOR(bodyCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.ErrorAs(t, err, &target)
-	require.NotNil(t, target)
-	require.Equal(t, 1, target.TransactionCount)
+	require.NoError(t, decoded.UnmarshalCBOR(bodyCbor))
+	require.Len(t, decoded.Transactions, 1)
+	require.NotNil(t, decoded.LeiosCertificate)
+	require.Len(t, decoded.LeiosCertificate.Signers, 1)
+	require.Equal(t, bodyCbor, decoded.Cbor())
 }
 
 // The pre-respin four-element body is rejected before Leios semantics.
@@ -118,7 +116,7 @@ func TestDijkstraLegacyBlockBodyRejectsCertifiedBodyWithTransactions(
 }
 
 // An empty transaction list alongside a certificate is the legal certified
-// block shape, so the rejection is not unconditional.
+// block shape.
 func TestDijkstraBlockBodyAcceptsCertifiedBodyWithoutTransactions(
 	t *testing.T,
 ) {
@@ -186,7 +184,10 @@ func TestDijkstraBlockBodyAcceptsLargePerasCertificate(t *testing.T) {
 	require.Len(t, decoded.PerasCertificate, 1<<20)
 }
 
-func TestDijkstraBlockRejectsCertifiedBodyWithTransactions(t *testing.T) {
+// NewDijkstraBlockFromCbor is the entry point for blocks off the wire, so the
+// envelope and body-hash path must also accept a certified body with
+// transactions and leave the CIP-0164 exclusion to ValidateLeiosBlockBody.
+func TestDijkstraBlockDecodesCertifiedBodyWithTransactions(t *testing.T) {
 	body := DijkstraBlockBody{
 		Transactions: []DijkstraTransaction{
 			{Body: DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
@@ -197,15 +198,11 @@ func TestDijkstraBlockRejectsCertifiedBodyWithTransactions(t *testing.T) {
 	blockCbor, err := block.MarshalCBOR()
 	require.NoError(t, err)
 
-	_, err = NewDijkstraBlockFromCbor(blockCbor)
-	require.Error(t, err)
-	var target *LeiosCertifiedBlockTransactionsError
-	require.True(
-		t,
-		errors.As(err, &target),
-		"expected LeiosCertifiedBlockTransactionsError, got %v",
-		err,
-	)
+	decoded, err := NewDijkstraBlockFromCbor(blockCbor)
+	require.NoError(t, err)
+	require.Len(t, decoded.BlockBody.Transactions, 1)
+	require.NotNil(t, decoded.BlockBody.LeiosCertificate)
+	require.Len(t, decoded.BlockBody.LeiosCertificate.Signers, 1)
 }
 
 func testDijkstraBlockWithBody(

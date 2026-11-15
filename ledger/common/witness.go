@@ -41,18 +41,34 @@ type BootstrapWitness struct {
 	Attributes []byte
 }
 
-// KeyHash returns the key hash this bootstrap witness contributes to the
-// transaction's witnessed key hashes: the Byron address root of the witness,
-// Blake2b-224(SHA3-256(prefix || public key || chain code || attributes)),
-// as in bootstrapWitKeyHash (Keys/Bootstrap.hs). It is not
-// Blake2b-224(public key), so it cannot satisfy a RequireSignature for the
-// plain verification key hash.
-//
-// When the address root cannot be computed, an error is returned and the
-// witness contributes no key hash: callers must skip it rather than fall back
-// to the hash of the public key.
+// KeyHash returns the Byron address root authorized by this bootstrap witness:
+// Blake2b-224(SHA3-256(prefix || public key || chain code || attributes)), as
+// in bootstrapWitKeyHash (Keys/Bootstrap.hs). Bootstrap witnesses authorize
+// Byron addresses; they do not satisfy native-script key signatures.
 func (w BootstrapWitness) KeyHash() (Blake2b224, error) {
 	return computeByronAddressRoot(w.PublicKey, w.ChainCode, w.Attributes)
+}
+
+// witnessKeyHashes returns the key hashes a witness set provides: the hash of
+// each vkey witness together with the address root of each bootstrap witness.
+// The ledger satisfies every needed key hash from this union, so a key-locked
+// input, collateral input or required signer may be covered by a bootstrap
+// witness. A bootstrap witness whose address root cannot be computed
+// contributes nothing.
+func witnessKeyHashes(w TransactionWitnessSet) map[Blake2b224]struct{} {
+	hashes := make(map[Blake2b224]struct{})
+	if w == nil {
+		return hashes
+	}
+	for _, vw := range w.Vkey() {
+		hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
+	}
+	for _, bw := range w.Bootstrap() {
+		if hash, err := bw.KeyHash(); err == nil {
+			hashes[hash] = struct{}{}
+		}
+	}
+	return hashes
 }
 
 func (w *BootstrapWitness) UnmarshalCBOR(data []byte) error {
@@ -77,7 +93,8 @@ func (w *BootstrapWitness) UnmarshalCBOR(data []byte) error {
 }
 
 // ValidateCollateralVKeyWitnesses ensures every key-locked collateral input
-// has a matching vkey witness. This UTXOW requirement applies regardless of
+// has a matching witness: a vkey witness, or a bootstrap witness whose address
+// root equals the input's key hash. This UTXOW requirement applies regardless of
 // whether the transaction has redeemers.
 func ValidateCollateralVKeyWitnesses(
 	tx Transaction,
@@ -101,17 +118,10 @@ func ValidateCollateralVKeyWitnesses(
 	// is not in the witness set, and gating on that would skip the check for
 	// exactly the transactions that most need it. Every phase-2 execution has a
 	// redeemer regardless of where its script came from.
-	// Collect vkey hashes from witnesses. A nil witness set or no vkey
+	// Collect the key hashes the witnesses provide. A nil witness set or no
 	// witnesses at all is not itself an error here: only a key-locked
 	// collateral input needs a matching one, checked per input below.
-	hashes := make(map[Blake2b224]struct{})
-	var bootstrapWitnesses []BootstrapWitness
-	if w := tx.Witnesses(); w != nil {
-		for _, vw := range w.Vkey() {
-			hashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
-		}
-		bootstrapWitnesses = w.Bootstrap()
-	}
+	hashes := witnessKeyHashes(tx.Witnesses())
 	for _, input := range collateral {
 		utxo, err := ResolveInputUtxo(ls, input)
 		if err != nil {
@@ -141,21 +151,6 @@ func ValidateCollateralVKeyWitnesses(
 			continue
 		}
 		if addr.Type() == AddressTypeByron {
-			found := false
-			for _, witness := range bootstrapWitnesses {
-				addressRoot, err := computeByronAddressRoot(
-					witness.PublicKey,
-					witness.ChainCode,
-					witness.Attributes,
-				)
-				if err == nil && addressRoot == h {
-					found = true
-					break
-				}
-			}
-			if found {
-				continue
-			}
 			return NewValidationError(
 				ValidationErrorTypeTransaction,
 				"missing bootstrap witness for Byron collateral input",

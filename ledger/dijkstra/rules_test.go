@@ -257,6 +257,8 @@ func TestDijkstraPhase2InvalidSkipsDelegation(t *testing.T) {
 func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 	phase2Valid := map[common.UtxoValidationRuleId]struct{}{
 		common.UtxoValidationRuleProposalProcedures:          {},
+		common.UtxoValidationRuleNoDuplicateInputs:           {},
+		common.UtxoValidationRuleValueNotConserved:           {},
 		common.UtxoValidationRuleHardForkCanFollow:           {},
 		common.UtxoValidationRuleProposalAncestry:            {},
 		common.UtxoValidationRuleProposalDeposit:             {},
@@ -266,6 +268,7 @@ func TestDijkstraValidationRulePhasesAreComplete(t *testing.T) {
 		common.UtxoValidationRuleBootstrapAllowedGovActions:  {},
 		common.UtxoValidationRuleBatchWithdrawals:            {},
 		common.UtxoValidationRuleAccountBalanceIntervals:     {},
+		common.UtxoValidationRuleValueNotConservedLegacyMode: {},
 		common.UtxoValidationRuleDelegation:                  {},
 		common.UtxoValidationRuleWithdrawals:                 {},
 		common.UtxoValidationRuleCertificateDeposits:         {},
@@ -1308,6 +1311,119 @@ func TestUtxoValidateBatchWithdrawals(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestUtxoValidateBatchWithdrawalsLegacyMode(t *testing.T) {
+	t.Parallel()
+	const (
+		startingBalance = uint64(100)
+		deposit         = uint64(50)
+		topWithdrawal   = uint64(150)
+	)
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	rule, _ := dijkstraValidationRule(
+		t,
+		"ledger/dijkstra.UtxoValidateBatchWithdrawals",
+	)
+	legacyScript := common.PlutusV1Script{0x41, 0x00}
+
+	newTx := func(
+		script common.Script,
+		top uint64,
+		sub func(*common.Address) DijkstraSubTransactionBody,
+	) (*DijkstraTransaction, *common.Address, common.LedgerState) {
+		tx, credential := testDijkstraWithdrawalTx(t, top, script)
+		var address *common.Address
+		for candidate := range tx.Body.TxWithdrawals {
+			address = candidate
+		}
+		tx.Body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{{Body: sub(address)}},
+			false,
+		)
+		ls := mockledger.NewLedgerStateBuilder().
+			WithRewardAccountCredentialBalance(credential, startingBalance).
+			Build()
+		return tx, address, ls
+	}
+	depositSub := func(address *common.Address) DijkstraSubTransactionBody {
+		return DijkstraSubTransactionBody{
+			TxDirectDeposits: DijkstraDirectDeposits{
+				dijkstraIntervalKey(t, address): deposit,
+			},
+		}
+	}
+
+	// Legacy mode: the top-level withdrawal is bounded by the current
+	// accounts, which include the sub-transaction direct deposit.
+	tx, address, ls := newTx(legacyScript, topWithdrawal, depositSub)
+	require.NotNil(t, address)
+	require.NotNil(t, ls)
+	require.NoError(t, UtxoValidateWithdrawals(tx, 0, ls, pp))
+	require.NoError(t, rule(tx, 0, ls, pp))
+
+	// Legacy mode: a top-level withdrawal that does not drain the
+	// post-sub-transaction balance is still rejected.
+	tx.Body.TxWithdrawals[address] = topWithdrawal - 1
+	var amountErr shelley.IncorrectWithdrawalAmountError
+	require.ErrorAs(
+		t,
+		UtxoValidateWithdrawals(tx, 0, ls, pp),
+		&amountErr,
+	)
+
+	// Legacy mode: sub-transaction withdrawals stay bounded by the
+	// original balance.
+	tx, address, ls = newTx(
+		legacyScript,
+		0,
+		func(address *common.Address) DijkstraSubTransactionBody {
+			return DijkstraSubTransactionBody{
+				TxWithdrawals: map[*common.Address]uint64{
+					address: startingBalance + 1,
+				},
+			}
+		},
+	)
+	require.NotNil(t, address)
+	var balanceErr WithdrawalsExceedAccountBalanceError
+	require.ErrorAs(t, rule(tx, 0, ls, pp), &balanceErr)
+	require.Equal(
+		t,
+		[]uint64{startingBalance + 1, startingBalance},
+		balanceErr.Withdrawals[cbor.NewByteString(mustAddressBytes(t, address))],
+	)
+
+	// Normal mode: the same deposit does not raise the original-balance
+	// bound.
+	tx, _, ls = newTx(nil, topWithdrawal, depositSub)
+	require.ErrorAs(t, rule(tx, 0, ls, pp), &balanceErr)
+}
+
+func TestUtxoValidateBatchWithdrawalsIgnoresScriptsWithoutWithdrawals(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+	tx, _ := testDijkstraWithdrawalTx(t, 0, nil)
+	tx.Body.TxWithdrawals = nil
+	tx.Body.TxReferenceInputs = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{
+			shelley.MustNewShelleyTransactionInput(
+				"5555555555555555555555555555555555555555555555555555555555555555",
+				0,
+			),
+		},
+		false,
+	)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+
+	// Unresolvable reference inputs belong to the input rules; a batch
+	// without withdrawals has nothing for this rule to check.
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, ls, pp))
+	require.NoError(t, UtxoValidateBatchWithdrawals(tx, 0, nil, pp))
+}
+
 func TestDijkstraLegacyTopLevelWithdrawalUsesPostSubTransactionBalance(
 	t *testing.T,
 ) {
@@ -2136,21 +2252,24 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	}
 	ls := mockledger.NewLedgerStateBuilder().Build()
 
+	// A script-hash guard makes the V1 to V3 feature check fail first, so both
+	// subtests bypass that check to isolate the redeemer handling.
 	t.Run("unwrapped fails closed", func(t *testing.T) {
+		unwrapped := v1v3CheckSkipped{Transaction: tx}
 		_, err := script.NewTxInfoV1FromTransaction(
-			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+			ls, unwrapped, nil, true, common.ProtocolVersionDijkstra,
 		)
 		var unmatchedErr script.UnmatchedRedeemerError
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV2FromTransaction(
-			ls, tx, nil, true, common.ProtocolVersionDijkstra,
+			ls, unwrapped, nil, true, common.ProtocolVersionDijkstra,
 		)
 		require.ErrorAs(t, err, &unmatchedErr)
 
 		_, err = script.NewTxInfoV3FromTransaction(
 			ls,
-			tx,
+			unwrapped,
 			nil,
 			common.ProtocolVersionDijkstra,
 		)
@@ -2158,7 +2277,9 @@ func TestNewTxInfoFromTransactionGuardingRedeemer(t *testing.T) {
 	})
 
 	t.Run("wrapped succeeds", func(t *testing.T) {
-		wrapped := transactionWithoutGuardingRedeemers{Transaction: tx}
+		wrapped := plutusV4BaseTransaction{
+			transactionWithoutGuardingRedeemers{Transaction: tx},
+		}
 
 		_, err := script.NewTxInfoV1FromTransaction(
 			ls, wrapped, nil, true, common.ProtocolVersionDijkstra,
@@ -2565,7 +2686,7 @@ func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	require.Zero(t, publishingFee)
 }
 
-func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
+func TestDijkstraRefScriptFeeIncludesSubTransactions(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 101)
 	tx := &DijkstraTransaction{
 		Body: DijkstraTransactionBody{
@@ -2596,10 +2717,26 @@ func TestDijkstraRefScriptFeeExcludesSubTransactions(t *testing.T) {
 	}
 	ls := dijkstraRefScriptLedgerState(t, utxo)
 
-	t.Run("fee uses only top-level reference scripts", func(t *testing.T) {
+	t.Run("fee includes sub-transaction reference scripts", func(t *testing.T) {
 		minFee, err := MinFeeTxWithUtxo(tx, pp, ls)
 		require.NoError(t, err)
-		require.Zero(t, minFee)
+		require.Equal(t, uint64(102), minFee)
+	})
+
+	t.Run("fee includes sub-transaction scripts for value transaction", func(t *testing.T) {
+		minFee, err := MinFeeTxWithUtxo(*tx, pp, ls)
+		require.NoError(t, err)
+		require.Equal(t, uint64(102), minFee)
+	})
+
+	t.Run("fee includes sub-transaction scripts for wrapped transaction", func(t *testing.T) {
+		minFee, err := MinFeeTxWithUtxo(
+			struct{ *DijkstraTransaction }{tx},
+			pp,
+			ls,
+		)
+		require.NoError(t, err)
+		require.Equal(t, uint64(102), minFee)
 	})
 
 	t.Run("per-tx limit uses batch reference scripts", func(t *testing.T) {
@@ -2842,4 +2979,14 @@ func TestMinFeeIncludesDeclaredExecutionUnitsAcrossBatch(t *testing.T) {
 	noRedeemerFee, err := MinFeeTx(tx, pp)
 	require.NoError(t, err)
 	require.Equal(t, baseFee, noRedeemerFee)
+}
+
+// v1v3CheckSkipped leaves the transaction untouched but skips the Plutus V1 to
+// V3 feature check.
+type v1v3CheckSkipped struct {
+	common.Transaction
+}
+
+func (v1v3CheckSkipped) CheckPlutusV1V3Features() error {
+	return nil
 }

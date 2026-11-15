@@ -193,3 +193,7 @@ type TxIdAndSize struct {
 - Non-blocking mode returns immediately with available transactions
 - Transaction sizes are provided to help with mempool management
 - The Done message can only be sent from TxIdsBlocking state
+
+## Transaction Size Limit
+
+The server refuses a `ReplyTxIds` entry that advertises a size above `MaxTxSizeBytes` (65540, `max_TX_SIZE` in the reference implementation), and a `ReplyTxs` body longer than its configured limit, as an invalid-message protocol violation. The body check runs on the raw length before the body is decoded. The limit is `Config.MaxTxSize` (`WithMaxTxSize`), normally the ledger's maximum transaction size. Zero or a negative value selects `MaxTxSizeBytes`, and a larger value is clamped to it. Advertised sizes are not checked against the configured limit, because a peer advertises the wrapped wire size of each item, a few bytes more than the body. The client validates its own `RequestTxsFunc` output against `MaxTxSizeBytes` only.

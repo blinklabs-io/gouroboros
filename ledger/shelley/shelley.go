@@ -405,17 +405,21 @@ type ShelleyTransactionBody struct {
 
 func (b *ShelleyTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tShelleyTransactionBody ShelleyTransactionBody
-	var tmp tShelleyTransactionBody
+	var tmp struct {
+		tShelleyTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	if err := common.ValidateWithdrawalAddresses(tmp.TxWithdrawals); err != nil {
 		return err
 	}
 	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
-	*b = ShelleyTransactionBody(tmp)
+	*b = ShelleyTransactionBody(tmp.tShelleyTransactionBody)
 	// cardano-ledger decodes the Shelley body with
 	// SparseKeyed "TxBody" basicShelleyTxBodyRaw boxBody
 	// [(0,"inputs"),(1,"outputs"),(2,"fee"),(3,"ttl")]; that final list is

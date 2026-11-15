@@ -93,7 +93,7 @@ func TestGovernanceMapsGrowAsEntriesDecode(t *testing.T) {
 		{
 			name: "committee members",
 			data: concat(
-				[]byte{0x82, 0x01, 0x82},
+				[]byte{0x81, 0x82},
 				twoByteEntries(),
 				[]byte{0xd8, 0x1e, 0x82, 0x01, 0x02},
 			),

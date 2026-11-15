@@ -72,7 +72,8 @@ CBOR decode dominates pipeline time (wrapper < 1%). Target CBOR, validation para
 ## Security
 
 - Constant-time crypto comparisons.
-- CBOR depth limit: `MaxNestedLevels: 256`.
+- CBOR depth limits: `MaxNestedLevels: 16384` for ledger data and
+  `MaxUntrustedNestedLevels: 1024` for peer-controlled messages.
 - Transaction size limit enforced at decode.
 - Last external audit: December 2025, no critical findings.
 

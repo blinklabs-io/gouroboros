@@ -262,6 +262,9 @@ func NewTxInfoV1FromTransaction(
 	strictValidityUpperBound bool,
 	protocolVersionMajor uint,
 ) (TxInfoV1, error) {
+	if err := CheckPlutusV1V3Features(tx); err != nil {
+		return TxInfoV1{}, err
+	}
 	validityRange, err := validityRangeInfo(
 		slotState,
 		tx,
@@ -414,6 +417,9 @@ func NewTxInfoV2FromTransaction(
 	strictValidityUpperBound bool,
 	protocolVersionMajor uint,
 ) (TxInfoV2, error) {
+	if err := CheckPlutusV1V3Features(tx); err != nil {
+		return TxInfoV2{}, err
+	}
 	validityRange, err := validityRangeInfo(
 		slotState,
 		tx,
@@ -532,6 +538,9 @@ func NewTxInfoV3FromTransaction(
 	resolvedInputs []lcommon.Utxo,
 	protocolVersionMajor uint,
 ) (TxInfoV3, error) {
+	if err := CheckPlutusV1V3Features(tx); err != nil {
+		return TxInfoV3{}, err
+	}
 	major := protocolVersionMajor
 	// Plutus V3 only exists in the Conway era and later, where cardano-ledger
 	// always uses an EXCLUSIVE (strict) validity-interval upper bound.

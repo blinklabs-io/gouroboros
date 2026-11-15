@@ -97,7 +97,7 @@ type frame struct {
 // its encoded length. The explicit stack keeps peer-controlled nesting off the
 // Go call stack.
 func ItemLength(data []byte) (int, error) {
-	return ItemLengthWithin(data, cbor.MaxNestedLevels)
+	return ItemLengthWithin(data, cbor.MaxUntrustedNestedLevels)
 }
 
 // ItemLengthWithin validates one complete CBOR item without recursion and

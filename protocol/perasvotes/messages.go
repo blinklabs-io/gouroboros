@@ -224,6 +224,9 @@ func NewMsgDone() *MsgDone {
 
 // NewMsgFromCbor decodes a typed ObjectDiffusion protocol message.
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
+	if err := cbor.ValidateUntrustedExact(data); err != nil {
+		return nil, fmt.Errorf("%s: decode message: %w", ProtocolName, err)
+	}
 	fields, err := decodeArray(data, -1, false)
 	if err != nil {
 		return nil, fmt.Errorf("%s: decode message: %w", ProtocolName, err)

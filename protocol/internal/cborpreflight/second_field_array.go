@@ -252,7 +252,7 @@ func arrayItems(
 func skipTags(data []byte, pos int, label string) (int, error) {
 	for depth := 0; pos < len(data) &&
 		data[pos]&cbor.CborTypeMask == cbor.CborTypeTag; depth++ {
-		if depth >= cbor.MaxNestedLevels {
+		if depth >= cbor.MaxUntrustedNestedLevels {
 			return 0, fmt.Errorf("%s tag nesting limit", label)
 		}
 		additional := data[pos] & 0x1f

@@ -160,6 +160,15 @@ require.NoError(t, err)
 | `ValueNotConservedUtxoError` | `UtxoValidateValueNotConservedUtxo` | inputs ≠ outputs + fee |
 | `OutputTooSmallUtxoError` | `UtxoValidateOutputTooSmallUtxo` | output below min UTxO |
 | `MaxTxSizeUtxoError` | `UtxoValidateMaxTxSizeUtxo` | transaction too large |
+| `StakeKeyAlreadyRegisteredError` | `UtxoValidateDelegation` | registering a registered stake credential |
+| `StakeKeyNotRegisteredError` | `UtxoValidateDelegation` | deregistering an unregistered stake credential |
+| `StakeKeyNonZeroAccountBalanceError` | `UtxoValidateDelegation` | deregistering with rewards left after withdrawals |
+| `MIRCertificateTooLateinEpochError` | `UtxoValidateDelegation` | MIR at or after next epoch start minus stability window |
+| `InsufficientForInstantaneousRewardsError` | `UtxoValidateDelegation` | MIR rewards exceed the pot |
+| `InsufficientForTransferError` | `UtxoValidateDelegation` | MIR pot-to-pot transfer exceeds the pot |
+| `GenesisKeyNotInMappingError` | `UtxoValidateDelegation` | genesis delegation for an unknown genesis key |
+| `DuplicateGenesisDelegateError` | `UtxoValidateDelegation` | delegate already held by another genesis key |
+| `DuplicateGenesisVRFError` | `UtxoValidateDelegation` | VRF key already held by another genesis key |
 
 ### Allegra
 

@@ -361,14 +361,14 @@ func (c *Client) GetEpochNo() (int, error) {
 	return result[0], nil
 }
 
-// GetNonMyopicMemberRewards returns the non-myopic member rewards for the given stakes
-// stakes should be an array of [tag, stake_amount] pairs where tag is 0 for KeyHash credentials
-// The array must be sorted by stake amount
+// GetNonMyopicMemberRewards returns the non-myopic member rewards for the
+// given keys, each a stake amount or a staking credential. The keys are sent
+// as the sorted set the node requires, and duplicates are collapsed.
 func (c *Client) GetNonMyopicMemberRewards(
-	stakes []any,
+	keys []NonMyopicMemberRewardsKey,
 ) (*NonMyopicMemberRewardsResult, error) {
 	c.Protocol.Logger().
-		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(stakes: %+v)", stakes),
+		Debug(fmt.Sprintf("calling GetNonMyopicMemberRewards(keys: %+v)", keys),
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "client",
@@ -376,19 +376,18 @@ func (c *Client) GetNonMyopicMemberRewards(
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
-	if err := validateLocalStateQuerySet(stakes, "stakes"); err != nil {
+	stakesSet, err := encodeNonMyopicMemberRewardsSet(keys)
+	if err != nil {
 		return nil, err
 	}
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
 	}
-	// Wrap the stakes in a CBOR set (tag 258)
-	stakesSet := cbor.NewSetType(stakes, true)
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyNonMyopicMemberRewards,
-		stakesSet,
+		cbor.RawMessage(stakesSet),
 	)
 	return runWrappedQuery[NonMyopicMemberRewardsResult](
 		c,
@@ -1305,9 +1304,9 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 // [Client.GetDRepState], [Client.GetCommitteeMembersState]) when you only need
 // one piece, as this query returns and decodes considerably more data.
 //
-// Response: a [GovStateResult]. Several fields are returned as raw CBOR
-// because their shape is era-specific; the Committee field is a StrictMaybe
-// and can be decoded with [GovStateResult.DecodeCommittee].
+// Response: a [GovStateResult]. The protocol parameters are returned as raw
+// CBOR because their shape is era-specific; the Committee, FuturePParams and
+// DRepPulsingState fields have typed decoders on the result.
 //
 // Era: requires the Conway era or later. Returns an error if the acquired
 // ledger state is on an earlier era.
@@ -1335,11 +1334,15 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 		currentEra,
 		QueryTypeShelleyGovState,
 	)
-	var result GovStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The state arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		State GovStateResult
+	}
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.State, nil
 }
 
 // GetDRepState returns the registration state of delegate representatives

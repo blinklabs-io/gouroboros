@@ -320,6 +320,12 @@ func EpochStateFor(ls LedgerState) (EpochState, bool) {
 	return ledgerStateCapabilityFor[EpochState](ls)
 }
 
+// StabilityWindowStateFor returns the first stability window provider in ls's
+// validation adapter chain.
+func StabilityWindowStateFor(ls LedgerState) (StabilityWindowState, bool) {
+	return ledgerStateCapabilityFor[StabilityWindowState](ls)
+}
+
 // UtxoValidateOutsideForecast requires a transaction's upper validity bound
 // to be convertible when the transaction has redeemers. SlotToTime is
 // supplied by the caller's validation state and carries its forecast
@@ -928,10 +934,22 @@ func (e ExtraneousScriptWitnessesError) Error() string {
 	)
 }
 
-// ValidateRequiredVKeyWitnesses checks that all required key credentials have a
-// vkey witness. This includes explicitly required signers and key-based reward
-// withdrawal credentials.
+// ValidateRequiredVKeyWitnesses checks that all required key credentials are
+// provided by a witness, either a vkey witness or a bootstrap witness whose
+// address root equals the credential. This includes explicitly required
+// signers and key-based reward withdrawal credentials.
 func ValidateRequiredVKeyWitnesses(tx Transaction) error {
+	return ValidateRequiredVKeyWitnessesWithPoolOwners(tx, nil)
+}
+
+// ValidateRequiredVKeyWitnessesWithPoolOwners is
+// ValidateRequiredVKeyWitnesses with a policy deciding, per pool
+// registration, whether the pool owners must also witness. A nil policy
+// requires them, as every era before Dijkstra does.
+func ValidateRequiredVKeyWitnessesWithPoolOwners(
+	tx Transaction,
+	ownersRequired PoolOwnerWitnessPolicy,
+) error {
 	if err := ValidateWithdrawalAddresses(tx.Withdrawals()); err != nil {
 		return err
 	}
@@ -968,6 +986,9 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 				continue
 			}
 			required[Blake2b224(c.Operator)] = struct{}{}
+			if ownersRequired != nil && !ownersRequired(c) {
+				continue
+			}
 			for _, owner := range c.PoolOwners {
 				required[Blake2b224(owner)] = struct{}{}
 			}
@@ -999,16 +1020,12 @@ func ValidateRequiredVKeyWitnesses(tx Transaction) error {
 	if len(required) == 0 {
 		return nil
 	}
-	w := tx.Witnesses()
-	if w == nil || len(w.Vkey()) == 0 {
+	provided := witnessKeyHashes(tx.Witnesses())
+	if len(provided) == 0 {
 		return MissingVKeyWitnessesError{}
 	}
-	vkeyHashes := make(map[Blake2b224]struct{}, len(w.Vkey()))
-	for _, vw := range w.Vkey() {
-		vkeyHashes[Blake2b224Hash(vw.Vkey)] = struct{}{}
-	}
 	for req := range required {
-		if _, ok := vkeyHashes[req]; !ok {
+		if _, ok := provided[req]; !ok {
 			return MissingRequiredVKeyWitnessForSignerError{Signer: req}
 		}
 	}

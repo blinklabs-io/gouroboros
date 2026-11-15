@@ -19,7 +19,14 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/sha3"
@@ -77,7 +84,7 @@ func TestBootstrapWitnessKeyHashFailsClosed(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestFirstInvalidNativeScriptInBootstrapKeyHash(t *testing.T) {
+func TestFirstInvalidNativeScriptInExcludesBootstrapWitnesses(t *testing.T) {
 	t.Parallel()
 	w := bootstrapTestWitness()
 	bootstrapOnly := mockledger.NewTransactionBuilder().WithWitnesses(
@@ -94,13 +101,13 @@ func TestFirstInvalidNativeScriptInBootstrapKeyHash(t *testing.T) {
 		require.True(t, invalid)
 	})
 
-	t.Run("address root is satisfied", func(t *testing.T) {
+	t.Run("address root is not satisfied", func(t *testing.T) {
 		t.Parallel()
 		ns := nativeScriptRequiringHash(t, bootstrapTestAddrRoot(w))
 		_, invalid := common.FirstInvalidNativeScriptIn(
 			bootstrapOnly, 0, []common.NativeScript{ns},
 		)
-		require.False(t, invalid)
+		require.True(t, invalid)
 	})
 
 	t.Run("vkey witness still satisfies public key hash", func(t *testing.T) {
@@ -114,5 +121,125 @@ func TestFirstInvalidNativeScriptInBootstrapKeyHash(t *testing.T) {
 			tx, 0, []common.NativeScript{ns},
 		)
 		require.False(t, invalid)
+	})
+}
+
+func TestNativeScriptRulesExcludeBootstrapWitnesses(t *testing.T) {
+	t.Parallel()
+	w := bootstrapTestWitness()
+	ledgerState := mockledger.NewLedgerStateBuilder().Build()
+
+	tests := []struct {
+		name string
+		rule common.UtxoValidationRuleFunc
+	}{
+		{name: "Shelley", rule: shelley.UtxoValidateNativeScripts},
+		{name: "Allegra", rule: allegra.UtxoValidateNativeScripts},
+		{name: "Mary", rule: mary.UtxoValidateNativeScripts},
+		{name: "Alonzo", rule: alonzo.UtxoValidateNativeScripts},
+		{name: "Babbage", rule: babbage.UtxoValidateNativeScripts},
+		{name: "Conway", rule: conway.UtxoValidateNativeScripts},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			build := func(
+				native common.NativeScript,
+				witnesses *mockledger.MockTransactionWitnessSet,
+			) *mockledger.MockTransaction {
+				credential := common.Credential{
+					CredType:   common.CredentialTypeScriptHash,
+					Credential: common.Blake2b224(native.Hash()),
+				}
+				return mockledger.NewTransactionBuilder().
+					WithCertificates(&common.DeregistrationCertificate{
+						StakeCredential: credential,
+					}).
+					WithWitnesses(witnesses.WithNativeScripts(native))
+			}
+
+			t.Run("bootstrap witness", func(t *testing.T) {
+				native := nativeScriptRequiringHash(
+					t,
+					bootstrapTestAddrRoot(w),
+				)
+				tx := build(
+					native,
+					mockledger.NewMockTransactionWitnessSet().
+						WithBootstrapWitnesses(w),
+				)
+				require.Error(t, test.rule(tx, 0, ledgerState, nil))
+			})
+
+			t.Run("vkey witness", func(t *testing.T) {
+				native := nativeScriptRequiringHash(
+					t,
+					common.Blake2b224Hash(w.PublicKey),
+				)
+				tx := build(
+					native,
+					mockledger.NewMockTransactionWitnessSet().
+						WithVkeyWitnesses(common.VkeyWitness{
+							Vkey: w.PublicKey,
+						}),
+				)
+				require.NoError(t, test.rule(tx, 0, ledgerState, nil))
+			})
+		})
+	}
+
+	t.Run("Dijkstra", func(t *testing.T) {
+		t.Parallel()
+		build := func(
+			native common.NativeScript,
+			bootstrap []common.BootstrapWitness,
+			vkeys []common.VkeyWitness,
+		) *dijkstra.DijkstraTransaction {
+			credential := common.Credential{
+				CredType:   common.CredentialTypeScriptHash,
+				Credential: common.Blake2b224(native.Hash()),
+			}
+			return &dijkstra.DijkstraTransaction{
+				Body: dijkstra.DijkstraTransactionBody{
+					TxGuards: &dijkstra.DijkstraGuards{
+						Credentials: []common.Credential{credential},
+					},
+				},
+				WitnessSet: dijkstra.DijkstraTransactionWitnessSet{
+					VkeyWitnesses: cbor.NewSetType(vkeys, false),
+					WsNativeScripts: cbor.NewSetType(
+						[]common.NativeScript{native},
+						false,
+					),
+					BootstrapWitnesses: cbor.NewSetType(bootstrap, false),
+				},
+				TxIsValid: true,
+			}
+		}
+
+		t.Run("bootstrap witness", func(t *testing.T) {
+			native := nativeScriptRequiringHash(t, bootstrapTestAddrRoot(w))
+			tx := build(native, []common.BootstrapWitness{w}, nil)
+			require.Error(
+				t,
+				dijkstra.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+			)
+		})
+
+		t.Run("vkey witness", func(t *testing.T) {
+			native := nativeScriptRequiringHash(
+				t,
+				common.Blake2b224Hash(w.PublicKey),
+			)
+			tx := build(
+				native,
+				nil,
+				[]common.VkeyWitness{{Vkey: w.PublicKey}},
+			)
+			require.NoError(
+				t,
+				dijkstra.UtxoValidateNativeScripts(tx, 0, ledgerState, nil),
+			)
+		})
 	})
 }

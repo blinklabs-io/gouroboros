@@ -82,20 +82,20 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	switch msg := ret.(type) {
 	case *MsgBlockTxsRequest:
 		if decodeErr = validateBlockTxsRequest(data); decodeErr == nil {
-			_, decodeErr = cbor.Decode(data, msg)
+			_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 		}
 	case *MsgVotesRequest:
-		decodeErr = msg.UnmarshalCBOR(data)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 	case *MsgBlockTxs:
-		decodeErr = msg.UnmarshalCBOR(data)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 	case *MsgVotes:
-		decodeErr = msg.UnmarshalCBOR(data)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 	case *MsgNextBlockAndTxsInRange:
-		decodeErr = msg.UnmarshalCBOR(data)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 	case *MsgLastBlockAndTxsInRange:
-		decodeErr = msg.UnmarshalCBOR(data)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, msg)
 	default:
-		_, decodeErr = cbor.Decode(data, ret)
+		_, decodeErr = cbor.DecodeUntrustedExact(data, ret)
 	}
 	if decodeErr != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, decodeErr)

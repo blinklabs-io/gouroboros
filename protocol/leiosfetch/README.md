@@ -164,9 +164,8 @@ describe it, failing the connection with `ErrUnexpectedResponse`. Replies echo
 no selector, so each is bound through its content:
 
 - `Block`: the endorser block must decode and hash to the requested point's
-  hash. As in the reference node, the hash is taken over the canonical
-  re-encoding of the references, not the bytes received, so an endorser block
-  with wider CBOR heads still matches.
+  hash. As in the reference node, the hash is taken over the bytes received,
+  so the same references in a different CBOR encoding hash differently.
 - `BlockTxs`: the reply must carry one transaction per bit in the requested
   bitmaps. This is checked once, when the reply is decoded.
 - `Votes`: every vote must decode as a `LeiosVote` (so a malformed signature

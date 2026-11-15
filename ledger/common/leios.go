@@ -77,9 +77,11 @@ type LeiosVote struct {
 	VoteSignature     []byte
 }
 
-// LeiosPrototypeVote is the current prototype vote wire shape. Its signed
-// message is AnnouncingRbHash. Slot and endorser-block identity are resolved
-// from the announcing ranking block by the consumer.
+// LeiosPrototypeVote is the current prototype vote wire shape. Its signature
+// covers AnnouncingRbHash: the reference node signs the hash's raw 32 bytes,
+// while the rc-2026w41 prototype signs the hash's CBOR encoding (see
+// DijkstraLeiosCertificateMessage). Slot and endorser-block identity are
+// resolved from the announcing ranking block by the consumer.
 type LeiosPrototypeVote struct {
 	cbor.StructAsArray
 	AnnouncingRbHash Blake2b256

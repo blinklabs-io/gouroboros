@@ -63,8 +63,12 @@ func TestGovernanceResultsGrowAsEntriesDecode(t *testing.T) {
 		decode   func([]byte) error
 	}{
 		{
-			name:     "gov state proposals",
-			data:     concat([]byte{0x87}, oneByteEntries(), nulls(6)),
+			name: "gov state proposals",
+			data: concat(
+				[]byte{0x87, 0x82, 0x84, 0x80, 0x80, 0x80, 0x80},
+				oneByteEntries(),
+				nulls(6),
+			),
 			elemSize: unsafe.Sizeof(GovActionState{}),
 			decode: func(data []byte) error {
 				var r GovStateResult

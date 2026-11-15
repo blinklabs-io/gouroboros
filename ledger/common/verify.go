@@ -124,23 +124,12 @@ func computeByronAddressRoot(
 	return addrHash, nil
 }
 
-// ValidateInputVKeyWitnesses ensures that for each key-locked input, a vkey witness
-// exists and the corresponding signature is valid for the transaction body.
+// ValidateInputVKeyWitnesses ensures that each key-locked input has a witness
+// providing its key hash: either a vkey witness whose key hashes to it, or a
+// bootstrap witness whose address root equals it. Signature validity is
+// checked separately.
 func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
-	// Build a map of provided vkey hashes to witnesses
-	w := tx.Witnesses()
-	provided := make(map[Blake2b224]VkeyWitness)
-	if w != nil {
-		for _, vw := range w.Vkey() {
-			provided[Blake2b224Hash(vw.Vkey)] = vw
-		}
-	}
-
-	// Collect bootstrap witnesses for Byron address validation
-	var bootstrapWitnesses []BootstrapWitness
-	if w != nil {
-		bootstrapWitnesses = w.Bootstrap()
-	}
+	provided := witnessKeyHashes(tx.Witnesses())
 
 	for _, input := range tx.Inputs() {
 		utxo, err := ls.UtxoById(input)
@@ -157,49 +146,29 @@ func ValidateInputVKeyWitnesses(tx Transaction, ls LedgerState) error {
 		switch p := payload.(type) {
 		case AddressPayloadKeyHash:
 			h := p.Hash
-			// Check for regular vkey witness (Shelley+ addresses)
-			_, ok := provided[h]
-			if !ok {
-				// Check for bootstrap witness (Byron addresses)
-				if addr.Type() == AddressTypeByron {
-					found := false
-					for _, bw := range bootstrapWitnesses {
-						// Compute address root using the witness pubkey, chain code, and attributes
-						addrRoot, err := computeByronAddressRoot(bw.PublicKey, bw.ChainCode, bw.Attributes)
-						if err != nil {
-							// Skip malformed witnesses that can't be processed
-							// TODO: Consider logging this for debugging
-							continue
-						}
-						if addrRoot == h {
-							found = true
-							break
-						}
-					}
-					if !found {
-						return NewValidationError(
-							ValidationErrorTypeTransaction,
-							"missing bootstrap witness for Byron input",
-							map[string]any{
-								"input":   input.String(),
-								"keyhash": h.String(),
-							},
-							nil,
-						)
-					}
-				} else {
-					// Non-Byron address without matching vkey witness
-					return NewValidationError(
-						ValidationErrorTypeTransaction,
-						"missing vkey witness for input",
-						map[string]any{
-							"input":   input.String(),
-							"keyhash": h.String(),
-						},
-						nil,
-					)
-				}
+			if _, ok := provided[h]; ok {
+				continue
 			}
+			if addr.Type() == AddressTypeByron {
+				return NewValidationError(
+					ValidationErrorTypeTransaction,
+					"missing bootstrap witness for Byron input",
+					map[string]any{
+						"input":   input.String(),
+						"keyhash": h.String(),
+					},
+					nil,
+				)
+			}
+			return NewValidationError(
+				ValidationErrorTypeTransaction,
+				"missing vkey witness for input",
+				map[string]any{
+					"input":   input.String(),
+					"keyhash": h.String(),
+				},
+				nil,
+			)
 		default:
 			// script-locked inputs are handled elsewhere
 		}

@@ -74,7 +74,11 @@ func TestFixedShapeClientRepliesRejectOversizedArrays(t *testing.T) {
 			name:         "non-myopic member rewards",
 			conversation: conversationCurrentEra,
 			query: func(c *localstatequery.Client) error {
-				_, err := c.GetNonMyopicMemberRewards([]any{uint64(1)})
+				_, err := c.GetNonMyopicMemberRewards(
+					[]localstatequery.NonMyopicMemberRewardsKey{
+						localstatequery.NewNonMyopicCoinKey(1),
+					},
+				)
 				return err
 			},
 		},

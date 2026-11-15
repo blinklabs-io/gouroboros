@@ -96,7 +96,7 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	if votesOffer, ok := ret.(*MsgVotesOffer); ok {
 		err = votesOffer.UnmarshalCBOR(data)
 	} else {
-		_, err = cbor.Decode(data, ret)
+		_, err = cbor.DecodeUntrustedExact(data, ret)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
@@ -413,7 +413,7 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 			MaxVotesOfferBytes,
 		)
 	}
-	dec, err := cbor.NewStreamDecoder(data)
+	dec, err := cbor.NewUntrustedStreamDecoder(data)
 	if err != nil {
 		return err
 	}

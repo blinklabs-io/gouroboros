@@ -189,8 +189,16 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateAccountBalanceIntervals,
 	},
 	{
+		Id:        common.UtxoValidationRuleTreasuryDonationScripts,
+		Validator: UtxoValidateTreasuryDonationScripts,
+	},
+	{
 		Id:        common.UtxoValidationRuleValueNotConserved,
 		Validator: UtxoValidateValueNotConservedUtxo,
+	},
+	{
+		Id:        common.UtxoValidationRuleValueNotConservedLegacyMode,
+		Validator: UtxoValidateValueNotConservedLegacyModeUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleOutputTooSmall,
@@ -348,7 +356,7 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleOutsideValidityInterval:      dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutsideForecast:              dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInputSetEmpty:                dijkstraUtxoValidationAlways,
-	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleNoDuplicateInputs:            dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleFeeTooSmall:                  dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleInsufficientCollateral:       dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleCollateralContainsNonAda:     dijkstraUtxoValidationAlways,
@@ -360,7 +368,9 @@ var dijkstraUtxoValidationRulePhases = map[common.UtxoValidationRuleId]dijkstraU
 	common.UtxoValidationRuleRequiredRedeemers:            dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleBatchWithdrawals:             dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleAccountBalanceIntervals:      dijkstraUtxoValidationPhase2Valid,
-	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleTreasuryDonationScripts:      dijkstraUtxoValidationAlways,
+	common.UtxoValidationRuleValueNotConserved:            dijkstraUtxoValidationPhase2Valid,
+	common.UtxoValidationRuleValueNotConservedLegacyMode:  dijkstraUtxoValidationPhase2Valid,
 	common.UtxoValidationRuleOutputTooSmall:               dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputTooBig:                 dijkstraUtxoValidationAlways,
 	common.UtxoValidationRuleOutputBootAddrAttrsTooBig:    dijkstraUtxoValidationAlways,
@@ -1725,6 +1735,14 @@ func UtxoValidateIsValidFlag(
 
 // UtxoValidateRequiredVKeyWitnesses validates required signers independently
 // at the transaction level where the requirement occurs.
+//
+// Pool owners are exempt from witnessing a pool registration when the
+// transaction is phase-2 invalid, and when the registration only changes the
+// BLS key of a registered pool (see common.PoolOwnersWitnessRequired). Every
+// level uses the top-level transaction's validity, and the pool state left by
+// the pool certificates of the levels before it, as the reference threads the
+// certificate state through the sub-transactions and gives the top level the
+// state after all of them. The operator witness is always required.
 func UtxoValidateRequiredVKeyWitnesses(
 	tx common.Transaction,
 	slot uint64,
@@ -1735,8 +1753,29 @@ func UtxoValidateRequiredVKeyWitnesses(
 	if !ok {
 		return conway.UtxoValidateRequiredVKeyWitnesses(tx, slot, ls, pp)
 	}
+	valid := dijkstraTx.IsValid()
+	// Without a ledger state no owner can be shown exempt, and wrapping a nil
+	// state would make every pool lookup panic.
+	var state *common.BlockLedgerState
+	if ls != nil && !dijkstraLedgerStateIsNil(ls) {
+		state = common.NewBlockLedgerState(ls)
+	}
+	ownersRequired := func(cert *common.PoolRegistrationCertificate) bool {
+		return valid && (state == nil ||
+			common.PoolOwnersWitnessRequired(state, slot, cert))
+	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-		if err := common.ValidateRequiredVKeyWitnesses(level); err != nil {
+		if err := common.ValidateRequiredVKeyWitnessesWithPoolOwners(
+			level,
+			ownersRequired,
+		); err != nil {
+			return err
+		}
+		// A phase-2 invalid transaction applies no certificates.
+		if !valid || state == nil {
+			continue
+		}
+		if err := state.ApplyPoolCertificates(level.Certificates()); err != nil {
 			return err
 		}
 	}
@@ -2205,10 +2244,39 @@ func (t dijkstraProducedAdjustmentTransaction) Donation() *big.Int {
 	return nil
 }
 
+// UtxoValidateTreasuryDonationScripts rejects a treasury donation at a
+// transaction level whose needed scripts include Plutus V1 or V2, which have no
+// donation field. cardano-ledger raises this as a script-context translation
+// failure while collecting scripts, for phase-2-invalid transactions as well,
+// so it runs regardless of the validity flag.
+func UtxoValidateTreasuryDonationScripts(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
+		if err := conway.ValidateTreasuryDonationScriptCompatibility(
+			level, ls,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UtxoValidateValueNotConservedUtxo balances consumed against produced value
 // across every transaction level. A sub-transaction's inputs, outputs,
 // withdrawals, certificates, mints, proposal deposits, treasury donation and
 // direct deposits all count towards the enclosing transaction's balance.
+// The production rule list skips it for phase-2-invalid transactions, which
+// change no ledger state that affects conservation. The treasury donation's
+// script compatibility is checked separately by
+// UtxoValidateTreasuryDonationScripts, which does not skip them.
 func UtxoValidateValueNotConservedUtxo(
 	tx common.Transaction,
 	slot uint64,
@@ -2224,11 +2292,6 @@ func UtxoValidateValueNotConservedUtxo(
 	donations := new(big.Int)
 	if dijkstraTx, ok := tx.(*DijkstraTransaction); ok {
 		for _, level := range dijkstraTransactionLevels(dijkstraTx) {
-			if err := conway.ValidateTreasuryDonationScriptCompatibility(
-				level, ls,
-			); err != nil {
-				return err
-			}
 			if donation := level.Donation(); donation != nil {
 				donations.Add(donations, donation)
 			}
@@ -2247,6 +2310,89 @@ func UtxoValidateValueNotConservedUtxo(
 		ls,
 		tmpPparams,
 	)
+}
+
+// UtxoValidateValueNotConservedLegacyModeUtxo repeats value conservation for
+// the top-level body alone when the transaction is in Plutus legacy mode.
+// The sub-transactions are removed, and the body is judged against the pool,
+// stake and DRep state as the sub-transactions left it, so a pool a
+// sub-transaction already registered owes no second deposit and a credential
+// a sub-transaction registered can be deregistered at the top level. Legacy-mode scripts cannot see
+// the sub-transactions, so the top-level body must balance on its own.
+// Like UtxoValidateValueNotConservedUtxo, the production rule list skips it
+// for phase-2-invalid transactions.
+func UtxoValidateValueNotConservedLegacyModeUtxo(
+	tx common.Transaction,
+	slot uint64,
+	ls common.LedgerState,
+	pp common.ProtocolParameters,
+) error {
+	dijkstraTx, ok := tx.(*DijkstraTransaction)
+	if !ok {
+		return nil
+	}
+	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
+	if len(subTxs) == 0 {
+		// Without sub-transactions the batch check already covers exactly
+		// the top-level body; script resolution is not needed.
+		return nil
+	}
+	levels, _, err := dijkstraScriptLevels(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	if !dijkstraPlutusLegacyMode(levels[len(levels)-1]) {
+		return nil
+	}
+	tmpPparams, err := conwayPparams(pp)
+	if err != nil {
+		return err
+	}
+	directDeposits := new(big.Int)
+	for _, amount := range dijkstraTx.Body.TxDirectDeposits {
+		directDeposits.Add(directDeposits, new(big.Int).SetUint64(amount))
+	}
+	donations := new(big.Int)
+	if donation := dijkstraTx.Body.Donation(); donation != nil {
+		donations.Set(donation)
+	}
+	var view common.Transaction = dijkstraTx
+	if directDeposits.Sign() > 0 || donations.Sign() > 0 {
+		view = dijkstraProducedAdjustmentTransaction{
+			Transaction:    dijkstraTx,
+			directDeposits: directDeposits,
+			donations:      donations,
+		}
+	}
+	effects, err := dijkstraTx.LedgerEffectLevels()
+	if err != nil {
+		return err
+	}
+	state := common.NewBlockLedgerState(ls)
+	for _, level := range effects[:len(effects)-1] {
+		if err := state.ApplyCertificateDepositLevel(level, pp); err != nil {
+			return err
+		}
+		if err := state.ApplyPoolCertificates(
+			level.Body.Certificates(),
+		); err != nil {
+			return err
+		}
+	}
+	err = conway.UtxoValidateValueNotConservedUtxo(
+		view,
+		slot,
+		state,
+		tmpPparams,
+	)
+	var notConserved shelley.ValueNotConservedUtxoError
+	if errors.As(err, &notConserved) {
+		return ValueNotConservedInLegacyModeError{
+			Consumed: notConserved.Consumed,
+			Produced: notConserved.Produced,
+		}
+	}
+	return err
 }
 
 // UtxoValidateBadInputsUtxo requires every transaction level's inputs to
@@ -2364,7 +2510,9 @@ func UtxoValidateInputSetEmptyUtxo(
 
 // UtxoValidateNoDuplicateInputs rejects an input spent by more than one
 // transaction level, which would otherwise count towards consumed value once
-// per level.
+// per level. The production rule list skips it for phase-2-invalid
+// transactions: their sub-transactions leave the UTxO unchanged, so no input
+// is spent twice.
 func UtxoValidateNoDuplicateInputs(
 	tx common.Transaction,
 	slot uint64,
@@ -2420,7 +2568,8 @@ type batchWithdrawal struct {
 
 // UtxoValidateBatchWithdrawals rejects a Dijkstra transaction when the total
 // withdrawal for an account across the entire batch exceeds its original
-// reward-account balance. This is unconditional: phase-2-invalid transactions
+// reward-account balance. In Plutus legacy mode the top-level withdrawal is
+// excluded from the sum. This is unconditional: phase-2-invalid transactions
 // still undergo this UTXOW check.
 func UtxoValidateBatchWithdrawals(
 	tx common.Transaction,
@@ -2433,15 +2582,34 @@ func UtxoValidateBatchWithdrawals(
 		return nil
 	}
 
-	bodies := make(
-		[]common.TransactionBody,
-		0,
-		1+len(dijkstraTx.Body.TxSubTransactions.Items()),
-	)
-	bodies = append(bodies, &dijkstraTx.Body)
-	bodies = append(
-		bodies,
-		common.SubTransactionBodiesFromTransaction(dijkstraTx)...)
+	subBodies := common.SubTransactionBodiesFromTransaction(dijkstraTx)
+	hasWithdrawals := len(dijkstraTx.Body.Withdrawals()) > 0
+	for _, body := range subBodies {
+		if len(body.Withdrawals()) > 0 {
+			hasWithdrawals = true
+			break
+		}
+	}
+	if !hasWithdrawals {
+		// Legacy-mode detection resolves script witnesses, which can fail
+		// on inputs the input rules already reject; a batch without
+		// withdrawals must not surface those failures here.
+		return nil
+	}
+
+	// In legacy mode only sub-transaction withdrawals are bounded by the
+	// original balance. The top-level withdrawal is checked against the
+	// threaded account state by UtxoValidateWithdrawals, where it must
+	// drain the balance including sub-transaction effects.
+	legacyWithdrawalMode, err := dijkstraLegacyWithdrawalMode(dijkstraTx, ls)
+	if err != nil {
+		return err
+	}
+	bodies := make([]common.TransactionBody, 0, 1+len(subBodies))
+	if !legacyWithdrawalMode {
+		bodies = append(bodies, &dijkstraTx.Body)
+	}
+	bodies = append(bodies, subBodies...)
 
 	withdrawals := make(map[string]batchWithdrawal)
 	for _, body := range bodies {
@@ -4072,14 +4240,13 @@ func MinFeeTxWithRefScriptSize(
 }
 
 // MinFeeTxWithUtxo calculates the Dijkstra minimum fee from reference scripts
-// consumed by the top-level transaction. Subtransaction reference scripts only
-// contribute to the Dijkstra batch size limits.
+// consumed by the top-level transaction and every subtransaction.
 func MinFeeTxWithUtxo(
 	tx common.Transaction,
 	pp common.ProtocolParameters,
 	utxoState common.UtxoState,
 ) (uint64, error) {
-	scriptSize, err := common.ConsumedReferenceScriptSize(tx, utxoState)
+	scriptSize, err := consumedRefScriptSize(tx, utxoState)
 	if err != nil {
 		return 0, err
 	}
@@ -5177,15 +5344,9 @@ func consumedRefScriptSize(
 	if err != nil {
 		return 0, err
 	}
-	dijkstraTx, ok := tx.(*DijkstraTransaction)
-	if !ok {
-		return totalSize, nil
-	}
-	subTxs := dijkstraTx.Body.TxSubTransactions.Items()
-	for idx := range subTxs {
-		subTx := &subTxs[idx]
+	for _, subTxBody := range common.SubTransactionBodiesFromTransaction(tx) {
 		subTxSize, err := common.ConsumedReferenceScriptSize(
-			&subTx.Body,
+			subTxBody,
 			utxoState,
 		)
 		if err != nil {

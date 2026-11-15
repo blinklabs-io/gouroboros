@@ -354,3 +354,27 @@ func (e *BlsKeyInvalidProofOfPossessionError) Error() string {
 func (e *BlsKeyInvalidProofOfPossessionError) Unwrap() error {
 	return e.Err
 }
+
+// ValueNotConservedInLegacyModeError reports that the top-level body of a
+// Plutus legacy mode transaction does not balance once its sub-transactions
+// are removed.
+type ValueNotConservedInLegacyModeError struct {
+	Consumed *big.Int
+	Produced *big.Int
+}
+
+func (e ValueNotConservedInLegacyModeError) Error() string {
+	consumed := "<nil>"
+	produced := "<nil>"
+	if e.Consumed != nil {
+		consumed = e.Consumed.String()
+	}
+	if e.Produced != nil {
+		produced = e.Produced.String()
+	}
+	return fmt.Sprintf(
+		"value not conserved in legacy mode: consumed %s, produced %s",
+		consumed,
+		produced,
+	)
+}

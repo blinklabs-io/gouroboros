@@ -41,12 +41,24 @@ type replyValidationPeer struct {
 
 func newReplyValidationPeer(t *testing.T) *replyValidationPeer {
 	t.Helper()
+	return newReplyValidationPeerWithConfig(t, Config{})
+}
+
+func newReplyValidationPeerWithConfig(
+	t *testing.T,
+	cfg Config,
+) *replyValidationPeer {
+	t.Helper()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	m.Start()
 	errorChan := make(chan error, 10)
 	outbound := make(chan struct{}, 10)
 	initialized := make(chan struct{})
+	cfg.InitFunc = func(CallbackContext) error {
+		close(initialized)
+		return nil
+	}
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
 			LocalAddr:  localConn.LocalAddr(),
@@ -55,10 +67,7 @@ func newReplyValidationPeer(t *testing.T) *replyValidationPeer {
 		Muxer:     m,
 		ErrorChan: errorChan,
 		Mode:      protocol.ProtocolModeNodeToNode,
-	}, &Config{InitFunc: func(CallbackContext) error {
-		close(initialized)
-		return nil
-	}})
+	}, &cfg)
 	server.Start()
 	peerDone := make(chan struct{})
 	go func() {
@@ -380,4 +389,170 @@ func TestClientRejectsCallbackBodySizeMismatch(t *testing.T) {
 
 	err := client.handleRequestTxs(NewMsgRequestTxs([]TxId{txId}))
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+}
+
+func TestServerRequestTxsRejectsBodyOverConfiguredLimitBeforeDecoding(
+	t *testing.T,
+) {
+	t.Parallel()
+	const limit = 1024
+	peer := newReplyValidationPeerWithConfig(t, NewConfig(WithMaxTxSize(limit)))
+	// The body is not valid CBOR, so reaching the decoder would produce a
+	// decode error rather than the size error.
+	oversized := TxBody{
+		EraId:  uint16(ledger.TxTypeShelley),
+		TxBody: bytes.Repeat([]byte{0xff}, limit+1),
+	}
+	txId := testTxId(uint16(ledger.TxTypeShelley), 0x01)
+	peer.announceTxIds(t, []TxIdAndSize{{TxId: txId, Size: limit}})
+
+	got, err := peer.requestTxs(t, []TxId{txId}, []TxBody{oversized})
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+	require.ErrorContains(t, err, "exceeds the configured limit 1024")
+	require.NotContains(t, err.Error(), "cannot decode")
+	require.Nil(t, got)
+}
+
+func TestServerRequestTxsAcceptsBodyAtConfiguredLimit(t *testing.T) {
+	t.Parallel()
+	body, txId := testShelleyTxBody(t, 1)
+	peer := newReplyValidationPeerWithConfig(
+		t,
+		NewConfig(WithMaxTxSize(len(body.TxBody))),
+	)
+	peer.announceTxIds(t, []TxIdAndSize{txIdAndSize(body, txId)})
+
+	got, err := peer.requestTxs(t, []TxId{txId}, []TxBody{body})
+	require.NoError(t, err)
+	require.Equal(t, []TxBody{body}, got)
+}
+
+func TestServerRequestTxsRejectsBodyOneOverConfiguredLimit(t *testing.T) {
+	t.Parallel()
+	body, txId := testShelleyTxBody(t, 1)
+	peer := newReplyValidationPeerWithConfig(
+		t,
+		NewConfig(WithMaxTxSize(len(body.TxBody)-1)),
+	)
+	peer.announceTxIds(
+		t,
+		[]TxIdAndSize{{TxId: txId, Size: uint32(len(body.TxBody) - 1)}},
+	)
+
+	got, err := peer.requestTxs(t, []TxId{txId}, []TxBody{body})
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+	require.ErrorContains(t, err, "exceeds the configured limit")
+	require.Nil(t, got)
+}
+
+func TestServerRequestTxsUnsetLimitUsesMaxTxSizeBytes(t *testing.T) {
+	t.Parallel()
+	for name, cfg := range map[string]Config{
+		"unset":      {},
+		"zero":       NewConfig(WithMaxTxSize(0)),
+		"negative":   NewConfig(WithMaxTxSize(-1)),
+		"above_wire": NewConfig(WithMaxTxSize(MaxTxSizeBytes + 1)),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			peer := newReplyValidationPeerWithConfig(t, cfg)
+			oversized := TxBody{
+				EraId:  uint16(ledger.TxTypeShelley),
+				TxBody: bytes.Repeat([]byte{0xff}, MaxTxSizeBytes+1),
+			}
+			txId := testTxId(uint16(ledger.TxTypeShelley), 0x01)
+			peer.announceTxIds(
+				t,
+				[]TxIdAndSize{{TxId: txId, Size: MaxTxSizeBytes}},
+			)
+			_, err := peer.requestTxs(t, []TxId{txId}, []TxBody{oversized})
+			require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+			require.ErrorContains(t, err, "outside the accepted range")
+
+			// A body inside the wire limit still reaches the decoder.
+			peer2 := newReplyValidationPeerWithConfig(t, cfg)
+			garbage := TxBody{
+				EraId:  uint16(ledger.TxTypeShelley),
+				TxBody: bytes.Repeat([]byte{0xff}, 100),
+			}
+			peer2.announceTxIds(t, []TxIdAndSize{{TxId: txId, Size: 100}})
+			_, err = peer2.requestTxs(t, []TxId{txId}, []TxBody{garbage})
+			require.ErrorContains(t, err, "cannot decode")
+		})
+	}
+}
+
+func TestServerRequestTxIdsRejectsAdvertisedSizeOverLimit(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		cfg   Config
+		limit uint32
+	}{
+		"configured": {NewConfig(WithMaxTxSize(1024)), MaxTxSizeBytes},
+		"default":    {Config{}, MaxTxSizeBytes},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			peer := newReplyValidationPeerWithConfig(t, tc.cfg)
+			txId := testTxId(uint16(ledger.TxTypeShelley), 0x01)
+			resultChan := make(chan error, 1)
+			go func() {
+				_, err := peer.server.RequestTxIds(false, 1)
+				resultChan <- err
+			}()
+			peer.waitForRequest(t)
+			peer.send(t, NewMsgReplyTxIds(
+				[]TxIdAndSize{{TxId: txId, Size: tc.limit + 1}},
+			))
+			select {
+			case err := <-resultChan:
+				require.ErrorIs(
+					t,
+					err,
+					protocol.ErrProtocolViolationInvalidMessage,
+				)
+				require.ErrorContains(t, err, "advertised size")
+			case <-time.After(time.Second):
+				t.Fatal("RequestTxIds did not reject the oversized size")
+			}
+		})
+	}
+}
+
+func TestServerRequestTxIdsAcceptsAdvertisedSizeAtLimit(t *testing.T) {
+	t.Parallel()
+	peer := newReplyValidationPeerWithConfig(
+		t,
+		NewConfig(WithMaxTxSize(1024)),
+	)
+	peer.announceTxIds(t, []TxIdAndSize{
+		{
+			TxId: testTxId(uint16(ledger.TxTypeShelley), 0x01),
+			Size: MaxTxSizeBytes,
+		},
+	})
+}
+
+func TestServerRequestTxsAcceptsWireSizeAdvertisementAtConfiguredLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+	body, txId := testShelleyTxBody(t, 1)
+	// A cardano-node peer advertises the size of the whole wrapped reply
+	// item, [eraId, #6.24(bytes)], which exceeds the body by a few bytes. A
+	// limit equal to the body length must still admit it.
+	wireItem, err := cbor.Encode(&body)
+	require.NoError(t, err)
+	require.Greater(t, len(wireItem), len(body.TxBody))
+	peer := newReplyValidationPeerWithConfig(
+		t,
+		NewConfig(WithMaxTxSize(len(body.TxBody))),
+	)
+	peer.announceTxIds(t, []TxIdAndSize{
+		{TxId: txId, Size: uint32(len(wireItem))},
+	})
+
+	got, err := peer.requestTxs(t, []TxId{txId}, []TxBody{body})
+	require.NoError(t, err)
+	require.Equal(t, []TxBody{body}, got)
 }

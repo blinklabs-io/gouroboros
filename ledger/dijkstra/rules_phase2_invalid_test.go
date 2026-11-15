@@ -40,6 +40,7 @@ func TestDijkstraBatchChecksRunForPhase2InvalidTransactions(t *testing.T) {
 	for _, id := range []common.UtxoValidationRuleId{
 		common.UtxoValidationRuleCurrentTreasuryValue,
 		common.UtxoValidationRuleRefScriptSizePerTx,
+		common.UtxoValidationRuleTreasuryDonationScripts,
 	} {
 		require.Equalf(
 			t,

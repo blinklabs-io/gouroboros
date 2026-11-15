@@ -356,6 +356,19 @@ func TestNewMsgFromCborBoundsVotesOfferBeforeGenericValidation(t *testing.T) {
 	assert.Nil(t, msg)
 }
 
+func TestNewMsgFromCborRejectsDeepVotesOffer(t *testing.T) {
+	data := []byte{0x82, MessageTypeVotesOffer, 0x81}
+	data = append(
+		data,
+		bytes.Repeat([]byte{0x81}, cbor.MaxUntrustedNestedLevels+1)...,
+	)
+	data = append(data, 0x00)
+
+	msg, err := NewMsgFromCbor(MessageTypeVotesOffer, data)
+	require.ErrorContains(t, err, "max nested level")
+	assert.Nil(t, msg)
+}
+
 func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
 	t.Parallel()
 

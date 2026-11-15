@@ -23,7 +23,10 @@ import (
 )
 
 func TestValidateSecondFieldArrayRejectsDeepItemIteratively(t *testing.T) {
-	item := append(bytes.Repeat([]byte{0x81}, cbor.MaxNestedLevels+1), 0)
+	item := append(
+		bytes.Repeat([]byte{0x81}, cbor.MaxUntrustedNestedLevels+1),
+		0,
+	)
 	wire := append([]byte{0x82, 0, 0x81}, item...)
 	err := ValidateSecondFieldArray(wire, 1, "test collection", nil)
 	require.ErrorContains(t, err, "nesting exceeds maximum depth")

@@ -64,7 +64,7 @@ func (c *replyCursor) end(indefinite bool) error {
 
 func (c *replyCursor) skipTags() error {
 	for depth := 0; c.pos < len(c.data) && c.data[c.pos]&0xe0 == 0xc0; depth++ {
-		if depth >= cbor.MaxNestedLevels {
+		if depth >= cbor.MaxUntrustedNestedLevels {
 			return errors.New("transaction reply tag nesting limit")
 		}
 		if _, _, err := c.header(0xc0); err != nil {

@@ -58,7 +58,7 @@ func TestInvalidPossessionProofIsNeverCached(t *testing.T) {
 	// A seat whose key carries the forged proof fails a certificate even
 	// after the genuine proof for the same public key has been cached.
 	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
-	message := append([]byte{0x58, 0x20}, messageHash[:]...)
+	message := messageHash[:]
 	signature := signLeiosTestMessage(
 		t,
 		big.NewInt(101),

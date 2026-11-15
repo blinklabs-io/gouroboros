@@ -68,29 +68,32 @@ type BabbageBlock struct {
 }
 
 func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
-	// Create a temporary struct for unmarshaling with []any for InvalidTransactions
+	// Retain the wire type of the required invalid-transaction array.
 	type tmpBabbageBlock struct {
 		cbor.StructAsArray
 		BlockHeader            *BabbageBlockHeader
 		TransactionBodies      []BabbageTransactionBody
 		TransactionWitnessSets []BabbageTransactionWitnessSet
-		TransactionMetadataSet common.TransactionMetadataSet
-		InvalidTransactions    []uint64
+		TransactionMetadataSet common.BabbageTransactionMetadataSet
+		InvalidTransactions    cbor.RawMessage
 	}
 
 	var tmp tmpBabbageBlock
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
-		common.AuxiliaryDataEraBabbage,
-	); err != nil {
+	if len(tmp.InvalidTransactions) == 0 ||
+		tmp.InvalidTransactions[0]&0xe0 != 0x80 {
+		return errors.New("block invalid transactions must be a CBOR array")
+	}
+	var invalidTransactions []uint64
+	if _, err := cbor.Decode(tmp.InvalidTransactions, &invalidTransactions); err != nil {
 		return err
 	}
 
 	// Convert the wire indices to the platform type without discarding values.
-	result := make([]uint, 0, len(tmp.InvalidTransactions))
-	for _, val := range tmp.InvalidTransactions {
+	result := make([]uint, 0, len(invalidTransactions))
+	for _, val := range invalidTransactions {
 		if val >= uint64(len(tmp.TransactionBodies)) {
 			return fmt.Errorf(
 				"invalid transaction index %d outside transaction list length %d",
@@ -122,7 +125,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
-	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet.TransactionMetadataSet
 
 	b.SetCbor(cborData)
 
@@ -575,10 +578,14 @@ type BabbageTransactionBody struct {
 
 func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionBody BabbageTransactionBody
-	var tmp tBabbageTransactionBody
+	var tmp struct {
+		tBabbageTransactionBody
+		Withdrawals common.PreConwayWithdrawals `cbor:"5,keyasint,omitempty"`
+	}
 	if _, err := cbor.DecodeLedgerMap(cborData, &tmp); err != nil {
 		return err
 	}
+	tmp.TxWithdrawals = tmp.Withdrawals
 	for idx := range tmp.TxOutputs {
 		if err := common.ValidateNativeScriptOutputConstructor(&tmp.TxOutputs[idx], 5); err != nil {
 			return fmt.Errorf("transaction output %d: %w", idx, err)
@@ -611,7 +618,7 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := tmp.TxMint.ValidateMintQuantities(); err != nil {
 		return fmt.Errorf("mint: %w", err)
 	}
-	*b = BabbageTransactionBody(tmp)
+	*b = BabbageTransactionBody(tmp.tBabbageTransactionBody)
 	if err := b.DecodeTransactionBodyFieldPresence(cborData, b.Ttl, false); err != nil {
 		return err
 	}

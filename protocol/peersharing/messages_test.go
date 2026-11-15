@@ -81,7 +81,7 @@ func TestDecode(t *testing.T) {
 }
 
 func TestPeerAddressEncodeDecodeIPv6(t *testing.T) {
-	expectedHex := "86011ab80d012000001a01000000190bb9"
+	expectedHex := "86011a20010db8000001190bb9"
 	expectedPeer := PeerAddress{
 		IP:   net.ParseIP("2001:db8::1"),
 		Port: 3001,
@@ -115,9 +115,10 @@ func TestPeerAddressEncodeDecodeIPv6(t *testing.T) {
 // shape used by handshake versions 11 and 12 (FlowInfo and ScopeId fields
 // present, then ignored) round-trips through Decode.
 func TestPeerAddressDecodeIPv6V11(t *testing.T) {
-	// CBOR array of 8 elements: [1, addr1..addr4 (LE u32), flowInfo, scopeId, port].
+	// CBOR array of 8 elements:
+	// [1, addr1..addr4 (big-endian u32), flowInfo, scopeId, port].
 	// Same address as the v13 test above so we can compare results.
-	v11Hex := "88011ab80d012000001a010000000000190bb9"
+	v11Hex := "88011a20010db80000010000190bb9"
 	cborData, err := hex.DecodeString(v11Hex)
 	if err != nil {
 		t.Fatalf("failed to decode hex: %s", err)
@@ -276,4 +277,51 @@ func TestMsgSharePeersRejectsDeepAddressBeforeTypedDecode(t *testing.T) {
 		err,
 		"peer-sharing address 0: CBOR nesting exceeds maximum depth 1",
 	)
+}
+
+// Peer addresses as ouroboros-network encodeRemoteAddress writes them:
+// IPv6 as the four big-endian words of HostAddress6 (::1 is (0, 0, 0, 1)),
+// IPv4 as the network-order word read on a little-endian host.
+func TestPeerAddressReferenceEncoding(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		hex  string
+		ip   string
+		port uint16
+	}{
+		{"ipv6 loopback", "86010000" + "0001" + "190bb9", "::1", 3001},
+		{"ipv6 documentation", "86011a20010db8000001190bb9", "2001:db8::1", 3001},
+		{
+			"ipv6 distinct words",
+			"86011a01020304" + "1a05060708" + "1a090a0b0c" + "1a0d0e0f10" +
+				"190bb9",
+			"102:304:506:708:90a:b0c:d0e:f10",
+			3001,
+		},
+		{"ipv4", "83001a0100007f190bb9", "127.0.0.1", 3001},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			data, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+			var decoded PeerAddress
+			_, err = cbor.Decode(data, &decoded)
+			require.NoError(t, err)
+			require.True(
+				t,
+				net.ParseIP(tc.ip).Equal(decoded.IP),
+				"got %s, want %s", decoded.IP, tc.ip,
+			)
+			require.Equal(t, tc.port, decoded.Port)
+
+			encoded, err := cbor.Encode(PeerAddress{
+				IP:   net.ParseIP(tc.ip),
+				Port: tc.port,
+			})
+			require.NoError(t, err)
+			require.Equal(t, tc.hex, hex.EncodeToString(encoded))
+		})
+	}
 }

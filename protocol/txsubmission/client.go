@@ -451,6 +451,7 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 		requestedTxIds,
 		txs,
 		advertisedSizes,
+		MaxTxSizeBytes,
 	)
 	if err != nil {
 		return err

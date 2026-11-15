@@ -31,7 +31,7 @@ func benchCertificate(
 ) ([]byte, []byte, common.DijkstraLeiosCertificateContext) {
 	b.Helper()
 	messageHash := common.Blake2b256Hash([]byte("announcing ranking block"))
-	message := append([]byte{0x58, 0x20}, messageHash[:]...)
+	message := messageHash[:]
 	hash, err := bls12381.HashToG1(message, []byte(leiosSignatureDST))
 	if err != nil {
 		b.Fatal(err)
