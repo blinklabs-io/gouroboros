@@ -1288,11 +1288,15 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 		currentEra,
 		QueryTypeShelleyConstitution,
 	)
-	var result ConstitutionResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The constitution arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		Constitution ConstitutionResult
+	}
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.Constitution, nil
 }
 
 // GetGovState returns the full governance state (CIP-1694).
@@ -1748,11 +1752,15 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 		currentEra,
 		QueryTypeShelleyGetRatifyState,
 	)
-	var result RatifyStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The state arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		State RatifyStateResult
+	}
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.State, nil
 }
 
 // GetStakePoolDefaultVote returns the vote the ledger counts for a stake pool
