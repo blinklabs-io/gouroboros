@@ -98,8 +98,9 @@ func ConsumedReferenceScriptSize(
 }
 
 // TransactionReferenceScriptSizeFunc measures the consumed reference scripts
-// of one top-level transaction. Dijkstra supplies a function that also counts
-// each sub-transaction body.
+// of one top-level transaction for ConsumedReferenceScriptSizePerBlock. A nil
+// function selects ConsumedReferenceScriptSize, which counts only the
+// transaction's own inputs and reference inputs.
 type TransactionReferenceScriptSizeFunc func(
 	Transaction,
 	UtxoState,
@@ -109,12 +110,20 @@ type blockUtxoState struct {
 	base     UtxoState
 	produced map[transactionInputKey]Utxo
 	consumed map[transactionInputKey]struct{}
+	// unmeasured holds outputs created in the block that the reference rule
+	// leaves out of its accumulated UTxO, such as Dijkstra sub-transaction
+	// outputs. They resolve without a script so that they contribute zero
+	// instead of falling through to a base state that predates them.
+	unmeasured map[transactionInputKey]struct{}
 }
 
 func (s *blockUtxoState) UtxoById(input TransactionInput) (Utxo, error) {
 	key := newTransactionInputKey(input)
 	if utxo, ok := s.produced[key]; ok {
 		return utxo, nil
+	}
+	if _, ok := s.unmeasured[key]; ok {
+		return Utxo{Id: input}, nil
 	}
 	if _, ok := s.consumed[key]; ok {
 		return Utxo{}, fmt.Errorf("utxo not found: %s", input)
@@ -131,21 +140,32 @@ func (s *blockUtxoState) apply(tx Transaction) {
 	for _, input := range tx.Consumed() {
 		key := newTransactionInputKey(input)
 		delete(s.produced, key)
+		delete(s.unmeasured, key)
 		s.consumed[key] = struct{}{}
 	}
+	// The reference rule adds only the outputs of the top-level body, or its
+	// collateral return when phase-2 invalid; both are keyed by the
+	// transaction's own ID.
+	txId := tx.Hash()
 	for _, utxo := range tx.Produced() {
 		if utxo.Id == nil {
 			continue
 		}
 		key := newTransactionInputKey(utxo.Id)
 		delete(s.consumed, key)
-		s.produced[key] = utxo
+		if key.id == txId {
+			s.produced[key] = utxo
+		} else {
+			s.unmeasured[key] = struct{}{}
+		}
 	}
 }
 
 // ConsumedReferenceScriptSizePerBlock measures transactions in block order.
-// When includeProduced is true, each transaction sees the UTxO changes made by
-// preceding transactions, matching the PV11+ Conway block rule.
+// When includeProduced is true, each transaction also sees the top-level
+// outputs (or, for a phase-2-invalid transaction, the collateral return) of
+// preceding transactions, matching the PV11+ Conway block rule. Outputs of
+// sub-transactions are not added and contribute nothing when referenced.
 func ConsumedReferenceScriptSizePerBlock(
 	block Block,
 	utxoState UtxoState,
@@ -161,9 +181,10 @@ func ConsumedReferenceScriptSizePerBlock(
 		}
 	}
 	state := &blockUtxoState{
-		base:     utxoState,
-		produced: make(map[transactionInputKey]Utxo),
-		consumed: make(map[transactionInputKey]struct{}),
+		base:       utxoState,
+		produced:   make(map[transactionInputKey]Utxo),
+		consumed:   make(map[transactionInputKey]struct{}),
+		unmeasured: make(map[transactionInputKey]struct{}),
 	}
 	var total uint64
 	for _, tx := range block.Transactions() {
