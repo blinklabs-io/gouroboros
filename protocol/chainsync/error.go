@@ -18,9 +18,9 @@ import "errors"
 
 var ErrIntersectNotFound = errors.New("chain intersection not found")
 
-// ErrSyncInProgress is returned by Client.Jump and Client.Sync when a sync
-// loop is running or a MsgRequestNext is still unanswered, so the protocol is
-// not in StIdle.
+// ErrSyncInProgress is returned by Client.Jump, Client.Sync and
+// Client.GetAvailableBlockRange when a sync loop is running or a
+// MsgRequestNext is still unanswered, so the protocol is not in StIdle.
 var ErrSyncInProgress = errors.New("chain sync in progress")
 
 // StopChainSync is used as a special return value from a RollForward or RollBackward handler function

@@ -83,6 +83,7 @@ type Client struct {
 	testSyncLoopAfterRequestNext    func()
 	testAwaitReplyBeforeFence       func()
 	testQuiesceBeforeLoopStopClose  func()
+	testRollForwardBeforeAnswered   func()
 
 	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
 	// is empty.
@@ -742,8 +743,7 @@ func (c *Client) GetAvailableBlockRange(
 		}
 	}()
 
-	msgRequestNext := NewMsgRequestNext()
-	if err := proto.SendMessage(msgRequestNext); err != nil {
+	if err := c.sendRequestNext(proto); err != nil {
 		return start, end, err
 	}
 	for {
@@ -778,6 +778,9 @@ func (c *Client) GetAvailableBlockRange(
 			break
 		}
 	}
+	if err := c.waitRequestNextRetired(doneChan); err != nil {
+		return start, end, err
+	}
 	// start is now the first block after the intersect, so start == end is a
 	// valid one-block range. Only a start beyond the tip means nothing is
 	// available.
@@ -794,10 +797,11 @@ func (c *Client) GetAvailableBlockRange(
 // is running or a MsgRequestNext is still unanswered, since the protocol is
 // then not in StIdle. This includes a sync stopped by a callback returning
 // ErrStopSyncProcess until its loop has exited and the server has answered
-// every request already sent. Use Reintersect to move a running sync. Once
-// the protocol is idle, any ready signals left by the earlier sync are
-// discarded so that the new sync's first request is not mistaken for a reply
-// to an old one. Concurrent Sync and Jump calls are serialized. If the client
+// every request already sent. Use Reintersect to move a running sync, or to
+// resume a stopped one without waiting for those replies: it lets them
+// complete first. Once the protocol is idle, any ready signals left by the
+// earlier sync are discarded so that the new sync's first request is not
+// mistaken for a reply to an old one. Concurrent Sync and Jump calls are serialized. If the client
 // is not running, or Stop or loss of the connection interrupts the wait, Sync
 // returns protocol.ErrProtocolShuttingDown.
 func (c *Client) Sync(intersectPoints []pcommon.Point) error {
@@ -912,6 +916,32 @@ func (c *Client) prepareIdleProtocol(readyChan <-chan bool) error {
 		return ErrSyncInProgress
 	}
 	return discardReadySignals(readyChan)
+}
+
+// waitRequestNextRetired waits until every MsgRequestNext sent has been
+// retired. messageHandler retires a request only after its handler has
+// delivered the reply, so a caller that returns on the reply alone would
+// release busyMutex with the request still counted and the next operation
+// would find the protocol busy. The caller must hold busyMutex, and every
+// outstanding request must already have its reply in hand, or this waits for
+// the server.
+func (c *Client) waitRequestNextRetired(doneChan <-chan struct{}) error {
+	c.lifecycleMutex.Lock()
+	var drained chan struct{}
+	if c.outstandingRequestNext > 0 {
+		drained = make(chan struct{})
+		c.requestNextDrained = drained
+	}
+	c.lifecycleMutex.Unlock()
+	if drained == nil {
+		return nil
+	}
+	select {
+	case <-drained:
+		return nil
+	case <-doneChan:
+		return protocol.ErrProtocolShuttingDown
+	}
 }
 
 // findIntersect sends MsgFindIntersect and waits for the server's answer. The
@@ -1519,6 +1549,9 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleAwaitReply()
 	case MessageTypeRollForward:
 		err = c.handleRollForward(msg)
+		if c.testRollForwardBeforeAnswered != nil {
+			c.testRollForwardBeforeAnswered()
+		}
 		c.requestNextAnswered()
 	case MessageTypeRollBackward:
 		err = c.handleRollBackward(msg)
