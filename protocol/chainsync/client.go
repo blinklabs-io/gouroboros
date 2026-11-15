@@ -641,6 +641,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
 // point(s). Empty start/end points will be returned if there are no additional blocks available.
+//
+// Like Sync, it returns ErrSyncInProgress, without sending anything, while a
+// sync loop is running or a MsgRequestNext is still unanswered.
 func (c *Client) GetAvailableBlockRange(
 	intersectPoints []pcommon.Point,
 ) (pcommon.Point, pcommon.Point, error) {
@@ -654,6 +657,12 @@ func (c *Client) GetAvailableBlockRange(
 		c.busyMutex.Unlock()
 		endOperation()
 	}()
+
+	// This call reads the ready channel itself, so a running loop would
+	// compete for its signals and a stale one would end the call early.
+	if err := c.prepareIdleProtocol(readyForNextBlockChan); err != nil {
+		return pcommon.Point{}, pcommon.Point{}, err
+	}
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
@@ -779,10 +788,21 @@ func (c *Client) GetAvailableBlockRange(
 }
 
 // Sync begins a chain-sync operation using the provided intersect point(s). Incoming blocks will be delivered
-// via the RollForward callback function specified in the protocol config
+// via the RollForward callback function specified in the protocol config.
+//
+// Sync returns ErrSyncInProgress, without sending anything, while a sync loop
+// is running or a MsgRequestNext is still unanswered, since the protocol is
+// then not in StIdle. This includes a sync stopped by a callback returning
+// ErrStopSyncProcess until its loop has exited and the server has answered
+// every request already sent. Use Reintersect to move a running sync. Once
+// the protocol is idle, any ready signals left by the earlier sync are
+// discarded so that the new sync's first request is not mistaken for a reply
+// to an old one. Concurrent Sync and Jump calls are serialized. If the client
+// is not running, or Stop or loss of the connection interrupts the wait, Sync
+// returns protocol.ErrProtocolShuttingDown.
 func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 	c.busyMutex.Lock()
-	proto, _, doneChan, endOperation, err := c.beginOperation()
+	proto, readyChan, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
 		c.busyMutex.Unlock()
 		return err
@@ -791,6 +811,12 @@ func (c *Client) Sync(intersectPoints []pcommon.Point) error {
 		c.busyMutex.Unlock()
 		endOperation()
 	}()
+
+	// Sending MsgFindIntersect is legal only in StIdle, and a loop left
+	// running or a stale ready signal would corrupt the new sync.
+	if err := c.prepareIdleProtocol(readyChan); err != nil {
+		return err
+	}
 
 	// Use origin if no intersect points were specified
 	if len(intersectPoints) == 0 {
@@ -864,6 +890,28 @@ func discardReadySignals(readyChan <-chan bool) error {
 			return nil
 		}
 	}
+}
+
+// prepareIdleProtocol checks that no sync loop is running and no
+// MsgRequestNext is unanswered, then discards the ready signals a finished
+// loop left behind. It returns ErrSyncInProgress when the protocol is not
+// in StIdle. The caller must hold busyMutex.
+func (c *Client) prepareIdleProtocol(readyChan <-chan bool) error {
+	c.lifecycleMutex.Lock()
+	loopRunning := false
+	if c.syncLoopDone != nil {
+		select {
+		case <-c.syncLoopDone:
+		default:
+			loopRunning = true
+		}
+	}
+	unanswered := c.outstandingRequestNext
+	c.lifecycleMutex.Unlock()
+	if loopRunning || unanswered > 0 {
+		return ErrSyncInProgress
+	}
+	return discardReadySignals(readyChan)
 }
 
 // findIntersect sends MsgFindIntersect and waits for the server's answer. The
@@ -991,21 +1039,7 @@ func (c *Client) Jump(
 
 	// busyMutex is held, so no loop can start and no RequestNext can be sent
 	// until this exchange completes.
-	c.lifecycleMutex.Lock()
-	loopRunning := false
-	if c.syncLoopDone != nil {
-		select {
-		case <-c.syncLoopDone:
-		default:
-			loopRunning = true
-		}
-	}
-	unanswered := c.outstandingRequestNext
-	c.lifecycleMutex.Unlock()
-	if loopRunning || unanswered > 0 {
-		return pcommon.Point{}, Tip{}, false, ErrSyncInProgress
-	}
-	if err := discardReadySignals(readyChan); err != nil {
+	if err := c.prepareIdleProtocol(readyChan); err != nil {
 		return pcommon.Point{}, Tip{}, false, err
 	}
 
