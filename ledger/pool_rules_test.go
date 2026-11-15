@@ -53,6 +53,12 @@ func (s epochLedgerState) EpochForSlot(uint64) (uint64, error) {
 
 var _ common.EpochState = epochLedgerState{}
 
+// bareLedgerState exposes only the LedgerState methods, so a state that
+// implements more, such as the mock's EpochState, is seen as lacking it.
+type bareLedgerState struct {
+	common.LedgerState
+}
+
 type futurePoolLedgerState struct {
 	common.LedgerState
 	lookup func(common.Blake2b256) (bool, common.PoolKeyHash, error)
@@ -924,6 +930,7 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 	const currentEpoch = uint64(100)
 	const limitEpoch = currentEpoch + 18
 	withEpoch := epochLedgerState{LedgerState: base, epoch: currentEpoch}
+	withoutEpoch := bareLedgerState{LedgerState: base}
 
 	accepted := map[string]uint64{
 		"first allowed epoch": currentEpoch + 1,
@@ -967,12 +974,12 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 	}
 
 	t.Run("no EpochState fails closed", func(t *testing.T) {
-		_, ok := any(base).(common.EpochState)
+		_, ok := any(withoutEpoch).(common.EpochState)
 		require.False(t, ok)
 		err := shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, limitEpoch+1)),
 			0,
-			base,
+			withoutEpoch,
 			pparams,
 		)
 		var target common.EpochStateUnavailableError
@@ -983,7 +990,7 @@ func TestUtxoValidatePoolCertificatesRetirementEpoch(t *testing.T) {
 		err := shelley.UtxoValidatePoolCertificates(
 			poolCertTx(poolRetirementCert(registered, 0)),
 			0,
-			base,
+			withoutEpoch,
 			pparams,
 		)
 		var target shelley.StakePoolRetirementWrongEpochError

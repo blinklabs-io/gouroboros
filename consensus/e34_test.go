@@ -21,7 +21,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blinklabs-io/ouroboros-mock/fixtures"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,7 +52,7 @@ func e34TestDecimal(t *testing.T, text string) *big.Int {
 // manifest. Missing data, truncation and unknown schemas are hard failures.
 func e34TestRows(t *testing.T, name string) [][]string {
 	t.Helper()
-	fs := fixtures.EmbeddedFixtures()
+	fs := embeddedFixtureFS{}
 	manifest, err := fs.ReadFile("upstream/e34/SHA256SUMS")
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(string(manifest), "\n"))
