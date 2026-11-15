@@ -600,6 +600,56 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 	}
 }
 
+// BabbageTransactionMetadataSet decodes the block auxiliary-data map using
+// Babbage's last-value-wins rule for repeated transaction indexes. Use only
+// with known Babbage blocks, not as a fallback for a later era's rejection.
+type BabbageTransactionMetadataSet struct {
+	TransactionMetadataSet
+}
+
+func (s *BabbageTransactionMetadataSet) UnmarshalCBOR(data []byte) error {
+	if len(data) == 0 || data[0]&cborTypeMask != cborTypeMap {
+		return errors.New("block auxiliary-data set must be a CBOR map")
+	}
+	var entries map[uint]babbageAuxiliaryData
+	if _, err := cbor.DecodeLenient(data, &entries); err != nil {
+		return err
+	}
+	s.SetCbor(data)
+	s.data = make(map[uint]cbor.RawMessage, len(entries))
+	s.metadata = make(map[uint]TransactionMetadatum, len(entries))
+	for index, entry := range entries {
+		s.data[index] = entry.raw
+		if entry.metadata != nil {
+			s.metadata[index] = entry.metadata
+		}
+	}
+	return nil
+}
+
+// Validate each occurrence before map insertion, including values overwritten
+// by a later duplicate. Last-value-wins must not hide malformed auxiliary data.
+type babbageAuxiliaryData struct {
+	raw      cbor.RawMessage
+	metadata TransactionMetadatum
+}
+
+func (a *babbageAuxiliaryData) UnmarshalCBOR(data []byte) error {
+	auxData, err := DecodeAuxiliaryDataForEra(data, AuxiliaryDataEraBabbage)
+	if err != nil {
+		return err
+	}
+	metadata, err := auxData.Metadata()
+	if err != nil {
+		return err
+	}
+	if err := a.raw.UnmarshalCBOR(data); err != nil {
+		return err
+	}
+	a.metadata = metadata
+	return nil
+}
+
 func (s *TransactionMetadataSet) UnmarshalCBOR(cborData []byte) error {
 	if len(cborData) == 0 || cborData[0]&cborTypeMask != cborTypeMap {
 		return errors.New("block auxiliary-data set must be a CBOR map")

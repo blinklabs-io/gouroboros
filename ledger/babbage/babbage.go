@@ -74,7 +74,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 		BlockHeader            *BabbageBlockHeader
 		TransactionBodies      []BabbageTransactionBody
 		TransactionWitnessSets []BabbageTransactionWitnessSet
-		TransactionMetadataSet common.TransactionMetadataSet
+		TransactionMetadataSet common.BabbageTransactionMetadataSet
 		InvalidTransactions    cbor.RawMessage
 	}
 
@@ -88,11 +88,6 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	}
 	var invalidTransactions []uint64
 	if _, err := cbor.Decode(tmp.InvalidTransactions, &invalidTransactions); err != nil {
-		return err
-	}
-	if err := tmp.TransactionMetadataSet.ValidateAuxiliaryDataForEra(
-		common.AuxiliaryDataEraBabbage,
-	); err != nil {
 		return err
 	}
 
@@ -130,7 +125,7 @@ func (b *BabbageBlock) UnmarshalCBOR(cborData []byte) error {
 	b.BlockHeader = tmp.BlockHeader
 	b.TransactionBodies = tmp.TransactionBodies
 	b.TransactionWitnessSets = tmp.TransactionWitnessSets
-	b.TransactionMetadataSet = tmp.TransactionMetadataSet
+	b.TransactionMetadataSet = tmp.TransactionMetadataSet.TransactionMetadataSet
 
 	b.SetCbor(cborData)
 
