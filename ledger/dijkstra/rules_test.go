@@ -2653,6 +2653,90 @@ func TestValidateRefScriptSizePerBlockZeroLimit(t *testing.T) {
 	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
 }
 
+func dijkstraTxWithSubTransactionReferenceInputs(
+	topInputs []shelley.ShelleyTransactionInput,
+	subInputs ...shelley.ShelleyTransactionInput,
+) *DijkstraTransaction {
+	tx := dijkstraTxWithReferenceInputs(topInputs...)
+	tx.Body.TxSubTransactions = cbor.NewSetType(
+		[]DijkstraSubTransaction{
+			{
+				Body: DijkstraSubTransactionBody{
+					TxReferenceInputs: cbor.NewSetType(subInputs, false),
+				},
+			},
+		},
+		false,
+	)
+	return tx
+}
+
+// The per-block rule measures top-level transactions only; sub-transaction
+// reference scripts do not count toward it.
+func TestValidateRefScriptSizePerBlockIgnoresSubTransactions(t *testing.T) {
+	t.Parallel()
+	top, topUtxo := dijkstraRefScriptInput(t, 0x01, 0, 100)
+	sub, subUtxo := dijkstraRefScriptInput(t, 0x02, 0, 100)
+	ls := dijkstraRefScriptLedgerState(t, topUtxo, subUtxo)
+	pp := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 150}
+
+	t.Run("top level and sub-transaction", func(t *testing.T) {
+		t.Parallel()
+		tx := dijkstraTxWithSubTransactionReferenceInputs(
+			[]shelley.ShelleyTransactionInput{top},
+			sub,
+		)
+		require.NoError(
+			t,
+			ValidateRefScriptSizePerBlock(
+				dijkstraBlockWithTransactions(tx),
+				pp,
+				ls,
+			),
+		)
+	})
+	t.Run("sub-transaction only", func(t *testing.T) {
+		t.Parallel()
+		tx := dijkstraTxWithSubTransactionReferenceInputs(nil, sub, sub)
+		require.NoError(
+			t,
+			ValidateRefScriptSizePerBlock(
+				dijkstraBlockWithTransactions(tx),
+				&DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 99},
+				ls,
+			),
+		)
+	})
+	t.Run("top level over limit still rejected", func(t *testing.T) {
+		t.Parallel()
+		tx := dijkstraTxWithSubTransactionReferenceInputs(
+			[]shelley.ShelleyTransactionInput{top},
+			sub,
+		)
+		err := ValidateRefScriptSizePerBlock(
+			dijkstraBlockWithTransactions(tx),
+			&DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 99},
+			ls,
+		)
+		require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+	})
+	t.Run("top level exactly at limit accepted", func(t *testing.T) {
+		t.Parallel()
+		tx := dijkstraTxWithSubTransactionReferenceInputs(
+			[]shelley.ShelleyTransactionInput{top},
+			sub,
+		)
+		require.NoError(
+			t,
+			ValidateRefScriptSizePerBlock(
+				dijkstraBlockWithTransactions(tx),
+				&DijkstraProtocolParameters{MaxRefScriptSizePerBlock: 100},
+				ls,
+			),
+		)
+	})
+}
+
 func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 150)
 	tx := dijkstraTxWithReferenceInputs(input)

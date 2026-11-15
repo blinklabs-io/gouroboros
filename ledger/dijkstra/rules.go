@@ -5276,6 +5276,9 @@ func UtxoValidateRefScriptSizePerTx(
 	return nil
 }
 
+// ValidateRefScriptSizePerBlock checks the block reference-script limit. Only
+// top-level transactions are measured; sub-transaction reference scripts count
+// toward the per-transaction limit alone.
 func ValidateRefScriptSizePerBlock(
 	block *DijkstraBlock,
 	pp common.ProtocolParameters,
@@ -5300,7 +5303,7 @@ func ValidateRefScriptSizePerBlock(
 		block,
 		utxoState,
 		conwayPp.ProtocolVersion.Major >= common.ProtocolVersionVanRossem,
-		consumedRefScriptSize,
+		nil,
 	)
 	if err != nil {
 		return err
