@@ -386,6 +386,42 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
+			name:    "expiry epoch is null inside a present maybe",
+			wantErr: "null or undefined payload",
+			reply: hsMembersState(
+				hsMap([2][]byte{key, member(
+					hsHotNotAuthorized, hsUint(0),
+					hsSome([]byte{0xf6}), hsNextEpoch(2),
+				)}),
+				hsNone,
+				1,
+			),
+		},
+		{
+			name:    "expiry epoch is undefined inside a present maybe",
+			wantErr: "null or undefined payload",
+			reply: hsMembersState(
+				hsMap([2][]byte{key, member(
+					hsHotNotAuthorized, hsUint(0),
+					hsSome([]byte{0xf7}), hsNextEpoch(2),
+				)}),
+				hsNone,
+				1,
+			),
+		},
+		{
+			name:    "resigned anchor is null inside a present maybe",
+			wantErr: "null or undefined payload",
+			reply: hsMembersState(
+				hsMap([2][]byte{key, member(
+					hsArray(hsUint(2), hsSome([]byte{0xf6})),
+					hsUint(0), hsNone, hsNextEpoch(2),
+				)}),
+				hsNone,
+				1,
+			),
+		},
+		{
 			name:    "unknown member status",
 			wantErr: "unknown MemberStatus",
 			reply: hsMembersState(

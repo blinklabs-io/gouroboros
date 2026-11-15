@@ -2361,6 +2361,11 @@ func decodeStrictMaybe[T any](data []byte, label string) (*T, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
+	// A CBOR null or undefined decodes into any Go value without error and
+	// leaves it at its zero value, which would read as a present zero.
+	if len(items[0]) == 1 && (items[0][0] == 0xf6 || items[0][0] == 0xf7) {
+		return nil, fmt.Errorf("%s: null or undefined payload", label)
+	}
 	var v T
 	if _, err := cbor.Decode(items[0], &v); err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
