@@ -43,7 +43,7 @@ func TestLocalStateQueryDispatchersAcceptListLengthEncodings(t *testing.T) {
 		},
 		{
 			name:      "HotCredAuthStatusValue",
-			canonical: mustEncodeLocalStateQueryFixture(t, []any{0}),
+			canonical: mustEncodeLocalStateQueryFixture(t, []any{1}),
 			decode: func(t *testing.T, data []byte) {
 				var decoded HotCredAuthStatusValue
 				require.NoError(t, decoded.UnmarshalCBOR(data))

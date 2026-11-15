@@ -1477,8 +1477,8 @@ func (c *Client) GetDRepStakeDistr(
 // by its cold credential and votes with its authorized hot credential.
 //
 // Response: a [CommitteeMembersStateResult] mapping each member's cold
-// credential to a [CommitteeMemberState], plus the [cbor.Rat] threshold and
-// epoch.
+// credential to a [CommitteeMemberState], plus the [cbor.Rat] threshold (nil
+// when the node reports none) and epoch.
 //
 // Era: requires the Conway era or later. Returns an error if the acquired
 // ledger state is on an earlier era.
@@ -1544,11 +1544,15 @@ func (c *Client) GetCommitteeMembersState(
 		hotSet,
 		statusSet,
 	)
-	var result CommitteeMembersStateResult
-	if err := c.runQuery(query, &result); err != nil {
+	// The result arrives inside the single-element era result wrapper.
+	var result struct {
+		cbor.StructAsArray
+		State CommitteeMembersStateResult
+	}
+	if err := c.runQueryMaxItems(query, &result, 1); err != nil {
 		return nil, err
 	}
-	return &result, nil
+	return &result.State, nil
 }
 
 // GetFilteredVoteDelegatees returns the DRep that each stake credential has
