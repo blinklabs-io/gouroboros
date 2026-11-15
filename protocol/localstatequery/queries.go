@@ -2493,7 +2493,8 @@ func (s *CommitteeMemberState) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	if tmp.Status < MemberStatusActive || tmp.Status > MemberStatusUnrecognized {
+	if tmp.Status < MemberStatusActive ||
+		tmp.Status > MemberStatusUnrecognized {
 		return fmt.Errorf("unknown MemberStatus: %d", tmp.Status)
 	}
 	expiry, err := decodeStrictMaybe[uint64](
@@ -2513,6 +2514,9 @@ func (s *CommitteeMemberState) UnmarshalCBOR(data []byte) error {
 }
 
 func (s CommitteeMemberState) MarshalCBOR() ([]byte, error) {
+	if s.Status < MemberStatusActive || s.Status > MemberStatusUnrecognized {
+		return nil, fmt.Errorf("unknown MemberStatus: %d", s.Status)
+	}
 	return cbor.Encode([]any{
 		&s.HotCredStatus,
 		int(s.Status),

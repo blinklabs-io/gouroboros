@@ -136,8 +136,11 @@ func TestCommitteeMembersStateDecodesGolden(t *testing.T) {
 	require.Len(t, full.Members, 5)
 
 	scriptKey := localstatequery.StakeCredential{
-		Tag:   1,
-		Bytes: mustHex(t, "b16b56f5ec064be6ac3cab6035efae86b366cc3dc4a0d571603d70e5"),
+		Tag: 1,
+		Bytes: mustHex(
+			t,
+			"b16b56f5ec064be6ac3cab6035efae86b366cc3dc4a0d571603d70e5",
+		),
 	}
 	resignedWithAnchor, ok := full.Members[scriptKey]
 	require.True(t, ok)
@@ -198,6 +201,7 @@ func TestCommitteeMembersStateDecodesGolden(t *testing.T) {
 		resignedNoAnchor.HotCredStatus.Status,
 	)
 	assert.Nil(t, resignedNoAnchor.HotCredStatus.Anchor)
+	assert.Equal(t, localstatequery.MemberStatusActive, resignedNoAnchor.Status)
 	require.NotNil(t, resignedNoAnchor.Expiry)
 	assert.Equal(t, uint64(300), *resignedNoAnchor.Expiry)
 	assert.Equal(
@@ -206,7 +210,11 @@ func TestCommitteeMembersStateDecodesGolden(t *testing.T) {
 		resignedNoAnchor.NextEpochChange.Change,
 	)
 	require.NotNil(t, resignedNoAnchor.NextEpochChange.AdjustedEpoch)
-	assert.Equal(t, uint64(350), *resignedNoAnchor.NextEpochChange.AdjustedEpoch)
+	assert.Equal(
+		t,
+		uint64(350),
+		*resignedNoAnchor.NextEpochChange.AdjustedEpoch,
+	)
 
 	notAuthorized := full.Members[localstatequery.StakeCredential{
 		Tag:   0,
@@ -308,11 +316,13 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 	key := hsKeyCred(0x11)
 	member := func(parts ...[]byte) []byte { return hsArray(parts...) }
 	cases := []struct {
-		name  string
-		reply []byte
+		name    string
+		reply   []byte
+		wantErr string
 	}{
 		{
-			name: "threshold with two elements",
+			name:    "threshold with two elements",
+			wantErr: "committee threshold",
 			reply: hsMembersState(
 				hsMap(),
 				hsArray(hsTagged30(1, 2), hsTagged30(1, 2)),
@@ -320,7 +330,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "unknown hot credential tag",
+			name:    "unknown hot credential tag",
+			wantErr: "unexpected HotCredAuthStatusValue",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsArray(hsUint(3)), hsUint(0), hsNone, hsNextEpoch(2),
@@ -330,7 +341,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "authorized without credential",
+			name:    "authorized without credential",
+			wantErr: "unexpected HotCredAuthStatusValue",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsArray(hsUint(0)), hsUint(0), hsNone, hsNextEpoch(2),
@@ -340,7 +352,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "resigned anchor as a bare anchor",
+			name:    "resigned anchor as a bare anchor",
+			wantErr: "resigned committee member anchor",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsArray(hsUint(2), hsAnchor("https://example.invalid", 1)),
@@ -351,7 +364,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "unknown next epoch change",
+			name:    "unknown next epoch change",
+			wantErr: "unexpected NextEpochChangeValue tag",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsHotNotAuthorized, hsUint(0), hsNone, hsNextEpoch(5),
@@ -361,7 +375,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "term adjusted without epoch",
+			name:    "term adjusted without epoch",
+			wantErr: "term adjustment",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsHotNotAuthorized, hsUint(0), hsNone, hsNextEpoch(4),
@@ -371,7 +386,8 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			),
 		},
 		{
-			name: "unknown member status",
+			name:    "unknown member status",
+			wantErr: "unknown MemberStatus",
 			reply: hsMembersState(
 				hsMap([2][]byte{key, member(
 					hsHotNotAuthorized, hsUint(3), hsNone, hsNextEpoch(2),
@@ -386,6 +402,75 @@ func TestCommitteeMembersStateRejectsMalformedReplies(t *testing.T) {
 			t.Parallel()
 			var got localstatequery.CommitteeMembersStateResult
 			_, err := cbor.Decode(tc.reply, &got)
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestCommitteeMembersStateEncodeRejectsInvalidValues(t *testing.T) {
+	t.Parallel()
+	valid := func() localstatequery.CommitteeMemberState {
+		return localstatequery.CommitteeMemberState{
+			HotCredStatus: localstatequery.HotCredAuthStatusValue{
+				Status: localstatequery.HotCredNotAuthorized,
+			},
+			Status: localstatequery.MemberStatusActive,
+			NextEpochChange: localstatequery.NextEpochChangeValue{
+				Change: localstatequery.NextEpochNoChange,
+			},
+		}
+	}
+	cases := []struct {
+		name   string
+		mutate func(*localstatequery.CommitteeMemberState)
+	}{
+		{
+			name: "unknown member status",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.Status = localstatequery.MemberStatusUnrecognized + 1
+			},
+		},
+		{
+			name: "negative member status",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.Status = -1
+			},
+		},
+		{
+			name: "unknown hot credential status",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.HotCredStatus.Status = localstatequery.HotCredResigned + 1
+			},
+		},
+		{
+			name: "authorized without credential",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.HotCredStatus.Status = localstatequery.HotCredAuthorized
+			},
+		},
+		{
+			name: "unknown next epoch change",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.NextEpochChange.Change = 4
+			},
+		},
+		{
+			name: "term adjusted without epoch",
+			mutate: func(m *localstatequery.CommitteeMemberState) {
+				m.NextEpochChange.Change = localstatequery.NextEpochTermAdjusted
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			member := valid()
+			tc.mutate(&member)
+			_, err := cbor.Encode(localstatequery.CommitteeMembersStateResult{
+				Members: map[localstatequery.StakeCredential]localstatequery.CommitteeMemberState{
+					{Tag: 0}: member,
+				},
+			})
 			require.Error(t, err)
 		})
 	}
