@@ -443,6 +443,44 @@ func TestConwayRefScriptSizePerBlockPublishingOnly(t *testing.T) {
 	))
 }
 
+// From protocol version 11 a phase-2-invalid transaction adds its collateral
+// return, at the index after its outputs, to the UTxO later transactions are
+// measured against.
+func TestConwayRefScriptSizePerBlockUsesPriorCollateralReturnAtPV11(
+	t *testing.T,
+) {
+	invalidTx := conwayTxWithInputs(nil, nil)
+	invalidTx.Body.TxCollateralReturn = &babbage.BabbageTransactionOutput{
+		TxOutScriptRef: &common.ScriptRef{
+			Script: make(
+				common.PlutusV3Script,
+				conway.MaxRefScriptSizePerBlock+1,
+			),
+		},
+	}
+	collateralReturn := shelley.MustNewShelleyTransactionInput(
+		invalidTx.Hash().String(),
+		0,
+	)
+	referencingTx := conwayTxWithInputs(
+		nil,
+		[]shelley.ShelleyTransactionInput{collateralReturn},
+	)
+	block := conwayBlockWithTransactions(invalidTx, referencingTx)
+	block.InvalidTransactions = []uint{0}
+	pp := &conway.ConwayProtocolParameters{
+		ProtocolVersion: common.ProtocolParametersProtocolVersion{
+			Major: common.ProtocolVersionVanRossem,
+		},
+	}
+	err := conway.ValidateRefScriptSizePerBlock(
+		block,
+		pp,
+		conwayRefScriptLedgerState(t),
+	)
+	require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+}
+
 func TestConwayRefScriptSizePerBlockUsesPriorOutputsAtPV11(t *testing.T) {
 	publishingTx := conwayTxWithInputs(nil, nil)
 	publishingTx.Body.TxOutputs = []babbage.BabbageTransactionOutput{
