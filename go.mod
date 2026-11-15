@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/utxorpc/go-codegen v0.19.2
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
+	golang.org/x/crypto v0.59.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -26,7 +26,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 )
 
 // replace github.com/blinklabs-io/plutigo => ../plutigo
