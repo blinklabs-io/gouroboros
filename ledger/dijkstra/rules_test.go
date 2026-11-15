@@ -2737,6 +2737,99 @@ func TestValidateRefScriptSizePerBlockIgnoresSubTransactions(t *testing.T) {
 	})
 }
 
+// From protocol version 11 the per-block rule resolves each transaction
+// against the starting UTxO plus the top-level outputs (or collateral return)
+// of earlier transactions. Outputs created by an earlier transaction's
+// sub-transactions are not added, so a later reference to one contributes
+// nothing to the block total.
+func TestValidateRefScriptSizePerBlockAccumulatesTopLevelOutputsOnly(
+	t *testing.T,
+) {
+	t.Parallel()
+	pp := func(limit uint32) *DijkstraProtocolParameters {
+		ret := &DijkstraProtocolParameters{MaxRefScriptSizePerBlock: limit}
+		ret.ProtocolVersion.Major = common.ProtocolVersionDijkstra
+		return ret
+	}
+	refScriptOutput := DijkstraTransactionOutput{
+		Output: babbage.BabbageTransactionOutput{
+			TxOutScriptRef: &common.ScriptRef{
+				Script: make(common.PlutusV4Script, 100),
+			},
+		},
+	}
+	producer := func(topLevel bool) *DijkstraTransaction {
+		tx := &DijkstraTransaction{TxIsValid: true}
+		tx.Body.SetCbor([]byte{0xa1, 0x02, 0x01})
+		subTx := DijkstraSubTransaction{}
+		subTx.Body.SetCbor([]byte{0xa1, 0x02, 0x02})
+		if topLevel {
+			tx.Body.TxOutputs = []DijkstraTransactionOutput{refScriptOutput}
+		} else {
+			subTx.Body.TxOutputs = []DijkstraTransactionOutput{
+				refScriptOutput,
+			}
+		}
+		tx.Body.TxSubTransactions = cbor.NewSetType(
+			[]DijkstraSubTransaction{subTx},
+			false,
+		)
+		return tx
+	}
+	ls := dijkstraRefScriptLedgerState(t)
+
+	t.Run("sub-transaction output", func(t *testing.T) {
+		t.Parallel()
+		first := producer(false)
+		subTxs := first.Body.TxSubTransactions.Items()
+		require.Len(t, subTxs, 1)
+		output := shelley.ShelleyTransactionInput{
+			TxId:        subTxs[0].Body.Id(),
+			OutputIndex: 0,
+		}
+		require.NotEqual(t, first.Hash(), output.TxId)
+		require.NoError(
+			t,
+			ValidateRefScriptSizePerBlock(
+				dijkstraBlockWithTransactions(
+					first,
+					dijkstraTxWithReferenceInputs(output),
+				),
+				pp(99),
+				ls,
+			),
+		)
+	})
+	t.Run("top-level output", func(t *testing.T) {
+		t.Parallel()
+		first := producer(true)
+		output := shelley.ShelleyTransactionInput{
+			TxId:        first.Hash(),
+			OutputIndex: 0,
+		}
+		err := ValidateRefScriptSizePerBlock(
+			dijkstraBlockWithTransactions(
+				first,
+				dijkstraTxWithReferenceInputs(output),
+			),
+			pp(99),
+			ls,
+		)
+		require.ErrorAs(t, err, &common.RefScriptSizePerBlockTooLargeError{})
+		require.NoError(
+			t,
+			ValidateRefScriptSizePerBlock(
+				dijkstraBlockWithTransactions(
+					first,
+					dijkstraTxWithReferenceInputs(output),
+				),
+				pp(100),
+				ls,
+			),
+		)
+	})
+}
+
 func TestDijkstraRefScriptFeeUsesConsumedScriptSet(t *testing.T) {
 	input, utxo := dijkstraRefScriptInput(t, 0x01, 0, 150)
 	tx := dijkstraTxWithReferenceInputs(input)
