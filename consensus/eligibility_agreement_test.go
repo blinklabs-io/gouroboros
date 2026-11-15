@@ -14,7 +14,6 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/kes"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/ouroboros-mock/fixtures"
 	"github.com/stretchr/testify/require"
 )
 
@@ -22,7 +21,7 @@ func TestLeaderEligibilityElectionValidatorAgreement(t *testing.T) {
 	// The existing strict reader checks every SHA256SUMS entry, including JSON.
 	// No oracle generator, adjacent checkout, or self-derived expectation is used.
 	_ = e34TestRows(t, "pallas/node-vectors.tsv")
-	data, err := fixtures.EmbeddedFixtures().
+	data, err := embeddedFixtureFS{}.
 		ReadFile("upstream/e34/jormanager/node-schedules.json")
 	require.NoError(t, err)
 	var corpus struct {

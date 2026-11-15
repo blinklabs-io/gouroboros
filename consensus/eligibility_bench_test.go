@@ -24,7 +24,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/blinklabs-io/ouroboros-mock/fixtures"
 	"github.com/stretchr/testify/require"
 )
 
@@ -304,7 +303,7 @@ func leaderEligibilityBenchmarkInt(b *testing.B, text string) *big.Int {
 // All setup and checksum work happens before the measured subbenchmark loop.
 func leaderEligibilityBenchmarkRows(b *testing.B, name string) [][]string {
 	b.Helper()
-	fs := fixtures.EmbeddedFixtures()
+	fs := embeddedFixtureFS{}
 	manifest, err := fs.ReadFile("upstream/e34/SHA256SUMS")
 	require.NoError(b, err)
 	require.True(b, strings.HasSuffix(string(manifest), "\n"))
