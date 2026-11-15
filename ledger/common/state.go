@@ -21,11 +21,20 @@ package common
 //   - ledger/{era}/rules.go: Era-specific validation using these interfaces
 
 import (
+	"errors"
 	"math/big"
 	"time"
 
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
+
+// ErrUtxoNotFound is the error a UtxoState wraps to report that an input is
+// absent, as distinct from a failure to look it up. The per-block
+// reference-script measurement counts a reference input reported this way as
+// zero and returns every other reference-input lookup error. A UtxoState whose
+// not-found error does not wrap ErrUtxoNotFound therefore still makes that
+// measurement fail for a missing reference input.
+var ErrUtxoNotFound = errors.New("utxo not found")
 
 // UtxoState defines the interface for querying the UTxO state
 type UtxoState interface {
