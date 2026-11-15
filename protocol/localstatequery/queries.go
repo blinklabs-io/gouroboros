@@ -2249,14 +2249,27 @@ const (
 )
 
 // HotCredAuthStatusValue represents a tagged union for hot credential
-// authorization status.
-// CBOR encoding: [0] for NotAuthorized, [1, credential] for Authorized,
-// [2, anchor_or_null] for Resigned
+// authorization status, the ledger's HotCredAuthStatus.
+//
+// Wire shape (a Sum encoding; the constants of [HotCredAuthStatus] are Go
+// values, not wire tags):
+//
+//	[0, credential]       member authorized
+//	[1]                   member enacted but no hot credential registered
+//	[2, strict_maybe]     member resigned; [] or [anchor]
+//
+// Anchor is nil when the resigned member gave none.
 type HotCredAuthStatusValue struct {
 	Status     HotCredAuthStatus
 	Credential *lcommon.Credential
 	Anchor     *lcommon.GovAnchor
 }
+
+const (
+	hotCredWireAuthorized    = 0
+	hotCredWireNotAuthorized = 1
+	hotCredWireResigned      = 2
+)
 
 func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
 	listLen, err := cbor.ListLength(data)
@@ -2268,9 +2281,7 @@ func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	switch {
-	case listLen == 1 && tag == 0:
-		h.Status = HotCredNotAuthorized
-	case listLen == 2 && tag == 1:
+	case listLen == 2 && tag == hotCredWireAuthorized:
 		var tmp struct {
 			cbor.StructAsArray
 			Tag        int
@@ -2279,19 +2290,29 @@ func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
 		if _, err := cbor.Decode(data, &tmp); err != nil {
 			return err
 		}
-		h.Status = HotCredAuthorized
-		h.Credential = &tmp.Credential
-	case listLen == 2 && tag == 2:
+		*h = HotCredAuthStatusValue{
+			Status:     HotCredAuthorized,
+			Credential: &tmp.Credential,
+		}
+	case listLen == 1 && tag == hotCredWireNotAuthorized:
+		*h = HotCredAuthStatusValue{Status: HotCredNotAuthorized}
+	case listLen == 2 && tag == hotCredWireResigned:
 		var tmp struct {
 			cbor.StructAsArray
 			Tag    int
-			Anchor *lcommon.GovAnchor
+			Anchor cbor.RawMessage
 		}
 		if _, err := cbor.Decode(data, &tmp); err != nil {
 			return err
 		}
-		h.Status = HotCredResigned
-		h.Anchor = tmp.Anchor
+		anchor, err := decodeStrictMaybe[lcommon.GovAnchor](
+			tmp.Anchor,
+			"resigned committee member anchor",
+		)
+		if err != nil {
+			return err
+		}
+		*h = HotCredAuthStatusValue{Status: HotCredResigned, Anchor: anchor}
 	default:
 		return fmt.Errorf(
 			"unexpected HotCredAuthStatusValue: tag=%d, length=%d",
@@ -2305,89 +2326,159 @@ func (h *HotCredAuthStatusValue) UnmarshalCBOR(data []byte) error {
 func (h *HotCredAuthStatusValue) MarshalCBOR() ([]byte, error) {
 	switch h.Status {
 	case HotCredNotAuthorized:
-		return cbor.Encode([]any{0})
+		return cbor.Encode([]any{hotCredWireNotAuthorized})
 	case HotCredAuthorized:
 		if h.Credential == nil {
 			return nil, errors.New(
 				"credential must be set for HotCredAuthorized",
 			)
 		}
-		return cbor.Encode([]any{1, h.Credential})
+		return cbor.Encode([]any{hotCredWireAuthorized, h.Credential})
 	case HotCredResigned:
-		return cbor.Encode([]any{2, h.Anchor})
+		return cbor.Encode(
+			[]any{hotCredWireResigned, strictMaybe(h.Anchor)},
+		)
 	default:
 		return nil, fmt.Errorf("unknown HotCredAuthStatus: %d", h.Status)
 	}
 }
 
-// NextEpochChangeValue represents a tagged union for next epoch changes.
-// CBOR encoding: simple int (0-3) for most changes,
-// or [5, epoch] for TermAdjusted
+// strictMaybe is the ledger's encoding of a StrictMaybe or Maybe: an empty
+// list for nothing and a one-element list for a value.
+func strictMaybe[T any](v *T) []any {
+	if v == nil {
+		return []any{}
+	}
+	return []any{v}
+}
+
+// decodeStrictMaybe decodes a StrictMaybe or Maybe, returning nil for nothing.
+func decodeStrictMaybe[T any](data []byte, label string) (*T, error) {
+	items, err := decodeBoundedArray(data, 1, label)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	// A CBOR null or undefined decodes into any Go value without error and
+	// leaves it at its zero value, which would read as a present zero.
+	if len(items[0]) == 1 && (items[0][0] == 0xf6 || items[0][0] == 0xf7) {
+		return nil, fmt.Errorf("%s: null or undefined payload", label)
+	}
+	var v T
+	if _, err := cbor.Decode(items[0], &v); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	return &v, nil
+}
+
+// NextEpochChangeValue represents the ledger's NextEpochChange.
+//
+// Wire shape (a Sum encoding; the constants of [NextEpochChange] are Go
+// values, not wire tags):
+//
+//	[0]          to be enacted
+//	[1]          to be removed
+//	[2]          no change expected
+//	[3]          to be expired
+//	[4, epoch]   term adjusted to the given epoch
 type NextEpochChangeValue struct {
 	Change        NextEpochChange
 	AdjustedEpoch *uint64
 }
 
+const (
+	nextEpochWireToBeEnacted  = 0
+	nextEpochWireToBeRemoved  = 1
+	nextEpochWireNoChange     = 2
+	nextEpochWireToBeExpired  = 3
+	nextEpochWireTermAdjusted = 4
+)
+
 func (n *NextEpochChangeValue) UnmarshalCBOR(data []byte) error {
-	// Check if this is a CBOR list (for TermAdjusted) or a simple integer
-	listLen, listErr := cbor.ListLength(data)
-	if listErr != nil {
-		// Not a list, decode as a simple integer
-		var simpleVal int
-		if _, err := cbor.Decode(data, &simpleVal); err != nil {
-			return fmt.Errorf(
-				"failed to decode NextEpochChangeValue: %w",
-				err,
-			)
-		}
-		if simpleVal < 0 || simpleVal > 3 {
-			return fmt.Errorf(
-				"unexpected simple NextEpochChange value: %d",
-				simpleVal,
-			)
-		}
-		n.Change = NextEpochChange(simpleVal)
-		return nil
-	}
-	// It's a list, decode as [5, epoch]
-	if listLen != 2 {
-		return fmt.Errorf(
-			"unexpected list length %d for NextEpochChangeValue",
-			listLen,
-		)
-	}
-	var tmp struct {
-		cbor.StructAsArray
-		Tag   int
-		Epoch uint64
-	}
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	listLen, err := cbor.ListLength(data)
+	if err != nil {
 		return fmt.Errorf("failed to decode NextEpochChangeValue: %w", err)
 	}
-	if tmp.Tag != 5 {
+	tag, err := cbor.DecodeIdFromList(data)
+	if err != nil {
+		return fmt.Errorf("failed to decode NextEpochChangeValue: %w", err)
+	}
+	if tag == nextEpochWireTermAdjusted {
+		if listLen != 2 {
+			return fmt.Errorf(
+				"unexpected list length %d for NextEpochChangeValue term adjustment",
+				listLen,
+			)
+		}
+		var tmp struct {
+			cbor.StructAsArray
+			Tag   int
+			Epoch uint64
+		}
+		if _, err := cbor.Decode(data, &tmp); err != nil {
+			return fmt.Errorf("failed to decode NextEpochChangeValue: %w", err)
+		}
+		*n = NextEpochChangeValue{
+			Change:        NextEpochTermAdjusted,
+			AdjustedEpoch: &tmp.Epoch,
+		}
+		return nil
+	}
+	if listLen != 1 {
 		return fmt.Errorf(
-			"unexpected tag %d for NextEpochChangeValue list",
-			tmp.Tag,
+			"unexpected list length %d for NextEpochChangeValue tag %d",
+			listLen,
+			tag,
 		)
 	}
-	n.Change = NextEpochTermAdjusted
-	n.AdjustedEpoch = &tmp.Epoch
+	var change NextEpochChange
+	switch tag {
+	case nextEpochWireToBeEnacted:
+		change = NextEpochToBeEnacted
+	case nextEpochWireToBeRemoved:
+		change = NextEpochToBeRemoved
+	case nextEpochWireNoChange:
+		change = NextEpochNoChange
+	case nextEpochWireToBeExpired:
+		change = NextEpochToBeExpired
+	default:
+		return fmt.Errorf("unexpected NextEpochChangeValue tag %d", tag)
+	}
+	*n = NextEpochChangeValue{Change: change}
 	return nil
 }
 
 func (n *NextEpochChangeValue) MarshalCBOR() ([]byte, error) {
-	if n.Change == NextEpochTermAdjusted {
+	switch n.Change {
+	case NextEpochToBeEnacted:
+		return cbor.Encode([]any{nextEpochWireToBeEnacted})
+	case NextEpochToBeRemoved:
+		return cbor.Encode([]any{nextEpochWireToBeRemoved})
+	case NextEpochNoChange:
+		return cbor.Encode([]any{nextEpochWireNoChange})
+	case NextEpochToBeExpired:
+		return cbor.Encode([]any{nextEpochWireToBeExpired})
+	case NextEpochTermAdjusted:
 		if n.AdjustedEpoch == nil {
 			return nil, errors.New(
 				"adjustedEpoch must be set for NextEpochTermAdjusted",
 			)
 		}
-		return cbor.Encode([]any{5, *n.AdjustedEpoch})
+		return cbor.Encode([]any{nextEpochWireTermAdjusted, *n.AdjustedEpoch})
+	default:
+		return nil, fmt.Errorf("unknown NextEpochChange: %d", n.Change)
 	}
-	return cbor.Encode(int(n.Change))
 }
 
-// CommitteeMemberState represents the state of a committee member
+// CommitteeMemberState represents the state of a committee member, the
+// ledger's CommitteeMemberState:
+//
+//	[ hot_cred_auth_status, member_status, strict_maybe epoch, next_epoch_change ]
+//
+// Expiry is the absolute epoch at which the member expires, nil when the
+// member has no known term.
 type CommitteeMemberState struct {
 	cbor.StructAsArray
 	HotCredStatus   HotCredAuthStatusValue
@@ -2396,14 +2487,108 @@ type CommitteeMemberState struct {
 	NextEpochChange NextEpochChangeValue
 }
 
+func (s *CommitteeMemberState) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		HotCredStatus   HotCredAuthStatusValue
+		Status          MemberStatus
+		Expiry          cbor.RawMessage
+		NextEpochChange NextEpochChangeValue
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	if tmp.Status < MemberStatusActive ||
+		tmp.Status > MemberStatusUnrecognized {
+		return fmt.Errorf("unknown MemberStatus: %d", tmp.Status)
+	}
+	expiry, err := decodeStrictMaybe[uint64](
+		tmp.Expiry,
+		"committee member expiry",
+	)
+	if err != nil {
+		return err
+	}
+	*s = CommitteeMemberState{
+		HotCredStatus:   tmp.HotCredStatus,
+		Status:          tmp.Status,
+		Expiry:          expiry,
+		NextEpochChange: tmp.NextEpochChange,
+	}
+	return nil
+}
+
+func (s CommitteeMemberState) MarshalCBOR() ([]byte, error) {
+	if s.Status < MemberStatusActive || s.Status > MemberStatusUnrecognized {
+		return nil, fmt.Errorf("unknown MemberStatus: %d", s.Status)
+	}
+	return cbor.Encode([]any{
+		&s.HotCredStatus,
+		int(s.Status),
+		strictMaybe(s.Expiry),
+		&s.NextEpochChange,
+	})
+}
+
 // CommitteeMembersStateResult represents the committee members state
-// query result. Contains the committee members, voting threshold,
-// and current epoch
+// query result, the ledger's CommitteeMembersState:
+//
+//	[ { * cold_credential => committee_member_state }, strict_maybe threshold, epoch ]
+//
+// The node wraps the result in the single-element era list that
+// [Client.GetCommitteeMembersState] removes. Threshold is the committee's
+// voting threshold, nil when no committee exists. Epoch is the current epoch,
+// against which the members' expiry epochs are read.
+//
+// Encoding writes the members in the ledger's key order (script credentials
+// before key credentials, then by hash).
 type CommitteeMembersStateResult struct {
 	cbor.StructAsArray
 	Members   map[StakeCredential]CommitteeMemberState
 	Threshold *cbor.Rat
 	Epoch     uint64
+}
+
+func (r *CommitteeMembersStateResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Members   growingMap[StakeCredential, CommitteeMemberState]
+		Threshold cbor.RawMessage
+		Epoch     uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	threshold, err := decodeStrictMaybe[cbor.Rat](
+		tmp.Threshold,
+		"committee threshold",
+	)
+	if err != nil {
+		return err
+	}
+	*r = CommitteeMembersStateResult{
+		Members:   tmp.Members,
+		Threshold: threshold,
+		Epoch:     tmp.Epoch,
+	}
+	return nil
+}
+
+func (r CommitteeMembersStateResult) MarshalCBOR() ([]byte, error) {
+	members, err := encodeCredentialKeyedMap(
+		r.Members,
+		func(m CommitteeMemberState) ([]byte, error) {
+			return m.MarshalCBOR()
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return cbor.Encode([]any{
+		cbor.RawMessage(members),
+		strictMaybe(r.Threshold),
+		r.Epoch,
+	})
 }
 
 // FilteredVoteDelegateesResult represents the vote delegatees
