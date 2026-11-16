@@ -2014,7 +2014,7 @@ func ValidateExtraneousRedeemers(tx Transaction) error {
 	// Count distinct mint policies
 	mintPolicyCount := 0
 	if mint := tx.AssetMint(); mint != nil {
-		mintPolicyCount = len(mint.Policies())
+		mintPolicyCount = mint.PolicyCount()
 	}
 
 	// Count voters (each voter is a separate purpose index)

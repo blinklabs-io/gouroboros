@@ -552,14 +552,10 @@ func mintToUtxorpc(mint *MultiAsset[MultiAssetTypeMint]) []*utxorpc.Multiasset {
 		return nil
 	}
 	policies := mint.Policies()
-	slices.SortFunc(policies, func(a, b Blake2b224) int {
-		return bytes.Compare(a.Bytes(), b.Bytes())
-	})
 	ret := make([]*utxorpc.Multiasset, 0, len(policies))
 	for _, policy := range policies {
 		ma := &utxorpc.Multiasset{PolicyId: policy.Bytes()}
 		names := mint.Assets(policy)
-		slices.SortFunc(names, bytes.Compare)
 		for _, name := range names {
 			ma.Assets = append(ma.Assets, &utxorpc.Asset{
 				Name: name,

@@ -15,6 +15,7 @@
 package alonzo_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -23,14 +24,32 @@ import (
 )
 
 func BenchmarkUtxoValidateValueNotConservedUtxo_MultiAsset(b *testing.B) {
+	for _, size := range []struct{ policies, assets int }{
+		{1, 1}, {8, 16}, {100, 50},
+	} {
+		b.Run(
+			fmt.Sprintf("%dx%d", size.policies, size.assets),
+			func(b *testing.B) {
+				benchValueNotConservedMultiAsset(
+					b,
+					size.policies,
+					size.assets,
+				)
+			},
+		)
+	}
+}
+
+func benchValueNotConservedMultiAsset(b *testing.B, policies, assets int) {
 	const addr = "addr1qytna5k2fq9ler0fuk45j7zfwv7t2zwhp777nvdjqqfr5tz8ztpwnk8zq5ngetcz5k5mckgkajnygtsra9aej2h3ek5seupmvd"
 
 	var inputAssets []mockledger.Asset
 	var outputAssets []mockledger.Asset
-	for policyIdx := range 8 {
+	for policyIdx := range policies {
 		policyID := make([]byte, 28)
+		policyID[26] = byte(policyIdx >> 8)
 		policyID[27] = byte(policyIdx + 1)
-		for assetIdx := range 16 {
+		for assetIdx := range assets {
 			asset := mockledger.Asset{
 				PolicyId:  policyID,
 				AssetName: []byte{byte(policyIdx), byte(assetIdx)},

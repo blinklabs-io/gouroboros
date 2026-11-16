@@ -855,58 +855,64 @@ func UtxoValidateValueNotConservedUtxo(
 			continue
 		}
 		if assets := tmpUtxo.Output.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if consumedAssets[key] == nil {
-						consumedAssets[key] = new(big.Int)
-					}
-					consumedAssets[key].Add(consumedAssets[key], amount)
-				}
-			}
-		}
-	}
-
-	// Add minted/burned assets to consumed (positive for mint, negative for burn)
-	if mint := tx.AssetMint(); mint != nil {
-		for _, policy := range mint.Policies() {
-			for _, assetName := range mint.Assets(policy) {
-				if policy == (common.Blake2b224{}) && len(assetName) == 0 {
-					continue
-				}
-				amount := mint.Asset(policy, assetName)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
 				if amount == nil {
-					continue
+					return true
 				}
 				key := assetKey{policy: policy, asset: string(assetName)}
 				if consumedAssets[key] == nil {
 					consumedAssets[key] = new(big.Int)
 				}
 				consumedAssets[key].Add(consumedAssets[key], amount)
-			}
+				return true
+			})
 		}
+	}
+
+	// Add minted/burned assets to consumed (positive for mint, negative for burn)
+	if mint := tx.AssetMint(); mint != nil {
+		mint.RangeUnordered(func(
+			policy common.Blake2b224,
+			assetName []byte,
+			amount common.MultiAssetTypeMint,
+		) bool {
+			if policy == (common.Blake2b224{}) && len(assetName) == 0 {
+				return true
+			}
+			if amount == nil {
+				return true
+			}
+			key := assetKey{policy: policy, asset: string(assetName)}
+			if consumedAssets[key] == nil {
+				consumedAssets[key] = new(big.Int)
+			}
+			consumedAssets[key].Add(consumedAssets[key], amount)
+			return true
+		})
 	}
 
 	// Collect produced multi-assets from outputs
 	for _, tmpOutput := range tx.Outputs() {
 		if assets := tmpOutput.Assets(); assets != nil {
-			for _, policy := range assets.Policies() {
-				for _, assetName := range assets.Assets(policy) {
-					amount := assets.Asset(policy, assetName)
-					if amount == nil {
-						continue
-					}
-					key := assetKey{policy: policy, asset: string(assetName)}
-					if producedAssets[key] == nil {
-						producedAssets[key] = new(big.Int)
-					}
-					producedAssets[key].Add(producedAssets[key], amount)
+			assets.RangeUnordered(func(
+				policy common.Blake2b224,
+				assetName []byte,
+				amount common.MultiAssetTypeOutput,
+			) bool {
+				if amount == nil {
+					return true
 				}
-			}
+				key := assetKey{policy: policy, asset: string(assetName)}
+				if producedAssets[key] == nil {
+					producedAssets[key] = new(big.Int)
+				}
+				producedAssets[key].Add(producedAssets[key], amount)
+				return true
+			})
 		}
 	}
 
