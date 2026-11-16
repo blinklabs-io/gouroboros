@@ -48,7 +48,10 @@ func signedInlinedCertRb(
 		BlockHeader: header,
 		BlockBody: dijkstra.DijkstraBlockBody{
 			Transactions: []dijkstra.DijkstraTransaction{
-				{Body: dijkstra.DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+				{
+					Body:      dijkstra.DijkstraTransactionBody{TxFee: 1},
+					TxIsValid: true,
+				},
 			},
 			LeiosCertificate: sentCert,
 		},

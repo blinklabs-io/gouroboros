@@ -277,7 +277,10 @@ func TestRollForwardFuncReceivesInlinedCertRb(t *testing.T) {
 // pipe, so large messages are split into parts.
 // The server first rolls back to the intersection, then sends blockCbor.
 // With block validation on, it returns the block RollForwardFunc gets.
-func syncCertRbOverPipe(t *testing.T, blockCbor []byte) *dijkstra.DijkstraBlock {
+func syncCertRbOverPipe(
+	t *testing.T,
+	blockCbor []byte,
+) *dijkstra.DijkstraBlock {
 	t.Helper()
 	const timeout = 30 * time.Second
 	intersect, tip := testCertRbIntersectAndTip()
@@ -293,24 +296,26 @@ func syncCertRbOverPipe(t *testing.T, blockCbor []byte) *dijkstra.DijkstraBlock 
 				return intersect, tip, nil
 			},
 		),
-		chainsync.WithRequestNextFunc(func(ctx chainsync.CallbackContext) error {
-			requestsMu.Lock()
-			requests++
-			n := requests
-			requestsMu.Unlock()
-			switch n {
-			case 1:
-				return ctx.Server.RollBackward(intersect, tip)
-			case 2:
-				return ctx.Server.RollForward(
-					ledger.BlockTypeDijkstra,
-					blockCbor,
-					tip,
-				)
-			default:
-				return ctx.Server.AwaitReply()
-			}
-		}),
+		chainsync.WithRequestNextFunc(
+			func(ctx chainsync.CallbackContext) error {
+				requestsMu.Lock()
+				requests++
+				n := requests
+				requestsMu.Unlock()
+				switch n {
+				case 1:
+					return ctx.Server.RollBackward(intersect, tip)
+				case 2:
+					return ctx.Server.RollForward(
+						ledger.BlockTypeDijkstra,
+						blockCbor,
+						tip,
+					)
+				default:
+					return ctx.Server.AwaitReply()
+				}
+			},
+		),
 	)
 	received := make(chan any, 1)
 	clientCfg := chainsync.NewConfig(
@@ -378,7 +383,10 @@ func syncCertRbOverPipe(t *testing.T, blockCbor []byte) *dijkstra.DijkstraBlock 
 		_ = client.Close()
 		_ = server.Close()
 	})
-	require.NoError(t, client.ChainSync().Client.Sync([]pcommon.Point{intersect}))
+	require.NoError(
+		t,
+		client.ChainSync().Client.Sync([]pcommon.Point{intersect}),
+	)
 	var got any
 	select {
 	case got = <-received:

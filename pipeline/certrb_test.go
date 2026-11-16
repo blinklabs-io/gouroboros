@@ -68,7 +68,10 @@ func inlinedCertRbCbor(t *testing.T) []byte {
 		},
 		BlockBody: dijkstra.DijkstraBlockBody{
 			Transactions: []dijkstra.DijkstraTransaction{
-				{Body: dijkstra.DijkstraTransactionBody{TxFee: 1}, TxIsValid: true},
+				{
+					Body:      dijkstra.DijkstraTransactionBody{TxFee: 1},
+					TxIsValid: true,
+				},
 			},
 			LeiosCertificate: cert,
 		},
@@ -92,6 +95,7 @@ func TestDecodeStageInlinedCertRb(t *testing.T) {
 	err := stage.Process(t.Context(), item)
 	var vErr *common.ValidationError
 	require.ErrorAs(t, err, &vErr)
+	require.NotNil(t, vErr)
 	require.Equal(t, common.ValidationErrorTypeBodyHash, vErr.Type)
 
 	item = NewBlockItem(
@@ -137,7 +141,10 @@ func TestBlockPipelineSubmitNodeToClient(t *testing.T) {
 	}
 
 	tip := createTestTip(1010, 1)
-	require.NoError(t, p.Submit(ctx, uint(ledger.BlockTypeDijkstra), blockCbor, tip))
+	require.NoError(
+		t,
+		p.Submit(ctx, uint(ledger.BlockTypeDijkstra), blockCbor, tip),
+	)
 	item := next()
 	require.False(t, item.NodeToClient())
 	require.Error(t, item.DecodeError())

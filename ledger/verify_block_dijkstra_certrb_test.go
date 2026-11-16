@@ -247,77 +247,86 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 
 	// The inlined EB transactions are bounded by maxEndorserBlockTxsSize:
 	// a total equal to the maximum is accepted, one byte more is rejected.
-	t.Run("EB transactions bounded by maxEndorserBlockTxsSize", func(t *testing.T) {
-		t.Parallel()
-		block, state, _ := newCertRbTestBlock(t, certRbTestTxs())
-		total, err := dijkstra.LeiosClosureSize(block)
-		require.NoError(t, err)
-		verify := func(maximum uint64) error {
+	t.Run(
+		"EB transactions bounded by maxEndorserBlockTxsSize",
+		func(t *testing.T) {
+			t.Parallel()
+			block, state, _ := newCertRbTestBlock(t, certRbTestTxs())
+			total, err := dijkstra.LeiosClosureSize(block)
+			require.NoError(t, err)
+			verify := func(maximum uint64) error {
+				pp := certRbTestParams()
+				pp.MaxEndorserBlockTxsSize = uint32(maximum)
+				return VerifyBlockState(block, common.VerifyConfig{
+					ProtocolParameters:                     pp,
+					LedgerState:                            state,
+					SkipTransactionValidation:              true,
+					SkipStakePoolValidation:                true,
+					AllowCertifiedBlockInlinedTransactions: true,
+				})
+			}
+			require.NoError(t, verify(total))
+			err = verify(total - 1)
+			var tooBig *dijkstra.LeiosClosureTooBigError
+			require.ErrorAs(t, err, &tooBig)
+			require.Equal(t, total, tooBig.ClosureSize)
+		},
+	)
+
+	// The node doesn't check maxEndorserBlockExUnits on a received EB, so
+	// going over it is only logged: the CertRB is still accepted.
+	t.Run(
+		"EB ExUnits over maxEndorserBlockExUnits only logged",
+		func(t *testing.T) {
+			t.Parallel()
+			tx := dijkstra.DijkstraTransaction{
+				Body: dijkstra.DijkstraTransactionBody{TxFee: 1},
+				WitnessSet: dijkstra.DijkstraTransactionWitnessSet{
+					WsRedeemers: dijkstra.DijkstraRedeemers{
+						Redeemers: map[common.RedeemerKey]common.RedeemerValue{
+							{Tag: common.RedeemerTagSpend, Index: 0}: {
+								Data: common.Datum{
+									Data: data.NewInteger(big.NewInt(0)),
+								},
+								ExUnits: common.ExUnits{
+									Memory: 100,
+									Steps:  200,
+								},
+							},
+						},
+					},
+				},
+				TxIsValid: true,
+			}
+			block, state, _ := newCertRbTestBlock(
+				t,
+				[]dijkstra.DijkstraTransaction{tx},
+			)
 			pp := certRbTestParams()
-			pp.MaxEndorserBlockTxsSize = uint32(maximum)
-			return VerifyBlockState(block, common.VerifyConfig{
+			pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
+
+			total, over := leiosClosureExUnitsOverLimit(block, pp)
+			require.True(t, over)
+			require.Equal(t, common.ExUnits{Memory: 100, Steps: 200}, total)
+
+			pp.MaxEndorserBlockExUnits.Steps = 200
+			_, over = leiosClosureExUnitsOverLimit(block, pp)
+			require.False(t, over, "a total equal to the maximum is not over")
+
+			pp.MaxEndorserBlockExUnits = common.ExUnits{}
+			_, over = leiosClosureExUnitsOverLimit(block, pp)
+			require.False(t, over, "a zero limit counts as unset")
+
+			pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
+			require.NoError(t, VerifyBlockState(block, common.VerifyConfig{
 				ProtocolParameters:                     pp,
 				LedgerState:                            state,
 				SkipTransactionValidation:              true,
 				SkipStakePoolValidation:                true,
 				AllowCertifiedBlockInlinedTransactions: true,
-			})
-		}
-		require.NoError(t, verify(total))
-		err = verify(total - 1)
-		var tooBig *dijkstra.LeiosClosureTooBigError
-		require.ErrorAs(t, err, &tooBig)
-		require.Equal(t, total, tooBig.ClosureSize)
-	})
-
-	// The node doesn't check maxEndorserBlockExUnits on a received EB, so
-	// going over it is only logged: the CertRB is still accepted.
-	t.Run("EB ExUnits over maxEndorserBlockExUnits only logged", func(t *testing.T) {
-		t.Parallel()
-		tx := dijkstra.DijkstraTransaction{
-			Body: dijkstra.DijkstraTransactionBody{TxFee: 1},
-			WitnessSet: dijkstra.DijkstraTransactionWitnessSet{
-				WsRedeemers: dijkstra.DijkstraRedeemers{
-					Redeemers: map[common.RedeemerKey]common.RedeemerValue{
-						{Tag: common.RedeemerTagSpend, Index: 0}: {
-							Data: common.Datum{
-								Data: data.NewInteger(big.NewInt(0)),
-							},
-							ExUnits: common.ExUnits{Memory: 100, Steps: 200},
-						},
-					},
-				},
-			},
-			TxIsValid: true,
-		}
-		block, state, _ := newCertRbTestBlock(
-			t,
-			[]dijkstra.DijkstraTransaction{tx},
-		)
-		pp := certRbTestParams()
-		pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
-
-		total, over := leiosClosureExUnitsOverLimit(block, pp)
-		require.True(t, over)
-		require.Equal(t, common.ExUnits{Memory: 100, Steps: 200}, total)
-
-		pp.MaxEndorserBlockExUnits.Steps = 200
-		_, over = leiosClosureExUnitsOverLimit(block, pp)
-		require.False(t, over, "a total equal to the maximum is not over")
-
-		pp.MaxEndorserBlockExUnits = common.ExUnits{}
-		_, over = leiosClosureExUnitsOverLimit(block, pp)
-		require.False(t, over, "a zero limit counts as unset")
-
-		pp.MaxEndorserBlockExUnits = common.ExUnits{Memory: 100, Steps: 199}
-		require.NoError(t, VerifyBlockState(block, common.VerifyConfig{
-			ProtocolParameters:                     pp,
-			LedgerState:                            state,
-			SkipTransactionValidation:              true,
-			SkipStakePoolValidation:                true,
-			AllowCertifiedBlockInlinedTransactions: true,
-		}))
-	})
+			}))
+		},
+	)
 
 	// The EB's transactions are applied before the tick to the CertRB's
 	// slot, so they are validated at the announcing RB's slot. The test

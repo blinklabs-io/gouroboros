@@ -196,7 +196,11 @@ func TestCardanoNodeInlinedCertRbs(t *testing.T) {
 		// A CertRB that fails to decode ends the connection here.
 		t.Fatalf("connection failed during chain sync: %v", err)
 	case <-timer.C:
-		t.Fatalf("timed out syncing to block %d after %s", target, certRbSyncLimit)
+		t.Fatalf(
+			"timed out syncing to block %d after %s",
+			target,
+			certRbSyncLimit,
+		)
 	}
 	stopCtx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()

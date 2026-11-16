@@ -1483,13 +1483,20 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				); over {
 					slog.Warn(
 						"CertRB's inlined EB transactions exceed maxEndorserBlockExUnits",
-						"block_slot", slot,
-						"block_number", blockNo,
-						"block_hash", block.Hash().String(),
-						"memory", total.Memory,
-						"steps", total.Steps,
-						"max_memory", pparams.MaxEndorserBlockExUnits.Memory,
-						"max_steps", pparams.MaxEndorserBlockExUnits.Steps,
+						"block_slot",
+						slot,
+						"block_number",
+						blockNo,
+						"block_hash",
+						block.Hash().String(),
+						"memory",
+						total.Memory,
+						"steps",
+						total.Steps,
+						"max_memory",
+						pparams.MaxEndorserBlockExUnits.Memory,
+						"max_steps",
+						pparams.MaxEndorserBlockExUnits.Steps,
 					)
 				}
 			}
@@ -1686,7 +1693,7 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				nil,
 			)
 		}
-		if isInlinedCertRb {
+		if certRb != nil {
 			announcingSlot, err := leiosAnnouncingSlot(
 				certRb.BlockHeader,
 				config.LedgerState,

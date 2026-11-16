@@ -230,7 +230,8 @@ func validateLeiosBlockBody(block *DijkstraBlock, allowInlined bool) error {
 			BodyHasCertificate: hasCertificate,
 		}
 	}
-	if hasCertificate && !allowInlined && len(block.BlockBody.Transactions) > 0 {
+	if hasCertificate && !allowInlined &&
+		len(block.BlockBody.Transactions) > 0 {
 		return &LeiosCertifiedBlockTransactionsError{
 			TransactionCount: len(block.BlockBody.Transactions),
 		}

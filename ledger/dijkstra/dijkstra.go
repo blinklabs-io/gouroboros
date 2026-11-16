@@ -2603,7 +2603,9 @@ func (b *DijkstraBlock) OnChainBlockBodyCbor() ([]byte, error) {
 	}
 	headerLen := len(raw) - fieldsLen - trailerLen
 	if headerLen < 1 {
-		return nil, errors.New("dijkstra block body has an invalid array header")
+		return nil, errors.New(
+			"dijkstra block body has an invalid array header",
+		)
 	}
 	txsEnd := headerLen + len(fields[0])
 	onChain := make([]byte, 0, len(raw)-len(fields[0])+1)

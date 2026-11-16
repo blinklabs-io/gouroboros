@@ -318,6 +318,7 @@ func TestValidateLeiosClosureSize(t *testing.T) {
 	err = ValidateLeiosClosureSize(block, pp)
 	var tooBig *LeiosClosureTooBigError
 	require.ErrorAs(t, err, &tooBig)
+	require.NotNil(t, tooBig)
 	require.Equal(t, total, tooBig.ClosureSize)
 	require.Equal(t, uint32(total-1), tooBig.Maximum)
 

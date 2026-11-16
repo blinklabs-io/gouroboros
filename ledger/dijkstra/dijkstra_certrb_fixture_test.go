@@ -96,6 +96,8 @@ func inlineTransactions(
 	var txsFields []cbor.RawMessage
 	_, err = cbor.DecodeExact(txsBody, &txsFields)
 	require.NoError(t, err)
+	require.NotEmpty(t, bodyFields)
+	require.NotEmpty(t, txsFields)
 	bodyFields[0] = txsFields[0]
 	inlinedBody, err := cbor.Encode(bodyFields)
 	require.NoError(t, err)
@@ -146,7 +148,9 @@ func TestOnChainBlockBodyCborMatchesRealCertRbs(t *testing.T) {
 
 			decoded, err := NewDijkstraBlockFromCbor(
 				inlined,
-				common.VerifyConfig{AllowCertifiedBlockInlinedTransactions: true},
+				common.VerifyConfig{
+					AllowCertifiedBlockInlinedTransactions: true,
+				},
 			)
 			require.NoError(t, err)
 			require.True(t, decoded.HasInlinedCertifiedTransactions())

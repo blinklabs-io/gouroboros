@@ -333,7 +333,9 @@ func testFeeTxs(count int) []DijkstraTransaction {
 	txs := make([]DijkstraTransaction, count)
 	for i := range txs {
 		txs[i] = DijkstraTransaction{
-			Body:      DijkstraTransactionBody{TxFee: uint64(i + 1)}, // #nosec G115
+			Body: DijkstraTransactionBody{
+				TxFee: uint64(i + 1),
+			}, // #nosec G115
 			TxIsValid: true,
 		}
 	}
@@ -366,7 +368,7 @@ func testInlinedCertRbWithCert(
 	}
 	block.BlockHeader.LeiosHeaderExtension = []cbor.RawMessage{
 		certifiedField,
-		cbor.RawMessage{0xf6},
+		{0xf6},
 	}
 	block.BlockBody = DijkstraBlockBody{
 		Transactions:     testFeeTxs(1),
@@ -483,7 +485,11 @@ func TestOnChainBlockBodyCborKeepsArrayFraming(t *testing.T) {
 			txs:    fields[0],
 			footer: []byte{0xff},
 		},
-		{name: "non-minimal length", header: []byte{0x98, 0x03}, txs: fields[0]},
+		{
+			name:   "non-minimal length",
+			header: []byte{0x98, 0x03},
+			txs:    fields[0],
+		},
 		{
 			name:   "indefinite transactions",
 			header: []byte{0x83},
