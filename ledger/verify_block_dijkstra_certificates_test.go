@@ -37,6 +37,21 @@ func (s dijkstraLeiosTestState) DijkstraLeiosCertificateContext(
 	return s.context, s.err
 }
 
+// validateDijkstraBlockCertificates validates a block's certificates the way
+// VerifyBlockState does for blocks not received over node-to-client.
+func validateDijkstraBlockCertificates(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+) error {
+	return validateDijkstraBlockCertificatesWith(
+		block,
+		protocolParameters,
+		ledgerState,
+		false,
+	)
+}
+
 func TestValidateDijkstraBlockCertificates(t *testing.T) {
 	t.Parallel()
 

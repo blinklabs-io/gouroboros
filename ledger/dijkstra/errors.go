@@ -281,6 +281,22 @@ func (e *LeiosEbTooBigError) Error() string {
 	)
 }
 
+// LeiosClosureTooBigError reports a CertRB whose inlined EB transactions
+// total more than maxEndorserBlockTxsSize bytes (ExnLeiosClosureTooBig in
+// ouroboros-consensus).
+type LeiosClosureTooBigError struct {
+	ClosureSize uint64
+	Maximum     uint32
+}
+
+func (e *LeiosClosureTooBigError) Error() string {
+	return fmt.Sprintf(
+		"LeiosClosureTooBig (EB transactions total %d bytes, maximum %d)",
+		e.ClosureSize,
+		e.Maximum,
+	)
+}
+
 // LeiosCertWithoutAnnouncementError reports a header that sets its certificate
 // flag although its immediate predecessor announced no endorser block.
 type LeiosCertWithoutAnnouncementError struct{}

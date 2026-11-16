@@ -141,17 +141,23 @@ func (s *ValidateStage) Process(ctx context.Context, item *BlockItem) error {
 
 	verify := ledger.VerifyBlock
 	if s.config.BlockLocal {
+		verifyLocal := ledger.VerifyBlockLocal
+		if item.NodeToClient() {
+			verifyLocal = ledger.VerifyBlockLocalNodeToClient
+		}
 		verify = func(block ledger.Block, eta0 string, slots uint64,
 			_ common.VerifyConfig,
 		) (bool, string, uint64, uint64, error) {
-			return ledger.VerifyBlockLocal(block, eta0, slots)
+			return verifyLocal(block, eta0, slots)
 		}
 	}
+	verifyConfig := s.config.VerifyConfig
+	verifyConfig.AllowCertifiedBlockInlinedTransactions = item.NodeToClient()
 	isValid, vrfOutput, _, _, err := verify(
 		block,
 		eta0,
 		s.config.SlotsPerKesPeriod,
-		s.config.VerifyConfig,
+		verifyConfig,
 	)
 
 	duration := time.Since(start)

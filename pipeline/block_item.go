@@ -30,6 +30,7 @@ type BlockItem struct {
 	tip            pcommon.Tip
 	sequenceNumber uint64
 	receivedAt     time.Time
+	nodeToClient   bool
 
 	// Mutable fields protected by mutex
 	mu sync.RWMutex
@@ -87,6 +88,12 @@ func NewBlockItem(
 		sequenceNumber: seq,
 		receivedAt:     time.Now(),
 	}
+}
+
+// NodeToClient reports whether the block was received over node-to-client,
+// where a CertRB carries its EB's transactions.
+func (b *BlockItem) NodeToClient() bool {
+	return b.nodeToClient
 }
 
 // BlockType returns the block type (e.g., ledger.BlockTypeConway).
