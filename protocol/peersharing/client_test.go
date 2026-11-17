@@ -172,6 +172,56 @@ func TestClientGetPeersRefusesWhenRemoteDisabled(t *testing.T) {
 	require.Nil(t, peers)
 }
 
+// TestClientGetPeersRefusesWhenLocalDisabled verifies that GetPeers returns
+// ErrPeerSharingDisabledLocally and writes nothing to the bearer when the
+// handshake recorded that this node advertised NoPeerSharing, even though the
+// remote advertised PeerSharingEnabled.
+func TestClientGetPeersRefusesWhenLocalDisabled(t *testing.T) {
+	localConn, remoteConn := net.Pipe()
+	m := muxer.New(localConn)
+	errorChan := make(chan error, 1)
+	received := make(chan int, 1)
+	peerDone := make(chan struct{})
+	go func() {
+		defer close(peerDone)
+		n, _ := io.Copy(io.Discard, remoteConn)
+		received <- int(n)
+	}()
+
+	cfg := NewConfig(
+		WithLocalDisabled(true),
+		WithTimeout(50*time.Millisecond),
+	)
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  localConn.LocalAddr(),
+				RemoteAddr: localConn.RemoteAddr(),
+			},
+			Muxer:     m,
+			ErrorChan: errorChan,
+			Mode:      protocol.ProtocolModeNodeToNode,
+		},
+		&cfg,
+	)
+	client.Start()
+	m.Start()
+
+	peers, err := client.GetPeers(5)
+	require.ErrorIs(t, err, ErrPeerSharingDisabledLocally)
+	require.Nil(t, peers)
+
+	client.Protocol.Stop()
+	m.Stop()
+	_ = remoteConn.Close()
+	select {
+	case <-peerDone:
+	case <-time.After(time.Second):
+		t.Fatal("peer drain did not stop")
+	}
+	require.Zero(t, <-received, "GetPeers wrote to the bearer")
+}
+
 // TestClientGetPeersReturnsAfterBusyTimeout verifies that the protocol's
 // Busy-state timeout releases a caller when the peer accepts the request but
 // never sends SharePeers.

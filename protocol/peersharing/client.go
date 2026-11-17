@@ -76,6 +76,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // reports the timeout through its error channel and this method returns
 // protocol.ErrProtocolShuttingDown.
 func (c *Client) GetPeers(amount uint8) ([]PeerAddress, error) {
+	// Either side advertising NoPeerSharing makes the negotiated mode
+	// NoPeerSharing, and the remote then does not run this protocol.
+	if c.config.LocalDisabled {
+		return nil, ErrPeerSharingDisabledLocally
+	}
 	if c.config.RemoteDisabled {
 		return nil, ErrRemotePeerSharingDisabled
 	}
