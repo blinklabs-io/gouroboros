@@ -16,9 +16,11 @@ package byron
 
 import (
 	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -120,6 +122,44 @@ func TestPBFTStateMatchesCopyingWindow(t *testing.T) {
 	for i, b := range branches {
 		require.Equal(t, b.ref.history, historyOrNil(b.state), "branch %d", i)
 	}
+}
+
+// TestPBFTStateSiblingsAreSafeToUseConcurrently extends one state from many
+// goroutines at once. Siblings share a log, so each must read only its own
+// bounds without the log's lock. Run with -race.
+func TestPBFTStateSiblingsAreSafeToUseConcurrently(t *testing.T) {
+	t.Parallel()
+	const securityParam = 5
+	issuers := make([]common.Blake2b224, 3)
+	for i := range issuers {
+		issuers[i] = common.Blake2b224Hash([]byte{byte(i)})
+	}
+	state, err := NewPBFTStateWithThreshold(nil, securityParam, 1, 1)
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for worker := range 8 {
+		wg.Go(func() {
+			cur := state
+			for i := range 200 {
+				issuer := issuers[(worker+i)%len(issuers)]
+				var next PBFTState
+				var err error
+				if i%2 == 0 {
+					next, err = cur.Transition(issuer)
+				} else {
+					next, err = cur.Observe(issuer)
+				}
+				if !assert.NoError(t, err) {
+					return
+				}
+				assert.Equal(
+					t, issuer, next.SignatureHistory()[len(next.SignatureHistory())-1],
+				)
+				cur = next
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func historyOrNil(s PBFTState) []common.Blake2b224 {

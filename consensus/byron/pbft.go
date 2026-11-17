@@ -406,11 +406,23 @@ func newPBFTLog(
 	return &pbftLog{entries: entries}
 }
 
+// window returns the state's entries. The caller holds s.log.mu when the
+// state has a log, because an append through another state rewrites the log's
+// slice header.
 func (s PBFTState) window() []common.Blake2b224 {
 	if s.log == nil {
-		return nil
+		return []common.Blake2b224{}
 	}
 	return s.log.entries[s.start:s.end]
+}
+
+// size is the number of entries in the window. It reads only the state's own
+// bounds, so it needs no lock.
+func (s PBFTState) size() uint64 {
+	if s.end <= s.start {
+		return 0
+	}
+	return uint64(s.end - s.start) //nolint:gosec // end > start, checked above
 }
 
 // NewPBFTState constructs state from an already ordered oldest-to-newest
@@ -504,7 +516,7 @@ func (s PBFTState) Observe(
 		return PBFTState{}, err
 	}
 	if s.log == nil {
-		return s.advance(nil, issuer), nil
+		return s.advance(s.window(), issuer), nil
 	}
 	s.log.mu.Lock()
 	defer s.log.mu.Unlock()
@@ -543,7 +555,7 @@ func (s PBFTState) Transition(
 		)
 	}
 	if s.log == nil {
-		return s.advance(nil, issuer), nil
+		return s.advance(s.window(), issuer), nil
 	}
 	return s.advanceLocked(issuer), nil
 }
@@ -554,10 +566,10 @@ func (s PBFTState) validate() error {
 			"invalid Byron PBFT issuer state: security parameter must be greater than zero",
 		)
 	}
-	if uint64(len(s.window())) > s.securityParam {
+	if s.size() > s.securityParam {
 		return fmt.Errorf(
 			"invalid Byron PBFT issuer state: history has %d entries, security parameter is %d",
-			len(s.window()),
+			s.size(),
 			s.securityParam,
 		)
 	}
@@ -566,7 +578,7 @@ func (s PBFTState) validate() error {
 
 // full reports whether adding an entry drops the oldest one.
 func (s PBFTState) full() bool {
-	return uint64(len(s.window())) >= s.securityParam
+	return s.size() >= s.securityParam
 }
 
 // extendsLog reports whether this state may append to its log in place.
