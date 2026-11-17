@@ -210,6 +210,11 @@ type ChainTip interface {
 	Slot() uint64
 	// BlockNumber returns tip block height
 	BlockNumber() uint64
+	// IssuerVkey returns the block issuer's cold verification key.
+	IssuerVkey() common.IssuerVkey
+	// OpCertSequenceNumber returns the issue number in the tip's operational
+	// certificate. This is not its KES start period or the ledger counter.
+	OpCertSequenceNumber() uint64
 	// VRFOutput returns the VRF output of the tip block
 	VRFOutput() []byte
 	// Density returns block density for the chain (blocks / slots) - for deep fork comparison

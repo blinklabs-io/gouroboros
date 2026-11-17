@@ -19,6 +19,8 @@ import (
 	"math"
 	"math/big"
 	"sync"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
 // PraosChainSelector implements Ouroboros chain selection.
@@ -27,9 +29,9 @@ import (
 // regimes are kept separate:
 //
 //  1. Shallow forks (rollback of at most k blocks) use the ordinary
-//     longest-chain rule: prefer more blocks, then the lower VRF output
-//     as a tiebreaker. Density is never consulted here — a shorter but
-//     denser shallow candidate must NOT beat a longer chain.
+//     longest-chain rule: prefer more blocks. At equal height, prefer the
+//     higher opcert issue number for the same issuer and slot, then the
+//     lower VRF output. Density is never consulted here.
 //  2. Deep forks (rollback of more than k blocks — the syncing regime the
 //     Genesis rule governs) compare density first: the candidate with MORE
 //     BLOCKS within the genesis window wins regardless of total length,
@@ -180,7 +182,18 @@ func (p *PraosChainSelector) Compare(a, b ChainTip) int {
 		return -1
 	}
 
-	// Rule 2: Equal length - prefer lower VRF output (tiebreaker)
+	// A replacement hot key must win over a compromised key from the same
+	// issuer in the same slot. Other issuers' counters are unrelated.
+	if a.Slot() == b.Slot() && a.IssuerVkey() == b.IssuerVkey() {
+		aIssue, bIssue := a.OpCertSequenceNumber(), b.OpCertSequenceNumber()
+		if aIssue > bIssue {
+			return 1
+		}
+		if aIssue < bIssue {
+			return -1
+		}
+	}
+
 	aVRFBytes := a.VRFOutput()
 	bVRFBytes := b.VRFOutput()
 
@@ -465,15 +478,18 @@ func (p *PraosChainSelector) PreferredWithDensity(
 // per-block slots, so it cannot answer a window count. See
 // WindowedChainTip for a tip that can.
 type SimpleChainTip struct {
-	slot        uint64
-	blockNumber uint64
-	vrfOutput   []byte
+	slot                 uint64
+	blockNumber          uint64
+	vrfOutput            []byte
+	issuer               common.IssuerVkey
+	opCertSequenceNumber uint64
 	// For the legacy density ratio
 	blocksAfterFork uint64
 	slotsAfterFork  uint64
 }
 
-// NewSimpleChainTip creates a new SimpleChainTip.
+// NewSimpleChainTip creates a test tip with a zero issuer and opcert sequence
+// number. Use SetIssuer to model competing operational certificates.
 func NewSimpleChainTip(
 	slot, blockNumber uint64,
 	vrfOutput []byte,
@@ -541,6 +557,25 @@ func (s *SimpleChainTip) Slot() uint64 {
 // BlockNumber returns the tip block height.
 func (s *SimpleChainTip) BlockNumber() uint64 {
 	return s.blockNumber
+}
+
+// SetIssuer sets the test tip's cold verification key and opcert issue number.
+func (s *SimpleChainTip) SetIssuer(
+	issuer common.IssuerVkey,
+	opCertSequenceNumber uint64,
+) {
+	s.issuer = issuer
+	s.opCertSequenceNumber = opCertSequenceNumber
+}
+
+// IssuerVkey returns the tip issuer's cold verification key.
+func (s *SimpleChainTip) IssuerVkey() common.IssuerVkey {
+	return s.issuer
+}
+
+// OpCertSequenceNumber returns the tip's operational certificate issue number.
+func (s *SimpleChainTip) OpCertSequenceNumber() uint64 {
+	return s.opCertSequenceNumber
 }
 
 // VRFOutput returns the VRF output of the tip block.
