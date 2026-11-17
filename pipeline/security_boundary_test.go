@@ -25,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/stretchr/testify/require"
 )
 
@@ -749,6 +750,56 @@ func TestBufferedRejectionRecordsExactApplyMetrics(t *testing.T) {
 					item.SequenceNumber(),
 				)
 			default:
+			}
+		})
+	}
+}
+
+func TestOrderedValidationUsesLeaderSnapshot(t *testing.T) {
+	fixture := getValidShelleyBlock(t)
+	block, err := ledger.NewBlockFromCbor(fixture.BlockType, fixture.Cbor)
+	require.NoError(t, err)
+	item := NewBlockItem(fixture.BlockType, fixture.Cbor,
+		createTestTip(block.SlotNumber(), block.BlockNumber()), 0)
+	item.SetBlock(block, 0)
+	for _, missing := range []bool{false, true} {
+		name := "retired issuer remains in leader snapshot"
+		if missing {
+			name = "missing leader snapshot fails closed"
+		}
+		t.Run(name, func(t *testing.T) {
+			config := validatingTestVerifyConfig(t)
+			state, ok := config.LedgerState.(*mockledger.MockLedgerState)
+			require.True(t, ok)
+			issuer := block.Header().IssuerVkey()
+			issuerHash := common.Blake2b224Hash(issuer[:])
+			currentPool := state.PoolCurrentStateCallback
+			state.PoolCurrentStateCallback = func(
+				pool common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if pool == issuerHash {
+					return nil, nil, nil
+				}
+				return currentPool(pool)
+			}
+			if missing {
+				config.LeaderPoolVrfKeyHash = nil
+			}
+			p := NewBlockPipeline(WithVerifyConfigProvider(func(
+				_ context.Context, got *BlockItem,
+			) (common.VerifyConfig, error) {
+				require.Same(t, item, got)
+				return config, nil
+			}))
+			err := p.validateOrdered(t.Context(), item)
+			if missing {
+				var validationErr *common.ValidationError
+				require.ErrorAs(t, err, &validationErr)
+				require.Equal(t, common.ValidationErrorTypeConfiguration,
+					validationErr.Type)
+				require.ErrorContains(t, err, "LeaderPoolVrfKeyHash")
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
