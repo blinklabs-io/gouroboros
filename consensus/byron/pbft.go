@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math/bits"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/internal/ed25519byron"
@@ -361,12 +362,55 @@ func PBFTVerificationKeyHash(
 }
 
 // PBFTState contains the genesis issuers charged in the last k signed Byron
-// main-block headers. Values are immutable: every update returns a new state.
+// main-block headers. Values are immutable: every update returns a new state
+// and leaves the receiver, and every state derived from it, unchanged.
+//
+// A state is a window onto an append-only log shared with the states derived
+// from it. Extending the newest state of a log appends one entry and updates
+// per-issuer counts, so advancing the window costs the same at any k. Extending
+// an older state, as a rollback does, copies its window into a log of its own
+// instead.
 type PBFTState struct {
-	signatureHistory     []common.Blake2b224
+	log                  *pbftLog
+	start                int
+	end                  int
 	securityParam        uint64
 	thresholdNumerator   uint64
 	thresholdDenominator uint64
+}
+
+// pbftLog is append-only, so a state's window entries[start:end] never changes
+// after the state is created. Only the state whose end is len(entries) may
+// extend it in place.
+type pbftLog struct {
+	mu      sync.Mutex
+	entries []common.Blake2b224
+	// counts holds the occurrences of each issuer in the window of the state
+	// that ends at len(entries). It is nil until a Transition needs it and is
+	// kept current by every later in-place append.
+	counts map[common.Blake2b224]uint64
+}
+
+// newPBFTLog copies window into a log with room to grow by a full security
+// window before it has to be copied again.
+func newPBFTLog(
+	window []common.Blake2b224,
+	securityParam uint64,
+) *pbftLog {
+	entries := make(
+		[]common.Blake2b224,
+		len(window),
+		max(uint64(len(window)), 2*securityParam),
+	)
+	copy(entries, window)
+	return &pbftLog{entries: entries}
+}
+
+func (s PBFTState) window() []common.Blake2b224 {
+	if s.log == nil {
+		return nil
+	}
+	return s.log.entries[s.start:s.end]
 }
 
 // NewPBFTState constructs state from an already ordered oldest-to-newest
@@ -431,10 +475,8 @@ func NewPBFTStateWithThreshold(
 		)
 	}
 	return PBFTState{
-		signatureHistory: append(
-			[]common.Blake2b224(nil),
-			signatureHistory...,
-		),
+		log:                  newPBFTLog(signatureHistory, securityParam),
+		end:                  len(signatureHistory),
 		securityParam:        securityParam,
 		thresholdNumerator:   numerator,
 		thresholdDenominator: denominator,
@@ -444,7 +486,12 @@ func NewPBFTStateWithThreshold(
 // SignatureHistory returns an independent oldest-to-newest copy of the
 // state's charged genesis issuers.
 func (s PBFTState) SignatureHistory() []common.Blake2b224 {
-	return append([]common.Blake2b224(nil), s.signatureHistory...)
+	if s.log == nil {
+		return nil
+	}
+	s.log.mu.Lock()
+	defer s.log.mu.Unlock()
+	return append([]common.Blake2b224(nil), s.window()...)
 }
 
 // Observe advances the rolling issuer window without applying its threshold.
@@ -453,35 +500,15 @@ func (s PBFTState) SignatureHistory() []common.Blake2b224 {
 func (s PBFTState) Observe(
 	issuer common.Blake2b224,
 ) (PBFTState, error) {
-	if s.securityParam == 0 {
-		return PBFTState{}, errors.New(
-			"invalid Byron PBFT issuer state: security parameter must be greater than zero",
-		)
+	if err := s.validate(); err != nil {
+		return PBFTState{}, err
 	}
-	if uint64(len(s.signatureHistory)) > s.securityParam {
-		return PBFTState{}, fmt.Errorf(
-			"invalid Byron PBFT issuer state: history has %d entries, security parameter is %d",
-			len(s.signatureHistory),
-			s.securityParam,
-		)
+	if s.log == nil {
+		return s.advance(nil, issuer), nil
 	}
-	history := make(
-		[]common.Blake2b224,
-		0,
-		min(uint64(len(s.signatureHistory))+1, s.securityParam),
-	)
-	if uint64(len(s.signatureHistory)) >= s.securityParam {
-		history = append(history, s.signatureHistory[1:]...)
-	} else {
-		history = append(history, s.signatureHistory...)
-	}
-	history = append(history, issuer)
-	return PBFTState{
-		signatureHistory:     history,
-		securityParam:        s.securityParam,
-		thresholdNumerator:   s.thresholdNumerator,
-		thresholdDenominator: s.thresholdDenominator,
-	}, nil
+	s.log.mu.Lock()
+	defer s.log.mu.Unlock()
+	return s.advanceLocked(issuer), nil
 }
 
 // Transition applies the Byron SIGCNT rule using this state's configured
@@ -490,15 +517,16 @@ func (s PBFTState) Observe(
 func (s PBFTState) Transition(
 	issuer common.Blake2b224,
 ) (PBFTState, error) {
-	next, err := s.Observe(issuer)
-	if err != nil {
+	if err := s.validate(); err != nil {
 		return PBFTState{}, err
 	}
 	var issuerCount uint64
-	for _, historicalIssuer := range next.signatureHistory {
-		if historicalIssuer == issuer {
-			issuerCount++
-		}
+	if s.log == nil {
+		issuerCount = 1
+	} else {
+		s.log.mu.Lock()
+		defer s.log.mu.Unlock()
+		issuerCount = s.nextIssuerCountLocked(issuer)
 	}
 	maxSignatures := pbftMaxSignatures(
 		s.securityParam,
@@ -514,7 +542,119 @@ func (s PBFTState) Transition(
 			maxSignatures,
 		)
 	}
-	return next, nil
+	if s.log == nil {
+		return s.advance(nil, issuer), nil
+	}
+	return s.advanceLocked(issuer), nil
+}
+
+func (s PBFTState) validate() error {
+	if s.securityParam == 0 {
+		return errors.New(
+			"invalid Byron PBFT issuer state: security parameter must be greater than zero",
+		)
+	}
+	if uint64(len(s.window())) > s.securityParam {
+		return fmt.Errorf(
+			"invalid Byron PBFT issuer state: history has %d entries, security parameter is %d",
+			len(s.window()),
+			s.securityParam,
+		)
+	}
+	return nil
+}
+
+// full reports whether adding an entry drops the oldest one.
+func (s PBFTState) full() bool {
+	return uint64(len(s.window())) >= s.securityParam
+}
+
+// extendsLog reports whether this state may append to its log in place.
+func (s PBFTState) extendsLog() bool {
+	return s.end == len(s.log.entries)
+}
+
+// nextIssuerCountLocked returns how often issuer appears in the window that
+// results from appending it. The caller holds s.log.mu.
+func (s PBFTState) nextIssuerCountLocked(
+	issuer common.Blake2b224,
+) uint64 {
+	window := s.window()
+	var dropped bool
+	if s.full() {
+		dropped = window[0] == issuer
+		window = window[1:]
+	}
+	var count uint64
+	if s.extendsLog() {
+		count = s.log.countsLocked(s.window())[issuer]
+		if dropped {
+			count--
+		}
+	} else {
+		for _, historicalIssuer := range window {
+			if historicalIssuer == issuer {
+				count++
+			}
+		}
+	}
+	return count + 1
+}
+
+// countsLocked returns the per-issuer counts of window, which must be the
+// window of the state that ends at len(entries).
+func (l *pbftLog) countsLocked(
+	window []common.Blake2b224,
+) map[common.Blake2b224]uint64 {
+	if l.counts == nil {
+		l.counts = make(map[common.Blake2b224]uint64, len(window))
+		for _, issuer := range window {
+			l.counts[issuer]++
+		}
+	}
+	return l.counts
+}
+
+// advanceLocked returns the state that results from appending issuer. The
+// caller holds s.log.mu.
+func (s PBFTState) advanceLocked(issuer common.Blake2b224) PBFTState {
+	window := s.window()
+	if !s.extendsLog() || len(s.log.entries) == cap(s.log.entries) {
+		return s.advance(window, issuer)
+	}
+	next := s
+	next.end++
+	if s.full() {
+		next.start++
+	}
+	if counts := s.log.counts; counts != nil {
+		if s.full() {
+			dropped := window[0]
+			if counts[dropped]--; counts[dropped] == 0 {
+				delete(counts, dropped)
+			}
+		}
+		counts[issuer]++
+	}
+	s.log.entries = append(s.log.entries, issuer)
+	return next
+}
+
+// advance returns the state that results from appending issuer to a copy of
+// window, in a log of its own.
+func (s PBFTState) advance(
+	window []common.Blake2b224,
+	issuer common.Blake2b224,
+) PBFTState {
+	if s.full() {
+		window = window[1:]
+	}
+	log := newPBFTLog(window, s.securityParam)
+	log.entries = append(log.entries, issuer)
+	s.log = log
+	s.start = 0
+	s.end = len(log.entries)
+	return s
 }
 
 func pbftMaxSignatures(
