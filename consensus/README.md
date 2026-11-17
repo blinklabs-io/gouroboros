@@ -108,6 +108,19 @@ exclusive upper interval boundaries require no rational rounding or modulo.
 
 ### Chain Selection (`selection.go`)
 
+Set `PraosChainSelector.ProtocolMajor` from the active protocol parameters.
+Use `PreferCandidate(current, candidate)` to decide whether to switch chains.
+From Conway (protocol version 9), equal-height tips can win by VRF only when
+they are at most five slots apart. Earlier versions are unrestricted. The
+zero value retains the earlier behavior.
+
+Use `PreferredCandidate(current, candidates)` to choose from several tips.
+Every candidate is checked against the original current tip before ranking.
+The density-aware equivalents follow the same rule when density ties or the
+fork is shallow. `Compare` and `CompareWithDensity` remain ordering functions.
+The older `Preferred` methods only rank candidates and are deprecated for
+chain selection because they do not know the current tip.
+
 - `PraosChainSelector` - Implements Praos chain selection rules:
   1. Ordinary comparison (`Compare`): prefer longer chains (higher block
      number); for equal length, prefer lower VRF output (tiebreaker)
