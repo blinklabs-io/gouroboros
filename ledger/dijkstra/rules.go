@@ -1364,6 +1364,9 @@ func validateDijkstraProtocolParameterUpdateDomains(
 	if ppu == nil {
 		return errors.New("dijkstra protocol parameter update cannot be nil")
 	}
+	if _, err := ppu.refInputsCostPerMultiAssetByteChecked(); err != nil {
+		return err
+	}
 	if err := validateLeiosGenesisOnlyParameters(ppu); err != nil {
 		return err
 	}

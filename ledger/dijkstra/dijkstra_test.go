@@ -2347,6 +2347,7 @@ func TestDijkstraProtocolParametersRoundTrip(t *testing.T) {
 		decoded.PerasQuorumThresholdSafetyMargin.Rat,
 	)
 	require.Equal(t, uint64(105), decoded.RefInputsCostPerMultiAssetPolicy)
+	require.Equal(t, uint64(105), decoded.RefInputsCostPerMultiAssetByte)
 	require.Equal(t, uint64(106), decoded.RefInputsCostPerDatumByte)
 }
 
@@ -3139,12 +3140,15 @@ func TestDijkstraProtocolParameterUpdateRejectsOutOfRangeRatios(t *testing.T) {
 		0xc2, 0x49, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	}
 	for _, key := range []int{9, 10, 11, 33} {
-		t.Run(fmt.Sprintf("inherited rational tag %d", key), func(t *testing.T) {
-			raw, err := cbor.Encode(map[int]cbor.RawMessage{key: wideRatio})
-			require.NoError(t, err)
-			var decoded DijkstraProtocolParameterUpdate
-			require.Error(t, decoded.UnmarshalCBOR(raw))
-		})
+		t.Run(
+			fmt.Sprintf("inherited rational tag %d", key),
+			func(t *testing.T) {
+				raw, err := cbor.Encode(map[int]cbor.RawMessage{key: wideRatio})
+				require.NoError(t, err)
+				var decoded DijkstraProtocolParameterUpdate
+				require.Error(t, decoded.UnmarshalCBOR(raw))
+			},
+		)
 	}
 	validRatio := cbor.RawMessage{0xd8, 0x1e, 0x82, 0x01, 0x02}
 	for _, field := range []struct {
@@ -3338,6 +3342,7 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(
 		big.NewRat(1, 4),
 		update.PerasQuorumThresholdSafetyMargin.Rat,
 	)
+	require.Equal(t, uint64(14), *update.RefInputsCostPerMultiAssetByte)
 	require.Equal(t, uint64(14), *update.RefInputsCostPerMultiAssetPolicy)
 	require.Equal(t, uint64(15), *update.RefInputsCostPerDatumByte)
 
@@ -3345,6 +3350,7 @@ func TestDijkstraProtocolParameterUpdateRoundTripsPerasAndReferenceInputFields(
 	require.NoError(t, params.ApplyUpdate(&update))
 	require.Equal(t, uint32(13), *params.PerasBootstrapRound)
 	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
+	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetByte)
 
 	update.SetCbor(nil)
 	reencoded, err := update.MarshalCBOR()
@@ -3562,6 +3568,30 @@ func TestDijkstraGenesisDecodesPerasAndReferenceInputParameters(t *testing.T) {
 	)
 	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
 	require.Equal(t, uint64(15), params.RefInputsCostPerDatumByte)
+}
+
+func TestDijkstraGenesisDecodesMultiAssetByteCost(t *testing.T) {
+	genesis, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "perasHealingFactor": 1,
+  "perasQuorumThresholdSafetyMargin": 0,
+  "refInputsCostPerMultiAssetByte": 14
+}`))
+	require.NoError(t, err)
+	require.Equal(t, uint64(14), genesis.RefInputsCostPerMultiAssetByte)
+	require.Equal(t, uint64(14), genesis.RefInputsCostPerMultiAssetPolicy)
+
+	var params DijkstraProtocolParameters
+	require.NoError(t, params.UpdateFromGenesis(&genesis))
+	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetByte)
+	require.Equal(t, uint64(14), params.RefInputsCostPerMultiAssetPolicy)
+}
+
+func TestDijkstraGenesisRejectsConflictingMultiAssetCostNames(t *testing.T) {
+	_, err := NewDijkstraGenesisFromReader(strings.NewReader(`{
+  "refInputsCostPerMultiAssetByte": 14,
+  "refInputsCostPerMultiAssetPolicy": 15
+}`))
+	require.ErrorContains(t, err, "conflicts")
 }
 
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
