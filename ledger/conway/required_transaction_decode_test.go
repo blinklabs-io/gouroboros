@@ -15,6 +15,8 @@
 package conway
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -77,4 +79,77 @@ func TestConwayTransactionDecodeRejectsInvalidBodyAndWitnessFields(
 			require.ErrorContains(t, err, test.wantText)
 		})
 	}
+}
+
+func TestConwayTransactionOptionalFieldTypes(t *testing.T) {
+	address := append([]byte{0x60}, bytes.Repeat([]byte{0x11}, 28)...)
+	for _, field := range []struct {
+		key   uint
+		valid []any
+	}{
+		{3, []any{uint64(0), ^uint64(0)}},
+		{7, []any{bytes.Repeat([]byte{0x11}, 32)}},
+		{8, []any{uint64(0), ^uint64(0)}},
+		{11, []any{bytes.Repeat([]byte{0x11}, 32)}},
+		{15, []any{uint64(0), uint64(1)}},
+		{16, []any{[]any{address, uint64(0)},
+			map[uint]any{0: address, 1: uint64(0)}}},
+		{17, []any{uint64(0), ^uint64(0)}},
+		{21, []any{uint64(0), ^uint64(0)}},
+	} {
+		t.Run(fmt.Sprintf("field_%d", field.key), func(t *testing.T) {
+			for _, invalid := range []struct {
+				name  string
+				value any
+			}{
+				{"null", cbor.RawMessage{0xf6}},
+				{"undefined", cbor.RawMessage{0xf7}},
+				{"bool", false},
+				{"text", "invalid"},
+				{"negative", int64(-1)},
+			} {
+				t.Run(invalid.name, func(t *testing.T) {
+					fields := map[uint]any{
+						0: []any{}, 1: []any{}, 2: uint64(0),
+						field.key: invalid.value,
+					}
+					body, err := cbor.Encode(fields)
+					require.NoError(t, err)
+					_, err = NewConwayTransactionBodyFromCbor(body)
+					require.Error(t, err)
+					tx, err := cbor.Encode([]any{
+						cbor.RawMessage(body), map[uint]any{}, true, nil,
+					})
+					require.NoError(t, err)
+					_, err = NewConwayTransactionFromCbor(tx)
+					require.Error(t, err)
+				})
+			}
+			for i, value := range field.valid {
+				t.Run(fmt.Sprintf("valid_%d", i), func(t *testing.T) {
+					body, err := cbor.Encode(map[uint]any{
+						0: []any{}, 1: []any{}, 2: uint64(0), field.key: value,
+					})
+					require.NoError(t, err)
+					decoded, err := NewConwayTransactionBodyFromCbor(body)
+					require.NoError(t, err)
+					require.Equal(t, body, decoded.Cbor())
+					tx, err := cbor.Encode([]any{
+						cbor.RawMessage(body), map[uint]any{}, true, nil,
+					})
+					require.NoError(t, err)
+					_, err = NewConwayTransactionFromCbor(tx)
+					require.NoError(t, err)
+				})
+			}
+		})
+	}
+	t.Run("omitted", func(t *testing.T) {
+		body, err := cbor.Encode(map[uint]any{
+			0: []any{}, 1: []any{}, 2: uint64(0),
+		})
+		require.NoError(t, err)
+		_, err = NewConwayTransactionBodyFromCbor(body)
+		require.NoError(t, err)
+	})
 }

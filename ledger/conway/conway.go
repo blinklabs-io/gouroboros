@@ -875,6 +875,40 @@ func validateConwayTransactionBodyFields(cborData []byte) error {
 	if value, ok := fields[21]; ok && len(value) > 0 && value[0]>>5 == 1 {
 		return errors.New("current treasury value must not be negative")
 	}
+	// Optional fields may be absent, but a present value must have its
+	// ordinary type. Typed decoding would erase null and undefined into
+	// nil pointers or zero-valued integers.
+	for _, key := range []uint64{3, 7, 8, 11, 15, 16, 17, 21} {
+		value, ok := fields[key]
+		if !ok {
+			continue
+		}
+		if len(value) == 0 {
+			return fmt.Errorf("transaction body field %d has no value", key)
+		}
+		majorType := value[0] >> 5
+		switch key {
+		case 3, 8, 15, 17, 21:
+			if majorType != 0 {
+				return fmt.Errorf(
+					"transaction body field %d must be an unsigned integer",
+					key,
+				)
+			}
+		case 7, 11:
+			if majorType != 2 {
+				return fmt.Errorf(
+					"transaction body field %d must be a byte string", key,
+				)
+			}
+		case 16:
+			if majorType != 4 && majorType != 5 {
+				return fmt.Errorf(
+					"transaction body field %d must be an array or map", key,
+				)
+			}
+		}
+	}
 	votingProceduresCBOR, ok := fields[19]
 	if !ok {
 		return nil
