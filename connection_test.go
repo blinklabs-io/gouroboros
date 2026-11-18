@@ -343,6 +343,90 @@ func TestPerasVotesHandshakeNegotiation(t *testing.T) {
 	}
 }
 
+// TestServerPeerSharingClientRefusesWhenLocallyDisabled covers an inbound
+// duplex connection where this node advertised NoPeerSharing and the remote
+// advertised PeerSharingEnabled. The negotiated mode is NoPeerSharing, so the
+// remote does not run the protocol; GetPeers on the server-side connection
+// must refuse instead of sending a ShareRequest the remote would answer by
+// resetting the connection.
+func TestServerPeerSharingClientRefusesWhenLocallyDisabled(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	clientPipe, serverPipe := net.Pipe()
+	t.Cleanup(func() {
+		_ = clientPipe.Close()
+		_ = serverPipe.Close()
+	})
+	shareRequests := make(chan int, 1)
+	remoteCfg := peersharing.NewConfig(
+		peersharing.WithShareRequestFunc(
+			func(_ peersharing.CallbackContext, amount int) ([]peersharing.PeerAddress, error) {
+				select {
+				case shareRequests <- amount:
+				default:
+				}
+				return nil, nil
+			},
+		),
+	)
+	type result struct {
+		conn *ouroboros.Connection
+		err  error
+	}
+	remoteResult := make(chan result, 1)
+	localResult := make(chan result, 1)
+	go func() {
+		conn, err := ouroboros.NewConnection(
+			ouroboros.WithConnection(clientPipe),
+			ouroboros.WithNodeToNode(true),
+			ouroboros.WithNetworkMagic(42),
+			ouroboros.WithFullDuplex(true),
+			ouroboros.WithPeerSharing(true),
+			ouroboros.WithPeerSharingConfig(remoteCfg),
+		)
+		remoteResult <- result{conn: conn, err: err}
+	}()
+	go func() {
+		conn, err := ouroboros.NewConnection(
+			ouroboros.WithConnection(serverPipe),
+			ouroboros.WithServer(true),
+			ouroboros.WithNodeToNode(true),
+			ouroboros.WithNetworkMagic(42),
+			ouroboros.WithFullDuplex(true),
+			ouroboros.WithPeerSharing(false),
+		)
+		localResult <- result{conn: conn, err: err}
+	}()
+	var remote, local *ouroboros.Connection
+	for remote == nil || local == nil {
+		select {
+		case got := <-remoteResult:
+			require.NoError(t, got.err)
+			remote = got.conn
+		case got := <-localResult:
+			require.NoError(t, got.err)
+			local = got.conn
+		case <-time.After(5 * time.Second):
+			t.Fatal("node-to-node handshake did not finish")
+		}
+	}
+	// Deferred so the connections close before goleak.VerifyNone runs.
+	defer func() {
+		_ = local.Close()
+		_ = remote.Close()
+	}()
+
+	ps := local.PeerSharing()
+	require.NotNil(t, ps)
+	peers, err := ps.Client.GetPeers(5)
+	require.ErrorIs(t, err, peersharing.ErrPeerSharingDisabledLocally)
+	require.Nil(t, peers)
+	select {
+	case amount := <-shareRequests:
+		t.Fatalf("remote received a ShareRequest for %d peers", amount)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
 func TestLeiosProtocolsRequireExplicitConfig(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	for _, test := range []struct {
