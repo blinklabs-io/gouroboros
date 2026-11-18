@@ -110,7 +110,9 @@ exclusive upper interval boundaries require no rational rounding or modulo.
 
 - `PraosChainSelector` - Implements Praos chain selection rules:
   1. Ordinary comparison (`Compare`): prefer longer chains (higher block
-     number); for equal length, prefer lower VRF output (tiebreaker)
+     number). At equal height and with the same issuer and slot, prefer the
+     higher opcert issue number. Otherwise break ties with the lower VRF
+     output.
   2. `IsDeepFork(fork, tipBlockNumber)` routes between the two regimes: a
      fork is deep when adopting it would roll back more than k *blocks*
      (k counts blocks, not slots)
@@ -119,6 +121,11 @@ exclusive upper interval boundaries require no rational rounding or modulo.
      while deep forks prefer the chain with more blocks within the genesis
      window (3k/f slots after the fork point) regardless of total length;
      equal density falls through to the ordinary comparison
+
+  `ChainTip` implementations must provide `IssuerVkey()` and
+  `OpCertSequenceNumber()` from the tip header. The issuer is the cold
+  verification key. The sequence number is the opcert issue number, not
+  its KES start period or the ledger's recorded counter.
 
   Tips that implement the optional `WindowBlockCounter` interface get the
   canonical integer window metric; others fall back to `ChainTip.Density`.

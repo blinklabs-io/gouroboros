@@ -19,6 +19,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -821,6 +822,9 @@ func (l legacyTip) BlockNumber() uint64      { return l.blockNumber }
 func (l legacyTip) VRFOutput() []byte        { return make([]byte, 64) }
 func (l legacyTip) Density(_ uint64) float64 { return l.density }
 
+func (legacyTip) IssuerVkey() common.IssuerVkey { return common.IssuerVkey{} }
+func (legacyTip) OpCertSequenceNumber() uint64  { return 0 }
+
 // randomWindowedTip builds a tip whose blocks are scattered at random over
 // span slots after forkSlot, from a seeded source so the sweep below is
 // reproducible.
@@ -1312,6 +1316,9 @@ func (o oddTip) Slot() uint64             { return o.block * 20 }
 func (o oddTip) BlockNumber() uint64      { return o.block }
 func (o oddTip) VRFOutput() []byte        { return vrfByte(o.vrf) }
 func (o oddTip) Density(_ uint64) float64 { return o.density }
+
+func (oddTip) IssuerVkey() common.IssuerVkey { return common.IssuerVkey{} }
+func (oddTip) OpCertSequenceNumber() uint64  { return 0 }
 
 // degeneratePopulation covers the value classes a float64 density can take.
 // The earlier sweeps carried only plausible densities, which is why they could
