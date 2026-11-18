@@ -3594,6 +3594,108 @@ func TestDijkstraGenesisRejectsConflictingMultiAssetCostNames(t *testing.T) {
 	require.ErrorContains(t, err, "conflicts")
 }
 
+func TestDijkstraParameterUpdateMultiAssetCostAliases(t *testing.T) {
+	t.Parallel()
+	for _, operation := range []string{"ApplyUpdate", "MarshalCBOR"} {
+		t.Run(operation, func(t *testing.T) {
+			t.Parallel()
+			for _, tc := range []struct {
+				name      string
+				canonical uint64
+				legacy    uint64
+				conflict  bool
+			}{
+				{"different", 14, 15, true},
+				{"canonical zero", 0, 15, true},
+				{"legacy zero", 14, 0, true},
+				{"matching", 14, 14, false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+					fee := uint(11)
+					update := DijkstraProtocolParameterUpdate{
+						MinFeeA:                          &fee,
+						RefInputsCostPerMultiAssetByte:   &tc.canonical,
+						RefInputsCostPerMultiAssetPolicy: &tc.legacy,
+					}
+					var err error
+					if operation == "ApplyUpdate" {
+						params := DijkstraProtocolParameters{
+							RefInputsCostPerMultiAssetByte:   7,
+							RefInputsCostPerMultiAssetPolicy: 7,
+						}
+						params.MinFeeA = 9
+						before := params
+						err = params.ApplyUpdate(&update)
+						if tc.conflict {
+							require.Equal(t, before, params,
+								"a rejected update must not change parameters")
+						} else {
+							require.Equal(t, fee, params.MinFeeA)
+							require.Equal(t, tc.canonical,
+								params.RefInputsCostPerMultiAssetByte)
+							require.Equal(t, tc.canonical,
+								params.RefInputsCostPerMultiAssetPolicy)
+						}
+					} else {
+						_, err = update.MarshalCBOR()
+					}
+					if tc.conflict {
+						require.ErrorIs(t, err,
+							errRefInputsCostPerMultiAssetNameConflict)
+					} else {
+						require.NoError(t, err)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestDijkstraProtocolParametersMultiAssetCostAliases(t *testing.T) {
+	t.Parallel()
+	encoded, err := os.ReadFile(
+		"testdata/cardano_ledger_dijkstra_current_pparams.cbor",
+	)
+	require.NoError(t, err)
+	var response []cbor.RawMessage
+	_, err = cbor.Decode(encoded, &response)
+	require.NoError(t, err)
+	require.Len(t, response, 2)
+	var valid DijkstraProtocolParameters
+	require.NoError(t, valid.UnmarshalCBOR(response[0]))
+	for _, tc := range []struct {
+		name      string
+		canonical uint64
+		legacy    uint64
+		want      uint64
+		conflict  bool
+	}{
+		{"different", 14, 15, 0, true},
+		{"matching", 14, 14, 14, false},
+		{"canonical only", 14, 0, 14, false},
+		{"legacy only", 0, 15, 15, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			params := valid
+			params.RefInputsCostPerMultiAssetByte = tc.canonical
+			params.RefInputsCostPerMultiAssetPolicy = tc.legacy
+			wire, err := params.MarshalCBOR()
+			if tc.conflict {
+				require.ErrorIs(t, err,
+					errRefInputsCostPerMultiAssetNameConflict)
+				return
+			}
+			require.NoError(t, err)
+			var decoded DijkstraProtocolParameters
+			require.NoError(t, decoded.UnmarshalCBOR(wire))
+			require.Equal(t, tc.want, decoded.RefInputsCostPerMultiAssetByte)
+			require.Equal(t, tc.want, decoded.RefInputsCostPerMultiAssetPolicy)
+		})
+	}
+}
+
 func TestDijkstraGenesisDefaultsReferenceScriptFeeParameters(t *testing.T) {
 	var pparams DijkstraProtocolParameters
 	genesis := dijkstraGenesisWithRequiredPerasIntervals()
