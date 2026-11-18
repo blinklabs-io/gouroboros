@@ -49,10 +49,12 @@ type DijkstraProtocolParameters struct {
 	PerasTargetCommitteeSize         uint16
 	PerasBootstrapRound              *uint32
 	PerasQuorumThresholdSafetyMargin *cbor.Rat
-	RefInputsCostPerMultiAssetPolicy uint64
+	RefInputsCostPerMultiAssetByte   uint64
 	RefInputsCostPerDatumByte        uint64
 	CommitteeStakeCoverage           *cbor.Rat
 	QuorumStakeThreshold             *cbor.Rat
+	// Deprecated: use RefInputsCostPerMultiAssetByte.
+	RefInputsCostPerMultiAssetPolicy uint64
 }
 
 // RewardParams returns the Dijkstra protocol parameters consumed by the
@@ -84,6 +86,31 @@ func copyRat(value *cbor.Rat) *cbor.Rat {
 		return nil
 	}
 	return &cbor.Rat{Rat: new(big.Rat).Set(value.Rat)}
+}
+
+var errRefInputsCostPerMultiAssetNameConflict = errors.New(
+	"refInputsCostPerMultiAssetByte conflicts with deprecated " +
+		"refInputsCostPerMultiAssetPolicy",
+)
+
+func resolveRefInputsCostPerMultiAssetByte(
+	canonical uint64,
+	legacy uint64,
+) (uint64, error) {
+	if canonical != 0 && legacy != 0 && canonical != legacy {
+		return 0, errRefInputsCostPerMultiAssetNameConflict
+	}
+	if canonical != 0 {
+		return canonical, nil
+	}
+	return legacy, nil
+}
+
+func (p *DijkstraProtocolParameters) refInputsCostPerMultiAssetByte() uint64 {
+	if p.RefInputsCostPerMultiAssetByte != 0 {
+		return p.RefInputsCostPerMultiAssetByte
+	}
+	return p.RefInputsCostPerMultiAssetPolicy
 }
 
 var _ common.CommitteeMaxTermLengthProvider = (*DijkstraProtocolParameters)(nil)
@@ -150,7 +177,7 @@ type dijkstraProtocolParametersCbor struct {
 	PerasTargetCommitteeSize         uint16
 	PerasBootstrapRound              []uint32
 	PerasQuorumThresholdSafetyMargin *cbor.Rat
-	RefInputsCostPerMultiAssetPolicy uint64
+	RefInputsCostPerMultiAssetByte   uint64
 	RefInputsCostPerDatumByte        uint64
 }
 
@@ -257,7 +284,7 @@ func decodeDijkstraProtocolParametersCbor(
 			cbor.RawMessage{0x00}, // perasTargetCommitteeSize
 			cbor.RawMessage{0x80}, // perasBootstrapRound
 			cbor.RawMessage{0xf6}, // perasQuorumThresholdSafetyMargin
-			cbor.RawMessage{0x00}, // refInputsCostPerMultiAssetPolicy
+			cbor.RawMessage{0x00}, // refInputsCostPerMultiAssetByte
 			cbor.RawMessage{0x00}, // refInputsCostPerDatumByte
 		)
 		extended, err := cbor.Encode(fields)
@@ -376,12 +403,22 @@ func (p *DijkstraProtocolParameters) UnmarshalCBOR(cborData []byte) error {
 		p.PerasBootstrapRound = copyUint32(&tmp.PerasBootstrapRound[0])
 	}
 	p.PerasQuorumThresholdSafetyMargin = tmp.PerasQuorumThresholdSafetyMargin
-	p.RefInputsCostPerMultiAssetPolicy = tmp.RefInputsCostPerMultiAssetPolicy
+	p.RefInputsCostPerMultiAssetByte = tmp.RefInputsCostPerMultiAssetByte
+	p.RefInputsCostPerMultiAssetPolicy = tmp.RefInputsCostPerMultiAssetByte
 	p.RefInputsCostPerDatumByte = tmp.RefInputsCostPerDatumByte
 	return nil
 }
 
 func (p DijkstraProtocolParameters) MarshalCBOR() ([]byte, error) {
+	refInputsCostPerMultiAssetByte, err := resolveRefInputsCostPerMultiAssetByte(
+		p.RefInputsCostPerMultiAssetByte,
+		p.RefInputsCostPerMultiAssetPolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
+	p.RefInputsCostPerMultiAssetByte = refInputsCostPerMultiAssetByte
+	p.RefInputsCostPerMultiAssetPolicy = refInputsCostPerMultiAssetByte
 	p.PerasHealingFactor, p.PerasQuorumThresholdSafetyMargin = defaultDijkstraPerasIntervals(
 		p.PerasHealingFactor,
 		p.PerasQuorumThresholdSafetyMargin,
@@ -467,7 +504,7 @@ func (p *DijkstraProtocolParameters) toCbor() dijkstraProtocolParametersCbor {
 			p.PerasBootstrapRound,
 		),
 		PerasQuorumThresholdSafetyMargin: p.PerasQuorumThresholdSafetyMargin,
-		RefInputsCostPerMultiAssetPolicy: p.RefInputsCostPerMultiAssetPolicy,
+		RefInputsCostPerMultiAssetByte:   p.refInputsCostPerMultiAssetByte(),
 		RefInputsCostPerDatumByte:        p.RefInputsCostPerDatumByte,
 	}
 }
@@ -559,8 +596,9 @@ func (p *DijkstraProtocolParameters) updateUnchecked(
 			paramUpdate.PerasQuorumThresholdSafetyMargin,
 		)
 	}
-	if paramUpdate.RefInputsCostPerMultiAssetPolicy != nil {
-		p.RefInputsCostPerMultiAssetPolicy = *paramUpdate.RefInputsCostPerMultiAssetPolicy
+	if value := paramUpdate.refInputsCostPerMultiAssetByte(); value != nil {
+		p.RefInputsCostPerMultiAssetByte = *value
+		p.RefInputsCostPerMultiAssetPolicy = *value
 	}
 	if paramUpdate.RefInputsCostPerDatumByte != nil {
 		p.RefInputsCostPerDatumByte = *paramUpdate.RefInputsCostPerDatumByte
@@ -685,12 +723,37 @@ type DijkstraProtocolParameterUpdate struct {
 	PerasBootstrapRound              *uint32                                   `cbor:"53,keyasint"`
 	PerasBootstrapRoundSet           bool                                      `cbor:"-"`
 	PerasQuorumThresholdSafetyMargin *cbor.Rat                                 `cbor:"54,keyasint"`
-	RefInputsCostPerMultiAssetPolicy *uint64                                   `cbor:"55,keyasint"`
+	RefInputsCostPerMultiAssetByte   *uint64                                   `cbor:"55,keyasint"`
 	RefInputsCostPerDatumByte        *uint64                                   `cbor:"56,keyasint"`
 	// These genesis-only settings are retained for source compatibility with
 	// local Leios prototype configuration. They are not ledger parameters.
 	CommitteeStakeCoverage *cbor.Rat `cbor:"-"`
 	QuorumStakeThreshold   *cbor.Rat `cbor:"-"`
+	// Deprecated: use RefInputsCostPerMultiAssetByte.
+	RefInputsCostPerMultiAssetPolicy *uint64 `cbor:"-"`
+}
+
+func (u DijkstraProtocolParameterUpdate) refInputsCostPerMultiAssetByteChecked() (
+	*uint64,
+	error,
+) {
+	if u.RefInputsCostPerMultiAssetByte != nil &&
+		u.RefInputsCostPerMultiAssetPolicy != nil &&
+		*u.RefInputsCostPerMultiAssetByte !=
+			*u.RefInputsCostPerMultiAssetPolicy {
+		return nil, errRefInputsCostPerMultiAssetNameConflict
+	}
+	if u.RefInputsCostPerMultiAssetByte != nil {
+		return u.RefInputsCostPerMultiAssetByte, nil
+	}
+	return u.RefInputsCostPerMultiAssetPolicy, nil
+}
+
+func (u DijkstraProtocolParameterUpdate) refInputsCostPerMultiAssetByte() *uint64 {
+	if u.RefInputsCostPerMultiAssetByte != nil {
+		return u.RefInputsCostPerMultiAssetByte
+	}
+	return u.RefInputsCostPerMultiAssetPolicy
 }
 
 func (DijkstraProtocolParameterUpdate) IsProtocolParameterUpdate() {}
@@ -773,6 +836,7 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*u = DijkstraProtocolParameterUpdate(tmp)
+	u.RefInputsCostPerMultiAssetPolicy = u.RefInputsCostPerMultiAssetByte
 	u.SetCbor(cborData)
 	return nil
 }
@@ -945,8 +1009,12 @@ func (u DijkstraProtocolParameterUpdate) MarshalCBOR() ([]byte, error) {
 	if u.PerasQuorumThresholdSafetyMargin != nil {
 		fields[54] = u.PerasQuorumThresholdSafetyMargin
 	}
-	if u.RefInputsCostPerMultiAssetPolicy != nil {
-		fields[55] = *u.RefInputsCostPerMultiAssetPolicy
+	refInputsCostPerMultiAssetByte, err := u.refInputsCostPerMultiAssetByteChecked()
+	if err != nil {
+		return nil, err
+	}
+	if refInputsCostPerMultiAssetByte != nil {
+		fields[55] = *refInputsCostPerMultiAssetByte
 	}
 	if u.RefInputsCostPerDatumByte != nil {
 		fields[56] = *u.RefInputsCostPerDatumByte
@@ -1022,6 +1090,7 @@ func (u DijkstraProtocolParameterUpdate) hasUpdate() bool {
 		u.PerasBootstrapRoundSet ||
 		u.PerasBootstrapRound != nil ||
 		u.PerasQuorumThresholdSafetyMargin != nil ||
+		u.RefInputsCostPerMultiAssetByte != nil ||
 		u.RefInputsCostPerMultiAssetPolicy != nil ||
 		u.RefInputsCostPerDatumByte != nil ||
 		u.CommitteeStakeCoverage != nil ||
@@ -1346,11 +1415,11 @@ func (u DijkstraProtocolParameterUpdate) ToPlutusData() data.PlutusData {
 	if u.PerasQuorumThresholdSafetyMargin != nil {
 		pushRat(54, u.PerasQuorumThresholdSafetyMargin)
 	}
-	if u.RefInputsCostPerMultiAssetPolicy != nil {
+	if value := u.refInputsCostPerMultiAssetByte(); value != nil {
 		push(
 			55,
 			data.NewInteger(
-				new(big.Int).SetUint64(*u.RefInputsCostPerMultiAssetPolicy),
+				new(big.Int).SetUint64(*value),
 			),
 		)
 	}

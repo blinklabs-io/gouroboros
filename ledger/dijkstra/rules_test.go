@@ -728,7 +728,7 @@ func TestDijkstraParameterChangeSecurityGroupFields(t *testing.T) {
 		"PerasTargetCommitteeSize",
 		"PerasBootstrapRound",
 		"PerasQuorumThresholdSafetyMargin",
-		"RefInputsCostPerMultiAssetPolicy",
+		"RefInputsCostPerMultiAssetByte",
 		"RefInputsCostPerDatumByte",
 	}, action.SecurityGroupFields())
 }
@@ -2900,21 +2900,27 @@ func TestDijkstraRefScriptFeeIncludesSubTransactions(t *testing.T) {
 		require.Equal(t, uint64(102), minFee)
 	})
 
-	t.Run("fee includes sub-transaction scripts for value transaction", func(t *testing.T) {
-		minFee, err := MinFeeTxWithUtxo(*tx, pp, ls)
-		require.NoError(t, err)
-		require.Equal(t, uint64(102), minFee)
-	})
+	t.Run(
+		"fee includes sub-transaction scripts for value transaction",
+		func(t *testing.T) {
+			minFee, err := MinFeeTxWithUtxo(*tx, pp, ls)
+			require.NoError(t, err)
+			require.Equal(t, uint64(102), minFee)
+		},
+	)
 
-	t.Run("fee includes sub-transaction scripts for wrapped transaction", func(t *testing.T) {
-		minFee, err := MinFeeTxWithUtxo(
-			struct{ *DijkstraTransaction }{tx},
-			pp,
-			ls,
-		)
-		require.NoError(t, err)
-		require.Equal(t, uint64(102), minFee)
-	})
+	t.Run(
+		"fee includes sub-transaction scripts for wrapped transaction",
+		func(t *testing.T) {
+			minFee, err := MinFeeTxWithUtxo(
+				struct{ *DijkstraTransaction }{tx},
+				pp,
+				ls,
+			)
+			require.NoError(t, err)
+			require.Equal(t, uint64(102), minFee)
+		},
+	)
 
 	t.Run("per-tx limit uses batch reference scripts", func(t *testing.T) {
 		err := UtxoValidateRefScriptSizePerTx(tx, 0, ls, pp)

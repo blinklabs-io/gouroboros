@@ -286,8 +286,8 @@ func (a *DijkstraParameterChangeGovAction) SecurityGroupFields() []string {
 	if a.ParamUpdate.PerasQuorumThresholdSafetyMargin != nil {
 		fields = append(fields, "PerasQuorumThresholdSafetyMargin")
 	}
-	if a.ParamUpdate.RefInputsCostPerMultiAssetPolicy != nil {
-		fields = append(fields, "RefInputsCostPerMultiAssetPolicy")
+	if a.ParamUpdate.refInputsCostPerMultiAssetByte() != nil {
+		fields = append(fields, "RefInputsCostPerMultiAssetByte")
 	}
 	if a.ParamUpdate.RefInputsCostPerDatumByte != nil {
 		fields = append(fields, "RefInputsCostPerDatumByte")

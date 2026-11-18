@@ -15,6 +15,7 @@
 package dijkstra
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"math/big"
@@ -50,10 +51,46 @@ type DijkstraGenesis struct {
 	PerasTargetCommitteeSize         uint16             `json:"perasTargetCommitteeSize"`
 	PerasBootstrapRound              *uint32            `json:"perasBootstrapRound"`
 	PerasQuorumThresholdSafetyMargin *common.GenesisRat `json:"perasQuorumThresholdSafetyMargin"`
-	RefInputsCostPerMultiAssetPolicy uint64             `json:"refInputsCostPerMultiAssetPolicy"`
+	RefInputsCostPerMultiAssetByte   uint64             `json:"refInputsCostPerMultiAssetByte"`
 	RefInputsCostPerDatumByte        uint64             `json:"refInputsCostPerDatumByte"`
 	CommitteeStakeCoverage           *common.GenesisRat `json:"committeeStakeCoverage"`
 	QuorumStakeThreshold             *common.GenesisRat `json:"quorumStakeThreshold"`
+	// Deprecated: use RefInputsCostPerMultiAssetByte.
+	RefInputsCostPerMultiAssetPolicy uint64 `json:"-"`
+}
+
+func (g *DijkstraGenesis) UnmarshalJSON(data []byte) error {
+	type dijkstraGenesisJSON DijkstraGenesis
+	var value dijkstraGenesisJSON
+	decoded := struct {
+		*dijkstraGenesisJSON
+		RefInputsCostPerMultiAssetByte   *uint64 `json:"refInputsCostPerMultiAssetByte"`
+		RefInputsCostPerMultiAssetPolicy *uint64 `json:"refInputsCostPerMultiAssetPolicy"`
+	}{
+		dijkstraGenesisJSON: &value,
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if decoded.RefInputsCostPerMultiAssetByte != nil &&
+		decoded.RefInputsCostPerMultiAssetPolicy != nil &&
+		*decoded.RefInputsCostPerMultiAssetByte !=
+			*decoded.RefInputsCostPerMultiAssetPolicy {
+		return errRefInputsCostPerMultiAssetNameConflict
+	}
+	var cost uint64
+	switch {
+	case decoded.RefInputsCostPerMultiAssetByte != nil:
+		cost = *decoded.RefInputsCostPerMultiAssetByte
+	case decoded.RefInputsCostPerMultiAssetPolicy != nil:
+		cost = *decoded.RefInputsCostPerMultiAssetPolicy
+	}
+	value.RefInputsCostPerMultiAssetByte = cost
+	value.RefInputsCostPerMultiAssetPolicy = cost
+	*g = DijkstraGenesis(value)
+	return nil
 }
 
 func NewDijkstraGenesisFromReader(r io.Reader) (DijkstraGenesis, error) {
@@ -80,6 +117,13 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 ) error {
 	if genesis == nil {
 		return nil
+	}
+	refInputsCostPerMultiAssetByte, err := resolveRefInputsCostPerMultiAssetByte(
+		genesis.RefInputsCostPerMultiAssetByte,
+		genesis.RefInputsCostPerMultiAssetPolicy,
+	)
+	if err != nil {
+		return err
 	}
 	committeeStakeCoverage := genesisRatToRat(genesis.CommitteeStakeCoverage)
 	quorumStakeThreshold := genesisRatToRat(genesis.QuorumStakeThreshold)
@@ -145,7 +189,8 @@ func (p *DijkstraProtocolParameters) UpdateFromGenesis(
 	p.PerasTargetCommitteeSize = genesis.PerasTargetCommitteeSize
 	p.PerasBootstrapRound = copyUint32(genesis.PerasBootstrapRound)
 	p.PerasQuorumThresholdSafetyMargin = perasQuorumThresholdSafetyMargin
-	p.RefInputsCostPerMultiAssetPolicy = genesis.RefInputsCostPerMultiAssetPolicy
+	p.RefInputsCostPerMultiAssetByte = refInputsCostPerMultiAssetByte
+	p.RefInputsCostPerMultiAssetPolicy = refInputsCostPerMultiAssetByte
 	p.RefInputsCostPerDatumByte = genesis.RefInputsCostPerDatumByte
 	ApplyConwayRefScriptFeeDefaults(p)
 	p.CommitteeStakeCoverage = committeeStakeCoverage
