@@ -648,7 +648,7 @@ func TestDRepDeregistrationRefundProductionPath(t *testing.T) {
 			t,
 			fixture,
 			[][]byte{certificateCbor},
-			0,
+			int64(pp.DRepDeposit),
 			0,
 		)
 		ls := certificateDepositLedgerState{

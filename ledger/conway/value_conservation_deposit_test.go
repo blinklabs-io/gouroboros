@@ -15,6 +15,7 @@
 package conway_test
 
 import (
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
@@ -121,14 +122,11 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(
 		keyDeposit      = uint64(2_000_000)
 		recordedStake   = uint64(1_500_000)
 		drepDeposit     = uint64(3_000_000)
-		recordedDRep    = uint64(2_500_000)
 		proposalDeposit = uint64(4_000_000)
 	)
-	recordedDRepValue := recordedDRep
 	baseState := mockledger.NewLedgerStateBuilder().
 		WithUtxos([]common.Utxo{{Id: input, Output: shelley.ShelleyTransactionOutput{OutputAmount: inputAmount}}}).
 		WithStakeRegistrations([]common.StakeRegistrationCertificate{{StakeCredential: credential}}).
-		WithDRepRegistrations([]common.DRepRegistration{{Credential: drepCredential, Deposit: &recordedDRepValue}}).
 		Build()
 	state := certificateDepositLedgerState{
 		LedgerState: baseState,
@@ -216,16 +214,6 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(
 			recordedStake,
 			true,
 		},
-		{
-			"DRep refund",
-			&common.DeregistrationDrepCertificate{
-				DrepCredential: drepCredential,
-				Amount:         recordedDRep,
-			},
-			false,
-			recordedDRep,
-			true,
-		},
 		{"proposal deposit", nil, true, proposalDeposit, false},
 	}
 	for _, test := range tests {
@@ -287,8 +275,6 @@ func TestInvalidTransactionValueConservationUsesProtocolAndRecordedDeposits(
 				case *common.RegistrationDrepCertificate:
 					certificate.Amount = 1
 				case *common.DeregistrationCertificate:
-					certificate.Amount = 1
-				case *common.DeregistrationDrepCertificate:
 					certificate.Amount = 1
 				}
 			}
@@ -434,4 +420,109 @@ func TestValueConservationAllowsZeroDRepDeposits(t *testing.T) {
 		registered,
 		params,
 	))
+}
+
+func TestValueConservationUsesDRepCertificateRefunds(t *testing.T) {
+	const inputAmount = uint64(100_000_000)
+	const recordedDeposit = uint64(500_000_000)
+	input := shelley.MustNewShelleyTransactionInput(
+		"d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22", 0,
+	)
+	credential := common.Credential{CredType: common.CredentialTypeScriptHash}
+	credential.Credential[0] = 0x24
+	params := &conway.ConwayProtocolParameters{DRepDeposit: recordedDeposit}
+	for _, test := range []struct {
+		name              string
+		registered        bool
+		refunds           []uint64
+		validCertificates bool
+	}{
+		{"mismatched refund", true, []uint64{1_000_000}, false},
+		{"unregistered DRep", false, []uint64{1_000_000}, false},
+		{"repeated refund", true, []uint64{recordedDeposit, 1_000_000}, false},
+		{"matching refund", true, []uint64{recordedDeposit}, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			builder := mockledger.NewLedgerStateBuilder().
+				WithUtxos([]common.Utxo{{
+					Id: input,
+					Output: shelley.ShelleyTransactionOutput{
+						OutputAmount: inputAmount,
+					},
+				}})
+			if test.registered {
+				deposit := recordedDeposit
+				builder.WithDRepRegistrations([]common.DRepRegistration{{
+					Credential: credential, Deposit: &deposit,
+				}})
+			}
+			state := builder.Build()
+			output := inputAmount
+			var certificates []common.CertificateWrapper
+			for _, refund := range test.refunds {
+				output += refund
+				certificates = append(certificates, common.CertificateWrapper{
+					Type: uint(common.CertificateTypeDeregistrationDrep),
+					Certificate: &common.DeregistrationDrepCertificate{
+						CertType: uint(
+							common.CertificateTypeDeregistrationDrep,
+						),
+						DrepCredential: credential, Amount: refund,
+					},
+				})
+			}
+			tx := &conway.ConwayTransaction{Body: conway.ConwayTransactionBody{
+				TxInputs: conway.NewConwayTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{input},
+				),
+				TxOutputs: []babbage.BabbageTransactionOutput{{
+					OutputAmount: mary.MaryTransactionOutputValue{
+						Amount: output,
+					},
+				}},
+				TxCertificates: certificates,
+			}}
+			for _, phase2Valid := range []bool{false, true} {
+				tx.TxIsValid = phase2Valid
+				require.NoError(t, conway.UtxoValidateValueNotConservedUtxo(
+					tx, 0, state, params,
+				))
+				err := conway.UtxoValidateCertificateDeposits(
+					tx,
+					0,
+					state,
+					params,
+				)
+				if phase2Valid && !test.validCertificates {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			}
+			tx.TxIsValid = false
+			wrongOutput := inputAmount + recordedDeposit
+			if wrongOutput == output {
+				wrongOutput++
+			}
+			tx.Body.TxOutputs[0].OutputAmount.Amount = wrongOutput
+			err := conway.UtxoValidateValueNotConservedUtxo(
+				tx,
+				0,
+				state,
+				params,
+			)
+			var conservationErr shelley.ValueNotConservedUtxoError
+			require.ErrorAs(t, err, &conservationErr)
+			require.Equal(
+				t,
+				new(big.Int).SetUint64(output),
+				conservationErr.Consumed,
+			)
+			require.Equal(
+				t,
+				new(big.Int).SetUint64(wrongOutput),
+				conservationErr.Produced,
+			)
+		})
+	}
 }

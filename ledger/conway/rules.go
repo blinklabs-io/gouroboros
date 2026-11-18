@@ -2397,9 +2397,6 @@ func conwayValueConservationDeposits(
 	stakeStates := make(
 		map[certificateStakeCredentialKey]valueConservationStakeState,
 	)
-	drepStates := make(
-		map[certificateStakeCredentialKey]*common.DRepRegistration,
-	)
 	getStake := func(cred common.Credential) (valueConservationStakeState, error) {
 		key := certificateStakeCredentialKey{
 			credType: cred.CredType,
@@ -2428,27 +2425,6 @@ func conwayValueConservationDeposits(
 	}
 	setStake := func(cred common.Credential, state valueConservationStakeState) {
 		stakeStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
-	}
-	getDRep := func(cred common.Credential) (*common.DRepRegistration, error) {
-		key := certificateStakeCredentialKey{
-			credType: cred.CredType,
-			hash:     cred.Credential,
-		}
-		if state, ok := drepStates[key]; ok {
-			return state, nil
-		}
-		state, err := ls.DRepRegistration(cred)
-		if err != nil {
-			return nil, err
-		}
-		if state != nil && state.Deposit == nil {
-			return nil, DRepDepositStateInconsistentError{Credential: cred}
-		}
-		drepStates[key] = state
-		return state, nil
-	}
-	setDRep := func(cred common.Credential, state *common.DRepRegistration) {
-		drepStates[certificateStakeCredentialKey{credType: cred.CredType, hash: cred.Credential}] = state
 	}
 	checkDeposit := func(cert common.Certificate, amount uint64, expected uint64) error {
 		if amount != expected {
@@ -2508,32 +2484,10 @@ func conwayValueConservationDeposits(
 			state.deposit = 0
 			setStake(cert.StakeCredential, state)
 		case *common.DeregistrationDrepCertificate:
-			var amount uint64
-			if tx.IsValid() {
-				amount = cert.Amount
-			}
-			state, err := getDRep(cert.DrepCredential)
-			if err != nil {
-				return nil, nil, err
-			}
-			if state == nil {
-				if !tx.IsValid() {
-					continue
-				}
-				return nil, nil, DRepNotRegisteredError{Credential: cert.DrepCredential}
-			}
-			if state.Deposit == nil {
-				return nil, nil, DRepDepositStateInconsistentError{Credential: cert.DrepCredential}
-			}
-			if amount != *state.Deposit && tx.IsValid() {
-				return nil, nil, CertificateRefundIncorrectError{
-					CertificateType: common.CertificateType(cert.Type()),
-					Supplied:        cert.Amount,
-					Expected:        *state.Deposit,
-				}
-			}
-			refunds.Add(refunds, new(big.Int).SetUint64(*state.Deposit))
-			setDRep(cert.DrepCredential, nil)
+			// DRep refunds use the certificate amount even when CERTS is
+			// skipped for a phase-2-invalid transaction. Registration and
+			// refund agreement are checked by the certificate deposit rule.
+			refunds.Add(refunds, new(big.Int).SetUint64(cert.Amount))
 		case *common.StakeRegistrationCertificate:
 			deposits.Add(deposits, new(big.Int).SetUint64(keyDeposit))
 			setStake(cert.StakeCredential, valueConservationStakeState{registered: true, deposit: keyDeposit})
@@ -2551,10 +2505,7 @@ func conwayValueConservationDeposits(
 					return nil, nil, err
 				}
 			}
-			deposit := drepDeposit
-			deposits.Add(deposits, new(big.Int).SetUint64(deposit))
-			registeredDeposit := deposit
-			setDRep(cert.DrepCredential, &common.DRepRegistration{Credential: cert.DrepCredential, Deposit: &registeredDeposit})
+			deposits.Add(deposits, new(big.Int).SetUint64(drepDeposit))
 		case *common.StakeRegistrationDelegationCertificate:
 			if tx.IsValid() {
 				if err := checkDeposit(cert, cert.Amount, keyDeposit); err != nil {
