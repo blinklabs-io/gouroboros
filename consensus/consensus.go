@@ -221,10 +221,17 @@ type ChainTip interface {
 	Density(fromSlot uint64) float64
 }
 
-// ChainSelector determines the preferred chain
+// ChainSelector orders tips and decides whether to replace the current chain.
 type ChainSelector interface {
-	// Compare returns positive if a is preferred over b, negative if b preferred, 0 if equal
+	// Compare orders tips: positive ranks a above b, negative ranks b above a.
+	// Use PreferCandidate for switching decisions.
 	Compare(a, b ChainTip) int
-	// Preferred returns the preferred chain from a set of candidates
+	// PreferCandidate reports whether candidate should replace current.
+	PreferCandidate(current, candidate ChainTip) bool
+	// PreferredCandidate selects among candidates that can replace current.
+	// It returns current when none is strictly preferred.
+	PreferredCandidate(current ChainTip, candidates []ChainTip) ChainTip
+	// Preferred ranks candidates without a current-tip switching check.
+	// Deprecated: use PreferredCandidate for chain selection.
 	Preferred(candidates []ChainTip) ChainTip
 }

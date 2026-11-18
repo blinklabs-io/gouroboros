@@ -23,7 +23,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 )
 
-// PraosChainSelector implements Ouroboros chain selection.
+// PraosChainSelector implements Ouroboros chain selection. Candidate switching
+// additionally follows the era restriction selected by ProtocolMajor.
 //
 // Selection is routed explicitly on how deep the fork is, and the two
 // regimes are kept separate:
@@ -59,6 +60,12 @@ import (
 // the Dingo node uses for fork resolution. Peer management remains the
 // caller's concern.
 type PraosChainSelector struct {
+	// ProtocolMajor is the active ledger protocol's major version. Set it
+	// from the chain's protocol parameters and update it at hard forks.
+	// Conway (version 9) and later restrict VRF-based candidate switching
+	// to tips at most five slots apart. Zero preserves pre-Conway behavior.
+	// Compare and the ordering-only Preferred methods remain unrestricted.
+	ProtocolMajor uint
 	// SecurityParam is the security parameter k: the maximum rollback
 	// depth, in BLOCKS (not slots).
 	SecurityParam uint64
@@ -162,7 +169,8 @@ func NewPraosChainSelectorWithWindow(
 //   - negative if chain b is preferred over chain a
 //   - zero if the chains are equivalent
 //
-// This implements the basic Praos chain selection without density comparison.
+// This orders tips without the era-specific switching restriction. Use
+// PreferCandidate to decide whether to replace the current chain.
 func (p *PraosChainSelector) Compare(a, b ChainTip) int {
 	if a == nil && b == nil {
 		return 0
@@ -396,7 +404,8 @@ func compareFloat64(a, b float64) int {
 //   - tipBlockNumber: block height of the current selection, against which
 //     rollback depth is measured
 //
-// Returns the same values as Compare.
+// Returns the same values as Compare. For switching decisions use
+// PreferCandidateWithDensity.
 func (p *PraosChainSelector) CompareWithDensity(
 	a, b ChainTip,
 	fork ForkPoint,
@@ -447,13 +456,19 @@ func (p *PraosChainSelector) selectPreferred(
 	return preferred
 }
 
-// Preferred returns the preferred chain from a set of candidates.
-// Returns nil if candidates is empty.
+// Preferred ranks candidates without deciding whether to replace a current
+// chain. Returns nil if candidates is empty.
+//
+// Deprecated: use PreferredCandidate with the current tip for chain selection.
 func (p *PraosChainSelector) Preferred(candidates []ChainTip) ChainTip {
 	return p.selectPreferred(candidates, p.Compare)
 }
 
-// PreferredWithDensity returns the preferred chain from a set of
+// PreferredWithDensity ranks chains without a current-tip switching check.
+//
+// Deprecated: use PreferredCandidateWithDensity for chain selection.
+//
+// It returns the preferred chain from a set of
 // candidates, applying exactly the contract CompareWithDensity documents:
 // shallow forks are resolved by the ordinary rule, and only forks deeper
 // than k blocks are resolved by density.
