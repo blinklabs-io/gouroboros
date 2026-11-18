@@ -126,8 +126,9 @@ type ValidateHeaderInput struct {
 	PoolStake  uint64
 	TotalStake uint64
 
-	// Registered VRF key hash from the pool registration. Required for full
-	// header validation; VrfKey must hash to this value.
+	// RegisteredVrfKeyHash is the VRF hash in the active leader distribution
+	// for Slot. It must come from the same snapshot as PoolStake and TotalStake,
+	// not the current pool registration. Required for full header validation.
 	RegisteredVrfKeyHash []byte
 }
 
@@ -152,7 +153,7 @@ type ValidateResult struct {
 //  8. KES signature is valid
 //  9. OpCert signature is valid (cold key signed the hot key)
 //  10. OpCert counter is consistent with authoritative pool state
-//  11. VRF key matches the required pool registration hash
+//  11. VRF key matches the active leader snapshot hash
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
@@ -227,7 +228,6 @@ func (v *HeaderValidator) ValidateHeader(
 		result.Errors = append(result.Errors, err)
 	}
 
-	// 11. Validate VRF key matches pool registration (if provided)
 	if err := v.validateVRFKeyRegistration(input); err != nil {
 		result.Valid = false
 		result.Errors = append(result.Errors, err)

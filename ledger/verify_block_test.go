@@ -745,14 +745,12 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 		// explicitly rather than relying on an unrecognized type to
 		// silently disable the check.
 		SkipBlockLimitsValidation: true,
-		LedgerState: mockledger.NewLedgerStateBuilder().
-			WithPoolCurrentState(func(poolKeyHash common.PoolKeyHash) (*common.PoolRegistrationCertificate, *uint64, error) {
-				return &common.PoolRegistrationCertificate{
-					Operator:   poolKeyHash,
-					VrfKeyHash: testVRFKeyHash,
-				}, nil, nil
-			}).
-			Build(),
+		LeaderPoolVrfKeyHash: func(
+			_ uint64,
+			_ common.PoolKeyHash,
+		) (*common.Blake2b256, error) {
+			return &testVRFKeyHash, nil
+		},
 		ProtocolParameters: &mockledger.MockProtocolParamsRules{},
 	}
 
@@ -811,10 +809,9 @@ func TestVerifyBlock_StakePoolValidation(t *testing.T) {
 				uint64(tc.blockHexCbor.Spk),
 				config,
 			)
-			// Since our mock returns a valid pool, validation should pass
 			if !isValid || err != nil {
 				t.Errorf(
-					"expected validation to pass with mock pool, got valid=%v, err=%v",
+					"expected validation to pass with leader snapshot, got valid=%v, err=%v",
 					isValid,
 					err,
 				)

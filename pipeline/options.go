@@ -30,9 +30,12 @@ import (
 // they must not depend on state changes from earlier in-flight blocks.
 type BlockTypeResolver func(context.Context, []byte) (uint, error)
 
-// VerifyConfigProvider reads ledger state and protocol parameters after all
-// earlier blocks have been applied. It runs serially immediately before the
-// current block's stateful validation and must not disable validation.
+// VerifyConfigProvider reads ledger state, protocol parameters and the active
+// leader distribution after all earlier blocks have been applied. It runs
+// serially immediately before the current block's stateful validation and must
+// not disable validation. For non-Byron blocks it must supply
+// VerifyConfig.LeaderPoolVrfKeyHash from the same distribution used by
+// ChainContextValidator for the block's slot.
 type VerifyConfigProvider func(context.Context, *BlockItem) (common.VerifyConfig, error)
 
 // DefaultMaxPendingBlocks is the default limit for out-of-order blocks buffered

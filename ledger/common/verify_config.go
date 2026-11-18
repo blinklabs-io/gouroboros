@@ -100,7 +100,7 @@ func NewValidationError(
 	}
 }
 
-// VerifyConfig holds runtime verification toggles.
+// VerifyConfig holds runtime verification settings and state providers.
 // Default values favor safety; tests or specific flows can opt out.
 type VerifyConfig struct {
 	// SkipHeaderValidation disables the public decoder's nil-header check.
@@ -129,8 +129,9 @@ type VerifyConfig struct {
 	// SkipTransactionValidation disables transaction validation in VerifyBlock().
 	// When false (default), LedgerState and ProtocolParameters must be set.
 	SkipTransactionValidation bool
-	// SkipStakePoolValidation disables stake pool registration validation in VerifyBlock().
-	// When false (default), LedgerState must be set.
+	// SkipStakePoolValidation disables issuer membership and VRF-key checks
+	// against the active leader distribution in VerifyBlock and VerifyBlockState.
+	// When false (default), LeaderPoolVrfKeyHash must be set for non-Byron blocks.
 	SkipStakePoolValidation bool
 	// SkipBlockLimitsValidation disables block-wide execution-unit and
 	// serialized-size limit enforcement in VerifyBlock() (the BBODY
@@ -155,8 +156,20 @@ type VerifyConfig struct {
 	// verified, but only bounded by the depth of the KES key.
 	SkipKesEvolutionsValidation bool
 	// LedgerState provides the current ledger state for transaction validation.
-	// Required if SkipTransactionValidation or SkipStakePoolValidation is false.
+	// Required if SkipTransactionValidation is false.
 	LedgerState LedgerState
+	// LeaderPoolVrfKeyHash returns the pool's VRF hash from the authoritative
+	// leader-election distribution for slot on the chain being validated.
+	// Return nil, nil when the pool is absent. Return an error when the
+	// distribution cannot be obtained. This must use the active snapshot,
+	// not current registration: retirement and VRF updates can take effect
+	// in current registration before they reach the leader distribution.
+	// Use the same distribution as the chain-context leadership check.
+	// Required for non-Byron issuer validation. There is no LedgerState fallback.
+	LeaderPoolVrfKeyHash func(
+		slot uint64,
+		poolKeyHash PoolKeyHash,
+	) (*Blake2b256, error)
 	// ProtocolParameters provides the current protocol parameters for
 	// transaction validation and block-limits validation.
 	// Required for Shelley-family transaction validation when

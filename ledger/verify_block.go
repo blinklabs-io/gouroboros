@@ -819,7 +819,7 @@ func verifyBlockTransactions(
 // validation. It checks data available from the block and supplied verification
 // config, including body hash, leader and nonce VRF proofs, the operational
 // certificate's cold-key signature, KES signature, transactions, and optional
-// stake pool registration.
+// issuer membership in the active leader distribution.
 //
 // The header's KES period must lie in [c0, c0+config.MaxKesEvolutions), where
 // c0 is the operational certificate's start period. MaxKesEvolutions is
@@ -1354,7 +1354,8 @@ func verifyByronBlockLocal(
 }
 
 // VerifyBlockState checks the Dijkstra header rules, certificates, block
-// limits, transactions, and pool registration against current ledger state.
+// limits and transactions against current ledger state, and the issuer against
+// the active leader distribution supplied by config.LeaderPoolVrfKeyHash.
 // Callers must first verify the same immutable block with VerifyBlockLocal and
 // serialize this check with application of preceding blocks.
 func VerifyBlockState(block Block, config common.VerifyConfig) error {
@@ -1762,12 +1763,15 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		)
 	}
 
-	// Verify stake pool registration (can be skipped via config)
-	// Requires LedgerState in config if enabled.
+	// Current registration can already reflect retirement or a VRF rotation
+	// that has not yet reached the active leader snapshot.
 	if block.Era() != byron.EraByron && !config.SkipStakePoolValidation {
-		if config.LedgerState == nil {
-			return errors.New(
-				"VerifyBlock: missing required config field: LedgerState must be set for stake pool validation",
+		if config.LeaderPoolVrfKeyHash == nil {
+			return common.NewValidationError(
+				common.ValidationErrorTypeConfiguration,
+				"LeaderPoolVrfKeyHash is required for issuer validation",
+				nil,
+				nil,
 			)
 		}
 
@@ -1778,12 +1782,14 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
 
-		// Check if pool is registered
-		poolCert, _, err := config.LedgerState.PoolCurrentState(poolKeyHash)
+		snapshotVrfKeyHash, err := config.LeaderPoolVrfKeyHash(
+			slot,
+			poolKeyHash,
+		)
 		if err != nil {
 			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
-				"failed to query pool state",
+				"failed to query leader distribution",
 				map[string]any{
 					"pool_key_hash": poolKeyHash.String(),
 					"block_slot":    slot,
@@ -1793,10 +1799,10 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 				err,
 			)
 		}
-		if poolCert == nil {
+		if snapshotVrfKeyHash == nil {
 			return common.NewValidationError(
 				common.ValidationErrorTypeStakePool,
-				"pool is not registered",
+				"pool is not in the active leader distribution",
 				map[string]any{
 					"pool_key_hash": poolKeyHash.String(),
 					"block_slot":    slot,
@@ -1807,20 +1813,18 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 			)
 		}
 
-		// Check if VRF key matches registered pool's VRF key
-		registeredVrfKeyHash := poolCert.VrfKeyHash
 		expectedVrfKeyHash := common.Blake2b256Hash(blockVrfKey)
-		if registeredVrfKeyHash != expectedVrfKeyHash {
+		if *snapshotVrfKeyHash != expectedVrfKeyHash {
 			return common.NewValidationError(
 				common.ValidationErrorTypeVRF,
 				"VRF key mismatch for pool",
 				map[string]any{
-					"pool_key_hash":       poolKeyHash.String(),
-					"registered_vrf_hash": registeredVrfKeyHash.String(),
-					"block_vrf_hash":      expectedVrfKeyHash.String(),
-					"block_slot":          slot,
-					"block_number":        blockNo,
-					"era":                 era,
+					"pool_key_hash":     poolKeyHash.String(),
+					"snapshot_vrf_hash": snapshotVrfKeyHash.String(),
+					"block_vrf_hash":    expectedVrfKeyHash.String(),
+					"block_slot":        slot,
+					"block_number":      blockNo,
+					"era":               era,
 				},
 				nil,
 			)

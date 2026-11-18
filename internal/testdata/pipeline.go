@@ -155,6 +155,16 @@ func ShelleyVerifyConfig() (common.VerifyConfig, error) {
 		}
 	}
 	return common.VerifyConfig{
+		LeaderPoolVrfKeyHash: func(
+			slot uint64,
+			pool common.PoolKeyHash,
+		) (*common.Blake2b256, error) {
+			if slot != header.Body.Slot ||
+				pool != common.Blake2b224Hash(header.Body.IssuerVkey[:]) {
+				return nil, nil
+			}
+			return &vrfKeyHash, nil
+		},
 		MaxKesEvolutions: 62,
 		LedgerState:      stateBuilder.Build(),
 		ProtocolParameters: &shelley.ShelleyProtocolParameters{
