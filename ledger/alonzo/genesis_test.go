@@ -719,6 +719,10 @@ func legacyCostModelParamNamesForTest(paramNames []string) []string {
 		default:
 			ret = append(ret, paramNames[i])
 		}
+		// The historical tables covered by this helper end at scaleValue.
+		if paramNames[i] == "scaleValue-memory-arguments-slope" {
+			return ret
+		}
 	}
 	return ret
 }

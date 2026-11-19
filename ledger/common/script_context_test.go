@@ -432,7 +432,7 @@ func TestPlutusEvaluateContextValidation(t *testing.T) {
 	t.Run("unsupported UPLC version", func(t *testing.T) {
 		script := common.PlutusV4Script(encodePlutusContextTestScript(
 			t,
-			lang.LanguageVersion{1, 2, 0},
+			lang.LanguageVersion{1, 3, 0},
 			1,
 			nil,
 		))
