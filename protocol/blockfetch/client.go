@@ -273,6 +273,9 @@ func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
 func (c *Client) protocolStateMap() protocol.StateMap {
 	// Update state map with timeouts
 	stateMap := StateMap.Copy()
+	if c.config.CompressionEnabled {
+		enableCompressedTransition(stateMap)
+	}
 	if entry, ok := stateMap[StateBusy]; ok {
 		entry.Timeout = c.config.BatchStartTimeout
 		if c.config.RequestPipelining {
@@ -1332,6 +1335,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleNoBlocks()
 	case MessageTypeBlock:
 		err = c.handleBlock(msg)
+	case MessageTypeCompressedBlocks:
+		err = c.handleCompressedBlocks(msg)
 	case MessageTypeBatchDone:
 		err = c.handleBatchDone()
 	default:

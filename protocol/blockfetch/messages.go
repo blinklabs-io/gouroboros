@@ -56,6 +56,8 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgBlock{}
 	case MessageTypeBatchDone:
 		ret = &MsgBatchDone{}
+	case MessageTypeCompressedBlocks:
+		ret = &MsgCompressedBlocks{}
 	default:
 		return nil, fmt.Errorf(
 			"%s: unknown message type: %d",

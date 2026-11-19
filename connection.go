@@ -819,7 +819,14 @@ func (c *Connection) setupConnection() error {
 			return err
 		}
 		c.chainSync = chainsync.New(protoOptions, c.chainSyncConfig)
-		c.blockFetch = blockfetch.New(protoOptions, c.blockFetchConfig)
+		blockFetchConfig := c.blockFetchConfig
+		if blockFetchConfig != nil {
+			cfg := *blockFetchConfig
+			cfg.CompressionEnabled = cfg.CompressionEnabled &&
+				versionNtN.EnableDijkstraEra
+			blockFetchConfig = &cfg
+		}
+		c.blockFetch = blockfetch.New(protoOptions, blockFetchConfig)
 		c.txSubmission = txsubmission.New(protoOptions, c.txSubmissionConfig)
 		if versionNtN.EnableKeepAliveProtocol {
 			c.keepAlive = keepalive.New(protoOptions, c.keepAliveConfig)

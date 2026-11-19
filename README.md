@@ -274,3 +274,19 @@ gOuroboros uses [golangci-lint](https://golangci-lint.run/) for code quality che
 ```
 make lint
 ```
+
+### Experimental CIP-0150
+
+`blockfetch.WithCompressionEnabled(true)` enables network-wide experimental
+block compression. It is off by default. Connections apply it only at Dijkstra
+node-to-node protocol versions; there is no separate capability negotiation or
+automatic fallback. All experimental-network peers must agree. Enabling this
+mode on an incompatible real network can break block fetching.
+
+The BlockFetch streaming extension uses message `[6, encoding, bytes]`: encoding
+0 contains concatenated wrapped-block CBOR, and encoding 1 contains its
+Zstandard compression. Servers send a compressed block per message; clients
+also accept multi-block sequences. Original block bytes and all ordinary
+validation and range correlation are preserved. Wire and expanded bytes are
+charged against the range budget, and decompressed batches and decoder windows
+are bounded to 64 MiB. The codec is pure Go; block storage is unchanged.
