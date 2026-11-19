@@ -64,7 +64,17 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 			}
 			h := newPipelineHarness(t, []ouroboros_mock.ConversationEntry{
 				ouroboros_mock.ConversationEntryHandshakeRequestGeneric, handshakeReply,
-				requestRangeInput(), batchOutput(blockfetch.NewMsgStartBatch(), msg, blockfetch.NewMsgBatchDone()),
+				requestRangeInput(), requestRangeInput(),
+				batchOutput(
+					blockfetch.NewMsgStartBatch(),
+					msg,
+					blockfetch.NewMsgBatchDone(),
+				),
+				batchOutput(
+					blockfetch.NewMsgStartBatch(),
+					msg,
+					blockfetch.NewMsgBatchDone(),
+				),
 			}, blockfetch.WithCompressionEnabled(true))
 			defer h.close(t)
 			ctx, cancel := context.WithTimeout(
@@ -72,23 +82,24 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 				testTimeout,
 			)
 			defer cancel()
-			id, err := h.client.RequestRange(
-				ctx,
-				blockfetch.RangeRequest{
-					Start:         point,
-					End:           point,
-					ExpectedBytes: 4096,
-				},
-			)
-			require.NoError(t, err)
-			require.Equal(
-				t,
-				deliveredBlock{requestId: id, slot: 100},
-				h.nextBlock(t),
-			)
-			result := h.nextDone(t)
-			require.Equal(t, id, result.requestId)
-			require.NoError(t, result.err)
+			ids := make([]uint64, 0, 2)
+			for range 2 {
+				id, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
+					Start: point, End: point, ExpectedBytes: 4096,
+				})
+				require.NoError(t, err)
+				ids = append(ids, id)
+			}
+			for _, id := range ids {
+				require.Equal(
+					t,
+					deliveredBlock{requestId: id, slot: 100},
+					h.nextBlock(t),
+				)
+				result := h.nextDone(t)
+				require.Equal(t, id, result.requestId)
+				require.NoError(t, result.err)
+			}
 		})
 	}
 }
