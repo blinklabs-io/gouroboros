@@ -566,10 +566,6 @@ func TestGenesisMapCostModelsPreserveLegacyParameterTables(t *testing.T) {
 
 func TestGenesisMapCostModelsPreferCanonicalNames(t *testing.T) {
 	paramNames := lang.GetParamNamesForVersion(lang.LanguageVersionV1)
-	if len(paramNames) != 332 ||
-		paramNames[14] != "blake2b_256-cpu-arguments-intercept" {
-		t.Skip("Plutigo release exposes the legacy parameter table")
-	}
 	params := make(map[string]int64, len(paramNames)+11)
 	for i, name := range paramNames {
 		params[name] = int64(i + 1)
@@ -618,6 +614,21 @@ func TestGenesisMapCostModelsPreferCanonicalNames(t *testing.T) {
 		},
 	}
 	for _, item := range aliases {
+		if item.index >= len(paramNames) {
+			t.Fatalf(
+				"cost model has %d parameters, want index %d",
+				len(paramNames),
+				item.index,
+			)
+		}
+		if paramNames[item.index] != item.canonical {
+			t.Fatalf(
+				"cost model parameter[%d] = %q, want %q",
+				item.index,
+				paramNames[item.index],
+				item.canonical,
+			)
+		}
 		params[item.canonical] = item.want
 		params[item.legacy] = -item.want
 	}
@@ -642,8 +653,12 @@ func TestGenesisMapCostModelsPreferCanonicalNames(t *testing.T) {
 		t.Fatalf("unmarshal mixed cost model: %v", err)
 	}
 	model := models["PlutusV1"]
-	if len(model) != 332 {
-		t.Fatalf("canonical cost model length = %d, want 332", len(model))
+	if len(model) != len(paramNames) {
+		t.Fatalf(
+			"canonical cost model length = %d, want %d",
+			len(model),
+			len(paramNames),
+		)
 	}
 	for _, item := range aliases {
 		if model[item.index] != item.want {
