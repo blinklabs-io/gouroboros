@@ -2199,6 +2199,12 @@ func (c MoveInstantaneousRewardsCertificate) Utxorpc() (*utxorpc.Certificate, er
 			},
 		)
 	}
+	sort.Slice(tmpMirTargets, func(i, j int) bool {
+		return bytes.Compare(
+			credentialBytes(tmpMirTargets[i].GetStakeCredential()),
+			credentialBytes(tmpMirTargets[j].GetStakeCredential()),
+		) < 0
+	})
 	return &utxorpc.Certificate{
 		Certificate: &utxorpc.Certificate_MirCert{
 			MirCert: &utxorpc.MirCert{

@@ -82,6 +82,44 @@ func TestUpdateCommitteeToUtxorpcLedgerOrder(t *testing.T) {
 	)
 }
 
+// MIR targets follow the ledger's credential order: script credentials before
+// key credentials, with each credential kind ordered by hash.
+func TestMoveInstantaneousRewardsToUtxorpcLedgerOrder(t *testing.T) {
+	t.Parallel()
+	rewards := make(map[*Credential]*big.Int)
+	for i := byte(8); i > 0; i-- {
+		key := &Credential{CredType: CredentialTypeAddrKeyHash}
+		key.Credential[0] = i
+		rewards[key] = big.NewInt(int64(i))
+		script := &Credential{CredType: CredentialTypeScriptHash}
+		script.Credential[0] = i
+		rewards[script] = big.NewInt(int64(i))
+	}
+
+	got, err := (MoveInstantaneousRewardsCertificate{
+		Reward: MoveInstantaneousRewardsCertificateReward{
+			Rewards: rewards,
+		},
+	}).Utxorpc()
+	require.NoError(t, err)
+	targets := got.GetMirCert().GetTo()
+	require.Len(t, targets, 16)
+	for i := range 8 {
+		wantHash := make([]byte, len(CredentialHash{}))
+		wantHash[0] = byte(i + 1)
+		require.Equal(
+			t,
+			wantHash,
+			targets[i].GetStakeCredential().GetScriptHash(),
+		)
+		require.Equal(
+			t,
+			wantHash,
+			targets[i+8].GetStakeCredential().GetAddrKeyHash(),
+		)
+	}
+}
+
 // Treasury withdrawals follow the ledger's reward-account order, which puts
 // script credentials before key credentials.
 func TestTreasuryWithdrawalToUtxorpcLedgerOrder(t *testing.T) {
