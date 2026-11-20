@@ -113,6 +113,9 @@ type BlockFetch struct {
 
 // Config holds configuration options for the Block Fetch protocol.
 type Config struct {
+	// CompressionEnabled opts into network-wide experimental CIP-0150 at
+	// Dijkstra protocol versions. All peers must use compatible settings.
+	CompressionEnabled  bool
 	BlockFunc           BlockFunc               // Callback for decoded blocks
 	BlockRawFunc        BlockRawFunc            // Callback for raw block data
 	BatchDoneFunc       BatchDoneFunc           // Callback when a batch is done
@@ -322,6 +325,11 @@ func (c *Config) validate() error {
 		)
 	}
 	return nil
+}
+
+// WithCompressionEnabled enables experimental CIP-0150 block transfers.
+func WithCompressionEnabled(enabled bool) BlockFetchOptionFunc {
+	return func(c *Config) { c.CompressionEnabled = enabled }
 }
 
 // WithBlockFunc sets the BlockFunc callback in the Config.

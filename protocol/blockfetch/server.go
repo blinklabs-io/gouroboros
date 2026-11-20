@@ -79,6 +79,9 @@ func serverStateMap(cfg *Config) protocol.StateMap {
 	if cfg == nil {
 		return stateMap
 	}
+	if cfg.CompressionEnabled {
+		enableCompressedTransition(stateMap)
+	}
 	if entry, ok := stateMap[StateBusy]; ok {
 		entry.Timeout = cfg.BatchStartTimeout
 		stateMap[StateBusy] = entry
@@ -142,6 +145,13 @@ func (s *Server) Block(blockType uint, blockData []byte) error {
 	wrappedBlockData, err := cbor.Encode(&wrappedBlock)
 	if err != nil {
 		return err
+	}
+	if s.config != nil && s.config.CompressionEnabled {
+		msg, err := compressBlocks(wrappedBlockData)
+		if err != nil {
+			return err
+		}
+		return p.SendMessage(msg)
 	}
 	msg := NewMsgBlock(wrappedBlockData)
 	return p.SendMessage(msg)

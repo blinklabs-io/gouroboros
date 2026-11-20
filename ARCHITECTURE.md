@@ -658,3 +658,21 @@ ls := ledgertest.NewLedgerStateBuilder().
 4. Protocol State Machines: Each mini-protocol implements strict state transitions.
 
 5. Streaming Support: BlockTransactionOffsets enables efficient large block handling without full deserialization.
+
+### Experimental compressed BlockFetch
+
+BlockFetch compression is an instance-owned, default-off configuration option.
+At Dijkstra node-to-node protocol versions, `CompressionEnabled` permits
+CIP-0150 message 6 in Streaming and makes the server compress each original
+wrapped block using pure-Go Zstandard. No separate capability is negotiated;
+experimental-network peers must be configured consistently. An incompatible
+peer can fail block fetching when the option is enabled.
+
+A received payload expands to a sequence of wrapped-block CBOR items, not an
+array or a sequence of BlockFetch messages. Each item enters the existing
+block handler, retaining original block bytes, range-point correlation,
+pipelined request ownership, callback ordering and validation. Compressed wire
+bytes and expanded block messages consume the cumulative range byte allowance.
+The decoder separately bounds output and window size to 64 MiB, and expanded
+blocks remain subject to the per-range block count and deadline. Storage and
+ledger semantics do not change.
