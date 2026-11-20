@@ -73,6 +73,33 @@ func TestCompressedBlocksRejectInvalidAndOversizeData(t *testing.T) {
 	}
 }
 
+func TestCompressedBlocksDecodedBudget(t *testing.T) {
+	t.Parallel()
+	raw := []byte{0x82, 0x06, 0x80}
+	encoder, err := zstd.NewWriter(nil,
+		zstd.WithEncoderConcurrency(1), zstd.WithEncoderPadding(1024))
+	require.NoError(t, err)
+	defer encoder.Close()
+	encoded := encoder.EncodeAll(raw, nil)
+	require.Greater(t, len(encoded), len(raw)+1)
+	for _, encoding := range []uint64{CompressionRaw, CompressionZstandard} {
+		payload := raw
+		if encoding == CompressionZstandard {
+			payload = encoded
+		}
+		msg := &MsgCompressedBlocks{Encoding: encoding, EncodedData: payload}
+		for _, limit := range []uint64{0, 2, 3, 4} {
+			expanded, err := msg.decompressed(limit)
+			if limit < uint64(len(raw)) {
+				require.ErrorIs(t, err, ErrRangeByteLimit)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, raw, expanded)
+			}
+		}
+	}
+}
+
 func TestCompressionTransitionsAreOptInAndInstanceOwned(t *testing.T) {
 	t.Parallel()
 	for _, enabled := range []bool{false, true} {

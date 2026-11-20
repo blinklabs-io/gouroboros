@@ -40,7 +40,8 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 			wrapped, point := testBlock(t, 100)
 			data := wrapped
 			if encoding == blockfetch.CompressionZstandard {
-				enc, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+				enc, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1),
+					zstd.WithEncoderPadding(2048))
 				require.NoError(t, err)
 				data = enc.EncodeAll(wrapped, nil)
 				enc.Close()
@@ -62,6 +63,14 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 				},
 				Encoding: encoding, EncodedData: data,
 			}
+			wire, err := cbor.Encode(msg)
+			require.NoError(t, err)
+			blockWire, err := blockfetch.NewMsgBlock(wrapped).MarshalCBOR()
+			require.NoError(t, err)
+			limit := uint64(len(wire) + len(blockWire))
+			if encoding == blockfetch.CompressionZstandard {
+				require.Greater(t, len(data), len(blockWire))
+			}
 			h := newPipelineHarness(t, []ouroboros_mock.ConversationEntry{
 				ouroboros_mock.ConversationEntryHandshakeRequestGeneric, handshakeReply,
 				requestRangeInput(), requestRangeInput(),
@@ -75,7 +84,8 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 					msg,
 					blockfetch.NewMsgBatchDone(),
 				),
-			}, blockfetch.WithCompressionEnabled(true))
+			}, blockfetch.WithCompressionEnabled(true),
+				blockfetch.WithMaxRangeBytes(limit))
 			defer h.close(t)
 			ctx, cancel := context.WithTimeout(
 				context.Background(),
@@ -85,7 +95,7 @@ func TestCompressedBlocksThroughPipelinedRange(t *testing.T) {
 			ids := make([]uint64, 0, 2)
 			for range 2 {
 				id, err := h.client.RequestRange(ctx, blockfetch.RangeRequest{
-					Start: point, End: point, ExpectedBytes: 4096,
+					Start: point, End: point, ExpectedBytes: limit,
 				})
 				require.NoError(t, err)
 				ids = append(ids, id)

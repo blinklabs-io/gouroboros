@@ -77,11 +77,15 @@ func (m *MsgCompressedBlocks) decompressed(limit uint64) ([]byte, error) {
 	if limit > MaxDecompressedBatchBytes {
 		limit = MaxDecompressedBatchBytes
 	}
-	if len(m.EncodedData) == 0 || uint64(len(m.EncodedData)) > limit {
+	if len(m.EncodedData) == 0 ||
+		len(m.EncodedData) > MaxDecompressedBatchBytes {
 		return nil, ErrRangeByteLimit
 	}
 	switch m.Encoding {
 	case CompressionRaw:
+		if uint64(len(m.EncodedData)) > limit {
+			return nil, ErrRangeByteLimit
+		}
 		return m.EncodedData, nil
 	case CompressionZstandard:
 		decoder, err := zstd.NewReader(bytes.NewReader(m.EncodedData),
