@@ -35,7 +35,7 @@ import (
 
 // uplcProgramVersion maps a ledger Plutus language to the UPLC program version
 // its scripts carry. lang.LanguageVersionV* identifies the ledger language, not
-// the program version, and only 1.0.0 and 1.1.0 are valid programs.
+// the program version. These guard scripts use versions 1.0.0 and 1.1.0.
 func uplcProgramVersion(ledgerVersion [3]uint32) [3]uint32 {
 	switch ledgerVersion {
 	case lang.LanguageVersionV1, lang.LanguageVersionV2:
