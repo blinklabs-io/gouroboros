@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   go-test:
-    uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
+    uses: blinklabs-io/shared-actions/.github/workflows/reuseable-go-test.yml@d90d0eef9c2d00ecac430e1b184ac2993ac768fb
     permissions:
       contents: read
     with:
@@ -26,7 +26,7 @@ jobs:
   publish:
     needs: [go-test]
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    uses: blinklabs-io/actions/.github/workflows/reuseable-go-library-release.yml@e3dee08bef03cc5e245e18069f48644a6084a4f3
+    uses: blinklabs-io/shared-actions/.github/workflows/reuseable-go-library-release.yml@d90d0eef9c2d00ecac430e1b184ac2993ac768fb
     permissions:
       attestations: write
       contents: write
