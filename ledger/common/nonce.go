@@ -178,6 +178,21 @@ func CalculateRollingNonce(
 	return Blake2b256(nonce.Value), err
 }
 
+// EpochNonceFromNonces returns the nonce a new epoch starts with,
+// candidate ⭒ lab ⭒ extraEntropy, as the reference's TICKN rule
+// (Cardano.Protocol.TPraos.Rules.Tickn) computes it. lab is the
+// last-epoch-block nonce, which is NonceTypeNeutral for the first two epoch
+// changes after a chain's start. Praos has no extra entropy, so Praos callers
+// pass NonceTypeNeutral for it. A NonceTypeNeutral operand is skipped, as in
+// CombineNonces.
+func EpochNonceFromNonces(candidate, lab, extraEntropy Nonce) (Nonce, error) {
+	nonce, err := CombineNonces(candidate, lab)
+	if err != nil {
+		return Nonce{}, err
+	}
+	return CombineNonces(nonce, extraEntropy)
+}
+
 // CalculateEpochNonce calculates an epoch nonce:
 //
 //	epochNonce = blake2b_256(candidateNonce || prevEpochFirstBlockHash)
@@ -185,6 +200,11 @@ func CalculateRollingNonce(
 // When extraEntropy is non-empty (must be exactly 32 bytes):
 //
 //	epochNonce = blake2b_256(epochNonce || extraEntropy)
+//
+// A 32-byte input is always an ordinary nonce, so it cannot express a
+// NeutralNonce candidate or last-epoch-block nonce.
+//
+// Deprecated: use EpochNonceFromNonces to represent neutrality explicitly.
 func CalculateEpochNonce(
 	stableBlockNonce []byte,
 	prevEpochFirstBlockHash []byte,
