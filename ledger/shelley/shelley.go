@@ -388,6 +388,20 @@ type ShelleyTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *ShelleyTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[ShelleyProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type ShelleyTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs  ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`

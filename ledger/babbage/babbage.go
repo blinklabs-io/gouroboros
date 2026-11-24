@@ -555,6 +555,20 @@ type BabbageTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *BabbageTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[BabbageProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
