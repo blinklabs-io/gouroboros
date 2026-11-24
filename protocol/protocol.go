@@ -87,6 +87,7 @@ type Protocol struct {
 	recvDoneChan         chan struct{}
 	recvQueueChan        chan inboundMessage
 	recvStateChangedChan chan struct{}
+	handlerDoneChan      chan struct{}
 	sendDoneChan         chan struct{}
 	sendReadyChan        chan bool
 	stateTransitionChan  chan<- protocolStateTransition
@@ -283,7 +284,10 @@ type protocolStateTransition struct {
 	msg                      Message
 	consumesPipelinedReply   bool
 	consumesPipelinedRequest bool
-	errorChan                chan<- error
+	// startsHandler marks a received message whose MessageHandlerFunc runs
+	// next; no state timer is armed until recvLoop reports it returned.
+	startsHandler bool
+	errorChan     chan<- error
 }
 
 type outboundMessage struct {
@@ -439,6 +443,7 @@ func (p *Protocol) Start() {
 		p.sendQueueChan = make(chan outboundMessage, 80)
 		p.recvQueueChan = make(chan inboundMessage, p.config.RecvQueueSize)
 		p.recvStateChangedChan = make(chan struct{}, 1)
+		p.handlerDoneChan = make(chan struct{})
 		p.sendReadyChan = make(chan bool, 1)
 
 		stateTransitionChan := make(chan protocolStateTransition)
@@ -2257,7 +2262,15 @@ func (p *Protocol) recvLoop() {
 				))
 				return
 			}
-			if err := p.config.MessageHandlerFunc(inbound.message); err != nil {
+			err := p.config.MessageHandlerFunc(inbound.message)
+			select {
+			case p.handlerDoneChan <- struct{}{}:
+			case <-p.stopChan:
+				return
+			case <-p.doneChan:
+				return
+			}
+			if err != nil {
 				if errors.Is(err, ErrProtocolShuttingDown) {
 					// Graceful shutdown in progress
 					return
@@ -2280,6 +2293,25 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 	defer p.recoverLoop("state loop")
 	var transitionTimer *time.Timer
 	var initialStateSet bool
+	// handling is set while recvLoop runs MessageHandlerFunc for a received
+	// message. A state's timeout bounds only the wait for the peer, as the
+	// reference driver applies it around recvMessage alone, and recvLoop
+	// cannot take the peer's next message until the handler returns. So no
+	// timer is armed meanwhile, whether the state was entered by that
+	// message or by one the handler sent; the current state's timer is
+	// armed when the handler returns.
+	var handling bool
+
+	armTimeout := func(s State) {
+		entry := p.config.StateMap[s]
+		timeout := entry.Timeout
+		if entry.TimeoutFunc != nil {
+			timeout = entry.TimeoutFunc()
+		}
+		if timeout > 0 {
+			transitionTimer = time.NewTimer(timeout)
+		}
+	}
 
 	setState := func(
 		s State,
@@ -2346,7 +2378,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		default:
 		}
 
-		if skipTimeout {
+		if skipTimeout || handling {
 			return
 		}
 
@@ -2356,15 +2388,7 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 			return
 		}
 
-		// Set timeout for state transition
-		entry := p.config.StateMap[s]
-		timeout := entry.Timeout
-		if entry.TimeoutFunc != nil {
-			timeout = entry.TimeoutFunc()
-		}
-		if timeout > 0 {
-			transitionTimer = time.NewTimer(timeout)
-		}
+		armTimeout(s)
 	}
 	getTimerChan := func() <-chan time.Time {
 		if transitionTimer == nil {
@@ -2400,12 +2424,23 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 				continue
 			}
 
+			if t.startsHandler {
+				handling = true
+			}
 			setState(
 				nextState,
 				t.consumesPipelinedReply,
 				t.consumesPipelinedRequest,
 			)
 			t.errorChan <- nil
+
+		case <-p.handlerDoneChan:
+			handling = false
+			s := p.getCurrentState()
+			if transitionTimer == nil &&
+				p.agencyHolderFor(p.config.StateMap[s]) == agencyPeer {
+				armTimeout(s)
+			}
 
 		case <-getTimerChan():
 			transitionTimer = nil
@@ -2454,24 +2489,28 @@ func (p *Protocol) peerHasAgency() bool {
 }
 
 func (p *Protocol) transitionState(msg Message) error {
-	return p.requestStateTransition(msg, false, false)
+	return p.requestStateTransition(msg, false, false, false)
 }
 
+// transitionInboundState applies a received message's transition. Its
+// MessageHandlerFunc runs next, so the state timer stays unarmed until the
+// caller reports the handler's return on handlerDoneChan.
 func (p *Protocol) transitionInboundState(
 	msg Message,
 	consumesPipelinedReply bool,
 ) error {
-	return p.requestStateTransition(msg, consumesPipelinedReply, false)
+	return p.requestStateTransition(msg, consumesPipelinedReply, false, true)
 }
 
 func (p *Protocol) transitionPipelinedRequestState(msg Message) error {
-	return p.requestStateTransition(msg, false, true)
+	return p.requestStateTransition(msg, false, true, false)
 }
 
 func (p *Protocol) requestStateTransition(
 	msg Message,
 	consumesPipelinedReply bool,
 	consumesPipelinedRequest bool,
+	startsHandler bool,
 ) error {
 	errorChan := make(chan error, 1)
 	select {
@@ -2483,6 +2522,7 @@ func (p *Protocol) requestStateTransition(
 		msg:                      msg,
 		consumesPipelinedReply:   consumesPipelinedReply,
 		consumesPipelinedRequest: consumesPipelinedRequest,
+		startsHandler:            startsHandler,
 		errorChan:                errorChan,
 	}:
 	}
