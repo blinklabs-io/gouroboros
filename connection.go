@@ -24,6 +24,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -133,6 +134,9 @@ type Connection struct {
 	// still setting up: shutdown either finds the muxer and stops it, or
 	// setup finds doneChan closed and creates none.
 	setupMu sync.Mutex
+	// closeRequested is set by Close, under setupMu, so that a Dial or
+	// setup that has not yet published doneChan gives up.
+	closeRequested bool
 	// beforeMuxerHook, when set by a test, runs in setupConnection after
 	// doneChan is published and before the muxer is created.
 	beforeMuxerHook func()
@@ -256,32 +260,85 @@ func (c *Connection) DialTimeout(
 	address string,
 	timeout time.Duration,
 ) error {
-	if c.conn != nil {
+	c.setupMu.Lock()
+	established, closed := c.conn != nil, c.closeRequested
+	c.setupMu.Unlock()
+	if established {
 		return errors.New("a connection was already established")
+	}
+	if closed {
+		return errConnectionClosed
 	}
 	conn, err := net.DialTimeout(proto, address, timeout)
 	if err != nil {
 		return err
 	}
-	c.conn = conn
+	c.setupMu.Lock()
+	closed = c.closeRequested
+	if !closed {
+		c.conn = conn
+	}
+	c.setupMu.Unlock()
+	if closed {
+		_ = conn.Close()
+		return errConnectionClosed
+	}
 	if err := c.setupConnection(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Close will shutdown the Ouroboros connection
+// Close will shutdown the Ouroboros connection. It tears down whatever has
+// been set up, even while Dial or New is still setting the connection up,
+// and a later Dial fails. Close returns once every mini-protocol goroutine
+// has exited, so no callback runs after it returns: a callback that does not
+// return when its protocol's StopChan closes holds Close until it does. A
+// callback must not call Close, which would wait for itself; it calls
+// CloseContext instead.
 func (c *Connection) Close() error {
+	return c.closeExcept(nil)
+}
+
+// CloseContext is Close for a mini-protocol callback that closes its own
+// connection. Pass the context the callback was given (its callback
+// context's Context field). When ctx marks a protocol instance of this
+// connection, CloseContext does not wait for that instance's goroutines,
+// one of which is running the callback; it still waits for every other
+// one. A ctx from another connection's callback, or with no marker, makes
+// CloseContext the same as Close.
+func (c *Connection) CloseContext(ctx context.Context) error {
+	return c.closeExcept(protocol.CallbackOwner(ctx))
+}
+
+// closeExcept closes the connection and waits for every protocol goroutine
+// except those of owner, which a nil owner excepts none of.
+func (c *Connection) closeExcept(owner any) error {
 	c.setupMu.Lock()
-	doneChan := c.doneChan
+	c.closeRequested = true
+	doneChan, conn, m := c.doneChan, c.conn, c.muxer
 	c.setupMu.Unlock()
 	if doneChan == nil {
+		// Setup has not begun; it sees closeRequested and gives up.
+		if conn != nil {
+			_ = conn.Close()
+		}
 		return nil
+	}
+	if m != nil && owner != nil {
+		// A callback closing its own connection must not be waited for by
+		// the shutdown it is waiting for.
+		m.ExcuseProtocolLoops(owner)
 	}
 	c.requestClose()
 	// Wait until all connection-owned goroutines have stopped. After this
 	// returns, a caller may safely close a channel supplied with WithErrorChan.
 	<-c.connClosedChan
+	if m != nil {
+		// Shutdown did not wait for loops whose callback is in
+		// CloseContext; wait for them now, except the caller's own.
+		m.WaitProtocolLoopsExcept(owner)
+	}
 	return nil
 }
 
@@ -403,6 +460,10 @@ func (c *Connection) shutdown() {
 		c.setupMu.Unlock()
 		if m != nil {
 			m.Stop()
+			// Every protocol is stopped and the muxer is closed, so the
+			// loops leave once their callbacks return.
+			m.CloseProtocolLoops()
+			m.WaitProtocolLoops()
 		}
 		// Wait for other goroutines to finish
 		c.fenceTracked()
@@ -444,6 +505,8 @@ func (c *Connection) fenceTracked() {
 	c.trackMu.Lock()
 	defer c.trackMu.Unlock()
 }
+
+var errConnectionClosed = errors.New("connection closed")
 
 // forwardError attempts immediate best-effort delivery without allowing a full
 // or undrained consumer channel to prevent connection shutdown.
@@ -734,11 +797,15 @@ func (c *Connection) setupConnection() error {
 	doneChan := make(chan any)
 	c.setupMu.Lock()
 	c.doneChan = doneChan
+	closeRequested := c.closeRequested
 	c.setupMu.Unlock()
 	go func() {
 		<-doneChan
 		c.shutdown()
 	}()
+	if closeRequested {
+		c.requestClose()
+	}
 	if c.beforeMuxerHook != nil {
 		c.beforeMuxerHook()
 	}

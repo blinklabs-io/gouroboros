@@ -444,17 +444,24 @@ func (p *Protocol) Start() {
 		stateTransitionChan := make(chan protocolStateTransition)
 		p.stateTransitionChan = stateTransitionChan
 
-		// Start our send and receive Goroutines
+		// The loops run user callbacks, so the connection waits for them
+		// when it closes. It refuses new ones once it has begun to.
+		if !p.config.Muxer.StartProtocolLoops(
+			p,
+			func() { p.stateLoop(stateTransitionChan) },
+			p.readLoop,
+			p.recvLoop,
+			p.sendLoop,
+		) {
+			p.lifecycleMu.Unlock()
+			p.closeDone()
+			return
+		}
 		go func() {
 			<-p.recvDoneChan
 			<-p.sendDoneChan
 			p.closeDone()
 		}()
-
-		go p.stateLoop(stateTransitionChan)
-		go p.readLoop()
-		go p.recvLoop()
-		go p.sendLoop()
 
 		p.started = true
 		p.lifecycleMu.Unlock()
@@ -562,6 +569,32 @@ func (p *Protocol) Role() ProtocolRole {
 // DoneChan returns the channel used to signal protocol shutdown
 func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
+}
+
+// callbackOwnerKey is the context key under which CallbackContext stores
+// the protocol instance whose loop runs a callback.
+type callbackOwnerKey struct{}
+
+// CallbackContext returns the context a mini-protocol passes to the user
+// callbacks it runs on this protocol instance's loops. It carries this
+// instance as the callback's owner, which lets a callback close its own
+// connection without waiting for itself: see the connection's
+// CloseContext. It is never cancelled.
+func (p *Protocol) CallbackContext() context.Context {
+	return context.WithValue(context.Background(), callbackOwnerKey{}, p)
+}
+
+// CallbackOwner returns the protocol instance that ctx, a context returned
+// by CallbackContext, marks as the owner of a running callback, or nil when
+// ctx carries none. Owners are compared by identity.
+func CallbackOwner(ctx context.Context) any {
+	if ctx == nil {
+		return nil
+	}
+	if p, ok := ctx.Value(callbackOwnerKey{}).(*Protocol); ok {
+		return p
+	}
+	return nil
 }
 
 // StopChan returns the channel closed when shutdown is requested. Unlike

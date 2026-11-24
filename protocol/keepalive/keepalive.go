@@ -16,6 +16,7 @@
 package keepalive
 
 import (
+	"context"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -129,6 +130,10 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
+	// Context marks the protocol instance running the callback; pass it
+	// to the connection's CloseContext to close the connection from the
+	// callback.
+	Context context.Context
 }
 
 // New creates and returns a new KeepAlive protocol instance using the provided protocol options and configuration.
