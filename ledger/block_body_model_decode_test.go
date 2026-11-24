@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// bbmDecodeAligned is the reference's alignedValidFlags, restated from the
-// BlockBody model (specs/23-ledger-bbody in gouroboros-tla-models).
+// bbmDecodeAligned is the reference's alignedValidFlags, from the
+// cardano-ledger Alonzo block body decoder.
 func bbmDecodeAligned(prev, n int, xs []int) []bool {
 	var ret []bool
 	if len(xs) == 0 {
@@ -43,7 +43,7 @@ func bbmDecodeAligned(prev, n int, xs []int) []bool {
 	return append(ret, bbmDecodeAligned(xs[0], n-(xs[0]-prev), xs[1:])...)
 }
 
-// TestBlockBodyModelDecode runs the BlockBody model's decoding cells on a
+// TestBlockBodyModelDecode runs the block-body decoding cells on a
 // real Conway block: one witness set per body, every invalid index in
 // range, and the validity flag each transaction then carries.
 func TestBlockBodyModelDecode(t *testing.T) {
@@ -112,10 +112,10 @@ func TestBlockBodyModelDecode(t *testing.T) {
 	}
 }
 
-// TestBlockBodyModelEnvelope runs the BlockBody model's envelope cells
+// TestBlockBodyModelEnvelope runs the block-body envelope cells
 // through VerifyBlock: the declared body size against the real one, the
-// real size against the maximum (0 is read as no limit, a recorded drift
-// from the reference), and the header's body hash.
+// real size against the maximum (0 is read as no limit, where the reference
+// rejects every block), and the header's body hash.
 func TestBlockBodyModelEnvelope(t *testing.T) {
 	for _, txCount := range []int{0, 1} {
 		bodies := make([]conway.ConwayTransactionBody, txCount)

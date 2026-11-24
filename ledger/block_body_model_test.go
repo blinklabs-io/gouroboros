@@ -12,23 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A model-driven test of the block-body rule (BBODY with its LEDGERS fold):
+// A table test of the block-body rule (BBODY with its LEDGERS fold):
 // the invalid-transaction list and the validity flags it yields, the order
 // in which a block's transactions apply (a later one sees an earlier one's
 // outputs; a phase-2-invalid one consumes only its collateral and adds only
 // its collateral return), the block's execution-unit total, and its
 // reference-script total before and from protocol version 11. The rules
-// below restate the BlockBody TLA+ model (specs/23-ledger-bbody in
-// gouroboros-tla-models), which follows each era's Rules/Bbody.hs and
-// Rules/Ledgers.hs in cardano-ledger.
+// below restate each era's Rules/Bbody.hs and Rules/Ledgers.hs in
+// cardano-ledger.
 //
-// A model transaction names one spent input, one collateral input and an
+// A test transaction names one spent input, one collateral input and an
 // optional reference input relative to itself: "g" is a genesis output
 // carrying a reference script, "k" a genesis output without one, "prev"
 // the output of the transaction before, "prevret" its collateral return.
-// The test enumerates the model's blocks, builds each as real Babbage or
-// Conway transactions, runs gOuroboros, and checks that it decides as the
-// model does.
+// The test enumerates every block over a small transaction space, builds
+// each as real Babbage or Conway transactions, runs gOuroboros, and checks
+// that it decides as the restated reference rules do.
 
 package ledger
 
@@ -64,7 +63,7 @@ func (b bbmBlock) String() string {
 	return fmt.Sprintf("%+v invalid=%v", b.txs, b.invalid)
 }
 
-// bbmOutput identifies a model output: "g" or "k" at 0, or "o" (output)
+// bbmOutput identifies a test output: "g" or "k" at 0, or "o" (output)
 // and "r" (collateral return) of the 1-based transaction n.
 type bbmOutput struct {
 	kind string
@@ -93,7 +92,7 @@ func bbmAligned(prev, n int, xs []int) []bool {
 	return append(ret, bbmAligned(x, n-(x-prev), xs[1:])...)
 }
 
-// bbmFlags are the model's RefFlag: the aligned flags cut to the
+// bbmFlags are the reference's validity flags: the aligned flags cut to the
 // transaction count, as the decoder zips them with the transactions.
 func bbmFlags(b bbmBlock) []bool {
 	aligned := bbmAligned(-1, len(b.txs), b.invalid)
@@ -113,7 +112,7 @@ func bbmDecodeOk(b bbmBlock) bool {
 	return true
 }
 
-// bbmResolve is the model's Resolve for the 1-based transaction i.
+// bbmResolve resolves an input name of the 1-based transaction i.
 func bbmResolve(i int, name string) bbmOutput {
 	switch name {
 	case "g":
@@ -144,8 +143,9 @@ func bbmNeeds(b bbmBlock, i int) []bbmOutput {
 	return ret
 }
 
-// bbmLedgerOk is the model's LedgerOk: every transaction finds what it
-// names among what the earlier ones left.
+// bbmLedgerOk reports whether the reference's LEDGERS fold accepts the
+// block: every transaction finds what it names among what the earlier ones
+// left.
 func bbmLedgerOk(b bbmBlock) bool {
 	flags := bbmFlags(b)
 	avail := map[bbmOutput]bool{bbmGenesis: true, bbmCollateral: true}
@@ -166,7 +166,8 @@ func bbmLedgerOk(b bbmBlock) bool {
 	return true
 }
 
-// bbmRefTotal is the model's RefTotal in script units: through protocol
+// bbmRefTotal is the reference's block reference-script total in script
+// units (Conway Rules/Bbody.hs): through protocol
 // version 10 each transaction is measured against the start; from 11
 // against the start and every earlier transaction's output or return.
 func bbmRefTotal(b bbmBlock, accumulates bool) int {
@@ -260,8 +261,8 @@ func bbmInvalidLists(maxLen, maxIdx int) [][]int {
 	return ret
 }
 
-// bbmBlocks is the model's Blocks for the given transaction space, with
-// the envelope fields fixed.
+// bbmBlocks lists every block over the given transaction space, with the
+// envelope fields fixed.
 func bbmBlocks(space []bbmTx, maxTxs, maxInvalidLen int) []bbmBlock {
 	var ret []bbmBlock
 	for _, txs := range bbmTxLists(space, maxTxs) {
@@ -272,7 +273,7 @@ func bbmBlocks(space []bbmTx, maxTxs, maxInvalidLen int) []bbmBlock {
 	return ret
 }
 
-// bbmBuilt is a model block built as real transactions.
+// bbmBuilt is a test block built as real transactions.
 type bbmBuilt struct {
 	block  *babbage.BabbageBlock
 	txs    []common.Transaction
@@ -416,8 +417,8 @@ func bbmBuild(t *testing.T, b bbmBlock) bbmBuilt {
 }
 
 // bbmResolveAllInputs resolves every input a transaction names, as the
-// reference's BadInputs does whatever IsValid says. The model's "valid"
-// means only that.
+// reference's BadInputs does whatever IsValid says. A test transaction's
+// "valid" means only that.
 func bbmResolveAllInputs(
 	tx common.Transaction,
 	_ uint64,
@@ -461,7 +462,7 @@ func TestBlockBodyModelValidityFlags(t *testing.T) {
 	}
 }
 
-// TestBlockBodyModelLedgerOrder runs the model's Alonzo blocks through
+// TestBlockBodyModelLedgerOrder runs every Alonzo test block through
 // verifyBlockTransactions: gOuroboros accepts exactly the blocks in which
 // every transaction finds its inputs among what the earlier ones left.
 func TestBlockBodyModelLedgerOrder(t *testing.T) {
@@ -529,7 +530,7 @@ func TestBlockBodyModelExUnits(t *testing.T) {
 }
 
 // TestBlockBodyModelRefScripts checks the block's reference-script total
-// at protocol versions 10 and 11 against the model's: against the start
+// at protocol versions 10 and 11 against the reference's: against the start
 // only, then also against every earlier transaction's output or return.
 func TestBlockBodyModelRefScripts(t *testing.T) {
 	space := bbmTxSpace(
@@ -567,8 +568,9 @@ func TestBlockBodyModelRefScripts(t *testing.T) {
 }
 
 // TestBlockBodyModelConwayRefScriptLimit checks the Conway block limit's
-// protocol-version switch on the model's distinguishing cell: a script made
-// by the first transaction and read by the second counts from version 11.
+// protocol-version switch on the cell that tells the versions apart: a
+// script made by the first transaction and read by the second counts from
+// version 11.
 func TestBlockBodyModelConwayRefScriptLimit(t *testing.T) {
 	b := bbmBlock{txs: []bbmTx{
 		{in: "g", coll: "k", ref: "none", script: 1},
