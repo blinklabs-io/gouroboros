@@ -912,6 +912,8 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 	)
 
 	input := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
+		Overlay:              testOverlayD0(),
 		Slot:                 header.Body.Slot,
 		BlockNumber:          header.Body.BlockNumber,
 		PrevHash:             header.Body.PrevHash,

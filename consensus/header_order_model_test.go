@@ -277,6 +277,8 @@ func (f *orderFixture) input(t *testing.T, d map[string]bool) *ValidateHeaderInp
 	prevHash := bytes.Repeat([]byte{1}, 32)
 	vrfKeyHash := common.Blake2b256Hash(f.vrfSigner.PublicKey())
 	in := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
+		Overlay:              testOverlayD0(),
 		Slot:                 slot,
 		BlockNumber:          10,
 		PrevHash:             prevHash,

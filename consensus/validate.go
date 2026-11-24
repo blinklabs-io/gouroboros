@@ -128,8 +128,17 @@ type ValidateHeaderInput struct {
 
 	// RegisteredVrfKeyHash is the VRF hash in the active leader distribution
 	// for Slot. It must come from the same snapshot as PoolStake and TotalStake,
-	// not the current pool registration. Required for full header validation.
+	// not the current pool registration. Required for full header validation,
+	// except in a TPraos overlay slot, which no pool may lead.
 	RegisteredVrfKeyHash []byte
+
+	// Envelope carries the protocol version limit and the header and body
+	// size limits. Required in every mode.
+	Envelope *EnvelopeInput
+
+	// Overlay carries the TPraos overlay schedule inputs. Required for
+	// ConsensusModeTPraos; ignored for ConsensusModeCPraos.
+	Overlay *TPraosOverlayInput
 }
 
 // ValidateResult contains the result of header validation.
@@ -142,12 +151,17 @@ type ValidateResult struct {
 
 // ValidateHeader performs full consensus validation of a block header.
 //
-// Every check runs and every failure is returned in Errors, in the order
-// the reference validator checks them, so the first error is the one the
-// reference would report:
+// If an input the mode requires is missing (Envelope always, Overlay for
+// ConsensusModeTPraos), the result holds a single error wrapping
+// ErrMissingHeaderInput and no other check runs.
+//
+// Otherwise every check runs and every failure is returned in Errors, in
+// the order the reference validator checks them, so the first error is the
+// one the reference would report:
 //
 //  1. The envelope: block number is previous + 1, slot strictly increases,
-//     PrevHash matches the previous header's hash.
+//     PrevHash matches the previous header's hash, and the protocol
+//     version, header size and body size are within their limits.
 //  2. CPraos: the KES side, then the VRF side. TPraos: the VRF side, then
 //     the KES side.
 //
@@ -159,9 +173,18 @@ type ValidateResult struct {
 // the leader VRF proof, and finally that the verified output satisfies
 // finite E34 eligibility and pool policy. Eligibility is not checked when
 // the VRF key or the leader VRF proof failed.
+//
+// TPraos only: a header in a non-active overlay slot fails with
+// ErrNotActiveSlot and its VRF side is not checked. In an active overlay
+// slot the VRF side checks that the issuer is the scheduled genesis
+// delegate and the VRF key is that delegate's, then both VRF proofs; it
+// checks no eligibility.
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
+	if err := v.checkRequiredInputs(input); err != nil {
+		return &ValidateResult{Errors: []error{err}}
+	}
 	result := &ValidateResult{
 		Valid:  true,
 		Errors: make([]error, 0),
@@ -179,6 +202,11 @@ func (v *HeaderValidator) ValidateHeader(
 	failed(v.validateSlotOrdering(input))
 	failed(v.validatePrevHash(input))
 
+	for _, err := range validateEnvelopeLimits(input.Envelope) {
+		failed(err)
+	}
+
+	overlay := v.overlaySlotFor(input)
 	var nextOpCertSequence uint64
 	kesSide := func() {
 		failed(v.validateKESPeriod(input))
@@ -189,15 +217,30 @@ func (v *HeaderValidator) ValidateHeader(
 			nextOpCertSequence = next
 		}
 	}
+	// A non-active overlay slot fails outright and runs no VRF check; an
+	// active one belongs to a genesis delegate, which has no stake, so
+	// leadership is not checked (Rules/Overlay.hs overlayTransition).
 	vrfSide := func() {
-		keyFailed := failed(v.validateVRFKeyRegistration(input))
+		var keyFailed bool
+		switch overlay.kind {
+		case overlaySlotNonActive:
+			failed(fmt.Errorf("%w: slot %d", ErrNotActiveSlot, input.Slot))
+			return
+		case overlaySlotActive:
+			failed(validateGenesisColdKey(input, overlay.delegation))
+			keyFailed = failed(
+				validateGenesisVRFKey(input, overlay.delegation),
+			)
+		case overlaySlotPraos:
+			keyFailed = failed(v.validateVRFKeyRegistration(input))
+		}
 		failed(v.validateNonceVRFProof(input))
 		vrfOutput, err := v.validateVRFProof(input)
 		if failed(err) {
 			return
 		}
 		result.VrfOutput = vrfOutput
-		if !keyFailed {
+		if !keyFailed && overlay.kind == overlaySlotPraos {
 			failed(v.validateLeadership(input, vrfOutput))
 		}
 	}
