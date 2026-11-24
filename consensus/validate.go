@@ -142,18 +142,23 @@ type ValidateResult struct {
 
 // ValidateHeader performs full consensus validation of a block header.
 //
-// Validation checks:
-//  1. Slot strictly increases from previous block
-//  2. Block number is previous + 1
-//  3. PrevHash matches hash of previous header
-//  4. VRF proof is valid
-//  5. Verified VRF output satisfies finite E34 eligibility and pool policy
-//  6. TPraos-only: nonce VRF proof is valid (no-op for CPraos)
-//  7. KES period is within valid range
-//  8. KES signature is valid
-//  9. OpCert signature is valid (cold key signed the hot key)
-//  10. OpCert counter is consistent with authoritative pool state
-//  11. VRF key matches the active leader snapshot hash
+// Every check runs and every failure is returned in Errors, in the order
+// the reference validator checks them, so the first error is the one the
+// reference would report:
+//
+//  1. The envelope: block number is previous + 1, slot strictly increases,
+//     PrevHash matches the previous header's hash.
+//  2. CPraos: the KES side, then the VRF side. TPraos: the VRF side, then
+//     the KES side.
+//
+// The KES side checks that the KES period is within the operational
+// certificate's validity, the cold key's signature over the operational
+// certificate, the KES signature, and the operational certificate counter
+// against authoritative pool state. The VRF side checks that the VRF key
+// matches the active leader snapshot hash, the TPraos-only nonce VRF proof,
+// the leader VRF proof, and finally that the verified output satisfies
+// finite E34 eligibility and pool policy. Eligibility is not checked when
+// the VRF key or the leader VRF proof failed.
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
@@ -161,77 +166,52 @@ func (v *HeaderValidator) ValidateHeader(
 		Valid:  true,
 		Errors: make([]error, 0),
 	}
-
-	// 1. Validate slot ordering
-	if err := v.validateSlotOrdering(input); err != nil {
+	failed := func(err error) bool {
+		if err == nil {
+			return false
+		}
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
+		return true
 	}
 
-	// 2. Validate block number
-	if err := v.validateBlockNumber(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
+	failed(v.validateBlockNumber(input))
+	failed(v.validateSlotOrdering(input))
+	failed(v.validatePrevHash(input))
 
-	// 3. Validate prev hash
-	if err := v.validatePrevHash(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 4. Validate VRF proof
-	vrfOutput, err := v.validateVRFProof(input)
-	if err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	} else {
-		result.VrfOutput = vrfOutput
-	}
-
-	// 5. Validate leadership eligibility
-	if vrfOutput != nil {
-		if err := v.validateLeadership(input, vrfOutput); err != nil {
-			result.Valid = false
-			result.Errors = append(result.Errors, err)
+	var nextOpCertSequence uint64
+	kesSide := func() {
+		failed(v.validateKESPeriod(input))
+		failed(v.validateOpCertSignature(input))
+		failed(v.validateKESSignature(input))
+		next, err := v.validateOpCertSequence(input)
+		if !failed(err) {
+			nextOpCertSequence = next
 		}
 	}
-
-	// 6. Validate TPraos-only nonce VRF proof (no-op for CPraos)
-	if err := v.validateNonceVRFProof(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
+	vrfSide := func() {
+		keyFailed := failed(v.validateVRFKeyRegistration(input))
+		failed(v.validateNonceVRFProof(input))
+		vrfOutput, err := v.validateVRFProof(input)
+		if failed(err) {
+			return
+		}
+		result.VrfOutput = vrfOutput
+		if !keyFailed {
+			failed(v.validateLeadership(input, vrfOutput))
+		}
+	}
+	// The reference's order differs by protocol: Praos validates the KES
+	// side first (PolyPraos.updateChainDepStatePolyPraos), TPraos the VRF
+	// side, in the OVERLAY rule, before the OCERT rule.
+	if v.mode == ConsensusModeTPraos {
+		vrfSide()
+		kesSide()
+	} else {
+		kesSide()
+		vrfSide()
 	}
 
-	// 7. Validate KES period
-	if err := v.validateKESPeriod(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 8. Validate KES signature
-	if err := v.validateKESSignature(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 9. Validate OpCert signature (cold key signed the hot key)
-	if err := v.validateOpCertSignature(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 10. Validate the OpCert counter against authoritative pool state.
-	nextOpCertSequence, err := v.validateOpCertSequence(input)
-	if err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	if err := v.validateVRFKeyRegistration(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
 	if result.Valid {
 		result.NextOpCertCounter = &nextOpCertSequence
 	}
