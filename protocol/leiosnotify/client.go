@@ -229,7 +229,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		c.handleVotesOffer(msg)
 	case MessageTypeCanceled:
 		// Answers a request that was outstanding when this client quit. It
-		// carries no notification, so there is nothing to deliver.
+		// carries no notification, so there is nothing to deliver. Before
+		// MsgQuit it is refused: the notification loop counts on an answer
+		// to every request, so a canceled one would stall it.
+		if !c.quitting.Load() {
+			err = ErrUnexpectedCanceled
+		}
 	case MessageTypeDone:
 		// The server has acknowledged MsgQuit and the protocol is over
 	default:
