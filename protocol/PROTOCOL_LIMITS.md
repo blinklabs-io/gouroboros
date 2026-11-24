@@ -6,9 +6,11 @@ an option passed to a client or server can replace the timeout where noted.
 An entry with a zero timeout or pending-message limit has no framework limit.
 
 The protocol framework applies a state's `PendingMessageByteLimit` while that
-state is active. A state timeout closes the protocol when its agency does not
-make the expected transition before the timeout expires. These are transport
-and state-machine safeguards, not application-level transaction or block
+state is active. A state timeout closes the protocol when the peer holding
+agency does not send its message before the timeout expires. Only the side
+waiting for that message enforces it, as the reference driver does; the side
+holding agency is never timed, however long it takes to send. These are
+transport and state-machine safeguards, not application-level transaction or block
 validation.
 
 ## Connection read buffer allowance
@@ -178,7 +180,8 @@ The base map (`protocol/blockfetch/blockfetch.go`) is:
 | Done | none | 0 |
 
 Client and server instances copy the map and apply their configured
-`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. A pipelining
+`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. The server holds
+agency in both states, so only the client enforces them. A pipelining
 client raises its Idle pending-message limit to 2,500,000 bytes so a block can
 arrive during the Idle transition.
 

@@ -2321,6 +2321,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		skipTimeout := false
 		switch p.agencyHolderFor(p.config.StateMap[s]) {
 		case agencyLocal:
+			// A state's timeout bounds the wait for the peer's message, as
+			// the reference driver applies it only when receiving. The side
+			// holding agency is never timed: a slow local callback must not
+			// make this side time itself out.
+			skipTimeout = true
 			for _, msgType := range p.config.StateMap[s].PipelinedMessageTypes {
 				if p.pipelinedTypeGenerations == nil {
 					p.pipelinedTypeGenerations = make(map[uint]uint64)
