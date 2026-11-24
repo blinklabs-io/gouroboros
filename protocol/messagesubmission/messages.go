@@ -329,6 +329,12 @@ func decodeMsgFromCborWithLimit(
 		ret = &MsgReplyMessages{}
 	case kindDone:
 		ret = &MsgDone{}
+	default:
+		return nil, fmt.Errorf(
+			"%s: unknown message kind for type %d",
+			ProtocolName,
+			msgType,
+		)
 	}
 	if kind == kindReplyMessageIds ||
 		kind == kindRequestMessages ||
@@ -340,7 +346,6 @@ func decodeMsgFromCborWithLimit(
 	if _, err := cbor.DecodeUntrustedExact(data, ret); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
-	// Store the raw message CBOR (ret is always non-nil for handled types)
 	ret.SetCbor(data)
 	return ret, nil
 }
