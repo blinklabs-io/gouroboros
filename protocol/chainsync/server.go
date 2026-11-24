@@ -32,6 +32,9 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer returns a new ChainSync server object
@@ -62,7 +65,7 @@ func NewServer(
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -112,14 +115,29 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
 	s.Protocol = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
 	return s.Protocol
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+func (s *Server) Stop() {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
 
 func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
@@ -310,7 +328,11 @@ func (s *Server) handleDone() {
 			)
 	}
 	// Restart protocol
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	old.StopForRestart()
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

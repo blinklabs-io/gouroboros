@@ -38,6 +38,9 @@ type Server struct {
 	pendingTxs             *pendingTxsRequest
 	requestTxIdsResultChan chan requestTxIdsResult
 	requestTxsResultChan   chan requestTxsResult
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 type requestTxIdsResult struct {
@@ -76,7 +79,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	// Copy the global StateMap to avoid mutating shared state.
 	stateMap := StateMap.Copy()
 	protoConfig := protocol.ProtocolConfig{
@@ -95,6 +98,10 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
 	s.stateMu.Lock()
 	s.Protocol = p
 	s.callbackContext.DoneChan = p.DoneChan()
@@ -107,12 +114,23 @@ func (s *Server) initProtocol() {
 	s.stopping = false
 	s.stateMu.Unlock()
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
 	return s.Protocol
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+func (s *Server) Stop() {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
 
 func (s *Server) Start() {
@@ -498,7 +516,10 @@ func (s *Server) handleDone() error {
 	}
 	// Restart protocol
 	p.StopForRestart()
-	s.initProtocol()
+	if !s.initProtocol() {
+		p.CancelRestart()
+		return nil
+	}
 	s.Start()
 	return nil
 }

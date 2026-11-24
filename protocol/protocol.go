@@ -477,6 +477,22 @@ func (p *Protocol) StopForRestart() {
 	p.stop(true)
 }
 
+// CancelRestart releases what StopForRestart kept for this role's next
+// instance, for a server that is stopped instead of restarted. StopForRestart
+// leaves the role registered with the muxer, suspended and still buffering
+// the peer's segments for the next instance; with none coming, they would be
+// held against the connection's ingress budget until the connection closes.
+func (p *Protocol) CancelRestart() {
+	if p.config.Muxer == nil {
+		return
+	}
+	muxerProtocolRole := muxer.ProtocolRoleInitiator
+	if p.config.Role == ProtocolRoleServer {
+		muxerProtocolRole = muxer.ProtocolRoleResponder
+	}
+	p.config.Muxer.UnregisterProtocol(p.config.ProtocolId, muxerProtocolRole)
+}
+
 func (p *Protocol) stop(restart bool) {
 	p.onceStop.Do(func() {
 		p.lifecycleMu.Lock()
