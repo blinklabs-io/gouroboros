@@ -113,6 +113,7 @@ protocol error and is refused before the transition to Acquired.
 ```go
 localtxmonitor.NewConfig(
     localtxmonitor.WithGetMempoolFunc(getMempoolCallback),
+    localtxmonitor.WithAwaitMempoolFunc(awaitMempoolCallback),
     localtxmonitor.WithAcquireTimeout(5 * time.Second),
     localtxmonitor.WithQueryTimeout(30 * time.Second),
 )
@@ -165,7 +166,11 @@ node also reports `ex_units_memory`, `ex_units_steps` and
 ## Notes
 
 - Mempool snapshot is consistent during queries
-- Acquire again to get updated mempool state
+- Acquire again to get updated mempool state. An acquire sent while a
+  snapshot is held is `MsgAwaitAcquire`: the reference node answers it only
+  once the mempool differs from the held snapshot. The server does the same
+  when `AwaitMempoolFunc` is set, blocking until that callback returns;
+  without it the server answers at once with the current mempool
 - NextTx iterates through all transactions in snapshot
 - HasTx checks for specific transaction by ID; the ID must be 32 bytes
 - Release snapshot when done to free resources

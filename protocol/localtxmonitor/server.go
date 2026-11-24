@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -40,6 +41,11 @@ type Server struct {
 	txHashes          map[uint]map[string]*txHashEntry
 	snapshotId        uint64
 	enableGetMeasures bool
+	// acquired is true while the client holds a snapshot, so an acquire
+	// received then is MsgAwaitAcquire. acquiredSlot is that snapshot's slot.
+	acquired           bool
+	acquiredSlot       uint64
+	connectionDoneChan <-chan any
 }
 
 type txHashEntry struct {
@@ -54,8 +60,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config:            cfg,
-		enableGetMeasures: supportsGetMeasures(protoOptions.Version),
+		config:             cfg,
+		enableGetMeasures:  supportsGetMeasures(protoOptions.Version),
+		connectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -119,6 +126,12 @@ func (s *Server) handleAcquire() error {
 			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
 		)
 	}
+	if s.acquired && s.config.AwaitMempoolFunc != nil {
+		stopped, err := s.awaitMempoolChange()
+		if err != nil || stopped {
+			return err
+		}
+	}
 	mempoolSlotNumber, err := s.acquireMempool()
 	if err != nil {
 		return err
@@ -127,7 +140,46 @@ func (s *Server) handleAcquire() error {
 	if err := s.SendMessage(newMsg); err != nil {
 		return err
 	}
+	s.acquired = true
+	s.acquiredSlot = mempoolSlotNumber
 	return nil
+}
+
+// awaitMempoolChange blocks in the message handler until AwaitMempoolFunc
+// reports that the mempool differs from the held snapshot. Blocking the
+// receive loop is safe here: in Acquiring the client has no agency, so it
+// has nothing to send. It reports stopped when the server or connection
+// shut down during the wait, in which case nothing is to be sent.
+func (s *Server) awaitMempoolChange() (bool, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.StopChan():
+		case <-s.connectionDoneChan:
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
+	held := make([]TxAndEraId, len(s.mempoolTxs))
+	copy(held, s.mempoolTxs)
+	err := s.config.AwaitMempoolFunc(
+		ctx,
+		s.callbackContext,
+		s.acquiredSlot,
+		held,
+	)
+	select {
+	case <-s.StopChan():
+		return true, nil
+	case <-s.connectionDoneChan:
+		return true, nil
+	default:
+	}
+	if err != nil {
+		return false, fmt.Errorf("%s: await mempool change: %w", ProtocolName, err)
+	}
+	return false, nil
 }
 
 // acquireMempool takes a new snapshot from the GetMempool callback. The
@@ -184,6 +236,7 @@ func (s *Server) handleRelease() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	s.releaseMempool()
+	s.acquired = false
 }
 
 // releaseMempool drops the snapshot along with its cached IDs. A client that

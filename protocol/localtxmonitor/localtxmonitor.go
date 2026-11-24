@@ -16,6 +16,7 @@
 package localtxmonitor
 
 import (
+	"context"
 	"sync/atomic"
 	"time"
 
@@ -171,9 +172,10 @@ type LocalTxMonitor struct {
 
 // Config is used to configure the LocalTxMonitor protocol instance
 type Config struct {
-	GetMempoolFunc GetMempoolFunc
-	AcquireTimeout time.Duration
-	QueryTimeout   time.Duration
+	GetMempoolFunc   GetMempoolFunc
+	AwaitMempoolFunc AwaitMempoolFunc
+	AcquireTimeout   time.Duration
+	QueryTimeout     time.Duration
 }
 
 // Helper types
@@ -221,6 +223,25 @@ type CallbackContext struct {
 // not modify them after returning.
 type GetMempoolFunc func(CallbackContext) (uint64, uint32, []TxAndEraId, error)
 
+// AwaitMempoolFunc is called by the server for MsgAwaitAcquire, an acquire
+// sent while the client holds a snapshot, with that snapshot's slot number
+// and transactions. It blocks until the mempool differs from them, then
+// returns nil and the server takes the new snapshot from GetMempoolFunc. The
+// reference node waits in the same way, treating a snapshot as unchanged
+// while its slot and the identity of its transactions are. ctx ends when the
+// server stops or the connection closes; nothing is sent then. Any other
+// error fails the connection. The specification sets no time limit on the
+// wait.
+//
+// Without it the server answers MsgAwaitAcquire at once with the current
+// mempool, which may be the snapshot the client already holds.
+type AwaitMempoolFunc func(
+	ctx context.Context,
+	callbackContext CallbackContext,
+	slotNo uint64,
+	txs []TxAndEraId,
+) error
+
 // New returns a new LocalTxMonitor object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxMonitor {
 	l := &LocalTxMonitor{
@@ -252,6 +273,16 @@ func WithGetMempoolFunc(
 ) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.GetMempoolFunc = getMempoolFunc
+	}
+}
+
+// WithAwaitMempoolFunc specifies the callback the server uses to wait for
+// the mempool to change before answering MsgAwaitAcquire
+func WithAwaitMempoolFunc(
+	awaitMempoolFunc AwaitMempoolFunc,
+) LocalTxMonitorOptionFunc {
+	return func(c *Config) {
+		c.AwaitMempoolFunc = awaitMempoolFunc
 	}
 }
 
