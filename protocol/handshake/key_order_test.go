@@ -20,9 +20,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Version tables must list their keys in ascending order: the network
-// specification requires it, and the reference codec fails to decode a
-// MsgProposeVersions, MsgReplyVersions or MsgQueryReply whose keys are not.
+// Recognised versions in a version table must be in ascending order: the
+// reference codec fails to decode a MsgProposeVersions, MsgReplyVersions or
+// MsgQueryReply whose recognised keys are not. It skips a version it does
+// not recognise, wherever that version appears.
 func TestVersionMapKeysMustAscend(t *testing.T) {
 	for kindName, kind := range map[string]uint{
 		"propose":     MessageTypeProposeVersions,
@@ -52,7 +53,22 @@ func TestVersionMapKeysMustAscend(t *testing.T) {
 			},
 			{
 				"descending across encoded widths",
-				[]byte{0xa2, 0x18, 0x20, 0xf4, 0x0e, 0xf4},
+				[]byte{0xa2, 0x19, 0x80, 0x10, 0xf4, 0x0e, 0xf4},
+				"out of order",
+			},
+			{
+				"unrecognised key first",
+				[]byte{0xa2, 0x18, 0x63, 0xf4, 0x0e, 0xf4},
+				"",
+			},
+			{
+				"unrecognised key between ascending",
+				[]byte{0xa3, 0x0e, 0xf4, 0x18, 0x63, 0xf4, 0x0f, 0xf4},
+				"",
+			},
+			{
+				"unrecognised key between descending",
+				[]byte{0xa3, 0x0f, 0xf4, 0x18, 0x63, 0xf4, 0x0e, 0xf4},
 				"out of order",
 			},
 			{"duplicate", []byte{0xa2, 0x0e, 0xf4, 0x0e, 0xf4}, "duplicate"},
