@@ -1043,84 +1043,43 @@ func (d *StreamDecoder) SkipN(n int) (int, int, error) {
 	return start, end - start, nil
 }
 
-// DecodeArrayItems decodes all items in an array, calling the callback for each.
-// The callback receives the item index, start offset, and length.
-// Returns the total array byte range (including header).
+// DecodeArrayItems walks the definite-length array at the current position one
+// item at a time, calling the callback for each item before the next item is
+// examined. The callback receives the item index, the item's absolute start
+// offset, its length, and its raw bytes. The data slice aliases the decoder's
+// input and must not be modified. A nil callback only validates and skips the
+// items.
+//
+// Nothing is allocated from the declared element count, and a callback error
+// stops processing immediately and is returned unchanged. Items are not
+// validated ahead of time, so the callback can run for earlier items before a
+// later malformed item is detected; on any error the decoder is left partway
+// through the array and must not be reused.
+//
+// Returns the array's start offset and its total length including the header.
+// Indefinite-length arrays and non-array items are rejected.
 func (d *StreamDecoder) DecodeArrayItems(
 	callback func(index int, offset int, length int, data []byte) error,
 ) (int, int, error) {
-	arrayStart := d.consumed + d.dec.NumBytesRead()
-
-	// Decode as array of RawMessage to get each item's bytes
-	var items []RawMessage
-	if _, _, err := d.Decode(&items); err != nil {
+	count, arrayStart, _, err := d.DecodeArrayHeader()
+	if err != nil {
 		return 0, 0, fmt.Errorf("decode array: %w", err)
 	}
-
-	arrayEnd := d.consumed + d.dec.NumBytesRead()
-
-	// Calculate actual header size from the raw bytes to handle non-canonical encodings
-	headerLen, err := cborArrayHeaderSizeFromBytes(d.data, arrayStart)
-	if err != nil {
-		return 0, 0, fmt.Errorf("parse array header: %w", err)
-	}
-
-	// Calculate positions for each item
-	// The array header is followed by consecutive items
-	pos := arrayStart + headerLen
-	for i, item := range items {
-		itemLen := len(item)
-		if callback != nil {
-			if err := callback(i, pos, itemLen, []byte(item)); err != nil {
-				return 0, 0, err
-			}
+	for i := range count {
+		itemStart := d.consumed + d.dec.NumBytesRead()
+		if err := d.dec.Skip(); err != nil {
+			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
 		}
-		pos += itemLen
+		itemEnd := d.consumed + d.dec.NumBytesRead()
+		if callback == nil {
+			continue
+		}
+		data := d.data[itemStart:itemEnd:itemEnd]
+		if err := callback(i, itemStart, itemEnd-itemStart, data); err != nil {
+			return 0, 0, err
+		}
 	}
-
-	return arrayStart, arrayEnd - arrayStart, nil
-}
-
-// cborArrayHeaderSizeFromBytes returns the actual size of a CBOR array header by
-// reading the bytes at the given offset. This handles non-canonical encodings correctly.
-// Returns an error for indefinite-length arrays.
-func cborArrayHeaderSizeFromBytes(data []byte, offset int) (int, error) {
-	if offset >= len(data) {
-		return 0, errors.New("unexpected end of data reading array header")
-	}
-
-	firstByte := data[offset]
-	majorType := firstByte & CborTypeMask
-
-	if majorType != CborTypeArray {
-		return 0, fmt.Errorf(
-			"expected array (0x%x), got 0x%x",
-			CborTypeArray,
-			majorType,
-		)
-	}
-
-	additionalInfo := firstByte & 0x1f
-
-	switch {
-	case additionalInfo < 24:
-		return 1, nil
-	case additionalInfo == 24:
-		return 2, nil
-	case additionalInfo == 25:
-		return 3, nil
-	case additionalInfo == 26:
-		return 5, nil
-	case additionalInfo == 27:
-		return 9, nil
-	case additionalInfo == 31:
-		return 0, errors.New("indefinite length arrays not supported")
-	default:
-		return 0, fmt.Errorf(
-			"invalid array additional info: %d",
-			additionalInfo,
-		)
-	}
+	return arrayStart, d.consumed + d.dec.NumBytesRead() - arrayStart, nil
 }
 
 // ArrayInfo extracts array item count and header size from CBOR array data.
