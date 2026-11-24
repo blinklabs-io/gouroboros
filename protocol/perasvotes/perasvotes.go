@@ -35,8 +35,9 @@ const (
 	DefaultMaxObjectsUnacknowledged uint16 = 50
 	// MaxObjectsUnacknowledged bounds the configurable outstanding ID window.
 	MaxObjectsUnacknowledged uint16 = 1000
-	// DefaultTimeout bounds non-blocking ID and object requests.
-	DefaultTimeout = 5 * time.Second
+	// DefaultTimeout bounds non-blocking ID and object requests. It is the
+	// reference's shortWait for those states.
+	DefaultTimeout = 10 * time.Second
 	// CanAwaitTimeout bounds the wait for the first answer to a blocking ID
 	// request: identifiers or MsgAwaitReply. It is the reference's shortWait.
 	CanAwaitTimeout = 10 * time.Second

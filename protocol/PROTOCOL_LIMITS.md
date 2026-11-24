@@ -396,7 +396,7 @@ Nonpositive Leios Fetch range limits select the defaults.
 | Init, Idle | none | `maxObjectsUnacknowledged × 1,100 + 256` |
 | ObjectIDsBlocking | 10 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
 | ObjectIDsBlockingMustReply | 60 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
-| ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsNonBlocking, Objects | 10 seconds by default (the reference's shortWait) | `maxObjectsUnacknowledged × 1,100 + 256` |
 | Done | none | none |
 
 The outstanding object window defaults to 50 and can be configured up to
