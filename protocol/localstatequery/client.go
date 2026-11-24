@@ -325,7 +325,7 @@ func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
 	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
-	var result []EraHistoryResult
+	var result eraHistoryReply
 	if err := c.runQuery(query, &result); err != nil {
 		return []EraHistoryResult{}, err
 	}

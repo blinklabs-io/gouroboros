@@ -852,6 +852,25 @@ type EraHistoryResult struct {
 	Params eraHistoryResultParams
 }
 
+func (r *EraHistoryResult) UnmarshalCBOR(data []byte) error {
+	// A null, tagged or not, would otherwise decode into a zero summary
+	// without error, so a reply of nulls would still cost a whole summary per
+	// few bytes.
+	if d := cbor.SkipTags(data); len(d) == 1 && (d[0] == 0xf6 || d[0] == 0xf7) {
+		return errors.New("era history summary cannot be null or undefined")
+	}
+	type plain EraHistoryResult
+	var tmp plain
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = EraHistoryResult(tmp)
+	return nil
+}
+
+// eraHistoryReply is the GetEraHistory reply, a list of eras.
+type eraHistoryReply = growingArray[EraHistoryResult]
+
 type eraHistoryResultBound struct {
 	cbor.StructAsArray
 	Timespan   any
@@ -1484,6 +1503,22 @@ func (r *UTxOByTxInResult) UnmarshalCBOR(data []byte) error {
 type StakePoolsResult struct {
 	cbor.StructAsArray
 	Results []ledger.PoolId
+}
+
+// stakePoolsWire is StakePoolsResult with its pool set grown as entries
+// decode.
+type stakePoolsWire struct {
+	cbor.StructAsArray
+	Results growingArray[ledger.PoolId]
+}
+
+func (r *StakePoolsResult) UnmarshalCBOR(data []byte) error {
+	var tmp stakePoolsWire
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = StakePoolsResult{Results: tmp.Results}
+	return nil
 }
 
 // AccountState is the chain's treasury and reserves pots. Both are signed

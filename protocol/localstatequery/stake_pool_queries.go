@@ -21,6 +21,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 // ShelleyStakePoolDefaultVoteQuery is QueryStakePoolDefaultVote (Shelley
@@ -192,8 +193,8 @@ func (r *DRepDelegationsResult) UnmarshalCBOR(data []byte) error {
 		data,
 		"DRep delegations",
 		func(dec *cbor.StreamDecoder, drep lcommon.Drep) error {
-			var delegators cbor.SetType[lcommon.Credential]
-			if _, _, err := dec.Decode(&delegators); err != nil {
+			delegators, err := nextCredentialSet(dec)
+			if err != nil {
 				return fmt.Errorf(
 					"DRep delegations: decoding delegators: %w",
 					err,
@@ -201,7 +202,7 @@ func (r *DRepDelegationsResult) UnmarshalCBOR(data []byte) error {
 			}
 			entries = append(entries, DRepDelegationsEntry{
 				Drep:       drep,
-				Delegators: delegators.Items(),
+				Delegators: delegators,
 			})
 			return nil
 		},
@@ -211,6 +212,59 @@ func (r *DRepDelegationsResult) UnmarshalCBOR(data []byte) error {
 	}
 	*r = entries
 	return nil
+}
+
+// nextCredentialSet decodes the credential set at dec's position and advances
+// past it. The set is measured and read in place: skipping it through the
+// stream decoder would first copy the whole set into its read buffer.
+func nextCredentialSet(dec *cbor.StreamDecoder) ([]lcommon.Credential, error) {
+	start := dec.Position()
+	length, err := cborwalk.ItemLength(dec.Data()[start:])
+	if err != nil {
+		return nil, err
+	}
+	if err := dec.Advance(length); err != nil {
+		return nil, err
+	}
+	return decodeCredentialSet(dec.Data()[start : start+length])
+}
+
+// cborTagSelfDescribed is the self-described CBOR tag (RFC 8949 3.4.6).
+const cborTagSelfDescribed = 55799
+
+// decodeCredentialSet decodes a set of stake credentials, tagged 258 or
+// untagged, reading data in place. It grows the result only with credentials
+// that decode, where a cbor.SetType would size it from the peer-declared count
+// first.
+func decodeCredentialSet(data []byte) ([]lcommon.Credential, error) {
+	content := data
+	for {
+		head, ok, err := cborwalk.ReadHead(content, 0)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errors.New("truncated credential set")
+		}
+		if head.Major != cbor.CborTypeTag>>5 {
+			break
+		}
+		// The generic decoder ignores the self-described tag, so a set
+		// carrying it was accepted before and still is.
+		if head.Argument != cbor.CborTagSet &&
+			head.Argument != cborTagSelfDescribed {
+			return nil, fmt.Errorf("unexpected tag %d", head.Argument)
+		}
+		content = content[head.EncodedSize:]
+	}
+	if len(content) == 1 && (content[0] == 0xf6 || content[0] == 0xf7) {
+		return nil, errors.New("credential set cannot be null or undefined")
+	}
+	var items growingArray[lcommon.Credential]
+	if _, err := cbor.Decode(content, &items); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r DRepDelegationsResult) MarshalCBOR() ([]byte, error) {
