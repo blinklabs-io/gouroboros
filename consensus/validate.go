@@ -120,7 +120,8 @@ type ValidateHeaderInput struct {
 	PrevHeaderHash  []byte
 	// PrevIsOrigin reports that the header is the first on the chain, with
 	// no previous header. Its block number must then be 0, any slot is
-	// allowed, and PrevSlot, PrevBlockNumber and PrevHeaderHash are ignored.
+	// allowed, PrevHash must be empty or the zero hash (the genesis), and
+	// PrevSlot, PrevBlockNumber and PrevHeaderHash are ignored.
 	PrevIsOrigin bool
 
 	// Epoch nonce for VRF verification
@@ -308,9 +309,18 @@ func (v *HeaderValidator) validateBlockNumber(
 	return nil
 }
 
-// validatePrevHash checks that prev hash matches.
+// validatePrevHash checks that prev hash matches. The first header on a
+// chain must name the genesis as its predecessor: the reference's
+// validateEnvelope accepts only GenesisHash after Origin, which a Shelley
+// header encodes as null and gOuroboros decodes as the zero hash.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 	if input.PrevIsOrigin {
+		if !isGenesisPrevHash(input.PrevHash) {
+			return fmt.Errorf(
+				"first header must follow the genesis, got previous hash %x",
+				input.PrevHash,
+			)
+		}
 		return nil
 	}
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
@@ -327,6 +337,23 @@ func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 		)
 	}
 	return nil
+}
+
+// isGenesisPrevHash reports whether prevHash is the genesis representation:
+// absent, or the 32-byte zero hash a null predecessor decodes to.
+func isGenesisPrevHash(prevHash []byte) bool {
+	if len(prevHash) == 0 {
+		return true
+	}
+	if len(prevHash) != 32 {
+		return false
+	}
+	for _, b := range prevHash {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyCertifiedVRF verifies a VRF certificate (proof + output) against the
