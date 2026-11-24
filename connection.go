@@ -127,6 +127,15 @@ type Connection struct {
 	// muxerSegmentReadTimeout overrides the muxer's default segment-read
 	// timeout when non-nil; see WithMuxerSegmentReadTimeout.
 	muxerSegmentReadTimeout *time.Duration
+
+	// setupMu orders setupConnection's writes of doneChan and muxer against
+	// Close and shutdown, which can run on another goroutine while Dial is
+	// still setting up: shutdown either finds the muxer and stops it, or
+	// setup finds doneChan closed and creates none.
+	setupMu sync.Mutex
+	// beforeMuxerHook, when set by a test, runs in setupConnection after
+	// doneChan is published and before the muxer is created.
+	beforeMuxerHook func()
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -256,7 +265,10 @@ func (c *Connection) DialTimeout(
 
 // Close will shutdown the Ouroboros connection
 func (c *Connection) Close() error {
-	if c.doneChan == nil {
+	c.setupMu.Lock()
+	doneChan := c.doneChan
+	c.setupMu.Unlock()
+	if doneChan == nil {
 		return nil
 	}
 	c.requestClose()
@@ -379,8 +391,11 @@ func (c *Connection) shutdown() {
 	c.onceShutdown.Do(func() {
 		c.stopProtocols()
 		// Gracefully stop the muxer
-		if c.muxer != nil {
-			c.muxer.Stop()
+		c.setupMu.Lock()
+		m := c.muxer
+		c.setupMu.Unlock()
+		if m != nil {
+			m.Stop()
 		}
 		// Wait for other goroutines to finish
 		c.waitGroup.Wait()
@@ -681,17 +696,32 @@ func (c *Connection) setupConnection() error {
 		return errors.New("WithDMQ and WithNodeToNode are mutually exclusive")
 	}
 	// Start Goroutine to shutdown when doneChan is closed
-	c.doneChan = make(chan any)
+	doneChan := make(chan any)
+	c.setupMu.Lock()
+	c.doneChan = doneChan
+	c.setupMu.Unlock()
 	go func() {
-		<-c.doneChan
+		<-doneChan
 		c.shutdown()
 	}()
+	if c.beforeMuxerHook != nil {
+		c.beforeMuxerHook()
+	}
 	// Populate connection ID
 	c.id = ConnectionId{
 		LocalAddr:  c.conn.LocalAddr(),
 		RemoteAddr: c.conn.RemoteAddr(),
 	}
-	// Create muxer instance
+	// Create muxer instance, unless a Close has already begun shutdown,
+	// which would not see a muxer created after it read c.muxer.
+	c.setupMu.Lock()
+	select {
+	case <-doneChan:
+		c.setupMu.Unlock()
+		_ = c.conn.Close()
+		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
+	default:
+	}
 	if c.muxerSegmentReadTimeout != nil {
 		c.muxer = muxer.NewWithSegmentReadTimeout(
 			c.conn,
@@ -700,6 +730,7 @@ func (c *Connection) setupConnection() error {
 	} else {
 		c.muxer = muxer.New(c.conn)
 	}
+	c.setupMu.Unlock()
 	// Start Goroutine to pass along errors from the muxer
 	c.waitGroup.Go(func() {
 		select {
