@@ -882,22 +882,13 @@ func wmKeyNeeded(era wmEra, c wmKeyCell) uint8 {
 
 // wmKeySpec: every needed key hash is among the witness key hashes (vkey
 // hashes and bootstrap roots alike, keyHashWitnessesTxWits), and every
-// supplied signature verifies (validateVerifiedWits).
-//
-// The reference also counts a bootstrap root towards the MIR genesis quorum
-// and the update-proposal delegates (genSig and witsVKeyNeededGenDelegs are
-// both taken over keyHashWitnessesTxWits). gOuroboros counts only vkey
-// witnesses there, and wmGenesisVkeyOnly records that difference.
+// supplied signature verifies (validateVerifiedWits). This includes the MIR
+// genesis quorum and the update-proposal delegates: the reference takes
+// genSig and witsVKeyNeededGenDelegs over keyHashWitnessesTxWits too.
 func wmKeySpec(era wmEra, c wmKeyCell) bool {
 	need := wmKeyNeeded(era, c)
-	wits := c.wits
-	if wmGenesisVkeyOnly && (c.src == "mir" || c.src == "ppup") {
-		wits &^= 1 << wmB
-	}
-	return need&^wits == 0 && !c.bad
+	return need&^c.wits == 0 && !c.bad
 }
-
-const wmGenesisVkeyOnly = true
 
 func wmKeyTx(t *testing.T, era wmEra, c wmKeyCell) wmTx {
 	h := wmHash(c.key)
