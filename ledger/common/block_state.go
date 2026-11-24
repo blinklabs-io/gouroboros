@@ -591,15 +591,15 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	if err != nil {
 		return err
 	}
-	registered := current != nil
-	if registered {
+	registered := false
+	if current != nil {
 		registered, err = b.poolRegistered(cert.Operator)
 		if err != nil {
 			return err
 		}
 	}
 	pool := b.pool(cert.Operator)
-	if !registered {
+	if current == nil || !registered {
 		pool.registration = cert
 		pool.registrationKnown = true
 		pool.retirementEpoch = nil
