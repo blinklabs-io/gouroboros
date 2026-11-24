@@ -12,22 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A model-driven test of the Shelley certificate lifecycle: stake credential
+// A table-driven test of the Shelley certificate lifecycle: stake credential
 // registration, delegation and deregistration (DELEG), pool registration,
 // re-registration and retirement (POOL), and the epoch boundary that reaps
-// retired pools (POOLREAP). The rules below restate the CertLifecycle TLA+
-// model (specs/14-ledger-shelley in gouroboros-tla-models), which follows
-// eras/shelley/formal-spec/delegation.tex and epoch.tex and the reference
-// rules in eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs,
-// Pool.hs and PoolReap.hs, and Shelley/TxCert.hs for deposits.
+// retired pools (POOLREAP). The rules below restate
+// eras/shelley/formal-spec/delegation.tex and epoch.tex and the reference rules
+// in eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Deleg.hs, Pool.hs and
+// PoolReap.hs, and Shelley/TxCert.hs for deposits.
 //
-// gOuroboros keeps no ledger state, so the test plays the caller: it holds
-// the model state, answers LedgerState queries from it, and performs the
-// epoch boundary. It walks every state reachable from an empty ledger and,
-// in each, every certificate, alone and after each accepted certificate of
-// an earlier transaction in the same block (through BlockLedgerState). For
-// each it checks that gOuroboros accepts exactly what the model accepts and
-// charges exactly the model's deposit or refund.
+// gOuroboros keeps no ledger state, so the test plays the caller: it holds the
+// reference state, answers LedgerState queries from it, and performs the epoch
+// boundary. It walks every state reachable from an empty ledger and, in each,
+// every certificate, alone and after each accepted certificate of an earlier
+// transaction in the same block (through BlockLedgerState). For each it checks
+// that gOuroboros accepts exactly what the reference accepts and charges
+// exactly the reference deposit or refund.
 
 package ledger_test
 
@@ -65,7 +64,7 @@ var (
 	lcVrf  = vrfKeyHash(0x62)
 )
 
-// lcState is the ledger as the model holds it. A balance is zero or
+// lcState is the ledger as the reference holds it. A balance is zero or
 // non-zero; the amount does not change any rule.
 type lcState struct {
 	epoch      uint64
@@ -127,9 +126,9 @@ func lcAllCerts() []lcCert {
 	return certs
 }
 
-// accepts is the model's SpecAccepts: Deleg-Reg, Deleg-Dereg (empty account
-// only), Deleg-Deleg with DELEGS' registered-pool check, Pool-Reg/reReg,
-// and Pool-Retire.
+// accepts is the reference acceptance (Deleg.hs delegationTransition, Pool.hs
+// poolTransition): Deleg-Reg, Deleg-Dereg (empty account only), Deleg-Deleg
+// with DELEGS' registered-pool check, Pool-Reg/reReg, and Pool-Retire.
 func (s lcState) accepts(c lcCert) bool {
 	switch c.kind {
 	case lcRegKey:
@@ -146,7 +145,7 @@ func (s lcState) accepts(c lcCert) bool {
 	}
 }
 
-// deposit is the model's SpecDeposit: what the certificate adds to the
+// deposit is the reference deposit change: what the certificate adds to the
 // deposit pot, negative for a refund. A pool deposit is due only for a pool
 // not already registered (shelleyTotalDepositsTxCerts).
 func (s lcState) deposit(c lcCert) int64 {
@@ -165,7 +164,7 @@ func (s lcState) deposit(c lcCert) int64 {
 	}
 }
 
-// apply is the model's effect of an accepted certificate. A
+// apply is the reference effect of an accepted certificate. A
 // re-registration cancels a pending retirement; its new parameters wait
 // for the boundary and change no rule here.
 func (s lcState) apply(c lcCert) lcState {
@@ -240,7 +239,7 @@ func lcCredIndex(cred common.Credential) (int, bool) {
 	return 0, false
 }
 
-// lcView answers the caller's LedgerState queries from a model state, as a
+// lcView answers the caller's LedgerState queries from a test state, as a
 // caller that commits every block and reaps at the boundary would.
 type lcView struct {
 	common.LedgerState
@@ -438,8 +437,8 @@ func lcGoVerdict(
 	return true, nil, net.Int64()
 }
 
-// lcCheck compares gOuroboros with the model for every certificate in
-// model state s, read through ls. It returns how many cells it checked.
+// lcCheck compares gOuroboros with the reference for every certificate in state
+// s, read through ls. It returns how many cells it checked.
 func lcCheck(
 	t *testing.T,
 	label string,
@@ -455,7 +454,7 @@ func lcCheck(
 		want := s.accepts(c)
 		require.Equal(
 			t, want, accepted,
-			"%s: %s in %+v: model accepts=%v, gOuroboros err=%v",
+			"%s: %s in %+v: reference accepts=%v, gOuroboros err=%v",
 			label, c, s, want, err,
 		)
 		if want {
@@ -469,10 +468,10 @@ func lcCheck(
 	return cells
 }
 
-// TestCertLifecycleModel walks every model state reachable from an empty
-// ledger within lcMaxEpoch epochs. In each state it checks every certificate
-// against a fresh block, and again after each accepted certificate of an
-// earlier transaction in the block, which BlockLedgerState must fold in.
+// TestCertLifecycleModel walks every state reachable from an empty ledger
+// within lcMaxEpoch epochs. In each state it checks every certificate against a
+// fresh block, and again after each accepted certificate of an earlier
+// transaction in the block, which BlockLedgerState must fold in.
 func TestCertLifecycleModel(t *testing.T) {
 	t.Parallel()
 	pp := lcPparams()
