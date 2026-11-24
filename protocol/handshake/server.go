@@ -100,26 +100,8 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
 
-	// Query and refusal responses must reach the transport before returning
-	// a terminal error, which stops the protocol and can discard queued sends.
-	for proposedVersion, versionDataCbor := range msgProposeVersions.VersionMap {
-		versionInfo := protocol.GetProtocolVersion(proposedVersion)
-		if versionInfo.NewVersionDataFromCborFunc != nil {
-			proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
-				versionDataCbor,
-			)
-			if err == nil && proposedVersionData != nil &&
-				proposedVersionData.Query() {
-				msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
-				if err := s.SendMessageAndWait(msgQueryReply); err != nil {
-					return err
-				}
-				return errors.New(
-					"handshake query mode: connection terminated after query reply",
-				)
-			}
-		}
-	}
+	// Refusal responses must reach the transport before returning a terminal
+	// error, which stops the protocol and can discard queued sends.
 
 	// Compute intersection of supported and proposed protocol versions
 	var versionIntersect []uint16
@@ -221,6 +203,20 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 		return fmt.Errorf(
 			"handshake failed: refused due to protocol parameters mismatch: %s",
 			errMsg,
+		)
+	}
+	// A query is answered only for a proposal that would be accepted, and
+	// only when the agreed data asks for one: the reference server runs the
+	// whole negotiation first, so a query with no common version or a
+	// different network magic is refused like any other proposal. The reply,
+	// like a refusal, must reach the transport before the terminal error.
+	if proposedVersionData.Query() || versionData.Query() {
+		msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
+		if err := s.SendMessageAndWait(msgQueryReply); err != nil {
+			return err
+		}
+		return errors.New(
+			"handshake query mode: connection terminated after query reply",
 		)
 	}
 	// Accept the proposed version
