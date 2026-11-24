@@ -42,6 +42,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateSignatures,
 	},
 	{
+		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
+		Validator: UtxoValidateMIRGenesisQuorum,
+	},
+	{
 		Id:        common.UtxoValidationRuleProtocolParameterUpdates,
 		Validator: UtxoValidateProtocolParameterUpdates,
 	},
@@ -170,10 +174,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateDelegation,
 	},
 	{
-		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
-		Validator: UtxoValidateMIRGenesisQuorum,
-	},
-	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
@@ -202,6 +202,9 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateIsValidFlag,
 		UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateSignatures,
+		// The MIR quorum is a UTXOW check, so it runs for an IsValid
+		// false transaction too.
+		UtxoValidateMIRGenesisQuorum,
 		UtxoValidateProtocolParameterUpdates,
 		UtxoValidateCollateralVKeyWitnesses,
 		common.UtxoValidateCollateralKeyLocked,
@@ -237,7 +240,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidatePlutusScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateDelegation, UtxoValidateMIRGenesisQuorum,
+		UtxoValidateDelegation,
 		UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
 	),
 )
