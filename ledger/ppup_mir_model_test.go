@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Model-driven tables for the Shelley-to-Babbage protocol parameter update
-// (PPUP) and move instantaneous rewards (MIR) rules. Each cell is one
-// transaction step of the TLA+ models Ppup.tla and Mir.tla
-// (specs/26-ledger-ppup-mir in gouroboros-tla-models). The expected verdict
-// is the models' gOuroboros half, GoOk, which equals the ledger's RefOk
-// except where a go*Fixed constant below is false. The cells run each era's
-// composed UtxoValidationRules, so the phase-2-valid gating is exercised too.
+// Tables for the Shelley-to-Babbage protocol parameter update (PPUP) and
+// move instantaneous rewards (MIR) rules. Each cell is one transaction,
+// carrying an update or a MIR certificate, against a ledger state. The
+// expected verdict restates the reference (cardano-ledger Rules/Ppup.hs,
+// Rules/Deleg.hs and Rules/Utxow.hs; Alonzo and Babbage Rules/Utxos.hs), and
+// gOuroboros is expected to agree with it except where a go*Fixed constant
+// below is false. The cells run each era's composed UtxoValidationRules, so
+// the phase-2-valid gating is exercised too.
 
 package ledger_test
 
@@ -38,17 +39,17 @@ import (
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 )
 
-// The models' gOuroboros constants. A false value means gOuroboros still
-// deviates from the ledger in that way, and the cells it covers expect the
-// deviation.
+// Known differences from the reference. A false value means gOuroboros
+// still deviates from the ledger in that way, and the cells it covers expect
+// the deviation.
 const (
-	// GoEmptyFixed: an update whose proposal map is empty still has its
+	// goEmptyUpdateFixed: an update whose proposal map is empty still has its
 	// target epoch checked (Rules/Ppup.hs ppupTransitionNonEmpty).
 	goEmptyUpdateFixed = false
-	// GoPhase2Fixed: PPUP does not run for an IsValid false transaction
+	// goPhase2InvalidPpupFixed: PPUP does not run for an IsValid false transaction
 	// (Alonzo and Babbage Rules/Utxos.hs run it on the valid branch only).
 	goPhase2InvalidPpupFixed = false
-	// GoQuorumFixed: the MIR genesis quorum is checked for every
+	// goMirQuorumPhase2InvalidFixed: the MIR genesis quorum is checked for every
 	// transaction (UTXOW validateMIRInsufficientGenesisSigs).
 	goMirQuorumPhase2InvalidFixed = false
 )
@@ -80,8 +81,7 @@ type modelEra struct {
 	rules    []common.UtxoValidationRuleFunc
 	phaseTwo bool
 	// baseMajor is the era's protocol major version; the PPUP cells
-	// propose versions relative to it, as the model proposes them
-	// relative to 2.0.
+	// propose versions relative to it.
 	baseMajor uint
 	pparams   func(major, minor uint) common.ProtocolParameters
 	update    func(pv *common.ProtocolParametersProtocolVersion) common.ProtocolParameterUpdate
@@ -137,7 +137,7 @@ func modelEras() []modelEra {
 
 // firstMatching runs every composed rule and returns the first error that
 // match accepts. Other rules fail on these minimal transactions for reasons
-// the cells do not model; only the matched failures are the cell's verdict.
+// the cells do not cover; only the matched failures are the cell's verdict.
 func firstMatching(
 	rules []common.UtxoValidationRuleFunc,
 	tx common.Transaction,
@@ -233,7 +233,7 @@ func (ppupModelState) ProtocolParameterUpdateWindow(uint64) (uint64, uint64, err
 	return ppupEpoch, ppupNoReturnSlot, nil
 }
 
-// The model's updates: "a" proposes no version; "a21", "a3" and "a4" a
+// The test updates: "a" proposes no version; "a21", "a3" and "a4" a
 // minor bump, a major bump and a double major bump of the base version.
 var ppupModelUpdates = []string{"a", "a21", "a3", "a4"}
 
@@ -249,13 +249,13 @@ func ppupUpdatePV(u string, baseMajor uint) *common.ProtocolParametersProtocolVe
 	return nil
 }
 
-// ppupCanFollow is the model's CanFollow (pvCanFollow).
+// ppupCanFollow is the reference's pvCanFollow (Rules/Ppup.hs).
 func ppupCanFollow(cur, next common.ProtocolParametersProtocolVersion) bool {
 	return (next.Major == cur.Major+1 && next.Minor == 0) ||
 		(next.Major == cur.Major && next.Minor == cur.Minor+1)
 }
 
-// ppupCell is one Submit step of Ppup.tla.
+// ppupCell is one transaction carrying an update.
 type ppupCell struct {
 	keys   []string // "g1", "g2" or the outsider "x"
 	update string
@@ -265,10 +265,10 @@ type ppupCell struct {
 	pv     common.ProtocolParametersProtocolVersion
 }
 
-// ppupRefOk is the model's RefOk: PPUP runs unless the transaction is IsValid
-// false in an era with phase-2 validation, and then checks that every key is
-// a genesis key, that a proposed version can follow (vacuous for an empty
-// map), and that the target epoch is the one the slot allows.
+// ppupRefOk is the reference's verdict: PPUP runs unless the transaction is
+// IsValid false in an era with phase-2 validation, and then checks that
+// every key is a genesis key, that a proposed version can follow (vacuous for
+// an empty map), and that the target epoch is the one the slot allows.
 func ppupRefOk(c ppupCell, phaseTwo bool, baseMajor uint) bool {
 	if phaseTwo && !c.valid {
 		return true
@@ -291,7 +291,8 @@ func ppupChecksOk(c ppupCell, baseMajor uint) bool {
 	return c.next == c.late
 }
 
-// ppupGoOk is the model's GoOk.
+// ppupGoOk is the verdict expected from gOuroboros: ppupRefOk, with the
+// differences a false go*Fixed constant keeps.
 func ppupGoOk(c ppupCell, phaseTwo bool, baseMajor uint) bool {
 	runs := !phaseTwo || c.valid || !goPhase2InvalidPpupFixed
 	if !runs {
@@ -329,7 +330,7 @@ func TestPpupModelTable(t *testing.T) {
 		if era.phaseTwo {
 			validFlags = []bool{true, false}
 		}
-		// The model's parameters: the base version, and the version after
+		// The parameters: the base version, and the version after
 		// a major bump was adopted.
 		versions := []common.ProtocolParametersProtocolVersion{
 			{Major: era.baseMajor},
@@ -422,7 +423,8 @@ func (s mirModelState) PendingInstantaneousRewards(
 	return nil, nil
 }
 
-// mirCell is one Submit step of Mir.tla, with the state it is taken from.
+// mirCell is one transaction carrying a MIR certificate, with the state it
+// is taken from.
 type mirCell struct {
 	pots     [2]int64 // reserves, treasury
 	ir       [2][2]int64
@@ -439,7 +441,9 @@ type mirCell struct {
 
 func mirSum(xs [2]int64) int64 { return xs[0] + xs[1] }
 
-// mirRefOk is the model's RefOk.
+// mirRefOk is the reference's verdict: the genesis quorum (Rules/Utxow.hs)
+// for every transaction, then the MIR certificate rule (Rules/Deleg.hs) for
+// a valid one.
 func mirRefOk(c mirCell, alonzoRules bool) bool {
 	if c.sigs < 2 {
 		return false
@@ -467,7 +471,8 @@ func mirDelegOk(c mirCell, alonzoRules bool) bool {
 	return c.delta >= 0 && mirSum(combined) <= c.pots[c.pot]
 }
 
-// mirGoOk is the model's GoOk.
+// mirGoOk is the verdict expected from gOuroboros: mirRefOk, with the
+// difference goMirQuorumPhase2InvalidFixed keeps while false.
 func mirGoOk(c mirCell, alonzoRules bool) bool {
 	checksQuorum := c.valid || goMirQuorumPhase2InvalidFixed
 	if checksQuorum && c.sigs < 2 {
@@ -498,7 +503,7 @@ func isMirError(err error) bool {
 
 func TestMirModelTable(t *testing.T) {
 	genesis := newModelGenesis()
-	// The model's starting states, and states an epoch of certificates
+	// The starting states, and states an epoch of certificates
 	// can reach: a pending credit, and a pending transfer out of the
 	// reserves.
 	type start struct {
