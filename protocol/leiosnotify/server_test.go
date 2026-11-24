@@ -96,7 +96,7 @@ func TestNewServer(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	require.NotNil(t, server)
-	assert.NotNil(t, server.Protocol)
+	assert.NotNil(t, server.ProtocolInstance())
 	assert.NotNil(t, server.config)
 }
 
@@ -165,7 +165,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 		Muxer:              m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop(context.Background())
+	defer server.ProtocolInstance().Stop(context.Background())
 	defer close(testCleanup)
 	m.Start()
 
@@ -263,7 +263,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop(context.Background())
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -317,7 +317,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop(context.Background())
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -390,7 +390,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	// The request callback is held, so this Stop only signals.
 	signalOnly, cancel := context.WithCancel(context.Background())
 	cancel()
-	_ = server.Protocol.Stop(signalOnly)
+	_ = server.ProtocolInstance().Stop(signalOnly)
 	close(releaseRequest)
 
 	select {
@@ -448,7 +448,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 		&cfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop(context.Background())
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -460,7 +460,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	)
 
 	require.Eventually(t, func() bool {
-		return !server.IsInTerminalOrIdleState()
+		return !server.ProtocolInstance().IsInTerminalOrIdleState()
 	}, time.Second, 10*time.Millisecond, "server should remain in Busy")
 	assert.False(t, server.IsDone(), "pending request must not close protocol")
 	assert.Equal(t, connId, server.callbackContext.ConnectionId)
@@ -470,7 +470,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 		testAnnouncementEra,
 		cbor.RawMessage{0x82, 0x01, 0x02},
 	)
-	require.NoError(t, server.SendMessage(response))
+	require.NoError(t, server.ProtocolInstance().SendMessage(response))
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
 	require.NoError(t, err)

@@ -100,7 +100,7 @@ func assertUnconfiguredRequestFailsConnection(
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop(context.Background())
+		_ = server.ProtocolInstance().Stop(context.Background())
 		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
@@ -195,7 +195,7 @@ func sendRepeatedRequestTest(
 		&peerSharingCfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop(context.Background())
+	defer server.ProtocolInstance().Stop(context.Background())
 	peerSharingServer.Start()
 	defer peerSharingServer.ProtocolInstance().Stop(context.Background())
 	m.Start()
@@ -265,7 +265,7 @@ func TestNewServer(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	require.NotNil(t, server)
-	assert.NotNil(t, server.Protocol)
+	assert.NotNil(t, server.ProtocolInstance())
 	assert.NotNil(t, server.config)
 }
 
