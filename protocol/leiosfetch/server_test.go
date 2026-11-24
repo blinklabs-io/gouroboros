@@ -197,7 +197,7 @@ func sendRepeatedRequestTest(
 	server.Start()
 	defer server.Protocol.Stop(context.Background())
 	peerSharingServer.Start()
-	defer peerSharingServer.Protocol.Stop(context.Background())
+	defer peerSharingServer.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	var msgType uint

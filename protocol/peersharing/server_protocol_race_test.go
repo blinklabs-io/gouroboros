@@ -15,6 +15,7 @@
 package peersharing_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
@@ -40,7 +41,7 @@ func TestServerMethodsDuringRestart(t *testing.T) {
 		&peersharing.Config{},
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(peersharing.NewMsgDone())
