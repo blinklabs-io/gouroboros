@@ -34,6 +34,12 @@ type objectsResult struct {
 	err     error
 }
 
+// ErrCalledFromVoteFunc is returned by a client method called from VoteFunc
+// with the Context of the CallbackContext the client passed it.
+var ErrCalledFromVoteFunc = errors.New(
+	"peras votes client called from its own VoteFunc during Sync",
+)
+
 // Client runs the inbound/client side of ObjectDiffusion.
 type Client struct {
 	*protocol.Protocol
@@ -205,9 +211,10 @@ func (c *Client) requestObjects(
 // Sync continuously requests and acknowledges vote batches until cancellation
 // or shutdown. A VoteFunc error stops the protocol because the batch is no
 // longer safe to acknowledge. VoteFunc runs while Sync holds the request
-// exchange, so a VoteFunc that calls RequestObjectIDs, RequestObjects or Done
-// on the same client waits until its own context ends; to end the sync from
-// VoteFunc, return an error or cancel Sync's context.
+// exchange: RequestObjectIDs, RequestObjects or Done called from VoteFunc
+// with the Context of its CallbackContext returns ErrCalledFromVoteFunc at
+// once, and with any other context waits for Sync to end or for that
+// context. To end the sync from VoteFunc, return an error.
 func (c *Client) Sync(ctx context.Context) error {
 	if c.config.VoteFunc == nil {
 		return errors.New("peras vote function must be configured for sync")
@@ -246,7 +253,9 @@ func (c *Client) Sync(ctx context.Context) error {
 				_ = c.Protocol.Stop(ctx)
 				return err
 			}
-			if err := c.config.VoteFunc(c.callbackContext.withOwner(c.Protocol), id, object); err != nil {
+			cbCtx := c.callbackContext.withOwner(c.Protocol)
+			cbCtx.ctx = context.WithValue(cbCtx.ctx, voteFuncOwnerKey{}, c)
+			if err := c.config.VoteFunc(cbCtx, id, object); err != nil {
 				_ = c.Protocol.Stop(ctx)
 				return fmt.Errorf("process Peras vote %v: %w", id, err)
 			}
@@ -268,7 +277,19 @@ func (c *Client) Done(ctx context.Context) error {
 	return c.SendMessageContextAndWait(ctx, NewMsgDone())
 }
 
+// voteFuncOwnerKey marks the context the client passes VoteFunc, with the
+// client as its value.
+type voteFuncOwnerKey struct{}
+
+// lockOp takes the request exchange. VoteFunc runs inside Sync, which holds
+// the exchange until VoteFunc returns, so a call that carries this client's
+// VoteFunc context could never get it: it fails at once instead. The
+// reference inbound side issues each request from its one protocol thread,
+// so it has no such re-entrant request either.
 func (c *Client) lockOp(ctx context.Context) error {
+	if owner, _ := ctx.Value(voteFuncOwnerKey{}).(*Client); owner == c {
+		return ErrCalledFromVoteFunc
+	}
 	select {
 	case c.opSem <- struct{}{}:
 		return nil

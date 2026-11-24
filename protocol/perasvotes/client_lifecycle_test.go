@@ -16,6 +16,7 @@ package perasvotes
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -129,5 +130,100 @@ func TestAwaitObjectIDsPanicIsContained(t *testing.T) {
 		require.ErrorIs(t, err, protocol.ErrHandlerPanic)
 	case <-ctx.Done():
 		t.Fatal("no error reported for the panic")
+	}
+}
+
+// TestVoteFuncCallingItsClientReturnsAtOnce: VoteFunc runs inside Sync, which
+// holds the client's request exchange, so a call back into the same client
+// can never be served. With the context the client gave VoteFunc, the call
+// returns ErrCalledFromVoteFunc instead of waiting on the Sync it runs in.
+func TestVoteFuncCallingItsClientReturnsAtOnce(t *testing.T) {
+	id := VoteID{RoundNo: 4, SeatIndex: 7}
+	object := testVoteObject(t, id)
+	serverCfg := NewConfig(
+		WithObjectIDsFunc(
+			func(CallbackContext, uint16, uint16) ([]VoteID, error) {
+				return []VoteID{id}, nil
+			},
+		),
+		WithObjectsFunc(
+			func(CallbackContext, []VoteID) ([]VoteObject, error) {
+				return []VoteObject{object}, nil
+			},
+		),
+	)
+	errStop := errors.New("stop sync")
+	type calls struct{ ids, objects, done error }
+	got := make(chan calls, 1)
+	clientCfg := NewConfig(
+		WithVoteFunc(func(cbCtx CallbackContext, _ VoteID, _ VoteObject) error {
+			ctx := cbCtx.Context()
+			var c calls
+			_, c.ids = cbCtx.Client.RequestObjectIDs(ctx, false, 0, 1)
+			_, c.objects = cbCtx.Client.RequestObjects(ctx, []VoteID{id})
+			c.done = cbCtx.Client.Done(ctx)
+			got <- c
+			return errStop
+		}),
+	)
+	client, _, _ := startPair(t, &serverCfg, &clientCfg)
+	syncErr := make(chan error, 1)
+	go func() { syncErr <- client.Sync(context.Background()) }()
+	select {
+	case c := <-got:
+		require.ErrorIs(t, c.ids, ErrCalledFromVoteFunc)
+		require.ErrorIs(t, c.objects, ErrCalledFromVoteFunc)
+		require.ErrorIs(t, c.done, ErrCalledFromVoteFunc)
+	case <-time.After(failAfter):
+		t.Fatal("a call from VoteFunc waited on the Sync running it")
+	}
+	select {
+	case err := <-syncErr:
+		require.ErrorIs(t, err, errStop)
+	case <-time.After(failAfter):
+		t.Fatal("Sync did not end after VoteFunc returned an error")
+	}
+}
+
+// TestCallbackContextOfAnotherClientWaits: only this client's own callback
+// context skips the wait. Another client's callback context is an ordinary
+// context here, so Done waits for Sync until that context ends.
+func TestCallbackContextOfAnotherClientWaits(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	defer close(release)
+	serverCfg := NewConfig(
+		WithObjectIDsFunc(
+			func(CallbackContext, uint16, uint16) ([]VoteID, error) {
+				close(entered)
+				<-release
+				return nil, nil
+			},
+		),
+	)
+	clientCfg := NewConfig(
+		WithVoteFunc(func(CallbackContext, VoteID, VoteObject) error {
+			return nil
+		}),
+	)
+	client, _, _ := startPair(t, &serverCfg, &clientCfg)
+	other := NewClient(protocol.ProtocolOptions{}, &clientCfg)
+	syncCtx, cancelSync := context.WithCancel(context.Background())
+	defer cancelSync()
+	go func() { _ = client.Sync(syncCtx) }()
+	<-entered
+
+	doneCtx, cancelDone := context.WithCancel(
+		other.callbackContext.Context(),
+	)
+	result := make(chan error, 1)
+	go func() { result <- client.Done(doneCtx) }()
+	cancelDone()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, ErrCalledFromVoteFunc)
+	case <-time.After(failAfter):
+		t.Fatal("Done did not end with its context")
 	}
 }
