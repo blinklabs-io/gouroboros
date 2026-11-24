@@ -150,12 +150,7 @@ func (r delegationModelRef) apply(
 // any of g1, g2 or d1, for the previous, current, next or second-next
 // epoch. On every block gOuroboros must accept exactly the payloads the
 // reference accepts (VerdictsAgree) and end with the same active map
-// (MapsAgree), schedule and key-epoch set.
-//
-// The activation slots are not compared: on a re-delegation to the
-// delegate already active the reference does nothing and gOuroboros
-// rewrites the slot (ProbeSlotsDiffer). The test counts that it happens
-// and that the maps still agree.
+// (MapsAgree), activation slots (SlotsAgree), schedule and key-epoch set.
 func TestPBFTDelegationModelTable(t *testing.T) {
 	keys := map[string][]byte{}
 	privs := map[string]ed25519.PrivateKey{}
@@ -271,11 +266,11 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 					keyEpochs[[2]string{fmt.Sprint(ke.epoch), names[ke.delegator]}] = true
 				}
 				require.Equal(t, wantRef.eks, keyEpochs, "key epochs %s", name)
+				slots := map[string]uint64{}
 				for g := range genesis {
-					if gotGo.delegationSlots[hashes[g]] != wantRef.dws[g] {
-						counts["activation slots differ"]++
-					}
+					slots[g] = gotGo.delegationSlots[hashes[g]]
 				}
+				require.Equal(t, wantRef.dws, slots, "activation slots %s", name)
 				if wantRef.dms["g1"] == "g1" {
 					counts["revoked to self"]++
 				}
@@ -296,7 +291,6 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 		"rejected",
 		"revoked to self",
 		"delegate moved",
-		"activation slots differ",
 	} {
 		require.Positive(t, counts[group], group)
 	}
