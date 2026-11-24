@@ -145,3 +145,94 @@ func TestValueMapKeyArrayDigestsGrowAsEntriesDecode(t *testing.T) {
 	)
 	require.Less(t, result.AllocedBytesPerOp(), int64(count*sha256.Size/4))
 }
+
+func TestValueModeLimitsApplyToWholeTree(t *testing.T) {
+	t.Parallel()
+	mode, err := (_cbor.DecOptions{
+		MaxNestedLevels: 8, MaxArrayElements: 16, MaxMapPairs: 16,
+	}).DecMode()
+	require.NoError(t, err)
+	// Wrap count zero items in a definite array.
+	arrayOf := func(count int) []byte {
+		return append([]byte{0x80 + byte(count)}, make([]byte, count)...)
+	}
+	mapOf := func(count int) []byte {
+		data := []byte{0xa0 + byte(count)}
+		for i := range count {
+			data = append(data, byte(i), 0)
+		}
+		return data
+	}
+	join := func(header byte, parts ...[]byte) []byte {
+		return append([]byte{header}, bytes.Join(parts, nil)...)
+	}
+	cases := map[string]struct {
+		data   []byte
+		reject bool
+	}{
+		// 2 outer + 14 inner elements: exactly the array limit.
+		"arrays at limit": {
+			data: join(0x82, arrayOf(7), arrayOf(7)),
+		},
+		// Each array is within the limit; the tree holds 2 + 20.
+		"arrays over limit": {
+			data:   join(0x82, arrayOf(10), arrayOf(10)),
+			reject: true,
+		},
+		"indefinite arrays over limit": {
+			data: append(
+				join(0x9f, arrayOf(10), arrayOf(10)),
+				0xff,
+			),
+			reject: true,
+		},
+		"arrays inside map values over limit": {
+			data: join(
+				0xa2,
+				[]byte{0x00}, arrayOf(10),
+				[]byte{0x01}, arrayOf(10),
+			),
+			reject: true,
+		},
+		"maps at limit": {
+			data: join(0x82, mapOf(7), mapOf(7)),
+		},
+		"maps over limit": {
+			data:   join(0x82, mapOf(10), mapOf(10)),
+			reject: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var value Value
+			_, err := decodeWithMode(
+				tc.data,
+				&value,
+				mode,
+				rejectDuplicateMapKeys,
+			)
+			if tc.reject {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestValueStrictLimitAppliesAcrossNestedArrays(t *testing.T) {
+	t.Parallel()
+	const inner = 100000
+	element := func() []byte {
+		return append([]byte{0x9a, 0, 1, 0x86, 0xa0}, make([]byte, inner)...)
+	}
+	data := append([]byte{0x82}, element()...)
+	data = append(data, element()...)
+	var strict Value
+	_, err := DecodeStrict(data, &strict)
+	require.Error(t, err, "strict mode must bound the whole tree")
+	var ledger Value
+	_, err = Decode(data, &ledger)
+	require.NoError(t, err)
+}
