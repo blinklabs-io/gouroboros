@@ -32,11 +32,12 @@ import (
 // test sees what the client itself does after one.
 type tipHarness struct {
 	client       *Client
+	clientMuxer  *muxer.Muxer
 	clientErrors chan error
 	releaseRoll  func()
 }
 
-func newTipHarness(t *testing.T) *tipHarness {
+func newTipHarness(t *testing.T, clientErrors chan error) *tipHarness {
 	t.Helper()
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -79,7 +80,6 @@ func newTipHarness(t *testing.T) *tipHarness {
 		Mode:      protocol.ProtocolModeNodeToClient,
 	}, &serverCfg)
 
-	clientErrors := make(chan error, 4)
 	clientCfg := NewConfig(
 		WithPipelineLimit(1),
 		WithRollBackwardFunc(func(CallbackContext, pcommon.Point, Tip) error {
@@ -108,6 +108,7 @@ func newTipHarness(t *testing.T) *tipHarness {
 	}
 	return &tipHarness{
 		client:       client,
+		clientMuxer:  clientMuxer,
 		clientErrors: clientErrors,
 		releaseRoll:  releaseRoll,
 	}
@@ -152,7 +153,7 @@ func syncRefused(t *testing.T, client *Client) {
 // ErrStoppedWithoutDone so its connection is closed.
 func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 	t.Parallel()
-	newTipHarness(t).stopWithoutDone(t)
+	newTipHarness(t, make(chan error, 4)).stopWithoutDone(t)
 }
 
 // TestStartAfterStopWithoutDoneStaysStopped calls Start straight after a Stop
@@ -161,7 +162,7 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 // request in StIdle, so Start must leave the client stopped.
 func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
 	t.Parallel()
-	h := newTipHarness(t)
+	h := newTipHarness(t, make(chan error, 4))
 	h.stopWithoutDone(t)
 
 	h.client.Start()
@@ -171,5 +172,68 @@ func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
 	case err := <-h.clientErrors:
 		t.Fatalf("client received the abandoned request's reply: %v", err)
 	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// TestStopWithoutDoneStopsMuxerWhenErrorDropped stops a client at the chain
+// tip whose error channel nobody reads, so SendError drops
+// ErrStoppedWithoutDone. The muxer must still be stopped, or the server's
+// late reply could reach a new protocol instance on the same connection.
+func TestStopWithoutDoneStopsMuxerWhenErrorDropped(t *testing.T) {
+	t.Parallel()
+	h := newTipHarness(t, make(chan error))
+	require.Error(t, h.client.Stop())
+	select {
+	case <-h.clientMuxer.DoneChan():
+	case <-time.After(time.Second):
+		t.Fatal("muxer still running after Stop abandoned a request")
+	}
+}
+
+// TestSlowDoneWithNothingOwedIsNotAbandoned stops an idle client whose
+// MsgDone cannot be written within Stop's bound, because nothing reads the
+// connection. MsgDone was sendable, so it may still reach the peer, which
+// then owes nothing: Stop must not report ErrStoppedWithoutDone, stop the
+// muxer, or refuse a later Start.
+func TestSlowDoneWithNothingOwedIsNotAbandoned(t *testing.T) {
+	t.Parallel()
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+	clientMuxer := muxer.New(clientConn)
+	t.Cleanup(clientMuxer.Stop)
+	clientErrors := make(chan error, 4)
+	clientCfg := NewConfig()
+	client := NewClient(protocol.ProtocolOptions{
+		Muxer:     clientMuxer,
+		ErrorChan: clientErrors,
+		Mode:      protocol.ProtocolModeNodeToClient,
+	}, &clientCfg)
+	client.Start()
+	clientMuxer.Start()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- client.Stop() }()
+	select {
+	case err := <-stopped:
+		require.Error(t, err, "MsgDone was written although nothing reads")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+	select {
+	case err := <-clientErrors:
+		require.NotErrorIs(t, err, ErrStoppedWithoutDone)
+	default:
+	}
+	client.lifecycleMutex.Lock()
+	latched := client.stoppedWithoutDone
+	client.lifecycleMutex.Unlock()
+	require.False(t, latched, "Start refused although nothing was owed")
+	select {
+	case <-clientMuxer.DoneChan():
+		t.Fatal("muxer stopped although nothing was owed")
+	default:
 	}
 }

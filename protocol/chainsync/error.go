@@ -25,10 +25,12 @@ var ErrSyncInProgress = errors.New("chain sync in progress")
 
 // ErrStoppedWithoutDone is reported on the protocol's error channel when
 // Client.Stop or Client.StopAfterDrain stops the protocol without delivering
-// MsgDone, typically because a MsgRequestNext was still unanswered. The server
-// may still send replies to the abandoned requests, so the chain-sync state on
-// the connection is no longer known: the connection must be closed, and
-// Client.Start does not start the client again.
+// MsgDone while the server still owes a reply: a MsgRequestNext was
+// unanswered, or the protocol was not in StIdle, so MsgDone could not be
+// sent. The server may still reply, so the chain-sync state on the
+// connection is no longer known: the client stops the muxer so the
+// connection carries nothing more, and Client.Start does not start the client
+// again. A MsgDone that was sendable but slow to write is not reported.
 var ErrStoppedWithoutDone = errors.New(
 	"chain sync stopped before MsgDone was delivered",
 )

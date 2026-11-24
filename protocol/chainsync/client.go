@@ -491,6 +491,35 @@ func (c *Client) stopRunning(
 	)
 }
 
+// abandonIfOwed handles a MsgDone that was not delivered in time. MsgDone is
+// legal only in StIdle, so if a request is unanswered or the state is not
+// StIdle, it is still queued behind the server's reply and never will be
+// sent: the server keeps that request's state and may yet reply, which a
+// protocol instance started on this connection would receive in StIdle. The
+// connection is then closed, as the reference does when a mini-protocol does
+// not terminate in time. A MsgDone that was sendable but slow to write may
+// still reach the peer, which then owes nothing, so it is left alone.
+func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
+	c.lifecycleMutex.Lock()
+	owed := c.outstandingRequestNext > 0 || !proto.IsInTerminalOrIdleState()
+	if owed {
+		// The connection closes on its own goroutine, so Start refuses to
+		// restart in the meantime.
+		c.stoppedWithoutDone = true
+	}
+	c.lifecycleMutex.Unlock()
+	if !owed {
+		return
+	}
+	// Report the error before stopping, while SendError still reaches the
+	// error channel. SendError drops it if nothing receives, so the muxer is
+	// stopped as well: no reply can then reach this connection.
+	proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
+	if c.protoOptions.Muxer != nil {
+		c.protoOptions.Muxer.Stop()
+	}
+}
+
 func (c *Client) finishStop(
 	ctx context.Context,
 	proto *protocol.Protocol,
@@ -521,18 +550,7 @@ func (c *Client) finishStop(
 			sendErr = nil
 		}
 		if sendErr != nil {
-			// MsgDone is legal only in StIdle, so it is still queued behind
-			// an unanswered request or was not written. The server keeps
-			// that request's state and may yet reply, which a protocol
-			// instance started on this connection would receive in StIdle.
-			// Report the error before stopping, while SendError still
-			// reaches the error channel, so the connection is closed.
-			// The connection closes on its own goroutine, so Start also
-			// refuses to restart in the meantime.
-			c.lifecycleMutex.Lock()
-			c.stoppedWithoutDone = true
-			c.lifecycleMutex.Unlock()
-			proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
+			c.abandonIfOwed(proto, sendErr)
 		}
 	}
 	if busyLocked {
