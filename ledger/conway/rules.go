@@ -4662,8 +4662,9 @@ func UtxoValidateCCVotingRestrictions(
 	resolver := govActionResolver{tx: tx, ls: ls}
 	for voter, actionVotes := range votes {
 		// Only check CC voters
-		if voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
-			voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash {
+		if voter == nil ||
+			(voter.Type != common.VoterTypeConstitutionalCommitteeHotKeyHash &&
+				voter.Type != common.VoterTypeConstitutionalCommitteeHotScriptHash) {
 			continue
 		}
 

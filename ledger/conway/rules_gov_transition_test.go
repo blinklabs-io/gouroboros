@@ -1850,3 +1850,18 @@ func TestUtxoValidateStakePoolVotingRestrictionsParameterChange(t *testing.T) {
 		require.ErrorAs(t, err, &target)
 	})
 }
+
+// A nil voter key, which only a hand-built transaction can carry, is skipped
+// as the other voting rules skip it, not dereferenced.
+func TestUtxoValidateCCVotingRestrictionsNilVoter(t *testing.T) {
+	pp := mkConwayPp(common.ProtocolVersionVanRossem, 0)
+	ls := mockledger.NewLedgerStateBuilder().Build()
+	tx := mkProposalsTx(t, &common.InfoGovAction{})
+	aid := selfActionId(tx, 0)
+	tx.Body.TxVotingProcedures = common.VotingProcedures{
+		nil: {&aid: {Vote: common.GovVoteYes}},
+	}
+	require.NotPanics(t, func() {
+		require.NoError(t, conway.UtxoValidateCCVotingRestrictions(tx, 0, ls, pp))
+	})
+}
