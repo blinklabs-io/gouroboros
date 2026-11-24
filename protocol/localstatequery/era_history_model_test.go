@@ -116,9 +116,10 @@ func eraHistoryTimespan(t *testing.T, value any) *big.Int {
 }
 
 // TestEraHistoryMatchesSummaryModel decodes GetEraHistory replies built by
-// the specs/25-consensus-eras EraHistory model's Summary for several era
-// tables, transition epochs and ledger tips. Each decoded bound must equal
-// the model's, and the decoded summary must satisfy the reference's
+// the reference's summarize (eraHistoryModelSummary; ouroboros-consensus
+// HardFork/History/Summary.hs) for several era tables, transition epochs and
+// ledger tips. Each decoded bound must equal the one summarize gives, and the
+// decoded summary must satisfy the reference's
 // invariantSummary: bounds line up, no era is empty, INV-1b and INV-2b.
 func TestEraHistoryMatchesSummaryModel(t *testing.T) {
 	byron := eraHistoryModelEra{epochSize: 21600, slotLengthMs: 20000}
@@ -214,8 +215,8 @@ func TestEraHistoryMatchesSummaryModel(t *testing.T) {
 	}
 }
 
-// TestEraHistorySummaryModelMainnetShelleyStart pins the model's arithmetic
-// to mainnet: Shelley began at epoch 208, slot 4492800, 89856000 seconds
+// TestEraHistorySummaryModelMainnetShelleyStart pins eraHistoryModelSummary's
+// arithmetic to mainnet: Shelley began at epoch 208, slot 4492800, 89856000 seconds
 // after the system start (208 Byron epochs of 21600 slots of 20 seconds).
 func TestEraHistorySummaryModelMainnetShelleyStart(t *testing.T) {
 	begins, _ := eraHistoryModelSummary(

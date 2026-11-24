@@ -53,8 +53,9 @@ func eraVersionTable() []eraVersionRow {
 	}
 }
 
-// eraForVersion is the EraForPV of the specs/25-consensus-eras EraHistory
-// model: the last era whose lowest version is at or below major.
+// eraForVersion is the era a ledger at protocol major version major is in,
+// given the reference's ProtVerLow values (Era.hs above): the last era whose
+// lowest version is at or below major.
 func eraForVersion(major uint, lows func(eraVersionRow) uint) (common.Era, bool) {
 	var found common.Era
 	ok := false
