@@ -15,8 +15,10 @@
 package localtxmonitor
 
 import (
+	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -35,6 +37,7 @@ type Client struct {
 	getSizesResultChan chan MsgReplyGetSizesResult
 	onceStart          sync.Once
 	onceStop           sync.Once
+	stopErr            error
 }
 
 // NewClient returns a new LocalTxMonitor client object
@@ -95,9 +98,10 @@ func (c *Client) Start() {
 	})
 }
 
-// Stop transitions the protocol to the Done state. No more operations will be possible
+// Stop releases any acquired snapshot and sends Done, waiting up to 250ms
+// for delivery after the current operation finishes. It then stops the local
+// protocol and returns any delivery error. Repeated calls return the same result.
 func (c *Client) Stop() error {
-	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
@@ -107,12 +111,22 @@ func (c *Client) Stop() error {
 			)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
-		msg := NewMsgDone()
-		if err = c.SendMessage(msg); err != nil {
-			return
+		defer c.Protocol.Stop()
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			250*time.Millisecond,
+		)
+		defer cancel()
+		if c.acquired {
+			c.stopErr = c.SendMessageContextAndWait(ctx, NewMsgRelease())
+			if c.stopErr != nil {
+				return
+			}
+			c.acquired = false
 		}
+		c.stopErr = c.SendMessageContextAndWait(ctx, NewMsgDone())
 	})
-	return err
+	return c.stopErr
 }
 
 // Acquire starts the acquire process for a current mempool snapshot
