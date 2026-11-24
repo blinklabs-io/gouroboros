@@ -59,6 +59,10 @@ type Client struct {
 	syncLoopWaitGroup      sync.WaitGroup
 	outstandingRequestNext int
 	requestNextDrained     chan struct{}
+	// stoppedWithoutDone is set, under lifecycleMutex, when a stop reported
+	// ErrStoppedWithoutDone. The server may still reply to the abandoned
+	// requests, so Start must not register a new instance on this connection.
+	stoppedWithoutDone bool
 	// syncLoopStop and syncLoopDone belong to the most recently started sync
 	// loop. Closing syncLoopStop makes that loop exit; the loop closes
 	// syncLoopDone on its way out.
@@ -301,6 +305,10 @@ func (c *Client) Start() {
 			continue
 
 		case clientStateStopped, clientStateNew:
+			if c.stoppedWithoutDone {
+				c.lifecycleMutex.Unlock()
+				return
+			}
 			// We will be the goroutine that performs initialization/start.
 			// Save previous state before transitioning to prevent other goroutines from also starting.
 			prevState := c.lifecycleState
@@ -338,9 +346,9 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				// The stopped instance either delivered MsgDone, so the
-				// server owes it nothing, or reported ErrStoppedWithoutDone
-				// so its connection is closed.
+				// The stopped instance delivered MsgDone, so the server
+				// owes it nothing: a stop that could not deliver it leaves
+				// the client stopped (stoppedWithoutDone).
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
 			}
@@ -519,6 +527,11 @@ func (c *Client) finishStop(
 			// instance started on this connection would receive in StIdle.
 			// Report the error before stopping, while SendError still
 			// reaches the error channel, so the connection is closed.
+			// The connection closes on its own goroutine, so Start also
+			// refuses to restart in the meantime.
+			c.lifecycleMutex.Lock()
+			c.stoppedWithoutDone = true
+			c.lifecycleMutex.Unlock()
 			proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
 		}
 	}

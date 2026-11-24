@@ -16,6 +16,7 @@ package chainsync
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,14 +26,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStopWithRequestUnansweredReportsError stops a client at the chain tip,
-// where the server has answered MsgRequestNext with MsgAwaitReply and holds
-// its roll. MsgDone cannot be sent before that roll, so Stop gives up without
-// it and the server is left owing a reply. The client must report
-// ErrStoppedWithoutDone so its connection is closed: a client started again
-// on the same connection would receive the old reply in StIdle.
-func TestStopWithRequestUnansweredReportsError(t *testing.T) {
-	t.Parallel()
+// tipHarness connects a client to a server at the chain tip: the server
+// answers MsgRequestNext with MsgAwaitReply and sends its roll only when
+// releaseRoll is called. Nothing closes the muxers on a protocol error, so a
+// test sees what the client itself does after one.
+type tipHarness struct {
+	client       *Client
+	clientErrors chan error
+	releaseRoll  func()
+}
+
+func newTipHarness(t *testing.T) *tipHarness {
+	t.Helper()
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
 		_ = clientConn.Close()
@@ -45,7 +50,8 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 
 	requested := make(chan struct{}, 1)
 	release := make(chan struct{})
-	serverErrors := make(chan error, 4)
+	var releaseOnce sync.Once
+	releaseRoll := func() { releaseOnce.Do(func() { close(release) }) }
 	serverCfg := NewConfig(
 		WithFindIntersectFunc(func(
 			CallbackContext, []pcommon.Point,
@@ -56,7 +62,10 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 			if err := ctx.Server.AwaitReply(); err != nil {
 				return err
 			}
-			requested <- struct{}{}
+			select {
+			case requested <- struct{}{}:
+			default:
+			}
 			go func() {
 				<-release
 				_ = ctx.Server.RollBackward(pcommon.NewPointOrigin(), Tip{})
@@ -66,7 +75,7 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 	)
 	server := NewServer(protocol.ProtocolOptions{
 		Muxer:     serverMuxer,
-		ErrorChan: serverErrors,
+		ErrorChan: make(chan error, 4),
 		Mode:      protocol.ProtocolModeNodeToClient,
 	}, &serverCfg)
 
@@ -89,7 +98,7 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 	t.Cleanup(func() { _ = client.Stop() })
 	serverMuxer.Start()
 	clientMuxer.Start()
-	t.Cleanup(func() { close(release) })
+	t.Cleanup(releaseRoll)
 
 	require.NoError(t, client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
 	select {
@@ -97,12 +106,70 @@ func TestStopWithRequestUnansweredReportsError(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("server never received MsgRequestNext")
 	}
+	return &tipHarness{
+		client:       client,
+		clientErrors: clientErrors,
+		releaseRoll:  releaseRoll,
+	}
+}
 
-	require.Error(t, client.Stop(), "Stop delivered MsgDone with a request unanswered")
+// stopWithoutDone calls Stop while the server holds its roll, so MsgDone
+// cannot be sent, and requires ErrStoppedWithoutDone on the error channel.
+func (h *tipHarness) stopWithoutDone(t *testing.T) {
+	t.Helper()
+	require.Error(t, h.client.Stop(),
+		"Stop delivered MsgDone with a request unanswered")
 	select {
-	case err := <-clientErrors:
+	case err := <-h.clientErrors:
 		require.ErrorIs(t, err, ErrStoppedWithoutDone)
 	case <-time.After(time.Second):
 		t.Fatal("Stop left the server owing a reply without reporting an error")
+	}
+}
+
+// syncRefused requires Sync to fail with ErrProtocolShuttingDown at once. A
+// restarted client would instead send MsgFindIntersect and wait for an answer
+// the server cannot give from StMustReply, until the protocol is torn down,
+// which also ends in ErrProtocolShuttingDown.
+func syncRefused(t *testing.T, client *Client) {
+	t.Helper()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.Sync([]pcommon.Point{pcommon.NewPointOrigin()})
+	}()
+	select {
+	case err := <-result:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown,
+			"client restarted on a connection where the server still owed a reply")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Sync waited on a restarted protocol instead of being refused")
+	}
+}
+
+// TestStopWithRequestUnansweredReportsError stops a client at the chain tip.
+// MsgDone cannot be sent before the server's roll, so Stop gives up without
+// it and the server is left owing a reply. The client must report
+// ErrStoppedWithoutDone so its connection is closed.
+func TestStopWithRequestUnansweredReportsError(t *testing.T) {
+	t.Parallel()
+	newTipHarness(t).stopWithoutDone(t)
+}
+
+// TestStartAfterStopWithoutDoneStaysStopped calls Start straight after a Stop
+// that could not deliver MsgDone, before anything has closed the connection.
+// A new protocol instance would receive the server's reply to the abandoned
+// request in StIdle, so Start must leave the client stopped.
+func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
+	t.Parallel()
+	h := newTipHarness(t)
+	h.stopWithoutDone(t)
+
+	h.client.Start()
+	h.releaseRoll()
+	syncRefused(t, h.client)
+	select {
+	case err := <-h.clientErrors:
+		t.Fatalf("client received the abandoned request's reply: %v", err)
+	case <-time.After(500 * time.Millisecond):
 	}
 }

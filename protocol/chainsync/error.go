@@ -27,7 +27,8 @@ var ErrSyncInProgress = errors.New("chain sync in progress")
 // Client.Stop or Client.StopAfterDrain stops the protocol without delivering
 // MsgDone, typically because a MsgRequestNext was still unanswered. The server
 // may still send replies to the abandoned requests, so the chain-sync state on
-// the connection is no longer known and the connection must be closed.
+// the connection is no longer known: the connection must be closed, and
+// Client.Start does not start the client again.
 var ErrStoppedWithoutDone = errors.New(
 	"chain sync stopped before MsgDone was delivered",
 )
