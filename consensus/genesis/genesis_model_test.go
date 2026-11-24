@@ -34,10 +34,14 @@ import (
 //     adds the window slots after its head unless the peer has shown a
 //     header at or past the window's end.
 //   - Genesis/Governor.hs 448-501: the losing peers. A peer loses to
-//     another whose clipped fragment ends elsewhere and whose lower bound
-//     reaches its own upper bound (its lower bound when idle), provided the
-//     winner offers more than k blocks or the loser has shown its whole
-//     window. An exact tie is enough.
+//     another whose clipped fragment starts at a different point
+//     (AF.lastPoint: the oldest block, or the anchor when empty) and whose
+//     lower bound reaches its own upper bound (its lower bound when idle),
+//     provided the winner offers more than k blocks or the loser has shown
+//     its whole window. An exact tie is enough.
+//   - Storage/ChainDB/Impl/ChainSel.hs 907-950: trimToLoE. Chain
+//     selection sees each candidate cut to at most k blocks past the LoE
+//     tip; the bounds above use the whole candidates.
 //   - MiniProtocol/ChainSync/Client/State.hs 72-76: a peer that has sent no
 //     header is not considered.
 //
@@ -105,6 +109,12 @@ type refGenesisBounds struct {
 	losing   []bool
 }
 
+// firstPoint is AF.lastPoint of p's clipped fragment: the slots leading to
+// its first block after the LoE tip, or to the LoE tip when it is empty.
+func (b refGenesisBounds) firstPoint(st refGenesisState, p int) []uint64 {
+	return st.cands[p][:b.loeLen+min(b.clipLen[p], 1)]
+}
+
 func sharedLen(a, b []uint64) int {
 	n := 0
 	for n < len(a) && n < len(b) && a[n] == b[n] {
@@ -150,7 +160,6 @@ func refGDD(cfg genesisModelConfig, st refGenesisState) refGenesisBounds {
 		}
 		b.moreThan[p] = uint64(len(suffix)) > cfg.k
 	}
-	clipEnd := func(p int) []uint64 { return st.cands[p][:b.loeLen+b.clipLen[p]] }
 	for p0 := range st.cands {
 		if len(st.cands[p0]) == 0 {
 			continue
@@ -164,8 +173,7 @@ func refGDD(cfg genesisModelConfig, st refGenesisState) refGenesisBounds {
 		}
 		for p1 := range st.cands {
 			if len(st.cands[p1]) == 0 ||
-				sharedLen(clipEnd(p0), clipEnd(p1)) == len(clipEnd(p0)) &&
-					len(clipEnd(p0)) == len(clipEnd(p1)) {
+				equalSlots(b.firstPoint(st, p0), b.firstPoint(st, p1)) {
 				continue
 			}
 			if !b.moreThan[p1] && b.lb[p0] != b.ub[p0] {
@@ -238,6 +246,9 @@ func genesisModelSelector(t *testing.T, cfg genesisModelConfig) *GenesisSelector
 // state: it picks a chain with the most blocks in the window, breaks a
 // window tie by total length and then by candidate order, and the governor
 // would drop the chain it picked only on an exact tie with another chain.
+// A second pass gives Preferred the candidates trimmed to k blocks past the
+// LoE tip, as the reference's chain selection sees them, and checks the
+// same order on the trimmed fragments.
 func TestGenesisModelPreferredAgainstGDD(t *testing.T) {
 	configs := []genesisModelConfig{
 		{peers: 2, maxSlot: 5, maxLen: 3, k: 1},
@@ -247,7 +258,7 @@ func TestGenesisModelPreferredAgainstGDD(t *testing.T) {
 	for _, cfg := range configs {
 		t.Run(fmt.Sprintf("%+v", cfg), func(t *testing.T) {
 			sel := genesisModelSelector(t, cfg)
-			var states, denserShorter, tieBothLose, choiceLosesOnTie, dropWhileSending int
+			var states, denserShorter, tieBothLose, choiceLosesOnTie, dropWhileSending, trimChanges int
 			forEachGenesisState(cfg, func(st refGenesisState) {
 				states++
 				ref := refGDD(cfg, st)
@@ -285,14 +296,44 @@ func TestGenesisModelPreferredAgainstGDD(t *testing.T) {
 					}
 				}
 
+				trimmed := make([]ChainFragment, len(st.cands))
+				trimLb := make([]uint64, len(st.cands))
+				for p, c := range st.cands {
+					f := &exactFragment{
+						anchor: ref.loeSlot,
+						slots:  c[ref.loeLen:min(len(c), ref.loeLen+int(cfg.k))],
+					}
+					trimmed[p] = f
+					trimLb[p] = f.BlockCountInWindow(cfg.sgen())
+					require.LessOrEqual(t, trimLb[p], ref.lb[p], "%v", st)
+				}
+				bestTrim := sel.Preferred(trimmed)
+				trimChoice := -1
+				for p := range trimmed {
+					if trimmed[p] == bestTrim {
+						trimChoice = p
+						break
+					}
+				}
+				wantTrim := 0
+				for p := 1; p < len(trimmed); p++ {
+					switch {
+					case trimLb[p] > trimLb[wantTrim],
+						trimLb[p] == trimLb[wantTrim] &&
+							trimmed[p].BlockCount() > trimmed[wantTrim].BlockCount():
+						wantTrim = p
+					}
+				}
+				require.Equal(t, wantTrim, trimChoice, "%v: trimmed lb %v", st, trimLb)
+				if trimChoice != choice {
+					trimChanges++
+				}
+
 				if ref.losing[choice] {
 					tie := false
 					for q := range frags {
 						if q != choice && ref.lb[q] == ref.lb[choice] &&
-							!equalSlots(
-								st.cands[q][:ref.loeLen+ref.clipLen[q]],
-								st.cands[choice][:ref.loeLen+ref.clipLen[choice]],
-							) {
+							!equalSlots(ref.firstPoint(st, q), ref.firstPoint(st, choice)) {
 							tie = true
 						}
 					}
@@ -320,12 +361,32 @@ func TestGenesisModelPreferredAgainstGDD(t *testing.T) {
 			require.Positive(t, denserShorter, "density never beat length")
 			require.Positive(t, tieBothLose, "no tie dropped both peers")
 			require.Positive(t, choiceLosesOnTie, "the chosen chain never lost on a tie")
+			require.Positive(t, trimChanges, "trimming to the LoE never changed the pick")
 			if cfg.peers == 2 && cfg.k == 1 {
 				require.Positive(t, dropWhileSending, "no peer dropped while sending")
 			}
 			t.Logf("%d states", states)
 		})
 	}
+}
+
+// TestGenesisModelGDDSameFirstBlock pins the reference's AF.lastPoint
+// guard: peers whose clipped fragments start with the same block are not
+// compared, however they continue.
+func TestGenesisModelGDDSameFirstBlock(t *testing.T) {
+	cfg := genesisModelConfig{peers: 3, k: 1}
+	st := refGenesisState{
+		cands: [][]uint64{{1, 2}, {1, 3}, {}},
+		idle:  []bool{true, true, false},
+	}
+	ref := refGDD(cfg, st)
+	require.Equal(t, []uint64{2, 2, 0}, ref.lb, "%v", st)
+	require.Equal(t, []bool{false, false, false}, ref.losing, "%v", st)
+
+	// The same pair with different first blocks: equal density, so both lose.
+	st.cands = [][]uint64{{1, 2}, {2, 3}, {}}
+	ref = refGDD(cfg, st)
+	require.Equal(t, []bool{true, true, false}, ref.losing, "%v", st)
 }
 
 func equalSlots(a, b []uint64) bool {
