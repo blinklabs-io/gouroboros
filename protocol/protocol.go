@@ -328,7 +328,10 @@ func New(config ProtocolConfig) *Protocol {
 		readDoneChan: make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
 		sendDoneChan: make(chan struct{}),
-
+		// The send queue exists from the start, so a message sent before
+		// Start is queued for sendLoop instead of blocking on a nil
+		// channel, and the field is never written after New.
+		sendQueueChan: make(chan outboundMessage, 80),
 		loopsDoneChan: make(chan struct{}),
 	}
 	p.callbackCtx = context.WithValue(
@@ -458,7 +461,6 @@ func (p *Protocol) Start() {
 		}
 
 		// Create channels
-		p.sendQueueChan = make(chan outboundMessage, 80)
 		p.recvQueueChan = make(chan inboundMessage, p.config.RecvQueueSize)
 		p.recvStateChangedChan = make(chan struct{}, 1)
 		p.handlerDoneChan = make(chan struct{})
@@ -971,9 +973,18 @@ func (p *Protocol) waitForMessageDeliveryContext(
 		return deliveryResultOrShutdown(deliveryChan)
 	case <-p.doneChan:
 		return deliveryResultOrShutdown(deliveryChan)
-	case <-p.muxerDoneChan:
+	case <-p.muxerDone():
 		return deliveryResultOrShutdown(deliveryChan)
 	}
+}
+
+// muxerDone returns the muxer's done channel, or nil before the protocol is
+// registered. ensureRegistered writes it under lifecycleMu, so a sender that
+// is not on one of the protocol's loops reads it here.
+func (p *Protocol) muxerDone() <-chan bool {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	return p.muxerDoneChan
 }
 
 // deliveryResultOrShutdown preserves a delivery result that was reported
@@ -995,13 +1006,14 @@ func (p *Protocol) enqueueMessage(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	muxerDone := p.muxerDone()
 	// Immediately return if we're already shutting down
 	select {
 	case <-p.stopChan:
 		return ErrProtocolShuttingDown
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
-	case <-p.muxerDoneChan:
+	case <-muxerDone:
 		return ErrProtocolShuttingDown
 	case <-p.recvDoneChan:
 		return ErrProtocolShuttingDown
@@ -1051,7 +1063,7 @@ func (p *Protocol) enqueueMessage(
 		enqueueErr = ctx.Err()
 	case <-p.stopChan:
 	case <-p.doneChan:
-	case <-p.muxerDoneChan:
+	case <-muxerDone:
 	case <-p.recvDoneChan:
 	case <-p.sendDoneChan:
 	}
