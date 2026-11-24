@@ -21,6 +21,12 @@ import (
 	_cbor "github.com/fxamacker/cbor/v2"
 )
 
+// rawMapPresizePairs caps the capacity DecodeRawMap reserves from a declared
+// pair count. It covers every transaction body and protocol parameter update
+// field map without growth, while a larger declared count costs only the
+// entries that actually decode.
+const rawMapPresizePairs = 32
+
 // DecodeRawMap decodes the CBOR map at the start of data into a map of
 // undecoded values, applying the same well-formedness, collection limit, and
 // duplicate-key rules as DecodeLedgerMap. It returns the map and the number of
@@ -56,18 +62,24 @@ func DecodeRawMap[K comparable](data []byte) (map[K]RawMessage, int, error) {
 		return nil, 0, err
 	}
 	n := len(data) - len(rest)
-	fields := map[K]RawMessage{}
+	fields := make(map[K]RawMessage, min(count, rawMapPresizePairs))
 	pos := int(headerSize)
+	// Declared once: each pointer handed to UnmarshalFirst escapes, so
+	// per-pair variables would cost two heap allocations per pair.
+	var key, zeroKey K
+	var value RawMessage
 	for i := 0; indefinite || i < count; i++ {
 		if indefinite && data[pos] == 0xff {
 			break
 		}
-		var key K
+		key = zeroKey
 		if rest, err = decMode.UnmarshalFirst(data[pos:n], &key); err != nil {
 			return nil, 0, err
 		}
 		pos = n - len(rest)
-		var value RawMessage
+		// RawMessage decodes by appending to its receiver, so it must start
+		// nil to avoid sharing the previous value's backing array.
+		value = nil
 		if rest, err = decMode.UnmarshalFirst(data[pos:n], &value); err != nil {
 			return nil, 0, err
 		}

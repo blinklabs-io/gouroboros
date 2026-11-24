@@ -17,6 +17,7 @@ package cbor_test
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 	"runtime"
 	"testing"
 
@@ -99,4 +100,64 @@ func TestValidateMapFieldsRejectsBadKeysWithoutSizingMap(t *testing.T) {
 		perRun,
 		len(data),
 	)
+}
+
+func TestDecodeRawMapMatchesDecodeLedgerMap(t *testing.T) {
+	for _, input := range []string{
+		"a0",                       // empty map
+		"f6",                       // null
+		"80",                       // not a map
+		"a2010002820102",           // definite map
+		"bf010002820102ff",         // indefinite map
+		"a1010000",                 // trailing byte after the map
+		"bb0000000000000001010000", // 64-bit pair count
+		"a1c1010000",               // tagged key
+		"a201000100",               // duplicate key
+		"bf01000100ff",             // duplicate key, indefinite map
+		"a20100180100",             // duplicate key, non-minimal head
+		"a2200001000100",           // negative key
+		"bf0100",                   // indefinite map without break
+		"b9000101",                 // fewer pairs than declared
+		"a2014161024162",           // equal-length byte string values
+		"a101a0",                   // nested map value
+	} {
+		t.Run(input, func(t *testing.T) {
+			data, err := hex.DecodeString(input)
+			require.NoError(t, err)
+			var want map[uint]cbor.RawMessage
+			wantN, wantErr := cbor.DecodeLedgerMap(data, &want)
+			got, gotN, gotErr := cbor.DecodeRawMap[uint](data)
+			if wantErr != nil {
+				require.EqualError(t, gotErr, wantErr.Error())
+				require.Equal(
+					t,
+					cbor.IsDuplicateMapKeyError(wantErr),
+					cbor.IsDuplicateMapKeyError(gotErr),
+				)
+				return
+			}
+			require.NoError(t, gotErr)
+			require.Equal(t, wantN, gotN)
+			require.Equal(t, want == nil, got == nil)
+			require.Equal(t, want, got)
+		})
+	}
+}
+
+// Not t.Parallel: testing.AllocsPerRun measures process-wide allocation.
+func TestDecodeRawMapAllocatesNoMoreThanDecodeLedgerMap(t *testing.T) {
+	fields := map[uint]any{}
+	for key := range uint(16) {
+		fields[key] = []any{make([]byte, 32), key}
+	}
+	data, err := cbor.Encode(fields)
+	require.NoError(t, err)
+	full := testing.AllocsPerRun(20, func() {
+		var decoded map[uint]cbor.RawMessage
+		_, _ = cbor.DecodeLedgerMap(data, &decoded)
+	})
+	raw := testing.AllocsPerRun(20, func() {
+		_, _, _ = cbor.DecodeRawMap[uint](data)
+	})
+	require.LessOrEqual(t, raw, full)
 }
