@@ -327,7 +327,11 @@ func TestServerAwaitsThenReplies(t *testing.T) {
 	)
 	_, peer, errs := startServerAgainstRawClient(t, &cfg)
 	require.Equal(t, wireAwaitReply, peer.read(t, time.Second))
-	arrived <- id
+	select {
+	case arrived <- id:
+	case <-time.After(time.Second):
+		t.Fatal("await function did not receive the arriving vote")
+	}
 	msgType, data := peer.readType(t)
 	require.Equal(t, MessageTypeReplyObjectIDs, msgType)
 	reply, err := NewMsgFromCbor(uint(msgType), data)
