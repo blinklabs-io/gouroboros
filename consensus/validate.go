@@ -118,6 +118,10 @@ type ValidateHeaderInput struct {
 	PrevSlot        uint64
 	PrevBlockNumber uint64
 	PrevHeaderHash  []byte
+	// PrevIsOrigin reports that the header is the first on the chain, with
+	// no previous header. Its block number must then be 0, any slot is
+	// allowed, and PrevSlot, PrevBlockNumber and PrevHeaderHash are ignored.
+	PrevIsOrigin bool
 
 	// Epoch nonce for VRF verification
 	EpochNonce []byte
@@ -267,10 +271,14 @@ func (v *HeaderValidator) validateOpCertSequence(
 	return current, nil
 }
 
-// validateSlotOrdering checks that the slot strictly increases.
+// validateSlotOrdering checks that the slot strictly increases. The first
+// header on a chain may have any slot.
 func (v *HeaderValidator) validateSlotOrdering(
 	input *ValidateHeaderInput,
 ) error {
+	if input.PrevIsOrigin {
+		return nil
+	}
 	if input.Slot <= input.PrevSlot {
 		return fmt.Errorf(
 			"slot must be greater than previous slot: current=%d, previous=%d",
@@ -281,11 +289,15 @@ func (v *HeaderValidator) validateSlotOrdering(
 	return nil
 }
 
-// validateBlockNumber checks that block number is previous + 1.
+// validateBlockNumber checks that block number is previous + 1, or 0 for the
+// first header on a chain.
 func (v *HeaderValidator) validateBlockNumber(
 	input *ValidateHeaderInput,
 ) error {
 	expectedBlockNumber := input.PrevBlockNumber + 1
+	if input.PrevIsOrigin {
+		expectedBlockNumber = 0
+	}
 	if input.BlockNumber != expectedBlockNumber {
 		return fmt.Errorf(
 			"block number must be previous + 1: current=%d, expected=%d",
@@ -298,6 +310,9 @@ func (v *HeaderValidator) validateBlockNumber(
 
 // validatePrevHash checks that prev hash matches.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
+	if input.PrevIsOrigin {
+		return nil
+	}
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
 		return errors.New(
 			"previous header hash is required for non-genesis blocks",
