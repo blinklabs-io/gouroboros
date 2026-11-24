@@ -380,10 +380,6 @@ func orderName(d map[string]bool) string {
 // reference, every reported error is a defect the header has, the reference's
 // errors are all reported, the first error is the one the reference reports
 // first, and no error is reported twice.
-//
-// A certificate before its start is left out of the coverage and duplicate
-// checks: ValidateHeader reports it from both the KES period and the KES
-// signature check, and then does not verify the signature.
 func TestValidateHeaderMatchesReferenceOrderTable(t *testing.T) {
 	for _, mode := range []ConsensusMode{ConsensusModeCPraos, ConsensusModeTPraos} {
 		f := newOrderFixture(t, mode)
@@ -402,9 +398,6 @@ func TestValidateHeaderMatchesReferenceOrderTable(t *testing.T) {
 				if len(want) > 0 {
 					require.NotEmpty(t, got)
 					require.Equal(t, want[0], got[0], "first error: got %v, reference %v", got, want)
-				}
-				if d[orderKESBefore] {
-					return
 				}
 				for _, w := range want {
 					require.Contains(t, got, w, "reference error missing: got %v, reference %v", got, want)
