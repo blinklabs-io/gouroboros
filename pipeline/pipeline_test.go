@@ -149,22 +149,16 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
-func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
+func TestBlockPipelineRawCborBudgetReturnsWhenResultIsCommitted(t *testing.T) {
 	raw := getValidBlockCbor(t)
 	p := NewBlockPipeline(
 		WithTrustedDecodeOnly(),
 		WithMaxRawCborBytes(2*uint64(len(raw))),
 	)
-	forwardGate := make(chan struct{})
-	var releaseForward sync.Once
-	p.testResultsForward = func() { <-forwardGate }
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() {
-		releaseForward.Do(func() { close(forwardGate) })
-		require.NoError(t, p.Stop())
-	})
+	t.Cleanup(func() { require.NoError(t, p.Stop()) })
 	err := p.Submit(
 		ctx,
 		uint(ledger.BlockTypeConway),
@@ -178,43 +172,32 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 		raw,
 		createTestTip(0, 0),
 	))
-	require.Eventually(t, func() bool {
-		return len(p.resultsQueue) == 1
-	}, time.Second, time.Millisecond)
-	p.rawBudgetMu.Lock()
-	require.Equal(t, uint64(2*len(raw)), p.rawBytesInUse)
-	p.rawBudgetMu.Unlock()
-	blockedCtx, blockedCancel := context.WithTimeout(ctx, 10*time.Millisecond)
-	defer blockedCancel()
-	require.ErrorIs(t, p.Submit(
-		blockedCtx,
-		uint(ledger.BlockTypeConway),
-		raw,
-		createTestTip(1, 1),
-	), context.DeadlineExceeded)
-	releaseForward.Do(func() { close(forwardGate) })
-
-	first := <-p.Results()
-	require.Equal(t, raw, first.RawCbor())
-	require.NotNil(t, first.Block())
-
+	require.NoError(t, p.Fence(ctx))
 	require.Eventually(t, func() bool {
 		p.rawBudgetMu.Lock()
 		defer p.rawBudgetMu.Unlock()
 		return p.rawBytesInUse == 0
-	}, time.Second, time.Millisecond)
+	}, time.Second, time.Millisecond, "the unread result returned admission")
+
 	require.NoError(t, p.Submit(
 		ctx,
 		uint(ledger.BlockTypeConway),
 		raw,
-		createTestTip(2, 2),
+		createTestTip(1, 1),
 	))
+	require.NoError(t, p.Fence(ctx))
+	// The result bound holds one block, so the newer result replaced the
+	// unread older one.
+	require.Eventually(t, func() bool {
+		return p.Stats().ResultsDropped == 1
+	}, time.Second, time.Millisecond)
 	second := <-p.Results()
+	require.Equal(t, uint64(1), second.SequenceNumber())
 	require.Equal(t, raw, second.RawCbor())
-	first.Release()
-	first.Release()
-	require.Nil(t, first.RawCbor())
+	require.NotNil(t, second.Block())
 	second.Release()
+	second.Release()
+	require.Nil(t, second.RawCbor())
 }
 
 func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(
@@ -280,11 +263,14 @@ func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
 			createTestTip(uint64(sequence), uint64(sequence)),
 		))
 	}
-	require.Eventually(t, func() bool {
-		return len(p.resultsQueue) == resultCount-1
-	}, 5*time.Second, time.Millisecond)
+	require.NoError(t, p.Fence(ctx))
 
-	results := p.DrainResults()
+	// Fence returns once blocks commit, which can precede their handoff.
+	var results []*BlockItem
+	require.Eventually(t, func() bool {
+		results = append(results, p.DrainResults()...)
+		return len(results) >= resultCount
+	}, 5*time.Second, time.Millisecond)
 	require.Len(t, results, resultCount)
 	for sequence, item := range results {
 		require.Equal(t, uint64(sequence), item.SequenceNumber())

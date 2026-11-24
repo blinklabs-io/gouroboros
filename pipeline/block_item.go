@@ -131,6 +131,14 @@ func (b *BlockItem) Release() {
 	})
 }
 
+// retainedBytes reports the CBOR bytes this item retains, or zero once its
+// reservation has been returned.
+func (b *BlockItem) retainedBytes() uint64 {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.releaseBytes
+}
+
 func (b *BlockItem) releaseReservation() {
 	b.reserveOnce.Do(func() {
 		b.mu.Lock()

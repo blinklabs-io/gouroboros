@@ -268,13 +268,11 @@ func runPipeline(
 			p.Submit(ctx, blockType, rawCbor, tip),
 		)
 	}
-	for range count {
-		select {
-		case item := <-p.Results():
-			item.Release()
-		case <-ctx.Done():
-			t.Fatal("timed out waiting for pipeline results")
-		}
+	// Results are optional and bounded, so completion is read from Fence
+	// rather than by counting results.
+	require.NoError(t, p.Fence(ctx), "timed out waiting for pipeline results")
+	for _, item := range p.DrainResults() {
+		item.Release()
 	}
 	require.NoError(t, p.Stop())
 	drained.Wait()

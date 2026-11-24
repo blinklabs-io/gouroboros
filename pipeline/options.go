@@ -55,7 +55,8 @@ type PipelineConfig struct {
 	DecodeWorkers int
 	// ValidateWorkers is the number of parallel validate workers.
 	ValidateWorkers int
-	// PrefetchBufferSize is the buffer size for inter-stage channels.
+	// PrefetchBufferSize is the buffer size for inter-stage channels and the
+	// number of undelivered results kept for the Results reader.
 	PrefetchBufferSize int
 	// MaxPendingBlocks limits out-of-order blocks buffered in the apply stage.
 	// Submit applies backpressure before assigning a sequence when accepting
@@ -63,10 +64,11 @@ type PipelineConfig struct {
 	// flight to occupy the missing earliest position. Default is 2160 (Cardano
 	// security parameter k); zero disables the limit.
 	MaxPendingBlocks int
-	// MaxRawCborBytes limits full block CBOR copies retained by the pipeline
-	// between admission and result delivery: a result stays charged until the
-	// consumer receives it. Callers own received results and should call
-	// BlockItem.Release to clear their data.
+	// MaxRawCborBytes limits full block CBOR copies retained by blocks between
+	// admission and commit. Committed results awaiting a Results reader are
+	// bounded separately by the same number of bytes, so unread results never
+	// block Submit; see BlockPipeline.Results. Callers own received results and
+	// should call BlockItem.Release to clear their data.
 	// Zero selects DefaultMaxRawCborBytes.
 	MaxRawCborBytes uint64
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
