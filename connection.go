@@ -510,7 +510,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.keepAlive.Client.Protocol)
 		}
 		if c.keepAlive.Server != nil {
-			protocols = append(protocols, c.keepAlive.Server.Protocol)
+			protocols = append(protocols, c.keepAlive.Server.ProtocolInstance())
 		}
 	}
 	if c.localStateQuery != nil {
