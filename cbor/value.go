@@ -248,6 +248,13 @@ func (v *Value) unmarshalCBORWithBudget(
 			}
 			v.value = tmpConstr
 		} else {
+			// The library decodes this content into a tree of its own, so
+			// its collections are charged before anything is decoded.
+			if err := budget.spendCollections(
+				data[:decodedLength],
+			); err != nil {
+				return 0, err
+			}
 			// Fall back to standard CBOR tag parsing for our supported types
 			var tmpTagDecode any
 			if _, err := decodeWithMode(
@@ -321,6 +328,101 @@ func (b *valueBudget) spendMapPair() error {
 		)
 	}
 	b.mapPairs--
+	return nil
+}
+
+// spendCollections charges every array element and map pair inside the first
+// item of data, which the caller has already checked is well-formed. It walks
+// headers only, so it allocates nothing beyond the nesting stack.
+func (b *valueBudget) spendCollections(data []byte) error {
+	type frame struct {
+		// remaining is the children still owed, or -1 until a break.
+		remaining int64
+		major     byte
+		read      int64
+	}
+	stack := []frame{{remaining: 1}}
+	pos := 0
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if top.remaining == 0 {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if pos >= len(data) {
+			return io.ErrUnexpectedEOF
+		}
+		first := data[pos]
+		pos++
+		if first == 0xff {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if top.remaining > 0 {
+			top.remaining--
+		}
+		switch {
+		case top.major == 4:
+			if err := b.spendArrayElement(); err != nil {
+				return err
+			}
+		case top.major == 5 && top.read%2 == 0:
+			if err := b.spendMapPair(); err != nil {
+				return err
+			}
+		}
+		top.read++
+		major := first >> 5
+		info := first & 0x1f
+		var arg uint64
+		switch {
+		case info < 24:
+			arg = uint64(info)
+		case info <= 27:
+			size := 1 << (info - 24)
+			if len(data)-pos < size {
+				return io.ErrUnexpectedEOF
+			}
+			for _, c := range data[pos : pos+size] {
+				arg = arg<<8 | uint64(c)
+			}
+			pos += size
+		case info != 31:
+			return errors.New("cbor: invalid CBOR header")
+		}
+		indefinite := info == 31
+		// Every child occupies at least one byte, so a declared length past
+		// the remaining data is truncated and cannot overflow below.
+		if major >= 2 && major <= 5 && !indefinite &&
+			arg > uint64(len(data)-pos) { //nolint:gosec
+			return io.ErrUnexpectedEOF
+		}
+		switch major {
+		case 2, 3:
+			if indefinite {
+				stack = append(stack, frame{remaining: -1, major: major})
+			} else {
+				pos += int(arg) //nolint:gosec
+			}
+		case 4, 5:
+			switch {
+			case indefinite:
+				stack = append(stack, frame{remaining: -1, major: major})
+			case major == 5:
+				stack = append(
+					stack,
+					frame{remaining: int64(arg) * 2, major: major}, //nolint:gosec
+				)
+			default:
+				stack = append(
+					stack,
+					frame{remaining: int64(arg), major: major}, //nolint:gosec
+				)
+			}
+		case 6:
+			stack = append(stack, frame{remaining: 1, major: major})
+		}
+	}
 	return nil
 }
 

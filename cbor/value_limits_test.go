@@ -166,6 +166,10 @@ func TestValueModeLimitsApplyToWholeTree(t *testing.T) {
 	join := func(header byte, parts ...[]byte) []byte {
 		return append([]byte{header}, bytes.Join(parts, nil)...)
 	}
+	// Tag 1000 has no registered type, so the library decodes its content.
+	tagged := func(content []byte) []byte {
+		return append([]byte{0xd9, 0x03, 0xe8}, content...)
+	}
 	cases := map[string]struct {
 		data   []byte
 		reject bool
@@ -199,6 +203,25 @@ func TestValueModeLimitsApplyToWholeTree(t *testing.T) {
 		},
 		"maps over limit": {
 			data:   join(0x82, mapOf(10), mapOf(10)),
+			reject: true,
+		},
+		"arrays inside tags at limit": {
+			data: join(0x82, tagged(arrayOf(7)), tagged(arrayOf(7))),
+		},
+		"arrays inside tags over limit": {
+			data:   join(0x82, tagged(arrayOf(10)), tagged(arrayOf(10))),
+			reject: true,
+		},
+		"indefinite arrays inside tags over limit": {
+			data: join(
+				0x82,
+				tagged(append(join(0x9f, make([]byte, 10)), 0xff)),
+				tagged(append(join(0x9f, make([]byte, 10)), 0xff)),
+			),
+			reject: true,
+		},
+		"maps inside tags over limit": {
+			data:   join(0x82, tagged(mapOf(10)), tagged(mapOf(10))),
 			reject: true,
 		},
 	}
