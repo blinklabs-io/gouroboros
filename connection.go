@@ -485,6 +485,9 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.localTxMonitor != nil && c.localTxMonitor.Server != nil {
 		servers = append(servers, c.localTxMonitor.Server)
 	}
+	if c.localTxSubmission != nil && c.localTxSubmission.Server != nil {
+		servers = append(servers, c.localTxSubmission.Server)
+	}
 	return servers
 }
 
@@ -568,7 +571,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxSubmission.Client.Protocol)
 		}
 		if c.localTxSubmission.Server != nil {
-			protocols = append(protocols, c.localTxSubmission.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxSubmission.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localTxMonitor != nil {
