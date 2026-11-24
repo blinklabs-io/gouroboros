@@ -473,6 +473,9 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.peerSharing != nil && c.peerSharing.Server != nil {
 		servers = append(servers, c.peerSharing.Server)
 	}
+	if c.localStateQuery != nil && c.localStateQuery.Server != nil {
+		servers = append(servers, c.localStateQuery.Server)
+	}
 	if c.leiosNotify != nil && c.leiosNotify.Server != nil {
 		servers = append(servers, c.leiosNotify.Server)
 	}
@@ -557,7 +560,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localStateQuery.Client.Protocol)
 		}
 		if c.localStateQuery.Server != nil {
-			protocols = append(protocols, c.localStateQuery.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localStateQuery.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localTxSubmission != nil {
