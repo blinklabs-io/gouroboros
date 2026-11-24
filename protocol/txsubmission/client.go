@@ -338,6 +338,14 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
+	if err := checkRequestTxIdsStyle(
+		msgRequestTxIds.Blocking,
+		ack,
+		req,
+		len(unacked),
+	); err != nil {
+		return err
+	}
 
 	// Call the user callback function
 	txIds, err := c.config.RequestTxIdsFunc(
