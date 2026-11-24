@@ -155,6 +155,11 @@ func TestBlockPipelineRejectsVerifyConfigValidationBypasses(t *testing.T) {
 			flag:   "SkipBlockLimitsValidation",
 			config: common.VerifyConfig{SkipBlockLimitsValidation: true},
 		},
+		{
+			name:   "KES evolutions validation",
+			flag:   "SkipKesEvolutionsValidation",
+			config: common.VerifyConfig{SkipKesEvolutionsValidation: true},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
