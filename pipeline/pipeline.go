@@ -314,10 +314,17 @@ type BlockPipeline struct {
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
 	mu                sync.Mutex // protects Start and starting the teardown
-	// teardownStarted is set, under mu, by the first Stop after Start; that
-	// Stop starts the teardown goroutine, which closes teardownDone.
+	// teardownStarted is set, under mu, by the first Stop after Start, or by
+	// the watcher once the context given to Start has ended; that call starts
+	// the teardown goroutine, which closes teardownDone.
 	teardownStarted bool
 	teardownDone    chan struct{}
+	// stopRequested is closed, under mu, by the first Stop after Start; it
+	// ends the watch on the context given to Start. watcherDone is closed
+	// when that watcher returns.
+	stopRequested       chan struct{}
+	stopRequestedClosed bool
+	watcherDone         chan struct{}
 	// applyCtx is the context every submitted item's ApplyContext returns.
 	// Its value under applyMarkerKey is this pipeline.
 	applyCtx context.Context
@@ -699,6 +706,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	}
 	p.applyRunner.Start(p.ctx) //nolint:contextcheck
 	go p.forwardResults()
+	p.watcherDone = make(chan struct{})
+	p.stopRequested = make(chan struct{})
+	go p.watchParentCancel(ctx)
 
 	// Start metrics collection goroutine
 	p.wg.Add(1)
@@ -981,13 +991,31 @@ func (p *BlockPipeline) Errors() <-chan error {
 	return p.errorsChan
 }
 
+// watchParentCancel tears the pipeline down when parent, the context given
+// to Start, ends without Stop, so that its goroutines return and the items
+// they held release their retained CBOR, as Go code expects of a context's
+// end. A fatal processing error also cancels the pipeline context, but does
+// not end parent: the pipeline then keeps its committed results for the
+// Results consumer until Stop. Stop waits for the watcher to return.
+func (p *BlockPipeline) watchParentCancel(parent context.Context) {
+	defer close(p.watcherDone)
+	select {
+	case <-parent.Done():
+	case <-p.stopRequested:
+		return
+	}
+	p.requestStop(false)
+}
+
 // Stop stops the pipeline and waits until every goroutine it started has
 // returned, every undelivered result has been released, and every retained
 // CBOR reservation has been returned, or until ctx is done, in which case it
 // returns ctx.Err() and the pipeline goes on stopping. It drains undelivered
 // observational results while it waits, so shutdown does not depend on a
 // Results consumer. Stop is safe to call more than once and from several
-// goroutines; each call waits as described.
+// goroutines; each call waits as described. After the context given to
+// Start has ended the pipeline stops by itself; Stop then waits for that and
+// returns nil.
 //
 // A call in progress of ApplyFunc cannot be interrupted, so Stop waits for it
 // to return. An ApplyFunc that stops its own pipeline passes its item's
@@ -997,52 +1025,68 @@ func (p *BlockPipeline) Errors() <-chan error {
 // that. Any other ctx, including the ApplyContext of another pipeline's item,
 // waits.
 func (p *BlockPipeline) Stop(ctx context.Context) error {
-	if !p.requestStop() {
+	if !p.requestStop(true) {
 		return nil
 	}
 	if p.calledFromApplyFunc(ctx) {
 		return nil
 	}
-	select {
-	case <-p.teardownDone:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	// watcherDone is nil for a pipeline that Start did not set up.
+	for _, done := range []<-chan struct{}{p.teardownDone, p.watcherDone} {
+		if done == nil {
+			continue
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
+	return nil
 }
 
 // requestStop starts the teardown once, and reports whether the pipeline was
-// started.
-func (p *BlockPipeline) requestStop() bool {
+// started. explicit is true for Stop and false for the watcher after the
+// context given to Start has ended.
+func (p *BlockPipeline) requestStop(explicit bool) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.started.Load() {
 		return false
 	}
+	if explicit && p.stopRequested != nil && !p.stopRequestedClosed {
+		p.stopRequestedClosed = true
+		close(p.stopRequested)
+	}
 	if p.teardownStarted {
 		return true
 	}
 	p.teardownStarted = true
-	// Publish the explicit stop before canceling the pipeline context so drain
-	// waiters can distinguish Stop from cancellation inherited from Start.
-	p.stopping.Store(true)
+	if explicit {
+		// Publish the explicit stop before canceling the pipeline context so
+		// drain waiters can distinguish Stop from cancellation inherited from
+		// Start.
+		p.stopping.Store(true)
+	}
 	// Cancel before the teardown takes submitGate: Submit holds the gate
 	// while blocked on a channel send and needs ctx.Done to unblock.
 	p.cancel()
-	go p.teardown()
+	go p.teardown(explicit)
 	return true
 }
 
 // teardown joins the pipeline's goroutines and releases what they held. It
 // runs once, on its own goroutine, so that a Stop that cannot wait for the
-// apply runner need not.
-func (p *BlockPipeline) teardown() {
+// apply runner need not. explicit is true when Stop started it.
+func (p *BlockPipeline) teardown(explicit bool) {
 	defer close(p.teardownDone)
 
 	// Now acquire the gate to ensure no Submit() calls are in progress.
 	// Any Submit() blocked on channel send will now return via ctx.Done().
 	<-p.submitGate
-	p.stopped.Store(true)
+	if explicit {
+		p.stopped.Store(true)
+	}
 	// Close input channel to signal shutdown
 	close(p.submitChan)
 	p.unlockSubmit()
