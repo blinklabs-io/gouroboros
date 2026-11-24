@@ -56,7 +56,7 @@ grep -cE "^    --- FAIL: TestRulesConformanceVectors/" /tmp/conformance.txt
    to have a DRep vote delegation at PV10/PV11, exempts script-hash reward
    credentials, and removes the requirement at PV12 per CIP-181.
 2. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` that calls `SetCbor(cborData)`. Missing → `Cbor()` returns nil → hashing breaks.
-3. Hash from preserved `.Cbor()` bytes. Never re-encode and hash.
+3. Hash from preserved `.Cbor()` bytes. Never re-encode and hash, except a transaction body with no stored CBOR: `common.TransactionBodyId` hashes its current encoding.
 4. CBOR `EncMode`/`DecMode` are globally cached via `sync.Once` in `cbor/{encode,decode}.go`. Don't construct per call.
 5. Pure Go, no CGO. Crypto from `golang.org/x/crypto`.
 6. GPG signing required (exception: sibling `skunkworks/` repo).

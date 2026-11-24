@@ -129,13 +129,17 @@ interrupt pending socket operations.
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 
-| State | Timeout | Pending bytes |
-| --- | ---: | ---: |
-| Idle | 3673 seconds | 462,000 |
-| CanAwait | 10 seconds | 462,000 |
-| Intersect | 10 seconds | 462,000 |
-| MustReply | random in `[135, 269)` seconds | 462,000 |
-| Done | none | 462,000 |
+| State | Timeout | Message size limit | Pending receive budget |
+| --- | ---: | ---: | ---: |
+| Idle | 3673 seconds | 65,535 | 462,000 |
+| CanAwait | 10 seconds | 65,535 | 462,000 |
+| Intersect | 10 seconds | 65,535 | 462,000 |
+| MustReply | random in `[601, 911)` seconds | 65,535 | 462,000 |
+| Done | none | 65,535 | 462,000 |
+
+The message size limit is the specification's chain-sync size table and the
+reference's `byteLimitsChainSync`. The pending receive budget is the
+specification's 462,000-byte chain-sync ingress queue.
 
 The N2C map has no state timeouts or pending-message byte limits, so no
 message is refused for its size. Every N2C state does carry a pending receive
