@@ -14,13 +14,14 @@
 
 package dijkstra
 
-// The tests in this file enumerate the transition cells of the TLA+ models
-// ConwayLedger.tla and SubTx.tla (gouroboros-tla-models,
-// specs/24-ledger-conway-dijkstra). Each test restates the model's
-// reference predicate (Spec*) in Go, builds every cell as a real Conway or
-// Dijkstra transaction against a mock ledger state, runs the rules the
-// predicate covers, and requires gOuroboros to accept exactly the cells the
-// predicate accepts.
+// The tests in this file enumerate Conway and Dijkstra UTXO and LEDGER
+// cells. Each test restates a reference predicate in Go (cardano-ledger
+// 1210d37fe6bd: Conway Rules/Ledger.hs, Rules/Utxo.hs, Tx.hs, UTxO.hs and
+// TxCert.hs; Dijkstra Rules/Ledger.hs, Rules/Utxo.hs, Rules/SubLedger.hs,
+// Rules/SubUtxo.hs, Rules/Entities.hs, UTxO.hs and TxCert.hs), builds every
+// cell as a real Conway or Dijkstra transaction against a mock ledger state,
+// runs the rules the predicate covers, and requires gOuroboros to accept
+// exactly the cells the predicate accepts.
 
 import (
 	"bytes"
@@ -39,7 +40,7 @@ import (
 )
 
 const (
-	// One model unit of reference-script size. Conway's fixed tier is
+	// One test unit of reference-script size. Conway's fixed tier is
 	// 25,600 bytes, two units, and its fixed per-transaction limit is
 	// 204,800 bytes, sixteen units.
 	modelRefUnit   = 12_800
@@ -150,8 +151,8 @@ func modelDRepCredential(fill byte) common.Credential {
 	}
 }
 
-// modelRefFee restates ConwayLedger.tla's RefFee: every tier exactly, one
-// floor at the end.
+// modelRefFee restates the reference's tierRefScriptFee (Conway Tx.hs,
+// getConwayMinFeeTx): every tier exactly, one floor at the end.
 func modelRefFee(size uint64, stride uint64, mult *big.Rat) uint64 {
 	price := new(big.Rat).Set(modelRefBase)
 	total := new(big.Rat)
@@ -225,12 +226,13 @@ func modelFirstError(
 }
 
 // ---------------------------------------------------------------------------
-// ConwayLedger.tla, GateTxs.
+// Conway and Dijkstra gates: treasury value, reference-script fee and size,
+// DRep-delegated withdrawals and disjoint reference inputs.
 
 type modelGateTx struct {
 	valid   bool
 	treas   string // "none", "ok", "bad"
-	ref     uint64 // reference-script size in model units
+	ref     uint64 // reference-script size in test units
 	short   bool
 	wdrl    string // "none", "key", "script"
 	overlap bool
@@ -246,7 +248,9 @@ func (w modelWorld) String() string {
 	return fmt.Sprintf("pv=%d reg=%v deleg=%s", w.pv, w.reg, w.deleg)
 }
 
-// modelSpecGate restates ConwayLedger.tla's SpecGate.
+// modelSpecGate is the reference's verdict on the gates (Conway
+// Rules/Ledger.hs and Rules/Utxo.hs, Dijkstra Rules/Ledger.hs and
+// Rules/Utxo.hs).
 func modelSpecGate(dijkstra bool, w modelWorld, tx modelGateTx) bool {
 	gated := dijkstra || tx.valid
 	if gated && tx.treas == "bad" {
@@ -264,7 +268,7 @@ func modelSpecGate(dijkstra bool, w modelWorld, tx modelGateTx) bool {
 	if tx.overlap && !dijkstra && (w.pv == 9 || w.pv == 10) {
 		return false
 	}
-	// The fee is RefFee less one when short: below the minimum by
+	// The fee is modelRefFee less one when short: below the minimum by
 	// construction.
 	return !tx.short
 }
@@ -312,7 +316,7 @@ func modelGateTxs(stride uint64, mult *big.Rat) []modelGateTx {
 // modelGateLedger builds the world's state: input 0 (key-locked, no
 // script), input 1 (holding a reference script of the cell's size), the
 // treasury, and the key and script reward accounts, both registered or
-// neither (the model's reg).
+// neither (modelWorld.reg).
 func modelGateLedger(t *testing.T, w modelWorld, ref uint64) common.LedgerState {
 	t.Helper()
 	key := modelKeyCredential()
@@ -485,7 +489,8 @@ func TestConwayLedgerModelGates(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ConwayLedger.tla, BalTxs.
+// Value conservation with Conway deposits, refunds and the treasury
+// donation.
 
 type modelBalTx struct {
 	valid bool
@@ -518,7 +523,9 @@ func modelSpecDeposit(tx modelBalTx) uint64 {
 	return 0
 }
 
-// modelSpecBal restates ConwayLedger.tla's SpecBal. The output is built to
+// modelSpecBal is the reference's value conservation verdict (Conway
+// UTxO.hs and Rules/Utxo.hs, Dijkstra Rules/Utxo.hs and TxCert.hs). The
+// output is built to
 // balance by the reference's count and moved by delta, so conservation
 // holds exactly when delta is zero.
 func modelSpecBal(dijkstra bool, reg bool, tx modelBalTx) bool {
@@ -681,8 +688,8 @@ func TestConwayLedgerModelBalance(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// SubTx.tla. Places "a" and "b" are model inputs 10 and 11 and exist; "c"
-// is input 12 and does not.
+// Dijkstra sub-transactions. Places "a" and "b" are test inputs 10 and 11
+// and exist; "c" is input 12 and does not.
 
 type modelLevel struct {
 	ins  []int // place indexes 0..2
@@ -747,7 +754,8 @@ func modelIntersects(a, b []int) bool {
 	return false
 }
 
-// modelSpecInputs restates SubTx.tla's SpecInputs.
+// modelSpecInputs is the reference's verdict on a batch's spent inputs
+// (Dijkstra Rules/SubUtxo.hs and Rules/Utxo.hs).
 func modelSpecInputs(valid bool, top modelLevel, subs []modelLevel) bool {
 	for _, l := range append(append([]modelLevel{}, subs...), top) {
 		if len(l.ins) == 0 {
@@ -892,7 +900,7 @@ func TestSubTxModelTreasury(t *testing.T) {
 }
 
 func TestSubTxModelRefScriptSize(t *testing.T) {
-	// Each level reads its own reference input (model inputs 20, 21, 22)
+	// Each level reads its own reference input (test inputs 20, 21, 22)
 	// holding a script of the cell's size, in units of 1,000 bytes against
 	// a limit of 5 units.
 	const unit = 1_000
@@ -951,7 +959,8 @@ func modelW(x int64) int64 {
 	return x
 }
 
-// modelSpecWdrl restates SubTx.tla's SpecWdrl.
+// modelSpecWdrl is the reference's verdict on a batch's withdrawals and
+// direct deposits (Dijkstra Rules/Entities.hs and Rules/SubEntities.hs).
 func modelSpecWdrl(reg bool, bal int64, b modelWdrlBatch) bool {
 	if !b.valid {
 		return true
