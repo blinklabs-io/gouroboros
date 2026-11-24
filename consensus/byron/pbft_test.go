@@ -158,15 +158,10 @@ func TestValidatePBFTHeaderChargesIssuerResolvedByDelegate(t *testing.T) {
 	require.Equal(t, certificateIssuer.DelegateKeyHash, issuer.DelegateKeyHash)
 }
 
-func TestValidatePBFTHeaderCryptoUsesActiveDelegateWithoutRevalidatingCert(
+func TestValidatePBFTHeaderCryptoDoesNotConsultActiveDelegation(
 	t *testing.T,
 ) {
 	header, config, issuer := realPBFTHeaderFixture(t)
-	inner := header.ConsensusData.BlockSig[1].([]any)
-	certificate := inner[0].([]any)
-	certificate[0] = header.ConsensusData.SlotId.Epoch + 100
-	certificateSignature := certificate[3].([]byte)
-	certificateSignature[0] ^= 0xff
 
 	_, err := ValidatePBFTHeaderCrypto(header, config)
 	require.NoError(t, err)
@@ -181,8 +176,32 @@ func TestValidatePBFTHeaderCryptoUsesActiveDelegateWithoutRevalidatingCert(
 		[]byte("wrong delegate"),
 	)
 	wrongActiveDelegate.GenesisDelegations = wrongDelegations
+	_, err = ValidatePBFTHeaderCrypto(header, wrongActiveDelegate)
+	require.NoError(t, err)
 	_, err = ValidatePBFTHeader(header, wrongActiveDelegate)
 	require.ErrorContains(t, err, "active delegation does not authorize")
+}
+
+func TestValidatePBFTHeaderRejectsInvalidCertificateSignature(t *testing.T) {
+	t.Parallel()
+	mutations := map[string]func(certificate []any){
+		"signature bytes": func(certificate []any) {
+			certificate[3].([]byte)[0] ^= 0xff
+		},
+	}
+	for name, mutate := range mutations {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			header, config, _ := realPBFTHeaderFixture(t)
+			inner := header.ConsensusData.BlockSig[1].([]any)
+			mutate(inner[0].([]any))
+
+			_, err := ValidatePBFTHeaderCrypto(header, config)
+			require.ErrorContains(t, err, "delegation certificate signature")
+			_, err = ValidatePBFTHeader(header, config)
+			require.ErrorContains(t, err, "delegation certificate signature")
+		})
+	}
 }
 
 func TestPBFTIssuerFromHeaderRealMainnet(t *testing.T) {
