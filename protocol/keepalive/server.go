@@ -16,15 +16,26 @@ package keepalive
 
 import (
 	"fmt"
+	"sync"
 
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Server implements the keep-alive protocol server, responsible for handling keep-alive requests and sending responses.
 type Server struct {
 	*protocol.Protocol
+	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
+	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. A restart already past
+	// reading MsgDone checks it before installing a new instance, so Stop
+	// cannot be undone by a restart it raced with.
+	stopped bool
+	// restartHook is test-only synchronization for a Stop that lands after
+	// StopForRestart and before the restart installs a new instance.
+	restartHook func()
 }
 
 // NewServer creates and returns a new keep-alive protocol server with the given options and configuration.
@@ -34,37 +45,51 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config: cfg,
+		config:       cfg,
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.Protocol = s.newProtocol()
+	return s
+}
+
+func (s *Server) newProtocol() *protocol.Protocol {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
 		InitialState:        StateClient,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	return protocol.New(protoConfig)
+}
+
+// ProtocolInstance returns the current protocol instance. The server replaces
+// it each time the client ends the protocol with MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
 }
 
 // messageHandler handles incoming protocol messages for the server.
 func (s *Server) messageHandler(msg protocol.Message) error {
+	proto := s.ProtocolInstance()
 	var err error
 	switch msg.Type() {
 	case MessageTypeKeepAlive:
-		err = s.handleKeepAlive(msg)
+		err = s.handleKeepAlive(proto, msg)
 	case MessageTypeDone:
-		err = s.handleDone()
+		err = s.handleDone(proto)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -76,8 +101,11 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 // handleKeepAlive processes a keep-alive message from the client and sends a response.
-func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
-	s.Protocol.Logger().
+func (s *Server) handleKeepAlive(
+	proto *protocol.Protocol,
+	msgGeneric protocol.Message,
+) error {
+	proto.Logger().
 		Debug("keep alive",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -96,12 +124,14 @@ func (s *Server) handleKeepAlive(msgGeneric protocol.Message) error {
 
 	// Automatically send the keep-alive response
 	resp := NewMsgKeepAliveResponse(msg.Cookie)
-	return s.SendMessage(resp)
+	return proto.SendMessage(resp)
 }
 
-// handleDone processes a done message from the client and performs any necessary cleanup.
-func (s *Server) handleDone() error {
-	s.Protocol.Logger().
+// handleDone processes a done message from the client and restarts the
+// protocol in its initial state, so the client can start a new run on the
+// same connection.
+func (s *Server) handleDone(proto *protocol.Protocol) error {
+	proto.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -109,12 +139,37 @@ func (s *Server) handleDone() error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config != nil && s.config.DoneFunc != nil {
-		return s.config.DoneFunc(s.callbackContext)
+		if err := s.config.DoneFunc(s.callbackContext); err != nil {
+			return err
+		}
 	}
+	proto.StopForRestart()
+	if s.restartHook != nil {
+		s.restartHook()
+	}
+	s.protocolMu.Lock()
+	if s.stopped {
+		s.protocolMu.Unlock()
+		// StopForRestart left the muxer receiver suspended, buffering for
+		// the next instance. There will be none, so release it.
+		if m := s.protoOptions.Muxer; m != nil {
+			m.UnregisterProtocol(ProtocolId, muxer.ProtocolRoleResponder)
+		}
+		return nil
+	}
+	p := s.newProtocol()
+	s.Protocol = p
+	s.protocolMu.Unlock()
+	// Start does nothing if Stop reached p first.
+	p.Start()
 	return nil
 }
 
-// Stop stops the keep-alive protocol server.
+// Stop stops the keep-alive protocol server, including a restart in progress.
 func (s *Server) Stop() {
-	s.Protocol.Stop()
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
