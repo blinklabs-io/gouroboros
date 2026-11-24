@@ -137,7 +137,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 		t,
 		[]protocol.State{StateIdle, StateBusy, StateQuit, StateDone},
 		stateMapStates(),
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	require.Equal(t, protocol.AgencyClient, StateMap[StateIdle].Agency)
 	require.Equal(t, protocol.AgencyServer, StateMap[StateBusy].Agency)
@@ -159,8 +159,8 @@ func TestStateMapMatchesModel(t *testing.T) {
 	}
 }
 
-// TestClientPipelinesOnlyRequestsAndQuit checks the send side of the model:
-// the client may write while the server holds agency in Busy, and only
+// TestClientPipelinesOnlyRequestsAndQuit checks the send side of the reference
+// table: the client may write while the server holds agency in Busy, and only
 // NotificationRequestNext and MsgQuit, as the reference client does.
 func TestClientPipelinesOnlyRequestsAndQuit(t *testing.T) {
 	for state, entry := range StateMap {
@@ -178,9 +178,9 @@ func TestClientPipelinesOnlyRequestsAndQuit(t *testing.T) {
 	}
 }
 
-// TestStatesThatCannotBeEntered checks the edges the model has no row for:
-// nothing leaves Done, Done is entered only by MsgDone from Quit, Quit only
-// by MsgQuit from Idle, and every state is reachable from Idle.
+// TestStatesThatCannotBeEntered checks the edges the reference table has no row
+// for: nothing leaves Done, Done is entered only by MsgDone from Quit, Quit
+// only by MsgQuit from Idle, and every state is reachable from Idle.
 func TestStatesThatCannotBeEntered(t *testing.T) {
 	require.Empty(t, StateMap[StateDone].Transitions)
 	for state, entry := range StateMap {

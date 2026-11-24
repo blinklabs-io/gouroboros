@@ -185,7 +185,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 		t,
 		[]protocol.State{StateIdle, StateBusy, StateDone},
 		stateMapStates(),
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	require.Equal(t, protocol.AgencyClient, StateMap[StateIdle].Agency)
 	require.Equal(t, protocol.AgencyServer, StateMap[StateBusy].Agency)
@@ -239,11 +239,11 @@ func TestTokensFollowTheModel(t *testing.T) {
 	require.Zero(t, ctx.tokens)
 }
 
-// TestStatesThatCannotBeEntered checks the edges the model has no row for:
-// nothing leaves Done, Done is entered only by MsgDone from Idle, Busy is
-// entered only by a request from Idle or a vote from Busy, and every state
-// is reachable from Idle. The client never writes without agency: it holds
-// a pipelined request until the batch before it has arrived.
+// TestStatesThatCannotBeEntered checks the edges the reference table has no row
+// for: nothing leaves Done, Done is entered only by MsgDone from Idle, Busy is
+// entered only by a request from Idle or a vote from Busy, and every state is
+// reachable from Idle. The client never writes without agency: it holds a
+// pipelined request until the batch before it has arrived.
 func TestStatesThatCannotBeEntered(t *testing.T) {
 	require.Empty(t, StateMap[StateDone].Transitions)
 	for state, entry := range StateMap {

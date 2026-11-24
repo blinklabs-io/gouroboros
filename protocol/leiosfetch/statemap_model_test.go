@@ -153,7 +153,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 			StateVotes, StateBlockRange, StateDone,
 		},
 		stateMapStates(),
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	require.Equal(t, protocol.AgencyClient, StateMap[StateIdle].Agency)
 	for _, state := range []protocol.State{
@@ -178,9 +178,9 @@ func TestStateMapMatchesModel(t *testing.T) {
 	}
 }
 
-// TestClientNeverWritesWithoutAgency checks the send side of the model. The
-// client holds one request at a time (requestSlot), so no state lets it
-// write while the server holds agency; MsgDone, and any request made after
+// TestClientNeverWritesWithoutAgency checks the send side of the reference
+// table. The client holds one request at a time (requestSlot), so no state lets
+// it write while the server holds agency; MsgDone, and any request made after
 // it, waits for Idle.
 func TestClientNeverWritesWithoutAgency(t *testing.T) {
 	for state, entry := range StateMap {
@@ -188,8 +188,8 @@ func TestClientNeverWritesWithoutAgency(t *testing.T) {
 	}
 }
 
-// TestStatesThatCannotBeEntered checks the edges the model has no row for:
-// nothing leaves Done, Done is entered only by MsgDone from Idle, every
+// TestStatesThatCannotBeEntered checks the edges the reference table has no row
+// for: nothing leaves Done, Done is entered only by MsgDone from Idle, every
 // server-agency state is left only for Idle or itself, and every state is
 // reachable from Idle.
 func TestStatesThatCannotBeEntered(t *testing.T) {
