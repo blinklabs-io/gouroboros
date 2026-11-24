@@ -99,6 +99,42 @@ func eraAtLeast(era common.Era, min common.Era) bool {
 	return ok && currentOrder >= minOrder
 }
 
+// validateConwayHeaderProtocolVersion applies the Conway BBODY rule that a
+// mainnet header's major protocol version is at most one above the version
+// in force. The network comes from the ledger state, so the rule is skipped
+// without one, as it is for parameters of another era.
+func validateConwayHeaderProtocolVersion(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+) error {
+	conwayBlock, ok := block.(*conway.ConwayBlock)
+	if !ok || conwayBlock.BlockHeader == nil || ledgerState == nil {
+		return nil
+	}
+	pparams, ok := protocolParameters.(*conway.ConwayProtocolParameters)
+	if !ok || pparams == nil {
+		return nil
+	}
+	header := conwayBlock.BlockHeader
+	if err := conway.ValidateHeaderProtocolVersion(
+		header,
+		pparams,
+		ledgerState.NetworkId(),
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Conway header protocol version too high",
+			map[string]any{
+				"slot":         header.SlotNumber(),
+				"block_number": header.BlockNumber(),
+			},
+			err,
+		)
+	}
+	return nil
+}
+
 // validateDijkstraBlockBodyHash validates a Dijkstra block's body hash. The
 // block is [header, block_body] and the header's block_body_hash is blake2b256
 // over the block_body CBOR (confirmed against live prototype-2026w27 blocks),
@@ -1378,6 +1414,13 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		config.ProtocolParameters,
 		config.LedgerState,
 		config.AllowCertifiedBlockInlinedTransactions,
+	); err != nil {
+		return err
+	}
+	if err := validateConwayHeaderProtocolVersion(
+		block,
+		config.ProtocolParameters,
+		config.LedgerState,
 	); err != nil {
 		return err
 	}
