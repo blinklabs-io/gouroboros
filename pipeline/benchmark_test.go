@@ -198,7 +198,7 @@ func BenchmarkBlockPipeline(b *testing.B) {
 		if err := p.Start(ctx); err != nil {
 			b.Fatalf("failed to start pipeline: %v", err)
 		}
-		defer func() { _ = p.Stop() }()
+		defer func() { _ = p.Stop(context.Background()) }()
 
 		b.ResetTimer()
 
@@ -233,7 +233,7 @@ func BenchmarkBlockPipeline(b *testing.B) {
 		}
 
 		b.StopTimer()
-		_ = p.Stop()
+		_ = p.Stop(context.Background())
 		wg.Wait()
 	})
 }

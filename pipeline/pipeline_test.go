@@ -163,7 +163,7 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
 	require.NoError(t, p.Start(ctx))
 	t.Cleanup(func() {
 		releaseForward.Do(func() { close(forwardGate) })
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	})
 	err := p.Submit(
 		ctx,
@@ -228,7 +228,7 @@ func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	require.Empty(t, p.DrainResults(), "nothing is ready before a submit")
 	require.NoError(t, p.Submit(
@@ -270,7 +270,7 @@ func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	for sequence := 0; sequence < resultCount; sequence++ {
 		require.NoError(t, p.Submit(
@@ -312,7 +312,7 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 		defer p.rawBudgetMu.Unlock()
 		return p.rawBytesInUse == 0
 	}, time.Second, time.Millisecond, "receipt returns the reservation")
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
@@ -340,7 +340,7 @@ func TestBlockPipelineStopReleasesBufferedResult(t *testing.T) {
 		return p.applyStage.PendingCount() == 0
 	}, time.Second, time.Millisecond)
 
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
@@ -1187,13 +1187,13 @@ func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(func(*BlockItem) error { return nil }))
 	require.NoError(t, p.Start(context.Background()))
-	defer p.Stop()
+	defer p.Stop(context.Background())
 	assert.True(t, p.applyStage.requireValidation)
 
 	// Trusted decode-only mode bypasses the apply stage deliberately.
 	p2 := NewBlockPipeline(WithTrustedDecodeOnly())
 	require.NoError(t, p2.Start(context.Background()))
-	defer p2.Stop()
+	defer p2.Stop(context.Background())
 	assert.False(t, p2.applyStage.requireValidation)
 }
 
@@ -1214,7 +1214,7 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	require.NoError(
@@ -1302,7 +1302,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
 		require.NoError(t, p.Start(context.Background()))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		submitCtx, cancelSubmit := context.WithCancel(context.Background())
 		cancelSubmit()
@@ -1337,7 +1337,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		// Wait for every worker started with the canceled parent to exit before
 		// proving that Submit cannot commit work into their abandoned queue.
@@ -1375,7 +1375,7 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(context.Background()))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		fenceCtx, cancelFence := context.WithCancel(context.Background())
 		cancelFence()
@@ -1408,7 +1408,7 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		p.decodePool.Stop()
 		p.applyRunner.Stop()
@@ -1496,7 +1496,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	shelley := getValidShelleyBlock(t)
@@ -1654,7 +1654,7 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	shelley := getValidShelleyBlock(t)
@@ -1740,7 +1740,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	rawCbor := shelley.Cbor
@@ -1851,7 +1851,7 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
 		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 		require.NoError(t, p.WaitForDrain(context.Background()))
 	})
 
@@ -1872,7 +1872,7 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 		require.NoError(t, p.Start(context.Background()))
 		defer func() {
 			release()
-			require.NoError(t, p.Stop())
+			require.NoError(t, p.Stop(context.Background()))
 		}()
 		shelley := getValidShelleyBlock(t)
 		require.NoError(
@@ -1915,7 +1915,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	rawCbor := getValidBlockCbor(t)
@@ -1935,7 +1935,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	}
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- p.Stop() }()
+	go func() { stopDone <- p.Stop(context.Background()) }()
 	select {
 	case <-p.ctx.Done():
 	case <-time.After(time.Second):
@@ -1970,7 +1970,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 		cancelParent()
 		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		require.ErrorIs(
 			t,
@@ -1996,7 +1996,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 		require.NoError(t, p.Start(parentCtx))
 		defer func() {
 			release()
-			require.NoError(t, p.Stop())
+			require.NoError(t, p.Stop(context.Background()))
 		}()
 
 		drainDone := make(chan error, 1)
@@ -2058,7 +2058,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 	defer func() {
 		releaseApplyFunc()
 		releaseBoundaryFunc()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	require.NoError(
@@ -2115,7 +2115,7 @@ func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	drainCtx, cancelDrain := context.WithCancel(context.Background())
@@ -2358,7 +2358,7 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Stop pipeline
-	err = p.Stop()
+	err = p.Stop(context.Background())
 	assert.NoError(t, err)
 
 	// Submit after stop should fail
@@ -2966,7 +2966,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 			defer wg.Done()
 			// Small random delay to create race conditions
 			time.Sleep(time.Duration(iteration%5) * time.Microsecond)
-			_ = p.Stop()
+			_ = p.Stop(context.Background())
 		}()
 
 		wg.Wait()
@@ -3208,7 +3208,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 		}
 	}
 
-	err = pipeline.Stop()
+	err = pipeline.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify trusted decode-only stats.
@@ -3285,7 +3285,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	}
 
 	// Stop the pipeline
-	err = pipeline.Stop()
+	err = pipeline.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify metrics

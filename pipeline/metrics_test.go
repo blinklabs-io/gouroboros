@@ -276,7 +276,7 @@ func runPipeline(
 			t.Fatal("timed out waiting for pipeline results")
 		}
 	}
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	drained.Wait()
 	return p.Stats()
 }
@@ -303,7 +303,7 @@ func runRejectedPipelineItem(
 	case <-ctx.Done():
 		t.Fatal("rejected pipeline item did not cancel processing")
 	}
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	return p.Stats()
 }
 

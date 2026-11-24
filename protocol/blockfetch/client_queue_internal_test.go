@@ -124,7 +124,7 @@ func TestPipelineBatchFencesAtCompletion(t *testing.T) {
 	)
 	t.Cleanup(func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	})
 	completion := make(chan error, 1)
 	c := newQueueTestClient(&Config{
@@ -172,7 +172,7 @@ func TestPipelineBatchReportsTailValidationFailure(t *testing.T) {
 			return nil
 		},
 	)
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 	completion := make(chan error, 1)
 	c := newQueueTestClient(&Config{
 		Pipeline:          p,
@@ -241,7 +241,7 @@ func TestPipelineBlockTypeMismatchPrecedesBlockFetchTypedDecode(t *testing.T) {
 		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
 	)
 	require.NoError(t, p.Start(context.Background()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 	wrapper, err := cbor.Encode(WrappedBlock{
 		Type:     ledger.BlockTypeMary,
 		RawBlock: cbor.RawMessage(raw),
@@ -279,7 +279,7 @@ func TestPipelineBatchShutdownReportsProtocolError(t *testing.T) {
 			)
 			t.Cleanup(func() {
 				release()
-				require.NoError(t, p.Stop())
+				require.NoError(t, p.Stop(context.Background()))
 			})
 			completion := make(chan error, 1)
 			peer := newInMemoryPeer(t, &Config{
@@ -749,7 +749,7 @@ func TestRangeDeadlineCancelsBlockedPipelineSubmit(t *testing.T) {
 		pipeline.WithApplyFunc(func(*pipeline.BlockItem) error { return nil }),
 	)
 	require.NoError(t, blockPipeline.Start(context.Background()))
-	defer func() { unblock(); require.NoError(t, blockPipeline.Stop()) }()
+	defer func() { unblock(); require.NoError(t, blockPipeline.Stop(context.Background())) }()
 	require.NoError(t, blockPipeline.Submit(
 		context.Background(),
 		wrapped.Type,
@@ -1969,7 +1969,7 @@ func TestPeerBlockRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 			}
 			p := pipeline.NewBlockPipeline(options...)
 			require.NoError(t, p.Start(context.Background()))
-			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 			cfg := Config{Pipeline: p}
 			require.ErrorIs(t, cfg.validate(), ErrPipelineValidationRequired)
 			_, configErr := NewConfig(WithPipeline(p))
