@@ -201,6 +201,54 @@ func TestServerAcquireSkipsCacheSweepWhenEmpty(t *testing.T) {
 	require.Zero(t, server.snapshotId)
 }
 
+// plantCollidingEntry caches a bogus ID under txCbor's key for different
+// bytes, standing in for a maphash collision.
+func plantCollidingEntry(server *Server, txCbor []byte) *txHashEntry {
+	planted := &txHashEntry{
+		tx:         append([]byte{0xff}, txCbor...),
+		snapshotId: server.snapshotId,
+	}
+	planted.hash[0] = 0xff
+	server.txHashes = map[uint]map[uint64]*txHashEntry{
+		ledger.TxTypeByron: {txHashKey(txCbor): planted},
+	}
+	return planted
+}
+
+func TestServerHasTxIgnoresCollidingCacheEntry(t *testing.T) {
+	t.Parallel()
+	txCbor, txId := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
+	server := newTestMempoolServer(t, &txs)
+	_, err := server.acquireMempool()
+	require.NoError(t, err)
+	planted := plantCollidingEntry(server, txCbor)
+
+	found, err := server.hasTx(NewMsgHasTxForEra(ledger.TxTypeByron, txId))
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Same(
+		t,
+		planted,
+		server.txHashes[ledger.TxTypeByron][txHashKey(txCbor)],
+	)
+}
+
+func TestServerAcquireDropsCollidingCacheEntry(t *testing.T) {
+	t.Parallel()
+	txCbor, txId := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
+	server := newTestMempoolServer(t, &txs)
+	plantCollidingEntry(server, txCbor)
+
+	_, err := server.acquireMempool()
+	require.NoError(t, err)
+	require.Empty(t, server.txHashes)
+	found, err := server.hasTx(NewMsgHasTxForEra(ledger.TxTypeByron, txId))
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
 func TestServerAcquireDropsIdsLeavingTheMempool(t *testing.T) {
 	txCbor, txId := testByronTx(t)
 	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
