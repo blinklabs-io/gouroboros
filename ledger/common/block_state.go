@@ -563,6 +563,12 @@ func (b *BlockLedgerState) pool(operator PoolKeyHash) *blockPool {
 // key of an earlier re-registration in the block, as the reference does from
 // protocol version 11. IsFutureVrfKeyInUse suppresses an inherited future key
 // when this method records its replacement.
+//
+// The reference tells the two apart by membership of psStakePools, which
+// IsPoolRegistered reports. PoolCurrentState alone cannot: it may still return
+// the last registration of a pool whose retirement has taken effect, and
+// treating that pool as re-registered would leave it unregistered for the
+// rest of the block.
 func (b *BlockLedgerState) applyPoolRegistration(
 	cert *PoolRegistrationCertificate,
 ) error {
@@ -571,7 +577,7 @@ func (b *BlockLedgerState) applyPoolRegistration(
 		return err
 	}
 	pool := b.pool(cert.Operator)
-	if current == nil {
+	if current == nil || !b.IsPoolRegistered(cert.Operator) {
 		pool.registration = cert
 		pool.registrationKnown = true
 		pool.retirementEpoch = nil
