@@ -49,3 +49,6 @@ var ErrLedgerPeerKindUnsupportedVersion = errors.New(
 var ErrQueryUnsupportedVersion = errors.New(
 	"query not supported by the negotiated node-to-client protocol version",
 )
+
+// ErrNotAcquired indicates a Release with no ledger state acquired.
+var ErrNotAcquired = errors.New("no ledger state acquired")

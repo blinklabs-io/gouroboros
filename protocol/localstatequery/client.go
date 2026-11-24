@@ -206,7 +206,8 @@ func (c *Client) AcquireImmutableTip() error {
 	return c.acquire(acquireTarget)
 }
 
-// Release releases the previously acquired chain point
+// Release releases the previously acquired chain point. It returns
+// ErrNotAcquired, without sending anything, when no state is acquired.
 func (c *Client) Release() error {
 	c.Protocol.Logger().
 		Debug("calling Release()",
@@ -2132,6 +2133,11 @@ func (c *Client) acquire(acquireTarget AcquireTarget) error {
 }
 
 func (c *Client) release() error {
+	// MsgRelease is legal only in Acquired; from Idle it is a protocol error
+	// that closes the connection.
+	if !c.acquired {
+		return ErrNotAcquired
+	}
 	msg := NewMsgRelease()
 	if err := c.SendMessage(msg); err != nil {
 		return err
