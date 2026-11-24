@@ -602,3 +602,31 @@ func TestServerStopWinsOverRestart(t *testing.T) {
 	h.send(t, NewMsgKeepAlive(modelCookie))
 	h.requireQuiet(t)
 }
+
+// TestServerStopAfterRestartBeganReleasesReceiver stops the server after
+// StopForRestart has suspended its muxer receiver and before the restart
+// installs a new instance. The cancelled restart must release the receiver:
+// a suspended one keeps buffering the client's bytes, charged against the
+// connection's ingress budget, until the connection closes.
+func TestServerStopAfterRestartBeganReleasesReceiver(t *testing.T) {
+	t.Parallel()
+	h, opts := newModelHarness(t, protocol.ProtocolRoleServer)
+	server := NewServer(opts, nil)
+	stopped := make(chan struct{})
+	server.restartHook = func() {
+		server.Stop()
+		close(stopped)
+	}
+	server.Start()
+	t.Cleanup(server.Stop)
+	h.send(t, NewMsgDone())
+	<-stopped
+	// The muxer hands up to 11 segments to a receiver's channel and its
+	// forwarder before they stay charged to the budget, so send more.
+	for range 20 {
+		h.send(t, NewMsgKeepAlive(modelCookie))
+	}
+	held := func() bool { return opts.Muxer.IngressInUse() > 0 }
+	assert.Never(t, held, 200*time.Millisecond, 5*time.Millisecond,
+		"a stopped server's receiver is still buffering ingress")
+}
