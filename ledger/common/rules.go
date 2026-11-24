@@ -1068,15 +1068,14 @@ func ValidateMIRGenesisQuorum(
 	for _, delegate := range delegates {
 		delegateSet[delegate] = struct{}{}
 	}
-	// Only a signature from a currently delegated genesis key counts, and each
+	// Only a witness for a currently delegated genesis key counts, and each
 	// delegate counts once no matter how often it appears in the witness set.
+	// A delegate hash may be a bootstrap address root, which the reference
+	// counts like a vkey hash (genSig is taken over keyHashWitnessesTxWits).
 	signed := make(map[Blake2b224]struct{}, len(delegateSet))
-	if w := tx.Witnesses(); w != nil {
-		for _, vw := range w.Vkey() {
-			hash := Blake2b224Hash(vw.Vkey)
-			if _, ok := delegateSet[hash]; ok {
-				signed[hash] = struct{}{}
-			}
+	for hash := range witnessKeyHashes(tx.Witnesses()) {
+		if _, ok := delegateSet[hash]; ok {
+			signed[hash] = struct{}{}
 		}
 	}
 	if uint(len(signed)) < quorum {
@@ -1122,12 +1121,7 @@ func ValidateClassicProtocolParameterUpdates(
 		}
 		delegateSet[genesisKey] = delegateKey
 	}
-	signedDelegates := make(map[Blake2b224]struct{})
-	if w := tx.Witnesses(); w != nil {
-		for _, witness := range w.Vkey() {
-			signedDelegates[Blake2b224Hash(witness.Vkey)] = struct{}{}
-		}
-	}
+	signedDelegates := witnessKeyHashes(tx.Witnesses())
 	for genesisKey := range updates {
 		delegateKey := delegateSet[genesisKey]
 		if _, ok := signedDelegates[delegateKey]; !ok {
