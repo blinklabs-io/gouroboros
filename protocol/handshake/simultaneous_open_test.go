@@ -18,6 +18,7 @@ import (
 	"errors"
 	"net"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -259,6 +260,60 @@ func TestSimultaneousOpenVersionMismatchListsOwnVersions(t *testing.T) {
 	leftConn, rightConn := net.Pipe()
 	left := startSimOpenSide(t, leftConn, simOpenTable(t, 1, 11, 13))
 	right := startSimOpenSide(t, rightConn, simOpenTable(t, 1, 14))
+	var mismatch *handshake.VersionMismatchError
+	require.True(t, errors.As(awaitSimOpen(t, left).err, &mismatch))
+	require.Equal(t, []uint16{11, 13}, mismatch.SupportedVersions)
+	require.True(t, errors.As(awaitSimOpen(t, right).err, &mismatch))
+	require.Equal(t, []uint16{14}, mismatch.SupportedVersions)
+}
+
+// gatedConn holds its first write until release is closed.
+type gatedConn struct {
+	net.Conn
+	writing chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *gatedConn) Write(b []byte) (int, error) {
+	c.once.Do(func() {
+		close(c.writing)
+		<-c.release
+	})
+	return c.Conn.Write(b)
+}
+
+// TestSimultaneousOpenEndsOnlyAfterProposalWritten checks a side does not
+// end the handshake while its own proposal is still unwritten. Ending stops
+// the protocol and the muxer drops the unwritten proposal, so the peer never
+// hears it and cannot make its own choice. The reference writes the proposal
+// synchronously before it reads anything (Client.hs 117-121 with
+// network-mux Mux/Types.hs 327-330), so it cannot end first.
+func TestSimultaneousOpenEndsOnlyAfterProposalWritten(t *testing.T) {
+	t.Cleanup(func() { goleak.VerifyNone(t) })
+	leftConn, rightConn := net.Pipe()
+	gated := &gatedConn{
+		Conn:    rightConn,
+		writing: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	left := startSimOpenSide(t, leftConn, simOpenTable(t, 1, 11, 13))
+	right := startSimOpenSide(t, gated, simOpenTable(t, 1, 14))
+	select {
+	case <-gated.writing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("right side never started writing its proposal")
+	}
+	// The right side now has the left proposal to read and handle, while its
+	// own is held. A side that ends without waiting for its write does so
+	// well within this window; one that waits cannot end until release.
+	select {
+	case result := <-right:
+		close(gated.release)
+		t.Fatalf("right side ended with its proposal unwritten: %v", result.err)
+	case <-time.After(250 * time.Millisecond):
+	}
+	close(gated.release)
 	var mismatch *handshake.VersionMismatchError
 	require.True(t, errors.As(awaitSimOpen(t, left).err, &mismatch))
 	require.Equal(t, []uint16{11, 13}, mismatch.SupportedVersions)

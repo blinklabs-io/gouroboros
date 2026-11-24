@@ -30,6 +30,10 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	onceStart       sync.Once
+	// proposalSent is closed once the proposal is written or has failed,
+	// with the failure, if any, in proposalErr.
+	proposalSent chan struct{}
+	proposalErr  error
 }
 
 // NewClient returns a new Handshake client object
@@ -39,7 +43,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:       cfg,
+		proposalSent: make(chan struct{}),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -89,20 +94,26 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
-		if err := c.SendMessage(msg); err != nil {
+		// The write is awaited in the background: on a connection that
+		// cannot buffer it, it completes only once the peer reads.
+		go func() {
+			defer close(c.proposalSent)
+			c.proposalErr = c.SendMessageAndWait(msg)
+			if c.proposalErr == nil ||
+				errors.Is(c.proposalErr, protocol.ErrProtocolShuttingDown) {
+				return
+			}
 			c.Protocol.Logger().
 				Warn("failed to send handshake propose versions",
 					"component", "network",
 					"protocol", ProtocolName,
 					"connection_id", c.callbackContext.ConnectionId.String(),
-					"error", err,
+					"error", c.proposalErr,
 				)
 			// Start cannot return this error, so log it and still clean up.
 			c.Stop()
-			return
-		}
+		}()
 		// A peer that dials at the same moment sends its own proposal,
 		// which is only legal once ours has moved the client to Confirm;
 		// arriving in Propose it would be a protocol violation. Returning
@@ -209,6 +220,19 @@ func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
 	if c.config.FinishedFunc == nil {
 		return errors.New(
 			"received handshake ReplyVersions message but no callback function is defined",
+		)
+	}
+	// Ending the handshake stops the protocol, and the muxer drops a
+	// message it has not yet written, so the peer, which is waiting for
+	// this side's proposal to make its own choice, would never get it. The
+	// reference cannot end first: its send is a synchronous bearer write
+	// that completes before it reads (network-mux Mux/Types.hs 327-330).
+	<-c.proposalSent
+	if c.proposalErr != nil {
+		return fmt.Errorf(
+			"%s: sending proposal: %w",
+			ProtocolName,
+			c.proposalErr,
 		)
 	}
 	var version uint16
