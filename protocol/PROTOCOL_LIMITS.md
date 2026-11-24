@@ -178,7 +178,8 @@ The base map (`protocol/blockfetch/blockfetch.go`) is:
 | Done | none | 0 |
 
 Client and server instances copy the map and apply their configured
-`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. A pipelining
+`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. `NewConfig`
+defaults both to 60 seconds, the reference implementation's `longWait`. A pipelining
 client raises its Idle pending-message limit to 2,500,000 bytes so a block can
 arrive during the Idle transition.
 

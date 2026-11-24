@@ -82,6 +82,10 @@ The BlockFetch protocol retrieves blocks by hash from a peer node. It is used in
 | Busy | 60 seconds | Server must start batch or respond no blocks |
 | Streaming | 60 seconds | Server must send next block in batch |
 
+These are the reference implementation's `longWait` limits, and the
+`NewConfig` defaults for `BatchStartTimeout` (Busy) and `BlockTimeout`
+(Streaming).
+
 ## Limits
 
 | Limit | Value | Description |
@@ -103,7 +107,7 @@ blockfetch.NewConfig(
     blockfetch.WithBlockRawFunc(blockRawCallback),
     blockfetch.WithBatchDoneFunc(batchDoneCallback),
     blockfetch.WithRequestRangeFunc(requestRangeCallback),
-    blockfetch.WithBatchStartTimeout(5 * time.Second),
+    blockfetch.WithBatchStartTimeout(60 * time.Second),
     blockfetch.WithBlockTimeout(60 * time.Second),
     blockfetch.WithRecvQueueSize(384),
     // Client request pipelining

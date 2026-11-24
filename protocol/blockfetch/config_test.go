@@ -81,3 +81,17 @@ func TestNegativeRangeTimeoutRejected(t *testing.T) {
 	_, err := blockfetch.NewConfig(blockfetch.WithRangeTimeout(-time.Second))
 	require.Error(t, err)
 }
+
+// TestNewConfigTimeoutsMatchReference pins the default Busy and Streaming
+// timeouts to the reference's 60 seconds (longWait in the block-fetch codec's
+// timeLimitsBlockFetch). The defaults replace the state map's timeouts in
+// both client and server, so a shorter default drops an honest peer that
+// takes longer than it to start a batch.
+func TestNewConfigTimeoutsMatchReference(t *testing.T) {
+	cfg, err := blockfetch.NewConfig()
+	require.NoError(t, err)
+	require.Equal(t, 60*time.Second, cfg.BatchStartTimeout)
+	require.Equal(t, blockfetch.BusyTimeout, cfg.BatchStartTimeout)
+	require.Equal(t, 60*time.Second, cfg.BlockTimeout)
+	require.Equal(t, blockfetch.StreamingTimeout, cfg.BlockTimeout)
+}
