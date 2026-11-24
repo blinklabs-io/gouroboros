@@ -40,6 +40,7 @@ type Server struct {
 	lock              sync.Mutex
 	messageQueue      []*pcommon.DmqMessage
 	pendingMessageIDs [][]byte
+	requestedIDs      map[string]struct{}
 	pendingIDRequest  *messageIDRequest
 	pendingMsgRequest *messageRequest
 	// deliveredIDs maps each message ID handed to ReplyMessagesFunc to its
@@ -57,6 +58,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config:            &normalizedCfg,
 		messageQueue:      make([]*pcommon.DmqMessage, 0),
 		pendingMessageIDs: [][]byte{},
+		requestedIDs:      map[string]struct{}{},
 		deliveredIDs:      make(map[string]uint32),
 		now:               time.Now,
 		protoVersion:      protoOptions.Version,
@@ -220,18 +222,22 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	}
 	request, err := requestedMessagesAreOutstanding(
 		s.pendingMessageIDs,
+		s.requestedIDs,
 		messageIDs,
 	)
 	if err != nil {
 		s.lock.Unlock()
 		return err
 	}
+	previousRequested := s.requestedIDs
+	s.requestedIDs = withRequestedIDs(s.requestedIDs, request)
 	s.pendingMsgRequest = request
 	s.lock.Unlock()
 	if err := s.SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
 		s.lock.Lock()
 		if s.pendingMsgRequest == request {
 			s.pendingMsgRequest = nil
+			s.requestedIDs = previousRequested
 		}
 		s.lock.Unlock()
 		return err
@@ -414,6 +420,11 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 		s.lock.Unlock()
 		return err
 	}
+	s.requestedIDs = forgetAcknowledgedIDs(
+		s.requestedIDs,
+		s.pendingMessageIDs,
+		s.pendingIDRequest.ack,
+	)
 	s.pendingMessageIDs = next
 	s.pendingIDRequest = nil
 	s.lock.Unlock()

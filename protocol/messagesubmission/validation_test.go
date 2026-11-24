@@ -108,6 +108,7 @@ func TestRequestedMessagesMustBeOutstandingAndUnique(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := requestedMessagesAreOutstanding(
 				[][]byte{idA, idB},
+				nil,
 				tt.requested,
 			)
 			require.ErrorIs(
@@ -125,6 +126,7 @@ func TestMessageReplyAllowsOmissionAndRequestIndependentOrdering(t *testing.T) {
 	idC := testMessageID(0xc3)
 	request, err := requestedMessagesAreOutstanding(
 		[][]byte{idA, idB, idC},
+		nil,
 		[][]byte{idA, idB, idC},
 	)
 	require.NoError(t, err)

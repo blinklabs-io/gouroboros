@@ -33,6 +33,7 @@ type Client struct {
 	// Client-side state for message ID tracking
 	lock               sync.Mutex
 	pendingMessageIDs  [][]byte
+	requestedIDs       map[string]struct{}
 	pendingIDRequest   *messageIDRequest
 	pendingMsgRequest  *messageRequest
 	requestGeneration  uint64
@@ -51,6 +52,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	c := &Client{
 		config:            &normalizedCfg,
 		pendingMessageIDs: [][]byte{},
+		requestedIDs:      map[string]struct{}{},
 		protoVersion:      protoOptions.Version,
 	}
 	c.callbackContext = CallbackContext{
@@ -204,7 +206,13 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 		return err
 	}
 	generation := c.requestGeneration
+	previousRequested := c.requestedIDs
 	c.pendingMessageIDs = next
+	c.requestedIDs = forgetAcknowledgedIDs(
+		c.requestedIDs,
+		previous,
+		request.ack,
+	)
 	c.pendingIDRequest = nil
 	c.lock.Unlock()
 	if c.testReplyPublished != nil {
@@ -215,6 +223,7 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 		if c.requestGeneration == generation &&
 			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
 			c.pendingMessageIDs = previous
+			c.requestedIDs = previousRequested
 			c.pendingIDRequest = request
 		}
 		c.lock.Unlock()
@@ -372,12 +381,14 @@ func (c *Client) handleRequestMessages(msg protocol.Message) error {
 	}
 	request, err := requestedMessagesAreOutstanding(
 		c.pendingMessageIDs,
+		c.requestedIDs,
 		msgRequest.MessageIDs,
 	)
 	if err != nil {
 		c.lock.Unlock()
 		return err
 	}
+	c.requestedIDs = withRequestedIDs(c.requestedIDs, request)
 	c.pendingMsgRequest = request
 	c.requestGeneration++
 	c.lock.Unlock()

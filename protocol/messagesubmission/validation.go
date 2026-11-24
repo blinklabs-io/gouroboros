@@ -152,8 +152,13 @@ func reconcileMessageIDs(
 	return ret, nil
 }
 
+// requestedMessagesAreOutstanding checks a message request: each ID must be
+// outstanding, named once, and not already in requestedIDs, the IDs asked for
+// earlier and not yet acknowledged. The protocol allows a body to be asked
+// for at most once while its ID is outstanding.
 func requestedMessagesAreOutstanding(
 	outstanding [][]byte,
+	requestedIDs map[string]struct{},
 	requested [][]byte,
 ) (*messageRequest, error) {
 	if len(requested) > len(outstanding) {
@@ -187,9 +192,51 @@ func requestedMessagesAreOutstanding(
 				id,
 			)
 		}
+		if _, ok := requestedIDs[key]; ok {
+			return nil, invalidMessageSubmissionMessage(
+				"request repeats already requested message ID %x",
+				id,
+			)
+		}
 		ids[key] = struct{}{}
 	}
 	return &messageRequest{ids: ids}, nil
+}
+
+// forgetAcknowledgedIDs returns requested without the first ack IDs of
+// outstanding, which a request has just acknowledged. An acknowledged ID
+// leaves the record with the window, so a later announcement of the same ID
+// is new and its body may be requested again.
+func forgetAcknowledgedIDs(
+	requested map[string]struct{},
+	outstanding [][]byte,
+	ack int,
+) map[string]struct{} {
+	ret := make(map[string]struct{}, len(requested))
+	for id := range requested {
+		ret[id] = struct{}{}
+	}
+	for _, id := range outstanding[:ack] {
+		delete(ret, string(id))
+	}
+	return ret
+}
+
+// withRequestedIDs returns a copy of requested with the IDs of request
+// added. It copies so that a caller can restore the previous record if the
+// request is never sent.
+func withRequestedIDs(
+	requested map[string]struct{},
+	request *messageRequest,
+) map[string]struct{} {
+	ret := make(map[string]struct{}, len(requested)+len(request.ids))
+	for id := range requested {
+		ret[id] = struct{}{}
+	}
+	for id := range request.ids {
+		ret[id] = struct{}{}
+	}
+	return ret
 }
 
 func validateMessageReply(
