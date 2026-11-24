@@ -2088,7 +2088,8 @@ func UtxoValidateScriptDataHash(
 			// this same rule list. Reporting it from here would change which
 			// error an invalid transaction produces, and this rule is
 			// registered ahead of that one. A reference input that does not
-			// resolve has no such dedicated rule, so it still surfaces here.
+			// resolve is reported by that rule too, but its error is not
+			// ErrInputResolution, so it still surfaces here first.
 			return nil
 		}
 		return err
@@ -2371,13 +2372,23 @@ func UtxoValidateNoCollateralInputs(
 	return alonzo.NoCollateralInputsError{}
 }
 
+// UtxoValidateBadInputsUtxo ensures that every spent, collateral and
+// reference input is in the ledger state, the input set of BadInputsUTxO
+// from Babbage on. A reference input that is also spent is checked once;
+// whether that overlap is allowed at all is UtxoValidateDisjointRefInputs'
+// concern.
 func UtxoValidateBadInputsUtxo(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	return shelley.ValidateBadInputs(
+		ls,
+		tx.Inputs(),
+		tx.Collateral(),
+		tx.ReferenceInputs(),
+	)
 }
 
 type valueConservationStakeState struct {

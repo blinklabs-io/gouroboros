@@ -737,13 +737,17 @@ func UtxoValidateNoCollateralInputs(
 	return NoCollateralInputsError{}
 }
 
+// UtxoValidateBadInputsUtxo ensures that every spent and collateral input is
+// in the ledger state. Alonzo's BadInputsUTxO covers txins ∪ collateral, so a
+// missing collateral input is reported here whether or not the transaction
+// has redeemers.
 func UtxoValidateBadInputsUtxo(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	return shelley.ValidateBadInputs(ls, tx.Inputs(), tx.Collateral())
 }
 
 func UtxoValidateValueNotConservedUtxo(
