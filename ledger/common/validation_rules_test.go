@@ -126,6 +126,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 			descriptors: alonzo.UtxoValidationRuleDescriptors,
 			legacy:      alonzo.UtxoValidationRules,
 			ids: []common.UtxoValidationRuleId{
+				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleMetadata,
 				common.UtxoValidationRuleIsValidFlag,
 				common.UtxoValidationRuleRequiredVKeyWitnesses,
@@ -146,7 +147,6 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleInsufficientCollateral,
 				common.UtxoValidationRuleCollateralContainsNonAda,
 				common.UtxoValidationRuleNoCollateralInputs,
-				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleScriptWitnesses,
 				common.UtxoValidationRuleValueNotConserved,
 				common.UtxoValidationRuleOutputTooSmall,
@@ -172,6 +172,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 			descriptors: babbage.UtxoValidationRuleDescriptors,
 			legacy:      babbage.UtxoValidationRules,
 			ids: []common.UtxoValidationRuleId{
+				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleMetadata,
 				common.UtxoValidationRuleIsValidFlag,
 				common.UtxoValidationRuleRequiredVKeyWitnesses,
@@ -195,7 +196,6 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleCollateralContainsNonAda,
 				common.UtxoValidationRuleCollateralEqBalance,
 				common.UtxoValidationRuleNoCollateralInputs,
-				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleScriptWitnesses,
 				common.UtxoValidationRuleRequiredRedeemers,
 				common.UtxoValidationRuleValueNotConserved,
@@ -222,6 +222,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 			descriptors: conway.UtxoValidationRuleDescriptors,
 			legacy:      conway.UtxoValidationRules,
 			ids: []common.UtxoValidationRuleId{
+				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleCurrentTreasuryValue,
 				common.UtxoValidationRuleMetadata,
 				common.UtxoValidationRuleProposalProcedures,
@@ -254,7 +255,6 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleCollateralContainsNonAda,
 				common.UtxoValidationRuleCollateralEqBalance,
 				common.UtxoValidationRuleNoCollateralInputs,
-				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleScriptWitnesses,
 				common.UtxoValidationRuleRequiredRedeemers,
 				common.UtxoValidationRuleValueNotConserved,
@@ -292,6 +292,7 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 			descriptors: dijkstra.UtxoValidationRuleDescriptors,
 			legacy:      dijkstra.UtxoValidationRules,
 			ids: []common.UtxoValidationRuleId{
+				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleCurrentTreasuryValue,
 				common.UtxoValidationRuleMetadata,
 				common.UtxoValidationRuleProposalProcedures,
@@ -324,7 +325,6 @@ func TestUtxoValidationRuleDescriptors(t *testing.T) {
 				common.UtxoValidationRuleCollateralEqBalance,
 				common.UtxoValidationRulePtrPresentInCollateralReturn,
 				common.UtxoValidationRuleNoCollateralInputs,
-				common.UtxoValidationRuleBadInputs,
 				common.UtxoValidationRuleScriptWitnesses,
 				common.UtxoValidationRuleRequiredRedeemers,
 				common.UtxoValidationRuleBatchWithdrawals,

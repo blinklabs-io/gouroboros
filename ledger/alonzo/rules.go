@@ -28,6 +28,14 @@ import (
 )
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	// BadInputs runs first. cardano-ledger accumulates every failure, so a
+	// missing input always yields BadInputsUTxO; this list stops at the first
+	// failure, and the rules below resolve collateral and reference inputs
+	// and would otherwise report the same missing input in their own terms.
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
 	{Id: common.UtxoValidationRuleMetadata, Validator: UtxoValidateMetadata},
 	{
 		Id:        common.UtxoValidationRuleIsValidFlag,
@@ -104,10 +112,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
-	},
-	{
-		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: UtxoValidateBadInputsUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleScriptWitnesses,
@@ -197,6 +201,7 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(UtxoValidateBadInputsUtxo),
 	common.AlwaysUtxoValidationRules(
 		UtxoValidateMetadata,
 		UtxoValidateIsValidFlag,
@@ -222,7 +227,6 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateInsufficientCollateral,
 		UtxoValidateCollateralContainsNonAda,
 		UtxoValidateNoCollateralInputs,
-		UtxoValidateBadInputsUtxo,
 		UtxoValidateScriptWitnesses,
 		UtxoValidateValueNotConservedUtxo,
 		UtxoValidateOutputTooSmallUtxo,
@@ -747,13 +751,17 @@ func UtxoValidateNoCollateralInputs(
 	return NoCollateralInputsError{}
 }
 
+// UtxoValidateBadInputsUtxo ensures that every spent and collateral input is
+// in the ledger state. Alonzo's BadInputsUTxO covers txins ∪ collateral, so a
+// missing collateral input is reported here whether or not the transaction
+// has redeemers.
 func UtxoValidateBadInputsUtxo(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	return shelley.ValidateBadInputs(ls, tx.Inputs(), tx.Collateral())
 }
 
 func UtxoValidateValueNotConservedUtxo(
@@ -1321,12 +1329,9 @@ func UtxoValidateScriptDataHash(
 	view, err := script.NewTxScriptView(tx, ls)
 	if err != nil {
 		if errors.Is(err, common.ErrInputResolution) {
-			// A spent input that does not resolve is reported by
-			// UtxoValidateBadInputsUtxo, which runs on every transaction in
-			// this same rule list. Reporting it from here would change which
-			// error an invalid transaction produces, and this rule is
-			// registered ahead of that one. A reference input that does not
-			// resolve has no such dedicated rule, so it still surfaces here.
+			// A spent input that does not resolve is left to
+			// UtxoValidateBadInputsUtxo, which runs first in this era's rule
+			// list and reports it as the reference does.
 			return nil
 		}
 		return err
