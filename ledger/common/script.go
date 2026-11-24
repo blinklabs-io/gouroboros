@@ -1077,16 +1077,13 @@ func parseNativeScriptReference(
 
 // parseNativeScriptChildren decodes a definite or indefinite list of native
 // scripts at the start of data and returns it with its encoded length. CBOR
-// null and undefined decode to an empty list.
+// null and undefined are rejected: the field must be an array.
 func parseNativeScriptChildren(
 	data []byte,
 	depth int,
 ) ([]nativeScriptReference, int, error) {
 	if len(data) == 0 {
 		return nil, 0, errors.New("native script child list is missing")
-	}
-	if data[0] == 0xf6 || data[0] == 0xf7 {
-		return nil, 1, nil
 	}
 	length, headerLength, indefinite := cbor.ArrayInfo(data)
 	if length < 0 {
