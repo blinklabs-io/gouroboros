@@ -1102,9 +1102,9 @@ func UtxoValidateGuardrailsScriptHash(
 //     reference implementation's comparison against the enacted version.
 //
 // A non-root predecessor whose contents the ledger state does not record (see
-// common.GovActionState.Action) leaves the numeric check deferred rather than
-// run against the wrong reference version; the predecessor's existence and
-// purpose are validated by UtxoValidateProposalAncestry.
+// common.GovActionState.Action) is reported as GovernanceStateUnavailableError
+// rather than checked against the wrong reference version; the predecessor's
+// existence and purpose are validated by UtxoValidateProposalAncestry.
 func UtxoValidateHardForkCanFollow(
 	tx common.Transaction,
 	slot uint64,
