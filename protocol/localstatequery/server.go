@@ -383,10 +383,10 @@ func (s *Server) handleRelease() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// MsgRelease is always legal from Acquired; without a callback there is
+	// simply nothing for the application to free.
 	if s.config.ReleaseFunc == nil {
-		return errors.New(
-			"received local-state-query Release message but no callback function is defined",
-		)
+		return nil
 	}
 	// Call the user callback function
 	return s.config.ReleaseFunc(s.callbackContext)
