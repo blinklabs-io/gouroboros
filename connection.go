@@ -674,7 +674,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageNotification.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageNotification.Server.Protocol,
+				c.localMessageNotification.Server.ProtocolInstance(),
 			)
 		}
 	}
