@@ -570,18 +570,15 @@ func (v *HeaderValidator) validateKESSignature(
 		)
 	}
 
-	// Calculate evolution period
+	// A certificate that starts after the current period is rejected by
+	// validateKESPeriod. As in the reference, the signature is still
+	// verified, at evolution 0, so that a bad signature is also reported
+	// and the period error is not reported twice.
 	currentKESPeriod := input.Slot / v.slotsPerKESPeriod
-	opCertKESPeriod := input.OpCertKesPeriod
-	// Guard against underflow if OpCert KES period is in the future
-	if currentKESPeriod < opCertKESPeriod {
-		return fmt.Errorf(
-			"operational certificate KES period is in the future: current=%d, opcert=%d",
-			currentKESPeriod,
-			opCertKESPeriod,
-		)
+	var evolutionPeriod uint64
+	if currentKESPeriod >= input.OpCertKesPeriod {
+		evolutionPeriod = currentKESPeriod - input.OpCertKesPeriod
 	}
-	evolutionPeriod := currentKESPeriod - opCertKESPeriod
 
 	// Verify KES signature
 	valid := kes.VerifySignedKES(
