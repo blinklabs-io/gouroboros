@@ -23,7 +23,10 @@ import (
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
 
-// Client implements the MessageSubmission client
+// Client is the side of a MessageSubmission session that has messages and
+// answers the peer's requests for them. In V1 it is the connection's
+// initiator; in V2 it is the responder, because there the side that wants
+// messages starts the protocol.
 type Client struct {
 	*protocol.Protocol
 	config          *Config
@@ -104,10 +107,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Logger:             protoOptions.Logger,
 		ErrorChan:          protoOptions.ErrorChan,
 		Mode:               protoOptions.Mode,
-		Role:               protocol.ProtocolRoleClient,
+		Role:               roleFor(protoOptions.Version, protocol.ProtocolRoleClient),
 		MessageHandlerFunc: c.messageHandler,
 		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
 			return decodeMsgFromCborWithLimit(
+				protoOptions.Version,
 				msgType,
 				data,
 				c.collectionLimit(msgType),
@@ -123,7 +127,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 // collectionLimit bounds an inbound collection before it is decoded. A
 // message request may only name IDs this client still holds unacknowledged.
 func (c *Client) collectionLimit(msgType uint) int {
-	if msgType != MessageTypeRequestMessages {
+	if kind, _ := kindOf(c.protoVersion, msgType); kind != kindRequestMessages {
 		return configuredMessageIDLimit(c.config)
 	}
 	c.lock.Lock()
@@ -165,7 +169,7 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		msg := NewMsgDone()
+		msg := NewMsgDone(c.protoVersion)
 		c.stopErr = c.SendMessage(msg)
 	})
 	return c.stopErr
@@ -218,7 +222,7 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 	if c.testReplyPublished != nil {
 		c.testReplyPublished()
 	}
-	if err := c.SendMessage(NewMsgReplyMessageIds(messages)); err != nil {
+	if err := c.SendMessage(NewMsgReplyMessageIds(c.protoVersion, messages)); err != nil {
 		c.lock.Lock()
 		if c.requestGeneration == generation &&
 			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
@@ -231,6 +235,50 @@ func (c *Client) ReplyMessageIds(messages []pcommon.MessageIDAndSize) error {
 	}
 	if c.testReplyEnqueued != nil {
 		c.testReplyEnqueued()
+	}
+	return nil
+}
+
+// ReplyNoMessageIds answers an outstanding V2 blocking request for message
+// IDs with none, applying the request's acknowledgement. dmq-node's V2
+// requester allows 20 seconds for a blocking answer and its own sending side
+// gives up after 17, so a Client with nothing to announce should call this
+// before the peer's limit rather than leave the request open.
+func (c *Client) ReplyNoMessageIds() error {
+	if !isMessageSubmissionV2(c.protoVersion) {
+		return errors.New(
+			"ReplyNoMessageIds is only supported in MessageSubmission V2",
+		)
+	}
+	c.lock.Lock()
+	request := c.pendingIDRequest
+	if request == nil {
+		c.lock.Unlock()
+		return errors.New("no message ID request is outstanding")
+	}
+	next, err := acknowledgeMessageIDs(
+		c.pendingMessageIDs,
+		*request,
+		c.config.MaxUnacknowledgedMessageIDs,
+	)
+	if err != nil {
+		c.lock.Unlock()
+		return err
+	}
+	previous := c.pendingMessageIDs
+	generation := c.requestGeneration
+	c.pendingMessageIDs = next
+	c.pendingIDRequest = nil
+	c.lock.Unlock()
+	if err := c.SendMessage(NewMsgReplyNoMessageIds()); err != nil {
+		c.lock.Lock()
+		if c.requestGeneration == generation &&
+			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
+			c.pendingMessageIDs = previous
+			c.pendingIDRequest = request
+		}
+		c.lock.Unlock()
+		return err
 	}
 	return nil
 }
@@ -253,7 +301,7 @@ func (c *Client) ReplyMessages(messages []pcommon.DmqMessage) error {
 	if c.testReplyPublished != nil {
 		c.testReplyPublished()
 	}
-	msg := NewMsgReplyMessages(messages)
+	msg := NewMsgReplyMessages(c.protoVersion, messages)
 	msg.legacyMessageEncoding = c.config.LegacyV1MessageEncoding &&
 		!isMessageSubmissionV2(c.protoVersion)
 	if err := c.SendMessage(msg); err != nil {
@@ -290,12 +338,12 @@ func (c *Client) GetPendingMessageIDs() [][]byte {
 
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
-	switch msg.Type() {
-	case MessageTypeRequestMessageIds:
+	switch msg.(type) {
+	case *MsgRequestMessageIds:
 		err = c.handleRequestMessageIds(msg)
-	case MessageTypeRequestMessages:
+	case *MsgRequestMessages:
 		err = c.handleRequestMessages(msg)
-	case MessageTypeDone:
+	case *MsgDone:
 		err = c.handleDone()
 	default:
 		err = fmt.Errorf(

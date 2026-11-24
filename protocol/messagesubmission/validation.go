@@ -103,6 +103,31 @@ func validateMessageIDRequest(
 	return nil
 }
 
+// acknowledgeMessageIDs returns the window after a blocking request is
+// answered with MsgReplyNoMessageIds: the acknowledged IDs leave it and none
+// join. Only a blocking request may be answered that way (the V2 state map
+// allows the message only from StMessageIdsBlocking).
+func acknowledgeMessageIDs(
+	outstanding [][]byte,
+	request messageIDRequest,
+	limit int,
+) ([][]byte, error) {
+	if err := validateMessageIDRequest(outstanding, request, limit); err != nil {
+		return nil, err
+	}
+	if !request.blocking {
+		return nil, invalidMessageSubmissionMessage(
+			"a non-blocking message ID request cannot be answered with no IDs",
+		)
+	}
+	remaining := outstanding[request.ack:]
+	ret := make([][]byte, 0, len(remaining))
+	for _, id := range remaining {
+		ret = append(ret, append([]byte(nil), id...))
+	}
+	return ret, nil
+}
+
 func reconcileMessageIDs(
 	outstanding [][]byte,
 	request messageIDRequest,

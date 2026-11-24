@@ -29,7 +29,9 @@ var errReplayCacheCapacityExceeded = errors.New(
 	"dmq: message submission replay cache capacity exceeded",
 )
 
-// Server implements the MessageSubmission server
+// Server is the side of a MessageSubmission session that wants messages and
+// requests them. In V1 it is the connection's responder; in V2 it is the
+// initiator and sends the first message.
 type Server struct {
 	*protocol.Protocol
 	config          *Config
@@ -87,10 +89,11 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Logger:             protoOptions.Logger,
 		ErrorChan:          protoOptions.ErrorChan,
 		Mode:               protoOptions.Mode,
-		Role:               protocol.ProtocolRoleServer,
+		Role:               roleFor(protoOptions.Version, protocol.ProtocolRoleServer),
 		MessageHandlerFunc: s.messageHandler,
 		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
 			return decodeMsgFromCborWithLimit(
+				protoOptions.Version,
 				msgType,
 				data,
 				s.collectionLimit(msgType),
@@ -107,22 +110,24 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 // can never be larger than the correlated request that admits it, and with no
 // request outstanding only an empty collection can reach the reply validator.
 func (s *Server) collectionLimit(msgType uint) int {
+	kind, _ := kindOf(s.protoVersion, msgType)
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	switch msgType {
-	case MessageTypeReplyMessageIds:
+	switch kind {
+	case kindReplyMessageIds:
 		if s.pendingIDRequest == nil {
 			return 0
 		}
 		return s.pendingIDRequest.requested
-	case MessageTypeReplyMessages:
+	case kindReplyMessages:
 		if s.pendingMsgRequest == nil {
 			return 0
 		}
 		return len(s.pendingMsgRequest.ids)
-	default:
-		return configuredMessageIDLimit(s.config)
+	case kindInit, kindRequestMessageIds, kindReplyNoMessageIds,
+		kindRequestMessages, kindDone:
 	}
+	return configuredMessageIDLimit(s.config)
 }
 
 // AddMessage adds a message to the outbound queue
@@ -200,7 +205,7 @@ func (s *Server) requestMessageIDs(
 	s.pendingIDRequest = request
 	s.lock.Unlock()
 	if err := s.SendMessage(
-		NewMsgRequestMessageIds(blocking, ackCount, requestCount),
+		NewMsgRequestMessageIds(s.protoVersion, blocking, ackCount, requestCount),
 	); err != nil {
 		s.lock.Lock()
 		if s.pendingIDRequest == request {
@@ -233,7 +238,7 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	s.requestedIDs = withRequestedIDs(s.requestedIDs, request)
 	s.pendingMsgRequest = request
 	s.lock.Unlock()
-	if err := s.SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
+	if err := s.SendMessage(NewMsgRequestMessages(s.protoVersion, messageIDs)); err != nil {
 		s.lock.Lock()
 		if s.pendingMsgRequest == request {
 			s.pendingMsgRequest = nil
@@ -245,11 +250,10 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	return nil
 }
 
-// Done sends MsgDone to terminate the protocol from the server side.
-// In V1, this can be sent from StIdle. In V2, this is the only way
-// to end the protocol (the client cannot send MsgDone).
+// Done sends MsgDone from StIdle to end a V2 session. In V1 only the Client
+// ends the session, so the state map refuses this.
 func (s *Server) Done() error {
-	msg := NewMsgDone()
+	msg := NewMsgDone(s.protoVersion)
 	return s.SendMessage(msg)
 }
 
@@ -359,14 +363,16 @@ func (s *Server) GetMessagesByIDs(ids [][]byte) []pcommon.DmqMessage {
 
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
-	switch msg.Type() {
-	case MessageTypeInit:
+	switch msg.(type) {
+	case *MsgInit:
 		err = s.handleInit()
-	case MessageTypeReplyMessageIds:
+	case *MsgReplyMessageIds:
 		err = s.handleReplyMessageIds(msg)
-	case MessageTypeReplyMessages:
+	case *MsgReplyNoMessageIds:
+		err = s.handleReplyNoMessageIds()
+	case *MsgReplyMessages:
 		err = s.handleReplyMessages(msg)
-	case MessageTypeDone:
+	case *MsgDone:
 		err = s.handleDone()
 	default:
 		err = fmt.Errorf(
@@ -434,6 +440,40 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 		s.config.ReplyMessageIdsFunc(s.callbackContext, msgReply.Messages)
 	}
 
+	return nil
+}
+
+// handleReplyNoMessageIds applies the acknowledgement of the blocking request
+// it answers, as dmq-node's inbound treats it as an empty reply
+// (DMQ/Protocol/SigSubmissionV2/Inbound.hs). The application sees an empty
+// ID reply.
+func (s *Server) handleReplyNoMessageIds() error {
+	s.lock.Lock()
+	if s.pendingIDRequest == nil {
+		s.lock.Unlock()
+		return invalidMessageSubmissionMessage(
+			"received empty message ID reply without an outstanding request",
+		)
+	}
+	next, err := acknowledgeMessageIDs(
+		s.pendingMessageIDs,
+		*s.pendingIDRequest,
+		s.config.MaxUnacknowledgedMessageIDs,
+	)
+	if err != nil {
+		s.lock.Unlock()
+		return err
+	}
+	s.pendingMessageIDs = next
+	s.pendingIDRequest = nil
+	s.lock.Unlock()
+
+	if s.config.ReplyMessageIdsFunc != nil {
+		s.config.ReplyMessageIdsFunc(
+			s.callbackContext,
+			[]pcommon.MessageIDAndSize{},
+		)
+	}
 	return nil
 }
 
