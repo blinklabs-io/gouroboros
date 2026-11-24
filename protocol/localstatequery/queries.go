@@ -868,8 +868,22 @@ func (r *EraHistoryResult) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
-// eraHistoryReply is the GetEraHistory reply, a list of eras.
-type eraHistoryReply = growingArray[EraHistoryResult]
+// eraHistoryReply is the GetEraHistory reply, a list of eras. Like the
+// reference's Summary decoder, it requires at least one era: an empty list
+// or a null is an error, not an empty history.
+type eraHistoryReply []EraHistoryResult
+
+func (r *eraHistoryReply) UnmarshalCBOR(data []byte) error {
+	var eras growingArray[EraHistoryResult]
+	if err := eras.UnmarshalCBOR(data); err != nil {
+		return err
+	}
+	if len(eras) == 0 {
+		return errors.New("era history must contain at least one era summary")
+	}
+	*r = eraHistoryReply(eras)
+	return nil
+}
 
 type eraHistoryResultBound struct {
 	cbor.StructAsArray
