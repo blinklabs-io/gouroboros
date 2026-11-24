@@ -457,6 +457,11 @@ func (c *Connection) shutdown() {
 		c.setupMu.Unlock()
 		if m != nil {
 			m.Stop()
+			// The muxer's goroutines, which run the Metrics callbacks,
+			// have returned once its error channel is closed. The error
+			// forwarder may read from it too; both see the close.
+			for range m.ErrorChan() {
+			}
 			// Every protocol is stopped and the muxer is closed, so the
 			// loops leave once their callbacks return.
 			m.CloseProtocolLoops()
