@@ -64,10 +64,13 @@ var ErrRangeBlockLimit = errors.New("block-fetch range block limit exceeded")
 var ErrRangeByteLimit = errors.New("block-fetch range byte limit exceeded")
 
 // ErrStoppedWithoutDone is reported on the protocol's error channel when
-// Client.Stop stops the protocol without delivering MsgClientDone, because a
-// range was still outstanding. The server may still answer the abandoned
-// ranges, so the block-fetch state on the connection is no longer known: the
-// connection must be closed, and Client.Start does not start the client again.
+// Client.Stop stops the protocol without delivering MsgClientDone while the
+// server still owes an answer: a range was outstanding, or the protocol was
+// not in StIdle, so MsgClientDone could not be sent. The server may still
+// answer, so the block-fetch state on the connection is no longer known: the
+// client stops the muxer so the connection carries nothing more, and
+// Client.Start does not start the client again. A MsgClientDone that was
+// sendable but slow to write is not reported.
 var ErrStoppedWithoutDone = errors.New(
 	"block-fetch stopped before MsgClientDone was delivered",
 )
@@ -488,6 +491,34 @@ func (c *Client) startShutdownWatcher(
 // It waits up to 250ms for message delivery before shutting down the protocol,
 // returning delivery errors, including context.DeadlineExceeded. An already
 // shutting-down protocol is treated as successfully stopped.
+// abandonIfOwed handles a MsgClientDone that was not delivered in time. It
+// must be called with lifecycleMutex held. MsgClientDone is legal only in
+// StIdle, so if a range is outstanding or the state is not StIdle, it is
+// still queued behind the server's answer and never will be sent: the server
+// keeps that range's state and may yet answer it, which a protocol instance
+// started on this connection would receive in StIdle. The connection is then
+// closed, as the reference does when a mini-protocol does not terminate in
+// time. A MsgClientDone that was sendable but slow to write may still reach
+// the peer, which then owes nothing, so it is left alone.
+func (c *Client) abandonIfOwed(sendErr error) {
+	c.queueMutex.Lock()
+	outstanding := len(c.queue)
+	c.queueMutex.Unlock()
+	if outstanding == 0 && c.IsInTerminalOrIdleState() {
+		return
+	}
+	// The connection closes on its own goroutine, so Start refuses to
+	// restart in the meantime.
+	c.stoppedWithoutDone = true
+	// Report the error before stopping, while SendError still reaches the
+	// error channel. SendError drops it if nothing receives, so the muxer is
+	// stopped as well: no answer can then reach this connection.
+	c.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
+	if c.protoOptions.Muxer != nil {
+		c.protoOptions.Muxer.Stop()
+	}
+}
+
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
@@ -542,18 +573,7 @@ func (c *Client) Stop() error {
 			sendErr = nil
 		}
 		if sendErr != nil {
-			// MsgClientDone is legal only in StIdle, so it is still queued
-			// behind an outstanding range or was not written. The server
-			// keeps that range's state and may yet answer it, which a
-			// protocol instance started on this connection would receive in
-			// StIdle. Report the error before stopping, while SendError
-			// still reaches the error channel, so the connection is closed.
-			// The connection closes on its own goroutine, so Start also
-			// refuses to restart in the meantime.
-			c.stoppedWithoutDone = true
-			c.SendError(
-				fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr),
-			)
+			c.abandonIfOwed(sendErr)
 		}
 	}
 

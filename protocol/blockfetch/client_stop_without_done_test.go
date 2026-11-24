@@ -33,11 +33,12 @@ import (
 // test sees what the client itself does after one.
 type heldRangeHarness struct {
 	client        *Client
+	clientMuxer   *muxer.Muxer
 	clientErrors  chan error
 	releaseAnswer func()
 }
 
-func newHeldRangeHarness(t *testing.T) *heldRangeHarness {
+func newHeldRangeHarness(t *testing.T, clientErrors chan error) *heldRangeHarness {
 	t.Helper()
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -73,7 +74,6 @@ func newHeldRangeHarness(t *testing.T) *heldRangeHarness {
 		Mode:      protocol.ProtocolModeNodeToNode,
 	}, &serverCfg)
 
-	clientErrors := make(chan error, 4)
 	clientCfg, err := NewConfig(
 		WithRequestPipelining(true),
 		WithRangeDoneFunc(func(CallbackContext, error) error { return nil }),
@@ -105,6 +105,7 @@ func newHeldRangeHarness(t *testing.T) *heldRangeHarness {
 	}
 	return &heldRangeHarness{
 		client:        client,
+		clientMuxer:   clientMuxer,
 		clientErrors:  clientErrors,
 		releaseAnswer: releaseAnswer,
 	}
@@ -138,7 +139,7 @@ func (h *heldRangeHarness) stopWithoutDone(t *testing.T) {
 // client must report ErrStoppedWithoutDone so its connection is closed.
 func TestStopWithRangeOutstandingReportsError(t *testing.T) {
 	t.Parallel()
-	newHeldRangeHarness(t).stopWithoutDone(t)
+	newHeldRangeHarness(t, make(chan error, 4)).stopWithoutDone(t)
 }
 
 // TestStartAfterStopWithoutDoneStaysStopped calls Start straight after a Stop
@@ -147,7 +148,7 @@ func TestStopWithRangeOutstandingReportsError(t *testing.T) {
 // the abandoned range in StIdle, so Start must leave the client stopped.
 func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
 	t.Parallel()
-	h := newHeldRangeHarness(t)
+	h := newHeldRangeHarness(t, make(chan error, 4))
 	h.stopWithoutDone(t)
 
 	h.client.Start()
@@ -162,5 +163,69 @@ func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
 	case err := <-h.clientErrors:
 		t.Fatalf("client received the abandoned range's answer: %v", err)
 	case <-time.After(500 * time.Millisecond):
+	}
+}
+
+// TestStopWithoutDoneStopsMuxerWhenErrorDropped stops a client with a range
+// outstanding whose error channel nobody reads, so SendError drops
+// ErrStoppedWithoutDone. The muxer must still be stopped, or the server's
+// late answer could reach a new protocol instance on the same connection.
+func TestStopWithoutDoneStopsMuxerWhenErrorDropped(t *testing.T) {
+	t.Parallel()
+	h := newHeldRangeHarness(t, make(chan error))
+	require.Error(t, h.client.Stop())
+	select {
+	case <-h.clientMuxer.DoneChan():
+	case <-time.After(time.Second):
+		t.Fatal("muxer still running after Stop abandoned a range")
+	}
+}
+
+// TestSlowDoneWithNothingOwedIsNotAbandoned stops an idle client whose
+// MsgClientDone cannot be written within Stop's bound, because nothing reads
+// the connection. MsgClientDone was sendable, so it may still reach the
+// peer, which then owes nothing: Stop must not report ErrStoppedWithoutDone,
+// stop the muxer, or refuse a later Start.
+func TestSlowDoneWithNothingOwedIsNotAbandoned(t *testing.T) {
+	t.Parallel()
+	clientConn, serverConn := net.Pipe()
+	t.Cleanup(func() {
+		_ = clientConn.Close()
+		_ = serverConn.Close()
+	})
+	clientMuxer := muxer.New(clientConn)
+	t.Cleanup(clientMuxer.Stop)
+	clientErrors := make(chan error, 4)
+	clientCfg, err := NewConfig()
+	require.NoError(t, err)
+	client := NewClient(protocol.ProtocolOptions{
+		Muxer:     clientMuxer,
+		ErrorChan: clientErrors,
+		Mode:      protocol.ProtocolModeNodeToNode,
+	}, &clientCfg)
+	client.Start()
+	clientMuxer.Start()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- client.Stop() }()
+	select {
+	case err := <-stopped:
+		require.Error(t, err, "MsgClientDone was written although nothing reads")
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not return")
+	}
+	select {
+	case err := <-clientErrors:
+		require.NotErrorIs(t, err, ErrStoppedWithoutDone)
+	default:
+	}
+	client.lifecycleMutex.Lock()
+	latched := client.stoppedWithoutDone
+	client.lifecycleMutex.Unlock()
+	require.False(t, latched, "Start refused although nothing was owed")
+	select {
+	case <-clientMuxer.DoneChan():
+		t.Fatal("muxer stopped although nothing was owed")
+	default:
 	}
 }
