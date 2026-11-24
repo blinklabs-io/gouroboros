@@ -294,6 +294,10 @@ type BlockPipeline struct {
 	errorsChan    chan error
 	resultsDone   chan struct{}
 
+	// applyCtx is the context every submitted item's ApplyContext returns.
+	// Its value under applyMarkerKey is this pipeline.
+	applyCtx context.Context
+
 	// losslessResults is set by Start: WithLosslessResults, or a pipeline
 	// without an ApplyFunc, whose only output is Results.
 	losslessResults bool
@@ -338,6 +342,17 @@ type BlockPipeline struct {
 	testResultHandoff func(*BlockItem)
 }
 
+// applyMarkerKey is the context key under which an item's ApplyContext
+// carries the pipeline whose ApplyFunc is handling it.
+type applyMarkerKey struct{}
+
+// calledFromApplyFunc reports whether ctx is, or derives from, the
+// ApplyContext of an item of this pipeline: the caller may be this
+// pipeline's apply runner, so it must not wait for that runner.
+func (p *BlockPipeline) calledFromApplyFunc(ctx context.Context) bool {
+	return ctx.Value(applyMarkerKey{}) == p
+}
+
 // NewBlockPipeline creates a new BlockPipeline using functional options.
 // Use With* options to customize the pipeline configuration.
 //
@@ -359,6 +374,7 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 		rawBytesFreed: make(chan struct{}),
 		activeItems:   make(map[*BlockItem]struct{}),
 	}
+	p.applyCtx = context.WithValue(context.Background(), applyMarkerKey{}, p)
 	p.submitGate <- struct{}{}
 	return p
 }
@@ -876,6 +892,7 @@ func (p *BlockPipeline) submit(
 	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
 	item.nodeToClient = nodeToClient
+	item.applyCtx = p.applyCtx
 	p.trackItem(item, retainedBytes)
 	reservationOwned = false
 	defer func() {
@@ -1120,7 +1137,9 @@ func (p *BlockPipeline) PendingCount() int {
 // before handling rollbacks to ensure no earlier block is applied afterward.
 // Once Stop has begun, WaitForDrain succeeds without waiting for the boundary,
 // but only after the apply runner has exited, so no ApplyFunc call is still
-// committing when it returns.
+// committing when it returns. An ApplyFunc that calls WaitForDrain during Stop
+// passes its item's ApplyContext: the call then returns without waiting for
+// the runner that is running it, which would never exit.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1131,19 +1150,30 @@ func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	// Preserve the historical lifecycle contract: explicit shutdown makes the
 	// drain vacuous, including while Stop waits for the submission gate.
 	if p.stopping.Load() || p.stopped.Load() {
-		return p.waitForApplyRunner(ctx)
+		return p.drainDuringStop(ctx)
 	}
 	err := p.Fence(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if p.stopping.Load() || p.stopped.Load() {
-		return p.waitForApplyRunner(ctx)
+		return p.drainDuringStop(ctx)
 	}
 	if p.ctx.Err() != nil {
 		return p.stoppedError()
 	}
 	return err
+}
+
+// drainDuringStop is WaitForDrain once Stop has begun. A call from this
+// pipeline's ApplyFunc returns at once: the runner it would wait for is the
+// one running it, and after the call returns the runner commits nothing more,
+// because the pipeline context is cancelled.
+func (p *BlockPipeline) drainDuringStop(ctx context.Context) error {
+	if p.calledFromApplyFunc(ctx) {
+		return nil
+	}
+	return p.waitForApplyRunner(ctx)
 }
 
 // waitForApplyRunner waits for the apply runner to exit. Stop cancels the

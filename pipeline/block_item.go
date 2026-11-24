@@ -15,6 +15,7 @@
 package pipeline
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -31,6 +32,9 @@ type BlockItem struct {
 	sequenceNumber uint64
 	receivedAt     time.Time
 	nodeToClient   bool
+	// applyCtx carries the marker of the pipeline the item was submitted to;
+	// see ApplyContext.
+	applyCtx context.Context
 
 	// Mutable fields protected by mutex
 	mu sync.RWMutex
@@ -129,6 +133,19 @@ func (b *BlockItem) Release() {
 		b.block = nil
 		b.mu.Unlock()
 	})
+}
+
+// ApplyContext returns the context an ApplyFunc passes to the pipeline's own
+// methods while it handles this item. It identifies the pipeline the item was
+// submitted to, so that a WaitForDrain given it from that pipeline's
+// ApplyFunc does not wait for the apply runner that is running the call. It
+// carries no deadline and is never cancelled. It is context.Background for an
+// item that was not submitted to a pipeline.
+func (b *BlockItem) ApplyContext() context.Context {
+	if b.applyCtx == nil {
+		return context.Background()
+	}
+	return b.applyCtx
 }
 
 // retainedBytes reports the CBOR bytes this item retains, or zero once its
