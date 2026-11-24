@@ -285,6 +285,17 @@ func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	)
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *MaryTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
+}
+
 func (b *MaryTransactionBody) Inputs() []common.TransactionInput {
 	ret := make([]common.TransactionInput, 0, len(b.TxInputs.Items()))
 	for _, input := range b.TxInputs.Items() {

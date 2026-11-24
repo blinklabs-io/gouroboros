@@ -66,7 +66,9 @@ Embeddable helpers:
 - `cbor.Tag`, `cbor.RawTag` — semantic tags.
 
 Rules:
-- Hash from preserved `.Cbor()` bytes, never re-encoded.
+- Hash from preserved `.Cbor()` bytes, never re-encoded. The one exception is
+  a transaction body with no stored CBOR (built in code, or cleared with
+  `SetCbor(nil)`): `common.TransactionBodyId` hashes its current encoding.
 - Map key order uses Cardano rules (e.g. shortLex for language views).
 - Indefinite vs definite length matters for some encodings.
 - `EncMode`/`DecMode` are globally cached via `sync.Once`; don't construct per call.
@@ -217,7 +219,9 @@ Error files: `ledger/{shelley,allegra,alonzo,babbage,conway,common}/errors.go`.
    transactions in the block (`common.BlockLedgerState`).
 5. Cost models: required per Plutus version used.
 6. Era delegation is not universal — read the function body. Conway `UtxoValidateWithdrawals` has a custom impl.
-7. Hash from preserved CBOR bytes, not re-encoded data.
+7. Hash from preserved CBOR bytes, not re-encoded data, except a transaction
+   body with no stored CBOR, which `common.TransactionBodyId` hashes from its
+   current encoding.
 8. `DecodeStoreCbor` requires a custom `UnmarshalCBOR` calling `SetCbor()`.
 9. Withdrawal amount validation requires the exact reward balance before
    Dijkstra, while Dijkstra permits qualifying partial withdrawals. At

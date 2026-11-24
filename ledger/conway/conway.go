@@ -962,6 +962,17 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(bodyFields)
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *ConwayTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
+}
+
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger
 // refuses from protocol version 9: a duplicate map key, a zero asset quantity,
 // and a policy with an empty asset map. An empty outer map remains legal until
