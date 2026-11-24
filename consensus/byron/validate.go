@@ -86,6 +86,14 @@ type ValidateHeaderInput struct {
 	PrevSlot        uint64
 	PrevBlockNumber uint64
 	PrevHeaderHash  []byte
+	// PrevIsEBB reports that the previous header is an epoch boundary block.
+	// A main block may share its slot with a preceding EBB, and an EBB after
+	// another EBB takes the next block number.
+	PrevIsEBB bool
+	// PrevIsOrigin reports that the header is the first on the chain. The
+	// Prev fields are then ignored: the block number must be 0 and any slot
+	// is allowed.
+	PrevIsOrigin bool
 	// PBFTState supplies the rolling issuer window for stateful Byron
 	// admission. The returned state is in ValidateResult.PBFTState.
 	PBFTState *PBFTState
@@ -245,65 +253,70 @@ func (v *HeaderValidator) validatePBFTActiveDelegate(
 	return resolveActivePBFTIssuer(v.config.GenesisDelegations, delegateHash)
 }
 
-// validateSlotOrdering checks slot progression
+// validateSlotOrdering checks slot progression. EBBs must sit on an epoch
+// boundary. Every header needs a slot after its predecessor's, except a main
+// block after an EBB, which may share the EBB's slot: an EBB takes the slot
+// of the first main block of its epoch.
 func (v *HeaderValidator) validateSlotOrdering(
 	input *ValidateHeaderInput,
 ) error {
-	if input.IsEBB {
-		// EBBs must be at epoch boundaries
-		if !v.config.IsEpochBoundarySlot(input.Slot) {
-			return fmt.Errorf(
-				"EBB slot must be at epoch boundary: slot=%d, slotsPerEpoch=%d",
-				input.Slot,
-				v.config.SlotsPerEpoch,
-			)
-		}
-		// EBBs can share slot with previous block (at epoch boundary)
+	if input.IsEBB && !v.config.IsEpochBoundarySlot(input.Slot) {
+		return fmt.Errorf(
+			"EBB slot must be at epoch boundary: slot=%d, slotsPerEpoch=%d",
+			input.Slot,
+			v.config.SlotsPerEpoch,
+		)
+	}
+	if input.PrevIsOrigin {
+		return nil
+	}
+	if input.PrevIsEBB && !input.IsEBB {
 		if input.Slot < input.PrevSlot {
 			return fmt.Errorf(
-				"EBB slot must be >= previous slot: current=%d, previous=%d",
-				input.Slot,
-				input.PrevSlot,
-			)
-		}
-	} else {
-		// PBFT main blocks may share a slot, but cannot move backwards.
-		if input.Slot < input.PrevSlot {
-			return fmt.Errorf(
-				"slot must be greater than or equal to previous slot: "+
+				"slot must not precede the previous EBB's slot: "+
 					"current=%d, previous=%d",
 				input.Slot,
 				input.PrevSlot,
 			)
 		}
+		return nil
+	}
+	if input.Slot <= input.PrevSlot {
+		return fmt.Errorf(
+			"slot must be greater than previous slot: current=%d, previous=%d",
+			input.Slot,
+			input.PrevSlot,
+		)
 	}
 	return nil
 }
 
-// validateBlockNumber checks block number progression
+// validateBlockNumber checks block number progression. The first header
+// has block number 0. An EBB after a main block shares that block's number;
+// every other header takes the next number.
 func (v *HeaderValidator) validateBlockNumber(
 	input *ValidateHeaderInput,
 ) error {
-	if input.IsEBB {
-		// EBBs have same block number as the next regular block
-		// So they share block number with previous (or it's the same)
-		if input.BlockNumber != input.PrevBlockNumber &&
-			input.BlockNumber != input.PrevBlockNumber+1 {
+	if input.PrevIsOrigin {
+		if input.BlockNumber != 0 {
 			return fmt.Errorf(
-				"EBB block number must match or be previous + 1: current=%d, previous=%d",
+				"first block number must be 0: current=%d",
 				input.BlockNumber,
-				input.PrevBlockNumber,
 			)
 		}
-	} else {
-		expectedBlockNumber := input.PrevBlockNumber + 1
-		if input.BlockNumber != expectedBlockNumber {
-			return fmt.Errorf(
-				"block number must be previous + 1: current=%d, expected=%d",
-				input.BlockNumber,
-				expectedBlockNumber,
-			)
-		}
+		return nil
+	}
+	expectedBlockNumber := input.PrevBlockNumber + 1
+	if input.IsEBB && !input.PrevIsEBB {
+		expectedBlockNumber = input.PrevBlockNumber
+	}
+	if input.BlockNumber != expectedBlockNumber {
+		return fmt.Errorf(
+			"block number must be %d: current=%d, previous=%d",
+			expectedBlockNumber,
+			input.BlockNumber,
+			input.PrevBlockNumber,
+		)
 	}
 	return nil
 }
@@ -1222,10 +1235,11 @@ func ValidateByronBlockHeader(
 		EnvelopeOnly:  true, // This wrapper performs envelope validation only
 	}
 
-	// Only populate prev header fields when a previous header is provided.
-	// For genesis or first-block scenarios, callers pass nil to skip
-	// slot/number/hash comparisons and let validatePrevHash handle it.
-	if prevHeader != nil {
+	// A nil prevHeader means the header is the first on the chain.
+	if prevHeader == nil {
+		input.PrevIsOrigin = true
+	} else {
+		_, input.PrevIsEBB = prevHeader.(*byron.ByronEpochBoundaryBlockHeader)
 		prevSlot, err := slotNumberWithEpochLength(
 			prevHeader,
 			config.SlotsPerEpoch,
