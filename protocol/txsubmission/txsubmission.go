@@ -227,6 +227,11 @@ const (
 	// against this window, so a request a peer could not satisfy within
 	// MaxPendingMessageBytes is refused rather than attempted.
 	MaxUnackedTxIds = 10
+	// txOutboundClampVersion is the node-to-node version from which the
+	// client clamps a MsgRequestTxIds that asks past its window instead of
+	// refusing it (txOutboundVersion in the reference's
+	// Cardano.Network.NodeToNode).
+	txOutboundClampVersion = 16
 	// MaxDecodedTxBytes bounds the total serialized transaction bytes passed
 	// to the ledger decoder for one reply. It is separate from the retained
 	// message-byte limit, which includes CBOR framing and protects ingress.
