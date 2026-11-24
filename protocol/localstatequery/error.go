@@ -52,3 +52,10 @@ var ErrQueryUnsupportedVersion = errors.New(
 
 // ErrNotAcquired indicates a Release with no ledger state acquired.
 var ErrNotAcquired = errors.New("no ledger state acquired")
+
+// ErrAcquireImmutableTipUnsupportedVersion indicates an acquire of the
+// immutable tip on a connection whose negotiated node-to-client protocol
+// version is older than 16, which introduced it.
+var ErrAcquireImmutableTipUnsupportedVersion = errors.New(
+	"acquiring the immutable tip requires node-to-client protocol version 16 or later",
+)

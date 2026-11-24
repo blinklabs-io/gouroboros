@@ -60,6 +60,7 @@ type Client struct {
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
+	enableAcquireImmutableTip     bool
 	enableGetLedgerPeerSnapshot   bool
 	enableLedgerPeerKind          bool
 	version                       uint16
@@ -121,6 +122,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		c.enableGetRewardInfoPoolsBlock = true
+	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 16 {
+		c.enableAcquireImmutableTip = true
 	}
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
 		c.enableGetLedgerPeerSnapshot = true
@@ -191,6 +195,10 @@ func (c *Client) AcquireVolatileTip() error {
 	return c.acquire(acquireTarget)
 }
 
+// AcquireImmutableTip acquires the ledger state at the tip of the immutable
+// chain, which the node never rolls back. It returns
+// ErrAcquireImmutableTipUnsupportedVersion, without sending anything, on a
+// node-to-client protocol version before 16.
 func (c *Client) AcquireImmutableTip() error {
 	c.Protocol.Logger().
 		Debug(
@@ -2098,6 +2106,10 @@ func (c *Client) handleResult(msg protocol.Message) error {
 }
 
 func (c *Client) acquire(acquireTarget AcquireTarget) error {
+	if _, ok := acquireTarget.(AcquireImmutableTip); ok &&
+		!c.enableAcquireImmutableTip {
+		return ErrAcquireImmutableTipUnsupportedVersion
+	}
 	var msg protocol.Message
 	if c.acquired {
 		switch t := acquireTarget.(type) {
