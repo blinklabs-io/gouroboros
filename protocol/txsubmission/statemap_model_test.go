@@ -422,8 +422,13 @@ func newModelHarness(
 	return h
 }
 
+// readPeer delivers each message the role under test sends, one per
+// h.payload value. A segment is not a message: the sender may put several
+// queued messages in one segment, or split one across segments, so the
+// payloads are joined and cut at CBOR item boundaries.
 func (h *modelHarness) readPeer() {
 	defer close(h.payload)
+	var buf []byte
 	for {
 		var header muxer.SegmentHeader
 		if err := binary.Read(h.conn, binary.BigEndian, &header); err != nil {
@@ -433,7 +438,17 @@ func (h *modelHarness) readPeer() {
 		if _, err := io.ReadFull(h.conn, data); err != nil {
 			return
 		}
-		h.payload <- data
+		buf = append(buf, data...)
+		for len(buf) > 0 {
+			var item cbor.RawMessage
+			n, err := cbor.Decode(buf, &item)
+			if err != nil {
+				// An incomplete item waits for the next segment.
+				break
+			}
+			h.payload <- buf[:n:n]
+			buf = buf[n:]
+		}
 	}
 }
 
