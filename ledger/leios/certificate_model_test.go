@@ -23,9 +23,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// certModelScenario is one configuration of the LeiosCommittee TLA+ model:
-// the committee-size parameter, the seated committee (stake, and a secret
-// for each keyed seat), the total active stake, and the quorum threshold.
+// certModelScenario is one committee configuration: the committee-size
+// parameter, the seated committee (stake, and a secret for each keyed
+// seat), the total active stake, and the quorum threshold.
 type certModelScenario struct {
 	name          string
 	committeeSize uint16
@@ -44,8 +44,9 @@ type certModelCell struct {
 	signedBy []int
 }
 
-// refAccept is the model's RefAccept: verifyLeiosCert in
-// cardano-crypto-leios sizes the bitfield by the committee's own seat
+// refAccept is the reference acceptance: verifyLeiosCert in
+// cardano-crypto-leios (Cardano/Crypto/Leios.hs 289-326 at cardano-base
+// c1e1ed8d) sizes the bitfield by the committee's own seat
 // count, refuses keyless signers, needs the quorum, and needs the
 // aggregate of exactly the signers' keys.
 func (s certModelScenario) refAccept(c certModelCell) bool {
@@ -124,8 +125,8 @@ func subset(mask, size int, from []int) []int {
 	return out
 }
 
-// certModelScenarios are the passing configurations of LeiosCommittee.tla
-// with real BLS keys. Seat i holds the i-th largest stake.
+// certModelScenarios are the committee configurations, with real BLS
+// keys. Seat i holds the i-th largest stake.
 func certModelScenarios() []certModelScenario {
 	return []certModelScenario{
 		{
@@ -197,8 +198,7 @@ func runCertModelScenario(t *testing.T, s certModelScenario) {
 }
 
 // TestCertificateModelCells checks VerifyDijkstraCertificate against the
-// reference's acceptance on every certificate of each LeiosCommittee model
-// scenario.
+// reference's acceptance on every certificate of each committee scenario.
 func TestCertificateModelCells(t *testing.T) {
 	t.Parallel()
 	for _, s := range certModelScenarios() {

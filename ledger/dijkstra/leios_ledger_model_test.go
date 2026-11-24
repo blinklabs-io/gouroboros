@@ -24,7 +24,7 @@ import (
 )
 
 // leiosModelPredecessor is the header a checked block extends, as the
-// LeiosLedger model distinguishes it.
+// reference header and body rules distinguish it.
 type leiosModelPredecessor int
 
 const (
@@ -38,8 +38,8 @@ func (p leiosModelPredecessor) String() string {
 	return [...]string{"origin", "announces", "silent", "pre-dijkstra"}[p]
 }
 
-// leiosModelCell is one block offered to the GoChecks predicate of the
-// LeiosLedger TLA+ model: its predecessor, header flag, body certificate,
+// leiosModelCell is one block offered to the certificate timing and body
+// checks: its predecessor, header flag, body certificate,
 // transaction count, slot distance from the predecessor, and whether it
 // arrived over node-to-client with its EB's transactions inlined.
 type leiosModelCell struct {
@@ -51,7 +51,9 @@ type leiosModelCell struct {
 	nodeToClient bool
 }
 
-// accepted is the model's GoChecks with a valid certificate: the flag
+// accepted is the reference acceptance with a valid certificate (CIP-0164
+// Ranking Blocks; Dijkstra Rules/Bbody.hs 464-504 and Rules/LeiosCert.hs
+// 106-140 at cardano-ledger 1210d37f): the flag
 // matches the body, a certificate excludes transactions except when
 // inlined over node-to-client, and a flagged header follows an announcing
 // predecessor by at least the certification delay. No epoch rule: the
@@ -70,7 +72,7 @@ func (c leiosModelCell) accepted(delay uint64) bool {
 	return true
 }
 
-// leiosModelCells enumerates every combination of the model's GoChecks
+// leiosModelCells enumerates every combination of those checks'
 // inputs, with slot gaps either side of the certification delay.
 func leiosModelCells(delay uint64) []leiosModelCell {
 	var cells []leiosModelCell
@@ -93,9 +95,9 @@ func leiosModelCells(delay uint64) []leiosModelCell {
 	return cells
 }
 
-// TestLeiosLedgerModelGoChecks runs every cell of the LeiosLedger model's
-// GoChecks through ValidateLeiosCertificateTiming and the block body rule
-// together, as VerifyBlockState does.
+// TestLeiosLedgerModelGoChecks runs every cell through
+// ValidateLeiosCertificateTiming and the block body rule together, as
+// VerifyBlockState does.
 func TestLeiosLedgerModelGoChecks(t *testing.T) {
 	t.Parallel()
 	pp := testLeiosParams()
