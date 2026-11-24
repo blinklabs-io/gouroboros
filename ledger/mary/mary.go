@@ -395,6 +395,15 @@ func (t *MaryTransaction) UnmarshalCBOR(cborData []byte) error {
 	t.TxMetadata = nil
 	t.auxData = nil
 
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(cborData); !indefinite && n >= 0 &&
+		n != 3 {
+		return fmt.Errorf(
+			"invalid transaction: expected 3 components, got %d",
+			n,
+		)
+	}
 	dec, err := cbor.NewStreamDecoder(cborData)
 	if err != nil {
 		return err

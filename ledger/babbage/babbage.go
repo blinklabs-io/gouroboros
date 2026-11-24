@@ -842,6 +842,15 @@ func validateDefiniteByteString(data []byte, name string) error {
 func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(cborData); !indefinite && n >= 0 &&
+		n != 2 {
+		return fmt.Errorf(
+			"unsupported datum option shape: expected 2 items, got %d",
+			n,
+		)
+	}
 	dec, err := cbor.NewStreamDecoder(cborData)
 	if err != nil {
 		return err
