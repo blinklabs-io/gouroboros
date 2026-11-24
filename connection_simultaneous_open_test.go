@@ -21,6 +21,7 @@ import (
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/handshake"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -31,12 +32,18 @@ type simOpenConnResult struct {
 	err  error
 }
 
+// simOpenPeer is how one of two dialling connections is configured.
+type simOpenPeer struct {
+	magic      uint32
+	fullDuplex bool
+}
+
 // dialBothWays opens a node-to-node connection from each end of one pipe,
 // as two nodes that dial each other at the same moment do: neither side
 // runs the handshake server.
 func dialBothWays(
 	t *testing.T,
-	leftMagic, rightMagic uint32,
+	left, right simOpenPeer,
 ) (simOpenConnResult, simOpenConnResult) {
 	t.Helper()
 	leftPipe, rightPipe := net.Pipe()
@@ -44,22 +51,22 @@ func dialBothWays(
 		_ = leftPipe.Close()
 		_ = rightPipe.Close()
 	})
-	dial := func(conn net.Conn, magic uint32) <-chan simOpenConnResult {
+	dial := func(conn net.Conn, peer simOpenPeer) <-chan simOpenConnResult {
 		result := make(chan simOpenConnResult, 1)
 		go func() {
 			c, err := ouroboros.NewConnection(
 				ouroboros.WithConnection(conn),
 				ouroboros.WithNodeToNode(true),
-				ouroboros.WithNetworkMagic(magic),
-				ouroboros.WithFullDuplex(true),
+				ouroboros.WithNetworkMagic(peer.magic),
+				ouroboros.WithFullDuplex(peer.fullDuplex),
 				ouroboros.WithDelayProtocolStart(true),
 			)
 			result <- simOpenConnResult{conn: c, err: err}
 		}()
 		return result
 	}
-	leftChan := dial(leftPipe, leftMagic)
-	rightChan := dial(rightPipe, rightMagic)
+	leftChan := dial(leftPipe, left)
+	rightChan := dial(rightPipe, right)
 	await := func(ch <-chan simOpenConnResult) simOpenConnResult {
 		select {
 		case r := <-ch:
@@ -79,13 +86,42 @@ func dialBothWays(
 // other at once: both finish the handshake on the same version.
 func TestSimultaneousOpenConnectionsAgree(t *testing.T) {
 	t.Cleanup(func() { goleak.VerifyNone(t) })
-	left, right := dialBothWays(t, 42, 42)
+	left, right := dialBothWays(
+		t,
+		simOpenPeer{magic: 42, fullDuplex: true},
+		simOpenPeer{magic: 42, fullDuplex: true},
+	)
 	require.NoError(t, left.err)
 	require.NoError(t, right.err)
 	leftVersion, _ := left.conn.ProtocolVersion()
 	rightVersion, _ := right.conn.ProtocolVersion()
 	require.NotZero(t, leftVersion)
 	require.Equal(t, leftVersion, rightVersion)
+}
+
+// TestSimultaneousOpenConnectionsMixedModes covers a full-duplex connection
+// and an initiator-only one that dial each other at once: both end with the
+// agreed, initiator-only data, as the reference client returns the result of
+// acceptVersion (Handshake/Client.hs 213-215), so neither derives a
+// full-duplex muxer the other does not run.
+func TestSimultaneousOpenConnectionsMixedModes(t *testing.T) {
+	t.Cleanup(func() { goleak.VerifyNone(t) })
+	left, right := dialBothWays(
+		t,
+		simOpenPeer{magic: 42, fullDuplex: true},
+		simOpenPeer{magic: 42, fullDuplex: false},
+	)
+	require.NoError(t, left.err)
+	require.NoError(t, right.err)
+	_, leftData := left.conn.ProtocolVersion()
+	_, rightData := right.conn.ProtocolVersion()
+	require.NotNil(t, leftData)
+	require.Equal(t, leftData, rightData)
+	require.Equal(
+		t,
+		protocol.DiffusionModeInitiatorOnly,
+		leftData.DiffusionMode(),
+	)
 }
 
 // TestSimultaneousOpenConnectionsRefuse covers two connections on different
@@ -95,7 +131,11 @@ func TestSimultaneousOpenConnectionsAgree(t *testing.T) {
 // the refusal itself, and neither may finish.
 func TestSimultaneousOpenConnectionsRefuse(t *testing.T) {
 	t.Cleanup(func() { goleak.VerifyNone(t) })
-	left, right := dialBothWays(t, 42, 43)
+	left, right := dialBothWays(
+		t,
+		simOpenPeer{magic: 42, fullDuplex: true},
+		simOpenPeer{magic: 43, fullDuplex: true},
+	)
 	require.Error(t, left.err)
 	require.Error(t, right.err)
 	var refused *handshake.RefusedError

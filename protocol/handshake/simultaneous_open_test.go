@@ -34,18 +34,35 @@ type simOpenResult struct {
 	err     error
 }
 
-// simOpenTable returns the node-to-node version table for magic, restricted
-// to versions.
+// simOpenTable returns the full-duplex node-to-node version table for
+// magic, restricted to versions.
 func simOpenTable(
 	t *testing.T,
 	magic uint32,
 	versions ...uint16,
 ) protocol.ProtocolVersionMap {
 	t.Helper()
+	return simOpenTableMode(
+		t,
+		magic,
+		protocol.DiffusionModeInitiatorAndResponder,
+		versions...,
+	)
+}
+
+// simOpenTableMode returns the node-to-node version table for magic and
+// diffusion mode, restricted to versions.
+func simOpenTableMode(
+	t *testing.T,
+	magic uint32,
+	diffusionMode bool,
+	versions ...uint16,
+) protocol.ProtocolVersionMap {
+	t.Helper()
 	all := protocol.GetProtocolVersionMap(
 		protocol.ProtocolModeNodeToNode,
 		magic,
-		protocol.DiffusionModeInitiatorAndResponder,
+		diffusionMode,
 		false,
 		false,
 	)
@@ -121,7 +138,10 @@ func awaitSimOpen(t *testing.T, results <-chan simOpenResult) simOpenResult {
 // reads the other's MsgProposeVersions as MsgReplyVersions and chooses the
 // version itself, as the network specification's simultaneous open section
 // and the reference client's MsgReplyVersions case require. Nothing is sent
-// after the proposals, so a refusing side only reports its own reason.
+// after the proposals, so a refusing side only reports its own reason. Both
+// sides end with the agreed version data, as the reference acceptOrRefuse
+// returns it (Handshake/Client.hs 201-215), so their connections derive the
+// same diffusion mode.
 func TestSimultaneousOpen(t *testing.T) {
 	const magic = 764824073
 	for _, test := range []struct {
@@ -129,18 +149,33 @@ func TestSimultaneousOpen(t *testing.T) {
 		left, right protocol.ProtocolVersionMap
 		wantVersion uint16
 		wantRefusal error
+		wantMode    bool
 	}{
 		{
 			name:        "both choose the highest common version",
 			left:        simOpenTable(t, magic, 13, 14),
 			right:       simOpenTable(t, magic, 13, 14),
 			wantVersion: 14,
+			wantMode:    protocol.DiffusionModeInitiatorAndResponder,
 		},
 		{
 			name:        "highest version only one side speaks is skipped",
 			left:        simOpenTable(t, magic, 13, 14),
 			right:       simOpenTable(t, magic, 13),
 			wantVersion: 13,
+			wantMode:    protocol.DiffusionModeInitiatorAndResponder,
+		},
+		{
+			name: "initiator-only on either side is agreed by both",
+			left: simOpenTable(t, magic, 13, 14),
+			right: simOpenTableMode(
+				t,
+				magic,
+				protocol.DiffusionModeInitiatorOnly,
+				13, 14,
+			),
+			wantVersion: 14,
+			wantMode:    protocol.DiffusionModeInitiatorOnly,
 		},
 		{
 			name:        "no common version",
@@ -181,9 +216,8 @@ func TestSimultaneousOpen(t *testing.T) {
 				require.Equal(t, test.wantVersion, result.version, "side %d", i)
 			}
 			if test.wantRefusal == nil {
-				// Each side reports the version data its peer proposed.
-				require.Equal(t, test.right[test.wantVersion], got[0].data)
-				require.Equal(t, test.left[test.wantVersion], got[1].data)
+				require.Equal(t, got[0].data, got[1].data)
+				require.Equal(t, test.wantMode, got[0].data.DiffusionMode())
 			}
 		})
 	}

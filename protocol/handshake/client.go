@@ -187,9 +187,9 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 // Confirm when both sides dialled at once (MsgReplyVersions in the
 // specification). As the reference client does, it chooses the version
 // itself, with the same rule the server applies, so that both sides reach the
-// same choice. A refusal is returned as the typed error a server would have
-// sent; nothing is sent to the peer, which makes its own choice and sees the
-// connection close.
+// same choice, and ends with the agreed version data. A refusal is returned
+// as the typed error a server would have sent; nothing is sent to the peer,
+// which makes its own choice and sees the connection close.
 func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
 	c.Protocol.Logger().
 		Debug("received peer proposal in simultaneous open",
@@ -254,7 +254,13 @@ func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
 			Message: "network magic mismatch",
 		}
 	}
-	return c.config.FinishedFunc(c.callbackContext, version, peerData)
+	// Both sides end with the agreed data, as the reference acceptOrRefuse
+	// returns it, so their connections derive the same diffusion mode.
+	return c.config.FinishedFunc(
+		c.callbackContext,
+		version,
+		agreedVersionData(ownData, peerData),
+	)
 }
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {
