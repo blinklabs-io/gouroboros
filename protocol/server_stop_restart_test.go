@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
+	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
 )
@@ -110,6 +111,16 @@ var restartingServerCases = []restartingServerCase{
 		newServer: func(o protocol.ProtocolOptions) restartingServer {
 			o.Mode = protocol.ProtocolModeNodeToNode
 			return leiosvotes.NewServer(o, nil)
+		},
+	},
+	{
+		name:       "localstatequery",
+		protocolId: localstatequery.ProtocolId,
+		hold:       "done",
+		done:       localstatequery.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localstatequery.NewServer(o, nil)
 		},
 	},
 	{
