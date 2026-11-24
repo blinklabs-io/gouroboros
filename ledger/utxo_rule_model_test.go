@@ -12,26 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A model-driven test of the UTXO rule from Shelley to Babbage: the
+// A table-driven test of the UTXO rule from Shelley to Babbage: the
 // validity interval, inputs, fee, value conservation with deposits, refunds,
 // withdrawals and minting, the output minimum and maximum value size, the
 // collateral rules with Babbage's collateral return and total collateral,
-// and the IsValid declaration. The rules below restate the Utxo TLA+ model
-// (specs/17-ledger-utxo in gouroboros-tla-models), which follows the
-// reference rules in eras/<era>/impl/src/Cardano/Ledger/<Era>/Rules/Utxo.hs
-// and Utxos.hs.
+// and the IsValid declaration. The rules below restate the reference rules
+// in eras/<era>/impl/src/Cardano/Ledger/<Era>/Rules/Utxo.hs and Utxos.hs
+// of cardano-ledger.
 //
 // For each era the test builds small UTxOs (two places, each empty or
 // holding two or three ada-units, a token or not, under a key or a script)
 // and five families of transactions around a base one, builds each as a
 // real transaction of that era, runs the era's rule list, and checks that
-// gOuroboros accepts exactly the transactions the model accepts.
+// gOuroboros accepts exactly the transactions the reference accepts.
 //
-// Rules outside the model (signatures, witnesses, metadata, script data
+// Rules not restated here (signatures, witnesses, metadata, script data
 // hash, network) are run too, but none of their failures counts, not even
 // one about an input missing from the UTxO: BadInputs, a restated rule,
 // must reject that transaction first. Plutus scripts are not
-// evaluated; the model's pass field stands for their result and is fed to
+// evaluated; the transaction's pass field stands for their result and is fed to
 // common.ValidatePlutusScriptResult.
 
 package ledger_test
@@ -52,9 +51,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// umUnit is one model ada-unit in lovelace. It is far above the Alonzo and
+// umUnit is one test ada-unit in lovelace. It is far above the Alonzo and
 // Babbage size-based output minimums, so in every era an output of one
-// unit meets the minimum and an output of none does not, as in the model.
+// unit meets the minimum and an output of none does not.
 const (
 	umUnit       = 1_000_000
 	umCollPct    = 150
@@ -106,7 +105,7 @@ const (
 
 type umRet struct{ coin, tok int }
 
-// umTx is the model's transaction. ins, coll and refs are sets of places as
+// umTx is a test transaction. ins, coll and refs are sets of places as
 // bit masks (bit i is place i). delta and tdelta are how far the output is
 // from balancing. lo and hi are the validity bounds, 0 for absent (Shelley:
 // hi is the TTL). tcoll is the total collateral, -1 for absent.
@@ -215,7 +214,7 @@ func (t umTx) retTok() int {
 
 func (t umTx) scriptsPass() bool { return !t.rdmrs || t.pass }
 
-// umSpecAccepts restates the model's SpecAccepts.
+// umSpecAccepts restates the reference UTXO rule's acceptance.
 func umSpecAccepts(era umEra, s umState, t umTx) bool {
 	// Shelley: ttl >= slot (inclusive). From Allegra: lo <= slot < hi.
 	if era == umShelley {
@@ -329,7 +328,7 @@ func umExpressible(s umState, t umTx) bool {
 	return s.outCoin(t) >= 0 && s.outTok(t) >= 0
 }
 
-// Families of transactions, as in the model.
+// Families of transactions around a base one.
 
 func umBase(era umEra) umTx {
 	t := umTx{ins: 1, fee: 1, valid: true, pass: true, tcoll: -1}
@@ -496,7 +495,7 @@ var (
 	umStakeHash   = common.Blake2b224Hash([]byte("utxo-model-stake"))
 	// umPayVkey is the payment key every key-locked output is locked by.
 	// Each transaction carries a vkey witness for it (with no valid
-	// signature: signatures are outside the model), so the witness rules
+	// signature: signatures are not restated here), so the witness rules
 	// look past a key-locked collateral input to the next one.
 	umPayVkey   = make([]byte, 32)
 	umPayKey    = common.Blake2b224Hash(umPayVkey)
@@ -545,7 +544,7 @@ func umInputs(mask uint8) []shelley.ShelleyTransactionInput {
 	return ins
 }
 
-// umAssets is tok of the model token, plus the big assets when big.
+// umAssets is tok of the test token, plus the big assets when big.
 func umAssets(tok int, isBig bool) *common.MultiAsset[common.MultiAssetTypeOutput] {
 	if tok == 0 && !isBig {
 		return nil
@@ -663,7 +662,7 @@ func umPparams(era umEra) common.ProtocolParameters {
 }
 
 // umFreeExecution prices execution at zero, so the minimum fee is the
-// model's constant whether or not the transaction has redeemers.
+// fixed minimum whether or not the transaction has redeemers.
 func umFreeExecution() common.ExUnitPrice {
 	return common.ExUnitPrice{
 		MemPrice:  &cbor.Rat{Rat: big.NewRat(0, 1)},
@@ -785,7 +784,7 @@ func umRules(era umEra) []common.UtxoValidationRuleDescriptor {
 	}
 }
 
-// umModelled are the rules the model restates; any failure of one is a
+// umModelled are the rules this test restates; any failure of one is a
 // rejection.
 var umModelled = map[common.UtxoValidationRuleId]bool{
 	common.UtxoValidationRuleTimeToLive:               true,
@@ -836,7 +835,7 @@ func umGoVerdict(t *testing.T, era umEra, s umState, m umTx) (bool, string) {
 	return true, ""
 }
 
-// umCheck compares the model and gOuroboros on every expressible
+// umCheck compares the reference and gOuroboros on every expressible
 // transaction of txs in state s, and returns how many cells it checked.
 func umCheck(t *testing.T, era umEra, s umState, txs []umTx) int {
 	t.Helper()
@@ -850,7 +849,7 @@ func umCheck(t *testing.T, era umEra, s umState, txs []umTx) int {
 		got, why := umGoVerdict(t, era, s, m)
 		if got != want {
 			t.Fatalf(
-				"%s state %+v slot=%d reg=%v reward=%d tx %v: model accepts=%v, gOuroboros accepts=%v (%s)",
+				"%s state %+v slot=%d reg=%v reward=%d tx %v: reference accepts=%v, gOuroboros accepts=%v (%s)",
 				era, umStateString(s), s.slot, s.registered, s.reward, m, want, got, why,
 			)
 		}
@@ -875,8 +874,8 @@ func umStateString(s umState) string {
 	)
 }
 
-// TestUtxoRuleModel walks the model's transaction families in its small
-// ledger states, era by era. Families that read the UTxO beyond place a
+// TestUtxoRuleModel walks the transaction families in small ledger
+// states, era by era. Families that read the UTxO beyond place a
 // (inputs, collateral and phase 2, outputs) run in every UTxO; the balance
 // family runs in every content of place a and every slot and credential
 // state; the interval family in every slot.
@@ -912,13 +911,13 @@ func TestUtxoRuleModel(t *testing.T) {
 	}
 }
 
-// TestUtxoRuleModelApply checks the model's ApplyValid and ApplyInvalid
-// against what a transaction reports it consumes and produces, which
-// BlockLedgerState.ApplyTransaction folds into the block's UTxO view. A
-// phase-2-valid transaction spends its inputs (never its reference inputs)
-// and creates its outputs; an invalid one spends only its collateral and
-// creates only the Babbage collateral return, at the index after the last
-// output.
+// TestUtxoRuleModelApply checks the reference's effect of a valid and an
+// invalid transaction against what a transaction reports it consumes and
+// produces, which BlockLedgerState.ApplyTransaction folds into the block's
+// UTxO view. A phase-2-valid transaction spends its inputs (never its
+// reference inputs) and creates its outputs; an invalid one spends only its
+// collateral and creates only the Babbage collateral return, at the index
+// after the last output.
 func TestUtxoRuleModelApply(t *testing.T) {
 	s := umState{utxo: [3]*umOut{{coin: 3}, {coin: 2}, nil}}
 	for _, era := range []umEra{umAlonzo, umBabbage} {
