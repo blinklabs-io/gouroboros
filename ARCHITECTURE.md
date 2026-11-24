@@ -564,8 +564,11 @@ The `pipeline` package provides a staged block processing pipeline with worker p
   and atomic state updates
 
 Normal pipelines require `VerifyConfigProvider` to read ledger state and protocol
-parameters after earlier blocks commit. The ordered stage checks certificates,
-block limits, transactions, and pool registration before calling `ApplyFunc`.
+parameters after earlier blocks commit. The ordered stage checks the header's
+KES evolution against `VerifyConfig.MaxKesEvolutions`, certificates, block
+limits, transactions, and pool registration before calling `ApplyFunc`. The
+provider must supply `MaxKesEvolutions`; normal pipelines reject
+`SkipKesEvolutionsValidation` like the other `Skip*` bypass flags.
 Parallel workers never read that mutable ledger state.
 
 `WithHeaderOnly()` returns ordered, cryptographically checked blocks to an
