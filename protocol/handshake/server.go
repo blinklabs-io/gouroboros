@@ -223,18 +223,17 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			errMsg,
 		)
 	}
-	// MsgAcceptVersion carries the negotiated data; the callback gets the
-	// peer's data, from which the connection derives its own settings.
-	msgAcceptVersion := NewMsgAcceptVersion(
-		proposedVersion,
-		agreedVersionData(versionData, proposedVersionData),
-	)
+	// Both MsgAcceptVersion and the callback carry the agreed data, as the
+	// reference server does, so the connection derives the same diffusion
+	// mode as its peer.
+	agreedData := agreedVersionData(versionData, proposedVersionData)
+	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, agreedData)
 	if err := s.SendMessageAndWait(msgAcceptVersion); err != nil {
 		return err
 	}
 	return s.config.FinishedFunc(
 		s.callbackContext,
 		proposedVersion,
-		proposedVersionData,
+		agreedData,
 	)
 }
