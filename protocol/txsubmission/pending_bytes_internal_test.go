@@ -913,7 +913,7 @@ func TestServerRequestTxIdsRejectsAnOverLongReplyFromThePeer(t *testing.T) {
 	peer := newReplyValidationPeer(t)
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := peer.server.RequestTxIds(false, 1)
+		_, err := peer.server.RequestTxIds(true, 1)
 		errChan <- err
 	}()
 	peer.waitForRequest(t)

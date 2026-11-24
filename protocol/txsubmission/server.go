@@ -144,7 +144,11 @@ func (s *Server) Start() {
 	p.Start()
 }
 
-// RequestTxIds requests the next set of TX identifiers from the remote node's mempool
+// RequestTxIds requests the next set of TX identifiers from the remote node's
+// mempool. Each request acknowledges every identifier the previous reply
+// announced, so nothing is left unacknowledged and the protocol requires a
+// blocking request for at least one identifier: a non-blocking request, or a
+// request for none, is refused without being sent.
 func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
@@ -229,6 +233,16 @@ func (s *Server) RequestTxIds(
 		s.stateMu.Unlock()
 		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
+	}
+	if err := checkRequestTxIdsStyle(
+		blocking,
+		ackCount,
+		reqCount,
+		unackedCount,
+	); err != nil {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, err
 	}
 	pending := &pendingTxIdsRequest{
 		blocking:  blocking,
