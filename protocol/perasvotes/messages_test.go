@@ -69,6 +69,8 @@ func TestObjectDiffusionMessageWireFixtures(t *testing.T) {
 			},
 		},
 		{name: "done", msg: NewMsgDone(), want: []byte{0x81, 0x05}},
+		{name: "server idle", msg: NewMsgServerIdle(), want: []byte{0x81, 0x06}},
+		{name: "await reply", msg: NewMsgAwaitReply(), want: []byte{0x81, 0x07}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			got, err := cbor.Encode(test.msg)
@@ -91,6 +93,8 @@ func TestMessagesDecodeObjectDiffusionWireShape(t *testing.T) {
 		{MessageTypeRequestObjects, NewMsgRequestObjects([]VoteID{id})},
 		{MessageTypeReplyObjects, NewMsgReplyObjects([]VoteObject{object})},
 		{MessageTypeDone, NewMsgDone()},
+		{MessageTypeServerIdle, NewMsgServerIdle()},
+		{MessageTypeAwaitReply, NewMsgAwaitReply()},
 	} {
 		encoded, err := cbor.Encode(test.msg)
 		require.NoError(t, err)
@@ -106,7 +110,9 @@ func TestMalformedAndUnknownMessagesRejected(t *testing.T) {
 		typeID uint
 		data   []byte
 	}{
-		{"unknown ID 6", 6, []byte{0x81, 0x06}},
+		{"unknown ID 8", 8, []byte{0x81, 0x08}},
+		{"server idle with a payload", uint(MessageTypeServerIdle), []byte{0x82, 0x06, 0x00}},
+		{"await reply with a payload", uint(MessageTypeAwaitReply), []byte{0x82, 0x07, 0x00}},
 		{"unknown ID 10", 10, []byte{0x81, 0x0a}},
 		{"mux type mismatch", uint(MessageTypeDone), []byte{0x81, MessageTypeInit}},
 		{"wrong field count", uint(MessageTypeInit), []byte{0x82, 0x00, 0x00}},

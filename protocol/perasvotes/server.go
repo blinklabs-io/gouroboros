@@ -15,6 +15,7 @@
 package perasvotes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -93,11 +94,72 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 		)
 	}
 	if msg.Blocking && len(ids) == 0 {
-		return errors.New(
-			"blocking Peras object ID request requires a non-empty reply",
-		)
+		// A blocking reply cannot be empty, and the client gives up after
+		// CanAwaitTimeout, so say promptly that the answer will come later.
+		if err := s.SendMessage(NewMsgAwaitReply()); err != nil {
+			return err
+		}
+		go s.awaitObjectIDs(msg.RequestCount)
+		return nil
 	}
 	return s.SendMessage(NewMsgReplyObjectIDs(ids))
+}
+
+// awaitObjectIDs finishes a blocking request after MsgAwaitReply: the IDs
+// that arrive within AwaitTimeout, or MsgServerIdle. It runs off the receive
+// path; the client has no agency until it answers, so nothing else is
+// handled meanwhile.
+func (s *Server) awaitObjectIDs(requestCount uint16) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		s.config.AwaitTimeout,
+	)
+	defer cancel()
+	go func() {
+		select {
+		case <-s.DoneChan():
+		case <-s.callbackContext.ConnectionDoneChan:
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
+	var ids []VoteID
+	if s.config.AwaitObjectIDsFunc == nil {
+		<-ctx.Done()
+	} else {
+		var err error
+		ids, err = s.config.AwaitObjectIDsFunc(
+			ctx,
+			s.callbackContext,
+			requestCount,
+		)
+		if err != nil && ctx.Err() == nil {
+			s.SendError(err)
+			return
+		}
+	}
+	select {
+	case <-s.DoneChan():
+		return
+	case <-s.callbackContext.ConnectionDoneChan:
+		return
+	default:
+	}
+	if len(ids) > int(requestCount) {
+		s.SendError(fmt.Errorf(
+			"peras await object IDs function returned %d IDs for a request of %d",
+			len(ids),
+			requestCount,
+		))
+		return
+	}
+	var reply protocol.Message = NewMsgServerIdle()
+	if len(ids) > 0 {
+		reply = NewMsgReplyObjectIDs(ids)
+	}
+	if err := s.SendMessage(reply); err != nil {
+		s.SendError(err)
+	}
 }
 
 func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
