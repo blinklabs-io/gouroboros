@@ -1094,12 +1094,12 @@ func UtxoValidateGuardrailsScriptHash(
 //     current protocol parameters for the hard-fork purpose root, or from
 //     the ledger state's record of another referenced action;
 //   - a proposal with no predecessor is compared against the enacted
-//     version. The enacted protocol version is always the version proposed
-//     by the hard-fork action that is the current root of the hard-fork
-//     purpose chain, since a ParameterChange action cannot alter the
-//     protocol version, so comparing against the recorded proposed version
-//     of a predecessor that is the root gives the same verdict as the
-//     reference implementation's comparison against the enacted version.
+//     version.
+//
+// A predecessor not proposed by the same transaction needs the purpose roots
+// (common.GovPurposeRootsState): GovActionById does not return the enacted
+// root, so without them a root predecessor would look unknown. Missing roots
+// are reported as GovernanceStateUnavailableError.
 //
 // A non-root predecessor whose contents the ledger state does not record (see
 // common.GovActionState.Action) is reported as GovernanceStateUnavailableError
@@ -1146,14 +1146,15 @@ func UtxoValidateHardForkCanFollow(
 				}
 				ancestorAction = txProposal.action
 			} else {
-				if _, hasRoots := common.GovPurposeRootsStateFor(ls); hasRoots {
-					roots, err := govPurposeRoots(ls)
-					if err != nil {
-						return err
-					}
-					rootPredecessor = roots.HardFork != nil &&
-						*roots.HardFork == *hf.ActionId
+				// GovActionById does not return the enacted root, so the
+				// root must be known before a lookup miss can mean that
+				// the predecessor does not exist.
+				roots, err := govPurposeRoots(ls)
+				if err != nil {
+					return err
 				}
+				rootPredecessor = roots.HardFork != nil &&
+					*roots.HardFork == *hf.ActionId
 				if !rootPredecessor {
 					if ls == nil {
 						return GovernanceStateUnavailableError{

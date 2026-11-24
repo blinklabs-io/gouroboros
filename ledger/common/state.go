@@ -526,10 +526,10 @@ type GovState interface {
 	// proposals set, or nil when there is none. An action RATIFY has
 	// classified as expired stays until EPOCH removes it. An action that was
 	// enacted, or removed with its rivals or an expired ancestor, must not be
-	// returned, except that the current root of a purpose may be: proposal
-	// ancestry accepts a predecessor this method returns as a live member of
-	// its purpose tree, so returning an older enacted action would let a
-	// proposal build on a superseded chain.
+	// returned. That includes the current root of each purpose: the rules
+	// read roots from GovPurposeRootsState, and a vote naming an action this
+	// method returns is accepted, while the reference refuses a vote on an
+	// enacted action as GovActionsDoNotExist.
 	GovActionById(GovActionId) (*GovActionState, error)
 	// GovActionExists reports whether GovActionById would return an action.
 	GovActionExists(GovActionId) bool

@@ -1509,14 +1509,9 @@ func TestUtxoValidateHardForkCanFollowUsesCurrentVersionForPurposeRoot(
 	t *testing.T,
 ) {
 	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x31}}
-	base := mockledger.NewLedgerStateBuilder().
-		WithGovActions(map[string]*common.GovActionState{
-			govActionKey(rootId): {
-				ActionId:   rootId,
-				ActionType: common.GovActionTypeHardForkInitiation,
-			},
-		}).
-		Build()
+	// An enacted root is not a live proposal, so the state does not return
+	// it from GovActionById.
+	base := mockledger.NewLedgerStateBuilder().Build()
 	ls := rootedLedgerState{
 		LedgerState: base,
 		roots:       &common.GovPurposeRoots{HardFork: &rootId},
@@ -1527,6 +1522,50 @@ func TestUtxoValidateHardForkCanFollowUsesCurrentVersionForPurposeRoot(
 		t,
 		conway.UtxoValidateHardForkCanFollow(tx, 0, ls, mkConwayPp(9, 0)),
 	)
+}
+
+// rootlessLedgerState hides every optional capability of the wrapped state,
+// GovPurposeRootsState among them.
+type rootlessLedgerState struct {
+	common.LedgerState
+}
+
+func TestUtxoValidateHardForkCanFollowNeedsRootsForLedgerPredecessor(
+	t *testing.T,
+) {
+	// Without the purpose roots, a predecessor GovActionById does not find
+	// may still be the enacted root, so the rule cannot call it unknown.
+	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x32}}
+	ls := rootlessLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+	}
+	tx := mkProposalsTx(t, mkHfAction(&rootId, 10, 0))
+
+	err := conway.UtxoValidateHardForkCanFollow(tx, 0, ls, mkConwayPp(9, 0))
+	var target conway.GovernanceStateUnavailableError
+	require.ErrorAs(t, err, &target)
+}
+
+func TestUtxoValidateUnknownGovActionIdsRefusesEnactedRoot(t *testing.T) {
+	// The reference looks a voted-on id up in the live proposals only, so a
+	// vote naming the enacted root of a purpose is GovActionsDoNotExist.
+	rootId := common.GovActionId{TransactionId: common.Blake2b256{0x33}}
+	ls := rootedLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().Build(),
+		roots:       &common.GovPurposeRoots{PParamUpdate: &rootId},
+	}
+	voter := common.Voter{
+		Type: common.VoterTypeDRepKeyHash,
+		Hash: common.Blake2b224{0x01},
+	}
+	tx := mkVoteTx(voter, rootId, common.GovVoteYes)
+
+	err := conway.UtxoValidateUnknownGovActionIds(
+		tx, 0, ls, mkConwayPp(common.ProtocolVersionConway, 0),
+	)
+	var unkErr conway.UnknownGovActionIdError
+	require.ErrorAs(t, err, &unkErr)
+	assert.Equal(t, []common.GovActionId{rootId}, unkErr.ActionIds)
 }
 
 func TestUtxoValidateProposalAncestryPurposeRoot(t *testing.T) {
