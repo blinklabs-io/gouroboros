@@ -397,8 +397,12 @@ func validateDijkstraBlockCertificatesWith(
 			nil,
 		)
 	}
-	if err := dijkstraBlock.BlockBody.LeiosCertificate.Validate(
-		uint64(pparams.LeiosCommitteeSize),
+	// The exact bitfield length depends on the seated committee, which can
+	// be smaller than LeiosCommitteeSize, so only its upper bound is checked
+	// before the committee is looked up.
+	if err := validateLeiosCertificateShape(
+		dijkstraBlock.BlockBody.LeiosCertificate,
+		pparams.LeiosCommitteeSize,
 	); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
@@ -448,6 +452,31 @@ func validateDijkstraBlockCertificatesWith(
 			"invalid Dijkstra Leios certificate",
 			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
 			err,
+		)
+	}
+	return nil
+}
+
+// validateLeiosCertificateShape checks what a certificate's shape allows
+// without the committee: the signature size, and a signer bitfield no longer
+// than a committee of committeeSize seats needs.
+func validateLeiosCertificateShape(
+	cert *dijkstra.DijkstraLeiosCertificate,
+	committeeSize uint16,
+) error {
+	if err := common.ValidateLeiosSignature(
+		"DijkstraLeiosCertificate: AggregatedSignature",
+		cert.AggregatedSignature,
+	); err != nil {
+		return err
+	}
+	maxSize := common.LeiosSignerBitfieldSize(uint64(committeeSize))
+	if uint64(len(cert.Signers)) > maxSize {
+		return fmt.Errorf(
+			"leios signer bitfield of %d bytes exceeds %d for committee size %d",
+			len(cert.Signers),
+			maxSize,
+			committeeSize,
 		)
 	}
 	return nil
