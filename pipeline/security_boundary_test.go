@@ -155,6 +155,11 @@ func TestBlockPipelineRejectsVerifyConfigValidationBypasses(t *testing.T) {
 			flag:   "SkipBlockLimitsValidation",
 			config: common.VerifyConfig{SkipBlockLimitsValidation: true},
 		},
+		{
+			name:   "KES evolutions validation",
+			flag:   "SkipKesEvolutionsValidation",
+			config: common.VerifyConfig{SkipKesEvolutionsValidation: true},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -785,12 +790,13 @@ func TestOrderedValidationUsesLeaderSnapshot(t *testing.T) {
 			if missing {
 				config.LeaderPoolVrfKeyHash = nil
 			}
-			p := NewBlockPipeline(WithVerifyConfigProvider(func(
-				_ context.Context, got *BlockItem,
-			) (common.VerifyConfig, error) {
-				require.Same(t, item, got)
-				return config, nil
-			}))
+			p := NewBlockPipeline(WithSlotsPerKesPeriod(129600),
+				WithVerifyConfigProvider(func(
+					_ context.Context, got *BlockItem,
+				) (common.VerifyConfig, error) {
+					require.Same(t, item, got)
+					return config, nil
+				}))
 			err := p.validateOrdered(t.Context(), item)
 			if missing {
 				var validationErr *common.ValidationError

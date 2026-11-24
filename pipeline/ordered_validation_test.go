@@ -177,3 +177,52 @@ func TestOrderedProviderRejectsMissingStateAndBypasses(t *testing.T) {
 		})
 	}
 }
+
+func TestOrderedValidationEnforcesKesLifetime(t *testing.T) {
+	t.Parallel()
+	// The fixture header is KES evolution 27 of its operational certificate.
+	for _, test := range []struct {
+		name      string
+		change    func(*common.VerifyConfig)
+		message   string
+		wantApply bool
+	}{
+		{"expired", func(c *common.VerifyConfig) { c.MaxKesEvolutions = 27 }, "KES period outside operational certificate validity", false},
+		{"last valid evolution", func(c *common.VerifyConfig) { c.MaxKesEvolutions = 28 }, "", true},
+		{"unconfigured bound", func(c *common.VerifyConfig) { c.MaxKesEvolutions = 0 }, "MaxKesEvolutions is required", false},
+		{"skip flag", func(c *common.VerifyConfig) {
+			c.MaxKesEvolutions = 27
+			c.SkipKesEvolutionsValidation = true
+		}, "SkipKesEvolutionsValidation", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			var applied atomic.Uint64
+			options := validatedTestPipelineOptions(t, func(*BlockItem) error {
+				applied.Add(1)
+				return nil
+			})
+			config := validatingTestVerifyConfig(t)
+			test.change(&config)
+			options = append(options, WithVerifyConfigProvider(
+				func(context.Context, *BlockItem) (common.VerifyConfig, error) {
+					return config, nil
+				},
+			))
+			p := NewBlockPipeline(options...)
+			require.NoError(t, p.Start(t.Context()))
+			defer p.Stop()
+			block := getValidShelleyBlock(t)
+			require.NoError(t, p.Submit(t.Context(), block.BlockType,
+				block.Cbor, createTestTip(1, 1)))
+			err := p.Fence(t.Context())
+			if test.wantApply {
+				require.NoError(t, err)
+				require.Equal(t, uint64(1), applied.Load())
+				return
+			}
+			require.ErrorContains(t, err, test.message)
+			require.Zero(t, applied.Load())
+		})
+	}
+}

@@ -77,7 +77,60 @@ func (p *BlockPipeline) validateOrdered(
 			return errors.New("ordered validation requires protocol parameters")
 		}
 	}
+	if err := p.validateKesLifetime(item.Block(), config); err != nil {
+		return err
+	}
 	return ledger.VerifyBlockState(item.Block(), config)
+}
+
+// validateKesLifetime applies the genesis MaxKesEvolutions bound that
+// block-local validation cannot, since the bound comes from chain state.
+// kes.VerifySignedKES only bounds the evolution by the key depth.
+func (p *BlockPipeline) validateKesLifetime(
+	block ledger.Block,
+	config lcommon.VerifyConfig,
+) error {
+	if block.Era().Id == ledger.EraIdByron {
+		return nil
+	}
+	header := block.Header()
+	if config.MaxKesEvolutions == 0 {
+		return lcommon.NewValidationError(
+			lcommon.ValidationErrorTypeConfiguration,
+			"MaxKesEvolutions is required for KES evolution validation",
+			map[string]any{
+				"slot":         header.SlotNumber(),
+				"block_number": header.BlockNumber(),
+				"era":          header.Era(),
+			},
+			nil,
+		)
+	}
+	_, _, kesPeriod, err := ledger.ExtractKesFields(header)
+	if err != nil {
+		return err
+	}
+	if _, err := ledger.ValidateKesPeriod(
+		kesPeriod,
+		header.SlotNumber(),
+		p.config.SlotsPerKesPeriod,
+		config.MaxKesEvolutions,
+	); err != nil {
+		return lcommon.NewValidationError(
+			lcommon.ValidationErrorTypeKES,
+			"KES period outside operational certificate validity",
+			map[string]any{
+				"slot":                 header.SlotNumber(),
+				"block_number":         header.BlockNumber(),
+				"era":                  header.Era(),
+				"kes_period":           kesPeriod,
+				"slots_per_kes_period": p.config.SlotsPerKesPeriod,
+				"max_kes_evolutions":   config.MaxKesEvolutions,
+			},
+			err,
+		)
+	}
+	return nil
 }
 
 // ErrMissingEta0Provider is returned when validation is enabled but no Eta0Provider is configured.
@@ -193,6 +246,8 @@ func validationBypassFlag(config lcommon.VerifyConfig) string {
 		return "SkipStakePoolValidation"
 	case config.SkipBlockLimitsValidation:
 		return "SkipBlockLimitsValidation"
+	case config.SkipKesEvolutionsValidation:
+		return "SkipKesEvolutionsValidation"
 	default:
 		return ""
 	}
