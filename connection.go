@@ -491,6 +491,10 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.perasVotes != nil && c.perasVotes.Server != nil {
 		servers = append(servers, c.perasVotes.Server)
 	}
+	if c.localMessageSubmission != nil &&
+		c.localMessageSubmission.Server != nil {
+		servers = append(servers, c.localMessageSubmission.Server)
+	}
 	return servers
 }
 
@@ -656,7 +660,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageSubmission.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageSubmission.Server.Protocol,
+				c.localMessageSubmission.Server.ProtocolInstance(),
 			)
 		}
 	}

@@ -26,6 +26,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
@@ -132,6 +133,16 @@ var restartingServerCases = []restartingServerCase{
 		newServer: func(o protocol.ProtocolOptions) restartingServer {
 			o.Mode = protocol.ProtocolModeNodeToClient
 			return localtxsubmission.NewServer(o, nil)
+		},
+	},
+	{
+		name:       "localmessagesubmission",
+		protocolId: localmessagesubmission.ProtocolID,
+		hold:       "received done message",
+		done:       localmessagesubmission.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localmessagesubmission.NewServer(o, nil)
 		},
 	},
 	{
