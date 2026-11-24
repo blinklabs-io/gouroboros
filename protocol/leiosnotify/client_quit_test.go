@@ -172,3 +172,23 @@ func TestSyncAfterStopIsRefused(t *testing.T) {
 	require.NoError(t, <-stopErr)
 	require.ErrorIs(t, client.Sync(), protocol.ErrProtocolShuttingDown)
 }
+
+// TestSyncAfterStopWhileSyncingIsRefused stops a client whose notification
+// loop is running. The loop stays parked until the protocol ends, so Sync
+// must report the shutdown rather than a loop that is still running.
+func TestSyncAfterStopWhileSyncingIsRefused(t *testing.T) {
+	cfg := NewConfig(
+		WithNotificationFunc(func(CallbackContext, protocol.Message) error {
+			return nil
+		}),
+	)
+	client, conn, _ := newQuitTestClient(t, cfg)
+	reader := &clientMessageReader{conn: conn}
+	require.NoError(t, client.Sync())
+	require.Equal(t, uint(MessageTypeNotificationRequestNext), reader.next(t))
+	stopErr := make(chan error, 1)
+	go func() { stopErr <- client.Stop() }()
+	require.Equal(t, uint(MessageTypeQuit), reader.next(t))
+	require.NoError(t, <-stopErr)
+	require.ErrorIs(t, client.Sync(), protocol.ErrProtocolShuttingDown)
+}

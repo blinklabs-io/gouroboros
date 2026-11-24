@@ -114,6 +114,11 @@ func (c *Client) Sync() error {
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	// After Stop the loop stays parked until the protocol ends, so the
+	// shutdown is checked first.
+	if c.quitting.Load() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	if c.notificationRunning {
 		return errors.New("notification loop is already running")
 	}
