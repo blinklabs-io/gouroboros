@@ -137,6 +137,16 @@ type rangeRequest struct {
 	// batchDoneReported prevents resolve from invoking BatchDoneFunc again
 	// after handleBatchDone has already reported it.
 	batchDoneReported atomic.Bool
+	// sending is true from the queue append until the MsgRequestRange send
+	// returns. Only the sender knows whether its caller will get an id or an
+	// error, so a shutdown drain that finds a request in this window must
+	// not resolve it: a caller that gets an error was never given the id,
+	// and RangeDoneFunc must not run for it. Guarded by queueMutex.
+	sending bool
+	// drainErr is the error of a shutdown drain that took the request out of
+	// the queue while it was sending. If the send then succeeds, the sender
+	// resolves the request with it. Guarded by queueMutex.
+	drainErr error
 }
 
 // RangeRequest describes a single block range request queued through
@@ -215,6 +225,11 @@ type Client struct {
 	// otherwise unobservable, and the ordering it establishes is what proves
 	// a parked caller holds nothing another caller needs.
 	beforeInFlightWait func()
+	// beforeRangeSend is a test synchronization point after a request has
+	// been appended to the queue and before its MsgRequestRange is sent: the
+	// only window in which a shutdown drain can find a request whose send
+	// has not yet succeeded or failed.
+	beforeRangeSend func()
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -1081,6 +1096,7 @@ func (c *Client) sendRequestRange(
 			doneChan:      make(chan error, 1),
 			deadline:      rangeDeadline,
 			retired:       make(chan struct{}),
+			sending:       true,
 		}
 		c.queue = append(c.queue, req)
 		c.inFlightBytes = saturatingAdd(c.inFlightBytes, expectedBytes)
@@ -1089,24 +1105,87 @@ func (c *Client) sendRequestRange(
 		break
 	}
 	// The token is held from the queue append through the MsgRequestRange
-	// enqueue, which is what keeps queue order equal to wire order.
-	defer func() {
-		c.rangeSendToken <- struct{}{}
+	// enqueue, which is what keeps queue order equal to wire order. It is
+	// handed back before any RangeDoneFunc below, so a callback that requests
+	// another range cannot deadlock on it.
+	err := func() error {
+		defer func() {
+			c.rangeSendToken <- struct{}{}
+		}()
+		if c.beforeRangeSend != nil {
+			c.beforeRangeSend()
+		}
+		return proto.SendMessageContext(
+			rangeCtx,
+			NewMsgRequestRange(start, end),
+		)
 	}()
-	err := proto.SendMessageContext(
-		rangeCtx,
-		NewMsgRequestRange(start, end),
-	)
+	c.queueMutex.Lock()
+	req.sending = false
+	drainErr := req.drainErr
 	if err != nil {
 		// The request never reached the wire, so it can be removed without
-		// disturbing the position of any other entry.
-		c.queueMutex.Lock()
+		// disturbing the position of any other entry. A drain that already
+		// took it out left it unresolved, so its caller gets only this error.
 		c.removeLocked(req)
 		c.queueMutex.Unlock()
 		return nil, c.rangeAdmissionError(ctx, err)
 	}
+	c.queueMutex.Unlock()
+	if drainErr != nil {
+		// A drain took the request out of the queue before the send
+		// succeeded and left it to be resolved here, now that its caller
+		// will get the id.
+		c.logShutdownCallbackError(proto, c.resolve(req, drainErr))
+		return req, nil
+	}
 	go c.watchRangeDeadline(req)
 	return req, nil
+}
+
+// deferIfSendingLocked reports whether a shutdown drain must leave req to its
+// sender rather than resolve it, recording the drain's error for the sender
+// to use if the send succeeds. The caller must hold queueMutex.
+func deferIfSendingLocked(req *rangeRequest, err error) bool {
+	if !req.sending {
+		return false
+	}
+	if req.drainErr == nil {
+		req.drainErr = err
+	}
+	return true
+}
+
+// resolvableLocked returns the drained requests a drain resolves itself,
+// leaving those whose send is still in progress to their senders. The caller
+// must hold queueMutex.
+func resolvableLocked(
+	drained []*rangeRequest,
+	err error,
+) []*rangeRequest {
+	return slices.DeleteFunc(drained, func(req *rangeRequest) bool {
+		return deferIfSendingLocked(req, err)
+	})
+}
+
+// logShutdownCallbackError logs an error returned by a RangeDoneFunc that ran
+// while resolving a request at shutdown, where there is no caller to return
+// it to.
+func (c *Client) logShutdownCallbackError(
+	proto *protocol.Protocol,
+	err error,
+) {
+	if err == nil {
+		return
+	}
+	proto.Logger().
+		Warn("range done callback failed during shutdown",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+			"error", err.Error(),
+		)
 }
 
 func (c *Client) rangeAdmissionError(ctx context.Context, err error) error {
@@ -1147,6 +1226,7 @@ func (c *Client) watchRangeDeadline(req *rangeRequest) {
 		for _, queued := range pending {
 			c.removeLocked(queued)
 		}
+		pending = resolvableLocked(pending, err)
 		c.queueMutex.Unlock()
 		// Remove the requests before stopping the protocol so its shutdown
 		// watcher cannot replace the specific deadline failure with a generic
@@ -1307,29 +1387,23 @@ func (c *Client) resolve(req *rangeRequest, err error) error {
 	return callbackErr
 }
 
-// failOutstanding resolves every queued request with the given error.
+// failOutstanding takes every request out of the queue and resolves it with
+// the given error, except a request whose send is still in progress, which
+// its sender resolves if the send succeeds (see rangeRequest.sending).
 func (c *Client) failOutstanding(err error) {
 	c.queueMutex.Lock()
-	pending := c.drainLocked()
+	pending := resolvableLocked(c.drainLocked(), err)
 	c.queueMutex.Unlock()
-	logger := c.ProtocolInstance().Logger()
+	proto := c.ProtocolInstance()
 	for _, req := range pending {
-		if resolveErr := c.resolve(req, err); resolveErr != nil {
-			logger.
-				Warn("range done callback failed during shutdown",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-					"error", resolveErr.Error(),
-				)
-		}
+		c.logShutdownCallbackError(proto, c.resolve(req, err))
 	}
 }
 
-// failOutstandingForProtocol resolves only requests owned by proto. A delayed
-// shutdown watcher from an earlier client start must not resolve requests
-// queued after the client has restarted with a new protocol instance.
+// failOutstandingForProtocol is failOutstanding for the requests owned by
+// proto only. A delayed shutdown watcher from an earlier client start must not
+// resolve requests queued after the client has restarted with a new protocol
+// instance.
 func (c *Client) failOutstandingForProtocol(
 	proto *protocol.Protocol,
 	err error,
@@ -1347,18 +1421,10 @@ func (c *Client) failOutstandingForProtocol(
 	}
 	c.queue = remaining
 	c.updateIngressAllowanceLocked(proto)
+	pending = resolvableLocked(pending, err)
 	c.queueMutex.Unlock()
 	for _, req := range pending {
-		if resolveErr := c.resolve(req, err); resolveErr != nil {
-			proto.Logger().
-				Warn("range done callback failed during shutdown",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-					"error", resolveErr.Error(),
-				)
-		}
+		c.logShutdownCallbackError(proto, c.resolve(req, err))
 	}
 }
 

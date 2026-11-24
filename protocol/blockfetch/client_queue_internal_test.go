@@ -1989,3 +1989,109 @@ func TestPeerBlockRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 		})
 	}
 }
+
+// TestRequestRangeRefusedAtShutdownGetsNoRangeDone covers a shutdown drain
+// that finds a request after it was queued but before its send failed: the
+// caller gets an error from RequestRange and no request id, so RangeDoneFunc
+// must never run for that request.
+func TestRequestRangeRefusedAtShutdownGetsNoRangeDone(t *testing.T) {
+	drains := map[string]func(*Client, *protocol.Protocol){
+		"failOutstanding": func(c *Client, _ *protocol.Protocol) {
+			c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		},
+		"failOutstandingForProtocol": func(
+			c *Client,
+			proto *protocol.Protocol,
+		) {
+			c.failOutstandingForProtocol(
+				proto,
+				protocol.ErrProtocolShuttingDown,
+			)
+		},
+	}
+	for name, drain := range drains {
+		t.Run(name, func(t *testing.T) {
+			var callbacksMu sync.Mutex
+			var callbacks []uint64
+			c := newStartedQueueTestClient(t, &Config{
+				RequestPipelining: true,
+				RangeDoneFunc: func(ctx CallbackContext, _ error) error {
+					callbacksMu.Lock()
+					defer callbacksMu.Unlock()
+					callbacks = append(callbacks, ctx.RequestId)
+					return nil
+				},
+			})
+			proto := c.ProtocolInstance()
+			c.beforeRangeSend = func() {
+				proto.Stop()
+				<-proto.DoneChan()
+				drain(c, proto)
+			}
+
+			id, err := c.RequestRange(
+				context.Background(),
+				RangeRequest{ExpectedBytes: 1},
+			)
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+			require.Zero(t, id)
+
+			// A drain after the refusal must not find the request either.
+			c.failOutstanding(protocol.ErrProtocolShuttingDown)
+			callbacksMu.Lock()
+			defer callbacksMu.Unlock()
+			require.Empty(t, callbacks)
+			c.queueMutex.Lock()
+			defer c.queueMutex.Unlock()
+			require.Empty(t, c.queue)
+			require.Zero(t, c.inFlightBytes)
+		})
+	}
+}
+
+// TestRequestRangeDrainedBeforeSendIsResolvedOnce covers the other outcome of
+// the same window: the drain finds the request before its send, and the send
+// then succeeds. RequestRange returns the id, so the request must still be
+// resolved, once, with the drain's error.
+func TestRequestRangeDrainedBeforeSendIsResolvedOnce(t *testing.T) {
+	type completion struct {
+		id  uint64
+		err error
+	}
+	completions := make(chan completion, 2)
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(ctx CallbackContext, err error) error {
+			completions <- completion{id: ctx.RequestId, err: err}
+			return nil
+		},
+	})
+	c.beforeRangeSend = func() {
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	}
+
+	id, err := c.RequestRange(
+		context.Background(),
+		RangeRequest{ExpectedBytes: 1},
+	)
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	select {
+	case got := <-completions:
+		require.Equal(t, id, got.id)
+		require.ErrorIs(t, got.err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("a request drained before its send was never resolved")
+	}
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	select {
+	case got := <-completions:
+		t.Fatalf("request %d resolved twice: %v", got.id, got.err)
+	default:
+	}
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
+}

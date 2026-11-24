@@ -253,11 +253,12 @@ type BlockRawFunc func(CallbackContext, uint, []byte) error
 // completion through RangeDoneFunc instead.
 type BatchDoneFunc func(CallbackContext) error
 
-// RangeDoneFunc is a callback invoked exactly once for each request made
-// through Client.RequestRange. The error is nil when the peer completed the
-// batch, and otherwise reports why the request will not be completed: the
-// range was unavailable, the peer violated the protocol, or the protocol shut
-// down with the request still outstanding.
+// RangeDoneFunc is a callback invoked exactly once for each request for which
+// Client.RequestRange returned an id, and never for a call that returned an
+// error. It can run before RequestRange returns. The error is nil when the
+// peer completed the batch, and otherwise reports why the request will not be
+// completed: the range was unavailable, the peer violated the protocol, or the
+// protocol shut down with the request still outstanding.
 type RangeDoneFunc func(CallbackContext, error) error
 
 // RequestRangeFunc is a callback for handling block range requests.

@@ -141,8 +141,9 @@ A client configured with `RequestPipelining` keeps a FIFO queue of outstanding
 `MsgRequestRange`. Responses are ordered, so queue position identifies the
 request a `StartBatch`, `Block`, `NoBlocks`, or `BatchDone` belongs to; no wire
 change is involved. `CallbackContext.RequestId` carries that identity to the
-block callbacks, and `RangeDoneFunc` is called exactly once per request with
-the terminal outcome.
+block callbacks, and `RangeDoneFunc` is called exactly once with the terminal
+outcome for each request `RequestRange` returned an id for, and never for a
+call that returned an error.
 
 ```go
 id, err := client.RequestRange(ctx, blockfetch.RangeRequest{
