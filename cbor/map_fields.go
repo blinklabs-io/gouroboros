@@ -37,11 +37,14 @@ type RawMapKey interface {
 // DecodeRawMap decodes the CBOR map at the start of data into a map of
 // undecoded values, applying the same well-formedness, collection limit, and
 // duplicate-key rules as DecodeLedgerMap. It returns the map and the number of
-// bytes read. A CBOR null yields a nil map. It stops at the first key that does
-// not decode as K, so memory grows only with entries that decode, never with
-// the pair count the input declares.
+// bytes read. A CBOR null yields a nil map, and tags wrapping the map are
+// accepted or rejected as DecodeLedgerMap would. It stops at the first key that
+// does not decode as K, so memory grows only with entries that decode, never
+// with the pair count the input declares.
 func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
-	count, headerSize, indefinite := MapInfo(data)
+	content := SkipTags(data)
+	tagsSize := len(data) - len(content)
+	count, headerSize, indefinite := MapInfo(content)
 	if count < 0 {
 		// Without a map head there is no pair count to size from, so the
 		// full decoder can report null, another type, or a bad head.
@@ -69,8 +72,20 @@ func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
 		return nil, 0, err
 	}
 	n := len(data) - len(rest)
+	if tagsSize > 0 {
+		// Whether a tag may wrap a map does not depend on its contents, so
+		// the same tags around an empty map get the full decoder's verdict
+		// without sizing anything from the declared count.
+		probe := make([]byte, tagsSize+1)
+		copy(probe, data[:tagsSize])
+		probe[tagsSize] = 0xa0
+		var empty map[K]RawMessage
+		if _, err := decMode.UnmarshalFirst(probe, &empty); err != nil {
+			return nil, 0, err
+		}
+	}
 	fields := make(map[K]RawMessage, min(count, rawMapPresizePairs))
-	pos := int(headerSize)
+	pos := tagsSize + int(headerSize)
 	// Declared once: each pointer handed to UnmarshalFirst escapes, so
 	// per-pair variables would cost two heap allocations per pair.
 	var key, zeroKey K

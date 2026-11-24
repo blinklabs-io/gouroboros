@@ -74,32 +74,40 @@ func TestValidateMapFieldsRejectsBadKeysWithoutSizingMap(t *testing.T) {
 	const pairs = 50_000
 	// Map header declaring pairs entries, each an empty byte string key and
 	// a zero value: well-formed, but no key decodes as an integer.
-	data := []byte{0xba, 0, 0, 0, 0}
-	binary.BigEndian.PutUint32(data[1:], pairs)
-	data = append(data, bytes.Repeat([]byte{0x40, 0x00}, pairs)...)
+	mapData := []byte{0xba, 0, 0, 0, 0}
+	binary.BigEndian.PutUint32(mapData[1:], pairs)
+	mapData = append(mapData, bytes.Repeat([]byte{0x40, 0x00}, pairs)...)
 
-	validate := func() {
-		require.Error(t, cbor.ValidateMapFields(data, nil, nil))
-	}
-	validate()
+	for name, data := range map[string][]byte{
+		"bare map": mapData,
+		// Tag 55799 (self-described CBOR) is accepted around any item.
+		"tagged map": append([]byte{0xd9, 0xd9, 0xf7}, mapData...),
+	} {
+		t.Run(name, func(t *testing.T) {
+			validate := func() {
+				require.Error(t, cbor.ValidateMapFields(data, nil, nil))
+			}
+			validate()
 
-	const runs = 5
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	for range runs {
-		validate()
+			const runs = 5
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			for range runs {
+				validate()
+			}
+			runtime.ReadMemStats(&after)
+			perRun := (after.TotalAlloc - before.TotalAlloc) / runs
+			require.Less(
+				t,
+				perRun,
+				uint64(len(data)),
+				"ValidateMapFields allocated %d bytes per call for %d input bytes",
+				perRun,
+				len(data),
+			)
+		})
 	}
-	runtime.ReadMemStats(&after)
-	perRun := (after.TotalAlloc - before.TotalAlloc) / runs
-	require.Less(
-		t,
-		perRun,
-		uint64(len(data)),
-		"ValidateMapFields allocated %d bytes per call for %d input bytes",
-		perRun,
-		len(data),
-	)
 }
 
 func TestDecodeRawMapMatchesDecodeLedgerMap(t *testing.T) {
@@ -119,6 +127,15 @@ func TestDecodeRawMapMatchesDecodeLedgerMap(t *testing.T) {
 		"bf0100",                   // indefinite map without break
 		"b9000101",                 // fewer pairs than declared
 		"a2014161024162",           // equal-length byte string values
+		"d9d9f7a10100",             // self-described CBOR tag
+		"d9d9f7d9d9f7a10100",       // repeated self-described CBOR tag
+		"d81ea10100",               // tag 30 around a map
+		"d90102a10100",             // tag 258 around a map
+		"d90103a10100",             // tag 259 around a map
+		"c1a10100",                 // tag 1 around a map
+		"c0a10100",                 // tag 0 around a map
+		"d9d9f7f6",                 // tagged null
+		"d9d9f7a2400001000100",     // tagged map with a bad key
 		"a101a0",                   // nested map value
 	} {
 		t.Run(input, func(t *testing.T) {
