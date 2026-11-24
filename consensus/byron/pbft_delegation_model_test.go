@@ -266,9 +266,11 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 					keyEpochs[[2]string{fmt.Sprint(ke.epoch), names[ke.delegator]}] = true
 				}
 				require.Equal(t, wantRef.eks, keyEpochs, "key epochs %s", name)
+				// The whole map, as the model's SlotsAgree compares it: a
+				// missing or extra entry must not read as slot 0.
 				slots := map[string]uint64{}
-				for g := range genesis {
-					slots[g] = gotGo.delegationSlots[hashes[g]]
+				for h, slot := range gotGo.delegationSlots {
+					slots[names[h]] = slot
 				}
 				require.Equal(t, wantRef.dws, slots, "activation slots %s", name)
 				if wantRef.dms["g1"] == "g1" {
