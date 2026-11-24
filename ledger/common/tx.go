@@ -728,9 +728,9 @@ func (b *TransactionBodyBase) Id() Blake2b256 {
 // alone cannot encode the era-specific body that embeds it. A body with no
 // stored CBOR is one built in code or cleared with SetCbor(nil) after a
 // mutation; its id is not memoized, since its fields may still change. A body
-// that cannot be encoded has no transaction id; Id cannot report an error, so
-// it keeps returning the hash of empty input for such a body rather than
-// panicking inside ledger rules.
+// that cannot be encoded has no transaction id. Id cannot report an error, so
+// such a body gets the zero hash: the hash of empty input would look like a
+// real id.
 func TransactionBodyId(
 	base *TransactionBodyBase,
 	encode func() ([]byte, error),
@@ -740,7 +740,7 @@ func TransactionBodyId(
 	}
 	data, err := encode()
 	if err != nil {
-		return base.Id()
+		return Blake2b256{}
 	}
 	return Blake2b256Hash(data)
 }

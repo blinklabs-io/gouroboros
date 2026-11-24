@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
@@ -110,4 +111,78 @@ func TestTransactionBodyIdHashesBodyEncoding(t *testing.T) {
 			require.Equal(t, common.Blake2b256Hash(reencoded), body.Id())
 		})
 	}
+}
+
+// The reference omits an empty CIP-159 map from a Dijkstra body's encoding
+// (encodeTxBodyRaw: Omit null on keys 24 to 27), so a built body whose map is
+// empty but non-nil has the same id as one whose map is nil.
+func TestDijkstraBodyIdOmitsEmptyMaps(t *testing.T) {
+	emptyMaps := map[string]func(*dijkstra.DijkstraTransactionBody){
+		"required top-level guards": func(b *dijkstra.DijkstraTransactionBody) {
+			b.TxRequiredTopLevelGuards = dijkstra.DijkstraRequiredTopLevelGuards{}
+		},
+		"direct deposits": func(b *dijkstra.DijkstraTransactionBody) {
+			b.TxDirectDeposits = dijkstra.DijkstraDirectDeposits{}
+		},
+		"balance intervals": func(b *dijkstra.DijkstraTransactionBody) {
+			b.TxBalanceIntervals = dijkstra.DijkstraAccountBalanceIntervals{}
+		},
+		"starting balance intervals": func(b *dijkstra.DijkstraTransactionBody) {
+			b.TxStartingBalanceIntervals = dijkstra.DijkstraAccountBalanceIntervals{}
+		},
+	}
+	for name, setEmpty := range emptyMaps {
+		t.Run(name, func(t *testing.T) {
+			first := &dijkstra.DijkstraTransactionBody{TxFee: 5}
+			second := &dijkstra.DijkstraTransactionBody{TxFee: 6}
+			plain := &dijkstra.DijkstraTransactionBody{TxFee: 5}
+			setEmpty(first)
+			setEmpty(second)
+			_, err := first.MarshalCBOR()
+			require.NoError(t, err)
+			require.NotEqual(t, first.Id(), second.Id())
+			require.Equal(t, plain.Id(), first.Id())
+		})
+	}
+}
+
+func TestDijkstraSubTransactionBodyIdOmitsEmptyMaps(t *testing.T) {
+	emptyMaps := map[string]func(*dijkstra.DijkstraSubTransactionBody){
+		"required top-level guards": func(b *dijkstra.DijkstraSubTransactionBody) {
+			b.TxRequiredTopLevelGuards = dijkstra.DijkstraRequiredTopLevelGuards{}
+		},
+		"direct deposits": func(b *dijkstra.DijkstraSubTransactionBody) {
+			b.TxDirectDeposits = dijkstra.DijkstraDirectDeposits{}
+		},
+		"balance intervals": func(b *dijkstra.DijkstraSubTransactionBody) {
+			b.TxAccountBalanceIntervals = dijkstra.DijkstraAccountBalanceIntervals{}
+		},
+	}
+	for name, setEmpty := range emptyMaps {
+		t.Run(name, func(t *testing.T) {
+			first := &dijkstra.DijkstraSubTransactionBody{Ttl: 5}
+			second := &dijkstra.DijkstraSubTransactionBody{Ttl: 6}
+			plain := &dijkstra.DijkstraSubTransactionBody{Ttl: 5}
+			setEmpty(first)
+			setEmpty(second)
+			_, err := first.MarshalCBOR()
+			require.NoError(t, err)
+			require.NotEqual(t, first.Id(), second.Id())
+			require.Equal(t, plain.Id(), first.Id())
+		})
+	}
+}
+
+// A body with no valid encoding has no transaction id, so it gets the zero
+// hash rather than the hash of empty input.
+func TestTransactionBodyIdOfUnencodableBodyIsZero(t *testing.T) {
+	body := &dijkstra.DijkstraTransactionBody{
+		TxFee: 5,
+		TxDirectDeposits: dijkstra.DijkstraDirectDeposits{
+			cbor.NewByteString([]byte{0xff}): 1,
+		},
+	}
+	_, err := body.MarshalCBOR()
+	require.Error(t, err)
+	require.Equal(t, common.Blake2b256{}, body.Id())
 }
