@@ -561,17 +561,31 @@ func TestProtocolStateTimeouts(t *testing.T) {
 				chainsync.IntersectTimeout,
 			)
 		}
-		if chainsync.MustReplyTimeoutMin != 135*time.Second {
+		// The specification's chain-sync timeout table and the reference's
+		// minChainSyncTimeout and maxChainSyncTimeout both give 601s to 911s.
+		if chainsync.MustReplyTimeoutMin != 601*time.Second {
 			t.Errorf(
-				"MustReplyTimeoutMin should be 135s per spec, got %v",
+				"MustReplyTimeoutMin should be 601s per spec, got %v",
 				chainsync.MustReplyTimeoutMin,
 			)
 		}
-		if chainsync.MustReplyTimeoutMax != 269*time.Second {
+		if chainsync.MustReplyTimeoutMax != 911*time.Second {
 			t.Errorf(
-				"MustReplyTimeoutMax should be 269s per spec, got %v",
+				"MustReplyTimeoutMax should be 911s per spec, got %v",
 				chainsync.MustReplyTimeoutMax,
 			)
+		}
+		for range 1000 {
+			got := chainsync.MustReplyTimeoutFunc()
+			if got < chainsync.MustReplyTimeoutMin ||
+				got >= chainsync.MustReplyTimeoutMax {
+				t.Fatalf(
+					"MustReplyTimeoutFunc returned %v, outside [%v, %v)",
+					got,
+					chainsync.MustReplyTimeoutMin,
+					chainsync.MustReplyTimeoutMax,
+				)
+			}
 		}
 	})
 
