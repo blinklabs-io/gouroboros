@@ -16,7 +16,9 @@ package localtxmonitor
 
 import (
 	"encoding/hex"
+	"reflect"
 	"testing"
+	"unsafe"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/stretchr/testify/require"
@@ -104,6 +106,101 @@ func TestServerHasTxReusesIdsAcrossAcquire(t *testing.T) {
 	require.LessOrEqual(t, allocs, float64(10))
 }
 
+// requireCacheAliases fails unless every string or byte slice reachable from
+// the cache lies inside snapshot, i.e. the cache retains no copy of the
+// transaction bytes and pins no other snapshot.
+func requireCacheAliases(t *testing.T, server *Server, snapshot []byte) {
+	t.Helper()
+	base := uintptr(unsafe.Pointer(unsafe.SliceData(snapshot)))
+	end := base + uintptr(len(snapshot))
+	var walk func(v reflect.Value)
+	walk = func(v reflect.Value) {
+		switch v.Kind() {
+		case reflect.String:
+			if v.Len() == 0 {
+				return
+			}
+			p := uintptr(unsafe.Pointer(unsafe.StringData(v.String())))
+			require.True(t, p >= base && p < end, "cache holds a string copy")
+		case reflect.Slice:
+			if v.Type().Elem().Kind() == reflect.Uint8 && v.Len() > 0 {
+				p := v.Pointer()
+				require.True(
+					t,
+					p >= base && p < end,
+					"cache holds a byte slice outside the snapshot",
+				)
+			}
+		case reflect.Pointer, reflect.Interface:
+			if !v.IsNil() {
+				walk(v.Elem())
+			}
+		case reflect.Struct:
+			for i := range v.NumField() {
+				walk(v.Field(i))
+			}
+		case reflect.Map:
+			iter := v.MapRange()
+			for iter.Next() {
+				walk(iter.Key())
+				walk(iter.Value())
+			}
+		}
+	}
+	walk(reflect.ValueOf(server.txHashes))
+}
+
+func TestServerHasTxCacheDoesNotCopyTransactions(t *testing.T) {
+	t.Parallel()
+	txCbor, _ := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
+	server := newTestMempoolServer(t, &txs)
+	_, err := server.acquireMempool()
+	require.NoError(t, err)
+	_, err = server.hasTx(
+		NewMsgHasTxForEra(ledger.TxTypeByron, make([]byte, 32)),
+	)
+	require.NoError(t, err)
+	require.Len(t, server.txHashes[ledger.TxTypeByron], 1)
+	requireCacheAliases(t, server, txCbor)
+}
+
+func TestServerAcquireRepointsCarriedEntriesAtNewSnapshot(t *testing.T) {
+	t.Parallel()
+	oldCbor, txId := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: oldCbor}}
+	server := newTestMempoolServer(t, &txs)
+	_, err := server.acquireMempool()
+	require.NoError(t, err)
+	_, err = server.hasTx(
+		NewMsgHasTxForEra(ledger.TxTypeByron, make([]byte, 32)),
+	)
+	require.NoError(t, err)
+
+	newCbor := append([]byte(nil), oldCbor...)
+	txs = []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: newCbor}}
+	_, err = server.acquireMempool()
+	require.NoError(t, err)
+	require.Len(t, server.txHashes[ledger.TxTypeByron], 1)
+	requireCacheAliases(t, server, newCbor)
+	found, err := server.hasTx(NewMsgHasTxForEra(ledger.TxTypeByron, txId))
+	require.NoError(t, err)
+	require.True(t, found)
+}
+
+func TestServerAcquireSkipsCacheSweepWhenEmpty(t *testing.T) {
+	t.Parallel()
+	txCbor, _ := testByronTx(t)
+	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
+	server := newTestMempoolServer(t, &txs)
+	for range 3 {
+		_, err := server.acquireMempool()
+		require.NoError(t, err)
+		require.Nil(t, server.txHashes)
+	}
+	require.Zero(t, server.snapshotId)
+}
+
 func TestServerAcquireDropsIdsLeavingTheMempool(t *testing.T) {
 	txCbor, txId := testByronTx(t)
 	txs := []TxAndEraId{{EraId: ledger.TxTypeByron, Tx: txCbor}}
@@ -142,7 +239,7 @@ func TestServerAcquireKeepsIdsOfRemainingTransactions(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Len(t, server.txHashes[ledger.TxTypeByron], 2)
-	stays := server.txHashes[ledger.TxTypeByron][string(staysCbor)]
+	stays := server.txHashes[ledger.TxTypeByron][txHashKey(staysCbor)]
 	require.NotNil(t, stays)
 
 	txs = txs[:1]
@@ -152,7 +249,7 @@ func TestServerAcquireKeepsIdsOfRemainingTransactions(t *testing.T) {
 	require.Same(
 		t,
 		stays,
-		server.txHashes[ledger.TxTypeByron][string(staysCbor)],
+		server.txHashes[ledger.TxTypeByron][txHashKey(staysCbor)],
 	)
 	found, err := server.hasTx(NewMsgHasTxForEra(ledger.TxTypeByron, txId))
 	require.NoError(t, err)
