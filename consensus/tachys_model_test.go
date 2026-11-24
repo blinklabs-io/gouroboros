@@ -27,9 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tachysModelPool is one pool of a model distribution. IDs are compared
-// numerically in the model; tachysPool places the value in the first byte,
-// so numeric order is byte order.
+// tachysModelPool is one pool of a test distribution. IDs are compared
+// numerically; tachysPool places the value in the first byte, so numeric
+// order is byte order.
 type tachysModelPool struct {
 	id    byte
 	stake uint64
@@ -116,8 +116,9 @@ func tachysSampleBytes(t *testing.T, sample *big.Int) []byte {
 	return sample.FillBytes(make([]byte, 32))
 }
 
-// TestTachysModelSchedule checks the selector against every cell of the
-// TachysSchedule model (specs/27-consensus-tachys): every distribution of
+// TestTachysModelSchedule checks the selector against the CIP-0177 leader
+// schedule (each pool leads a stake-proportional interval of samples, in
+// pool order) for every cell: every distribution of
 // three pools with stake 0..3 passed through the Dingo caller (zero-stake
 // pools dropped), every slice ordering, every declared total near the sum,
 // both edges of every interval, and the hash path for a run of slots.
@@ -140,13 +141,13 @@ func TestTachysModelSchedule(t *testing.T) {
 				total += pool.stake
 			}
 
-			// BuildAgrees: a schedule exists exactly when stake does.
+			// A schedule exists exactly when stake does.
 			if total == 0 {
 				_, err := NewTachysLeaderSelector(input, total)
 				require.Error(t, err)
 				return
 			}
-			// LeaderDefined: every wrong total is refused.
+			// Every wrong total is refused, so a leader is always defined.
 			for _, wrong := range []uint64{0, total - 1, total + 1} {
 				if wrong == total {
 					continue
@@ -163,16 +164,16 @@ func TestTachysModelSchedule(t *testing.T) {
 					reference = selector
 				}
 				checkTachysModelEdges(t, selector, spec, total)
-				// SameInputsSameLeader: reusing the slice changes nothing.
+				// Reusing the input slice changes no leader.
 				for i := range ordering {
 					ordering[i].Stake = 99
 				}
 				checkTachysModelEdges(t, selector, spec, total)
 			}
 
-			// ExactlyOneLeader, LeaderAgrees and SameInputsSameLeader on
-			// the hash path, with every reference pool (zero-stake ones
-			// included) asked.
+			// On the hash path, exactly one pool leads, it is the pool the
+			// CIP-0177 schedule names, and the same inputs give the same
+			// leader, with every pool (zero-stake ones included) asked.
 			for slot := uint64(0); slot < 16; slot++ {
 				sample, err := TachysSample(nonce[:], slot)
 				require.NoError(t, err)
@@ -203,9 +204,10 @@ func TestTachysModelSchedule(t *testing.T) {
 	}
 }
 
-// checkTachysModelEdges checks LeaderAgrees at both edges of every interval
-// and at the smallest and largest samples, and from the edges
-// WidthEqualsStake and Proportional: pool p leads exactly the samples
+// checkTachysModelEdges checks the leader against the CIP-0177 schedule at
+// both edges of every interval and at the smallest and largest samples, and
+// from the edges that each interval's width follows the stake: pool p leads
+// exactly the samples
 // ceil(lo*2^256/T) through ceil(hi*2^256/T)-1, a count within one of
 // stake*2^256/T.
 func checkTachysModelEdges(
@@ -258,10 +260,10 @@ func checkTachysModelEdges(
 	}
 }
 
-// TestTachysModelValidator checks ValidatorExact and ForgeMatchesValidate:
-// a header is valid exactly when its issuer is scheduled and the VRF, KES,
-// opcert and registered-VRF-key checks pass, whatever the Praos lottery
-// would have said; a producer forges exactly when scheduled.
+// TestTachysModelValidator checks the Tachys validator and block builder
+// against CIP-0177: a header is valid exactly when its issuer is scheduled
+// and the VRF, KES, opcert and registered-VRF-key checks pass, whatever the
+// Praos lottery would have said; a producer forges exactly when scheduled.
 func TestTachysModelValidator(t *testing.T) {
 	t.Parallel()
 	coldA := ed25519.NewKeyFromSeed(bytes32(0xa1))
