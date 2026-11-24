@@ -95,8 +95,16 @@ message := &DmqMessage{
 }
 
 err := client.SubmitMessage(message)
-// AcceptMessage or RejectMessage via callbacks
+var rejected localmessagesubmission.MessageRejectedError
+if errors.As(err, &rejected) {
+    // The node rejected this message; rejected.Reason says why
+}
 ```
+
+`SubmitMessage` waits for the node's answer and returns it, so concurrent
+calls each get the answer to their own message. `AcceptMessageFunc` and
+`RejectMessageFunc`, when set, run on the receive loop before the call
+returns; they must not block.
 
 ## Message Authentication
 

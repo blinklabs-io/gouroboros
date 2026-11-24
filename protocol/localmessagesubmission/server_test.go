@@ -43,7 +43,9 @@ func newSubmissionTestSession(
 	serverMuxer := muxer.New(serverConn)
 	clientErrors := make(chan error, 1)
 	serverErrors := make(chan error, 1)
-	result := make(chan pcommon.RejectReason, 1)
+	// Room for every answer a test gets: the callbacks run on the receive
+	// loop before SubmitMessage returns, so a full channel would stall it.
+	result := make(chan pcommon.RejectReason, 8)
 	clientCfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 		WithTTLValidator(pcommon.NewNoOpTTLValidator(nil)),
@@ -96,6 +98,19 @@ func waitSubmissionResult(
 	}
 }
 
+// requireAnswered checks that SubmitMessage returned the node's answer:
+// nil for an accepted message or a MessageRejectedError. The tests read the
+// answer's reason from the callbacks, which run before SubmitMessage
+// returns.
+func requireAnswered(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	var rejected MessageRejectedError
+	require.ErrorAs(t, err, &rejected)
+}
+
 func replayTestMessage() pcommon.DmqMessage {
 	return pcommon.DmqMessage{
 		MessageID: []byte("authenticated-message-id"),
@@ -122,9 +137,9 @@ func TestServerRejectsSequentialDuplicateSubmission(t *testing.T) {
 	session := newSubmissionTestSession(t, &serverCfg)
 	msg := replayTestMessage()
 
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.Nil(t, waitSubmissionResult(t, session.result))
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	reason := waitSubmissionResult(t, session.result)
 	require.IsType(t, pcommon.AlreadyReceivedReason{}, reason)
 	require.EqualValues(t, 1, calls.Load())
@@ -151,13 +166,13 @@ func TestServerReleasesRejectedSubmission(t *testing.T) {
 	session := newSubmissionTestSession(t, &serverCfg)
 	msg := replayTestMessage()
 
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.Equal(t, reasons[0], waitSubmissionResult(t, session.result))
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.Equal(t, reasons[1], waitSubmissionResult(t, session.result))
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.Nil(t, waitSubmissionResult(t, session.result))
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.AlreadyReceivedReason{},
@@ -199,17 +214,17 @@ func TestServerReportsRefusalsMadeBeforeCallback(t *testing.T) {
 
 	// The callback's own rejection is not reported: the application already
 	// observed it.
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.OtherReason{},
 		waitSubmissionResult(t, session.result),
 	)
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.Nil(t, waitSubmissionResult(t, session.result))
 	require.Empty(t, refusals)
 
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.AlreadyReceivedReason{},
@@ -271,7 +286,7 @@ func TestServerConcurrentRejectedSubmissionsReleaseReservation(t *testing.T) {
 	wg.Wait()
 	close(errCh)
 	for err := range errCh {
-		require.NoError(t, err)
+		requireAnswered(t, err)
 	}
 	for i := range sessions {
 		reason := waitSubmissionResult(t, sessions[i].result)
@@ -286,9 +301,9 @@ func TestServerConcurrentRejectedSubmissionsReleaseReservation(t *testing.T) {
 	// Every rejection released its reservation, so the message is still
 	// admissible once the application would accept it.
 	accept.Store(true)
-	require.NoError(t, sessions[0].client.SubmitMessage(&msg))
+	requireAnswered(t, sessions[0].client.SubmitMessage(&msg))
 	require.Nil(t, waitSubmissionResult(t, sessions[0].result))
-	require.NoError(t, sessions[1].client.SubmitMessage(&msg))
+	requireAnswered(t, sessions[1].client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.AlreadyReceivedReason{},
@@ -314,7 +329,7 @@ func TestServerRejectsInvalidReplayCapacity(t *testing.T) {
 	session := newSubmissionTestSession(t, &serverCfg)
 	msg := replayTestMessage()
 
-	require.NoError(t, session.client.SubmitMessage(&msg))
+	requireAnswered(t, session.client.SubmitMessage(&msg))
 	require.IsType(
 		t,
 		pcommon.OtherReason{},
@@ -358,7 +373,7 @@ func TestServerRejectsConcurrentDuplicateSubmissions(t *testing.T) {
 	wg.Wait()
 	close(errCh)
 	for err := range errCh {
-		require.NoError(t, err)
+		requireAnswered(t, err)
 	}
 
 	accepted := 0
@@ -578,7 +593,7 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 				_ = serverConn.Close()
 			})
 
-			require.NoError(t, client.SubmitMessage(&pcommon.DmqMessage{
+			requireAnswered(t, client.SubmitMessage(&pcommon.DmqMessage{
 				Payload: pcommon.DmqMessagePayload{ExpiresAt: test.expiresAt},
 			}))
 			select {
