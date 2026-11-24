@@ -30,6 +30,9 @@ type Server struct {
 	config          *Config                  // Protocol configuration
 	callbackContext CallbackContext          // Callback context for server
 	protoOptions    protocol.ProtocolOptions // Protocol options
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer creates a new Block Fetch protocol server with the given options and configuration.
@@ -47,7 +50,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	stateMap := serverStateMap(s.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -68,8 +71,13 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
 	s.Protocol = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 // serverStateMap returns an instance-owned state map so server timeout
@@ -97,6 +105,16 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
 	return s.Protocol
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+func (s *Server) Stop() {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
 
 // NoBlocks sends a NoBlocks message to the client, indicating no blocks are available.
@@ -225,7 +243,11 @@ func (s *Server) handleClientDone() {
 			)
 	}
 	// Restart protocol
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	old.StopForRestart()
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

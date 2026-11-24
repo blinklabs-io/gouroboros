@@ -430,6 +430,7 @@ func (c *Connection) allProtocolsIdle() bool {
 func (c *Connection) stopProtocols() {
 	c.protocolMu.RLock()
 	protocols := c.protocolInstancesLocked()
+	restarting := c.restartingServersLocked()
 	var notificationServer *localmessagenotification.Server
 	if c.localMessageNotification != nil {
 		notificationServer = c.localMessageNotification.Server
@@ -439,11 +440,49 @@ func (c *Connection) stopProtocols() {
 	if notificationServer != nil {
 		_ = notificationServer.Stop()
 	}
+	// A server that restarts after MsgDone replaces its protocol instance,
+	// so stopping the instance read above does not stop a restart already
+	// in progress. Only the server's own Stop does.
+	for _, s := range restarting {
+		s.Stop()
+	}
 	for _, p := range protocols {
 		if p != nil {
 			p.Stop()
 		}
 	}
+}
+
+// restartingServersLocked returns the constructed servers that replace their
+// protocol instance after MsgDone. The caller must hold c.protocolMu for
+// reading.
+func (c *Connection) restartingServersLocked() []interface{ Stop() } {
+	servers := make([]interface{ Stop() }, 0, 8)
+	if c.chainSync != nil && c.chainSync.Server != nil {
+		servers = append(servers, c.chainSync.Server)
+	}
+	if c.keepAlive != nil && c.keepAlive.Server != nil {
+		servers = append(servers, c.keepAlive.Server)
+	}
+	if c.blockFetch != nil && c.blockFetch.Server != nil {
+		servers = append(servers, c.blockFetch.Server)
+	}
+	if c.txSubmission != nil && c.txSubmission.Server != nil {
+		servers = append(servers, c.txSubmission.Server)
+	}
+	if c.peerSharing != nil && c.peerSharing.Server != nil {
+		servers = append(servers, c.peerSharing.Server)
+	}
+	if c.leiosNotify != nil && c.leiosNotify.Server != nil {
+		servers = append(servers, c.leiosNotify.Server)
+	}
+	if c.leiosFetch != nil && c.leiosFetch.Server != nil {
+		servers = append(servers, c.leiosFetch.Server)
+	}
+	if c.leiosVotes != nil && c.leiosVotes.Server != nil {
+		servers = append(servers, c.leiosVotes.Server)
+	}
+	return servers
 }
 
 func (c *Connection) lockProtocolSetup() error {
