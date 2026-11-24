@@ -267,7 +267,13 @@ func (c *Client) ReplyNoMessageIds() error {
 	}
 	previous := c.pendingMessageIDs
 	generation := c.requestGeneration
+	previousRequested := c.requestedIDs
 	c.pendingMessageIDs = next
+	c.requestedIDs = forgetAcknowledgedIDs(
+		c.requestedIDs,
+		previous,
+		request.ack,
+	)
 	c.pendingIDRequest = nil
 	c.lock.Unlock()
 	if err := c.SendMessage(NewMsgReplyNoMessageIds()); err != nil {
@@ -275,6 +281,7 @@ func (c *Client) ReplyNoMessageIds() error {
 		if c.requestGeneration == generation &&
 			c.pendingIDRequest == nil && c.pendingMsgRequest == nil {
 			c.pendingMessageIDs = previous
+			c.requestedIDs = previousRequested
 			c.pendingIDRequest = request
 		}
 		c.lock.Unlock()

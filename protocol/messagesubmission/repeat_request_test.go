@@ -150,3 +150,72 @@ func TestServerUnsentRequestReleasesItsIDs(t *testing.T) {
 	require.Empty(t, server.requestedIDs)
 }
 
+// TestV2ClientServesReannouncedIDAfterNoIdsReply checks that
+// MsgReplyNoMessageIds releases the record of requested IDs with the
+// acknowledgement it applies, as a reply with IDs does: an ID acknowledged
+// that way and later announced again is a new announcement whose body the
+// peer may request.
+func TestV2ClientServesReannouncedIDAfterNoIdsReply(t *testing.T) {
+	h := newClientHarness(t, protocol.ProtocolVersionDMQNtN2)
+	id := referenceID(0xf6)
+	announce := cat([]byte{0x82, 0x02, 0x9f}, idAndSize(id), []byte{0xff})
+	request := cat([]byte{0x82, 0x04, 0x9f}, byteString32(id), []byte{0xff})
+
+	h.peer.send(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	await(t, h.idRequests, h.errs, "the first id request")
+	require.NoError(t, h.client.ReplyMessageIds([]pcommon.MessageIDAndSize{
+		{MessageID: id, SizeInBytes: 100},
+	}))
+	h.peer.expect(false, announce)
+	h.peer.send(true, request)
+	await(t, h.bodyReqs, h.errs, "the first body request")
+	require.NoError(t, h.client.ReplyMessages(nil))
+	h.peer.expect(false, []byte{0x82, 0x05, 0x9f, 0xff})
+
+	// Blocking, acknowledging the id, answered with no ids.
+	h.peer.send(true, []byte{0x84, 0x01, 0xf5, 0x01, 0x03})
+	await(t, h.idRequests, h.errs, "the second id request")
+	require.NoError(t, h.client.ReplyNoMessageIds())
+	h.peer.expect(false, []byte{0x81, 0x03})
+
+	h.peer.send(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	await(t, h.idRequests, h.errs, "the third id request")
+	require.NoError(t, h.client.ReplyMessageIds([]pcommon.MessageIDAndSize{
+		{MessageID: id, SizeInBytes: 100},
+	}))
+	h.peer.expect(false, announce)
+	h.peer.send(true, request)
+	require.Equal(
+		t,
+		[][]byte{id},
+		await(t, h.bodyReqs, h.errs, "the re-announced body request"),
+	)
+}
+
+// TestV2ServerMayRequestReannouncedIDAfterNoIdsReply is the server side of
+// TestV2ClientServesReannouncedIDAfterNoIdsReply.
+func TestV2ServerMayRequestReannouncedIDAfterNoIdsReply(t *testing.T) {
+	h := newServerHarness(t, protocol.ProtocolVersionDMQNtN2)
+	id := referenceID(0xf7)
+	announce := cat([]byte{0x82, 0x02, 0x9f}, idAndSize(id), []byte{0xff})
+
+	require.NoError(t, h.server.RequestMessageIdsBlocking(0, 3))
+	h.peer.expect(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	h.peer.send(false, announce)
+	await(t, h.idReplies, h.errs, "the id reply")
+	require.NoError(t, h.server.RequestMessages([][]byte{id}))
+	h.peer.expect(true, cat([]byte{0x82, 0x04, 0x9f}, byteString32(id), []byte{0xff}))
+	h.peer.send(false, []byte{0x82, 0x05, 0x9f, 0xff})
+	await(t, h.bodies, h.errs, "the body reply")
+
+	require.NoError(t, h.server.RequestMessageIdsBlocking(1, 3))
+	h.peer.expect(true, []byte{0x84, 0x01, 0xf5, 0x01, 0x03})
+	h.peer.send(false, []byte{0x81, 0x03})
+	await(t, h.idReplies, h.errs, "the empty id reply")
+
+	require.NoError(t, h.server.RequestMessageIdsBlocking(0, 3))
+	h.peer.expect(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	h.peer.send(false, announce)
+	await(t, h.idReplies, h.errs, "the re-announcement")
+	require.NoError(t, h.server.RequestMessages([][]byte{id}))
+}

@@ -464,6 +464,11 @@ func (s *Server) handleReplyNoMessageIds() error {
 		s.lock.Unlock()
 		return err
 	}
+	s.requestedIDs = forgetAcknowledgedIDs(
+		s.requestedIDs,
+		s.pendingMessageIDs,
+		s.pendingIDRequest.ack,
+	)
 	s.pendingMessageIDs = next
 	s.pendingIDRequest = nil
 	s.lock.Unlock()
