@@ -416,6 +416,47 @@ func TestStreamDecoderDecodeArrayItemsNilCallback(t *testing.T) {
 	assert.True(t, dec.EOF())
 }
 
+func TestStreamDecoderDecodeArrayItemsCallbackMovesDecoder(t *testing.T) {
+	t.Parallel()
+	// [1, 2] followed by 3, 4: a callback that skips on the same decoder
+	// would otherwise shift item 1 and the returned range past the array.
+	data, err := hex.DecodeString("8201020304")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			_, _, skipErr := dec.Skip()
+			return skipErr
+		},
+	)
+	require.ErrorContains(t, err, "moved the decoder")
+	assert.Equal(t, []int{0}, seen)
+}
+
+func TestStreamDecoderDecodeArrayItemsMaxArrayElements(t *testing.T) {
+	t.Parallel()
+	// 0x9a 0x00989681: a count of 10,000,001, one over the untrusted mode's
+	// MaxArrayElements, followed by a single item.
+	data, err := hex.DecodeString("9a0098968101")
+	require.NoError(t, err)
+	dec, err := cbor.NewUntrustedStreamDecoder(data)
+	require.NoError(t, err)
+
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return nil
+		},
+	)
+	require.ErrorContains(t, err, "exceeded max number of elements 10000000")
+	assert.Empty(t, seen, "the count must be rejected before any callback")
+}
+
 func TestStreamDecoderDecodeArrayItemsRejects(t *testing.T) {
 	t.Parallel()
 	tests := map[string]string{

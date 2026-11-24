@@ -603,6 +603,9 @@ type StreamDecoder struct {
 	data       []byte
 	consumed   int // bytes consumed by Advance() calls
 	diagnostic *diagnosticBudget
+	// maxArrayElements is decMode's array limit, which DecodeArrayItems must
+	// apply itself because it reads the count without the decode mode.
+	maxArrayElements int
 }
 
 // NewStreamDecoder creates a decoder for sequential CBOR item extraction with position tracking.
@@ -628,9 +631,10 @@ func newStreamDecoder(
 		return nil, errors.New("CBOR decoder mode not initialized")
 	}
 	return &StreamDecoder{
-		dec:     decMode.NewDecoder(bytes.NewReader(data)),
-		decMode: decMode,
-		data:    data,
+		dec:              decMode.NewDecoder(bytes.NewReader(data)),
+		decMode:          decMode,
+		data:             data,
+		maxArrayElements: decMode.DecOptions().MaxArrayElements,
 	}, nil
 }
 
@@ -1054,32 +1058,47 @@ func (d *StreamDecoder) SkipN(n int) (int, int, error) {
 // stops processing immediately and is returned unchanged. Items are not
 // validated ahead of time, so the callback can run for earlier items before a
 // later malformed item is detected; on any error the decoder is left partway
-// through the array and must not be reused.
+// through the array and must not be reused. The callback must not read from or
+// advance the decoder; doing so is reported as an error.
 //
 // Returns the array's start offset and its total length including the header.
-// Indefinite-length arrays and non-array items are rejected.
+// Indefinite-length arrays, non-array items, and arrays declaring more elements
+// than the decode mode's MaxArrayElements are rejected.
 func (d *StreamDecoder) DecodeArrayItems(
 	callback func(index int, offset int, length int, data []byte) error,
 ) (int, int, error) {
-	count, arrayStart, _, err := d.DecodeArrayHeader()
+	count, arrayStart, headerLen, err := d.DecodeArrayHeader()
 	if err != nil {
 		return 0, 0, fmt.Errorf("decode array: %w", err)
 	}
+	if count > d.maxArrayElements {
+		return 0, 0, fmt.Errorf(
+			"decode array: cbor: exceeded max number of elements %d for CBOR array",
+			d.maxArrayElements,
+		)
+	}
+	end := arrayStart + headerLen
 	for i := range count {
-		itemStart := d.consumed + d.dec.NumBytesRead()
+		itemStart := end
 		if err := d.dec.Skip(); err != nil {
 			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
 		}
-		itemEnd := d.consumed + d.dec.NumBytesRead()
+		end = d.consumed + d.dec.NumBytesRead()
 		if callback == nil {
 			continue
 		}
-		data := d.data[itemStart:itemEnd:itemEnd]
-		if err := callback(i, itemStart, itemEnd-itemStart, data); err != nil {
+		data := d.data[itemStart:end:end]
+		if err := callback(i, itemStart, end-itemStart, data); err != nil {
 			return 0, 0, err
 		}
+		if pos := d.consumed + d.dec.NumBytesRead(); pos != end {
+			return 0, 0, fmt.Errorf(
+				"callback for item %d moved the decoder from offset %d to %d",
+				i, end, pos,
+			)
+		}
 	}
-	return arrayStart, d.consumed + d.dec.NumBytesRead() - arrayStart, nil
+	return arrayStart, end - arrayStart, nil
 }
 
 // ArrayInfo extracts array item count and header size from CBOR array data.
