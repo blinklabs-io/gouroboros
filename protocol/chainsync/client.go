@@ -580,17 +580,27 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			return
 		}
 
-		currentTipChan, cancelCurrentTip := c.wantCurrentTip()
+		// Wait for the answer to this MsgFindIntersect itself, not the first
+		// tip any handler delivers: a roll answering an earlier
+		// MsgRequestNext can bring a tip first, and an answer left
+		// unclaimed would go to the next call waiting for an intersect
+		// answer.
+		resultChan, cancelResult := c.wantIntersectFound(nil)
 		msg := NewMsgFindIntersect([]pcommon.Point{})
 		if err := proto.SendMessage(msg); err != nil {
-			cancelCurrentTip()
+			cancelResult()
 			requestErrorChan <- err
 			return
 		}
 		select {
 		case <-doneChan:
-		case tip := <-currentTipChan:
-			requestResultChan <- tip
+		case result := <-resultChan:
+			if result.error != nil &&
+				!errors.Is(result.error, ErrIntersectNotFound) {
+				requestErrorChan <- result.error
+				return
+			}
+			requestResultChan <- result.tip
 		}
 	}()
 	defer func() {
