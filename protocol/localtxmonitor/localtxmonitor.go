@@ -248,7 +248,10 @@ func WithGetMempoolFunc(
 	}
 }
 
-// WithAcquireTimeout specifies the timeout for acquire operations when acting as a client
+// WithAcquireTimeout specifies the timeout for an acquire from Idle when
+// acting as a client. A re-acquire from Acquired (MsgAwaitAcquire) is not
+// timed: the node answers it only once its mempool differs from the held
+// snapshot, which may take any time. Stop ends such a wait.
 func WithAcquireTimeout(timeout time.Duration) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout

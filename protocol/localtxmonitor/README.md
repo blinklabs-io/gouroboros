@@ -100,7 +100,7 @@ protocol error and is refused before the transition to Acquired.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Acquire Timeout | 5 seconds | Time to acquire mempool snapshot |
+| Acquire Timeout | 5 seconds | Time to acquire a mempool snapshot from Idle; a re-acquire from Acquired (`MsgAwaitAcquire`) waits for a mempool change and is not timed |
 | Query Timeout | 30 seconds | Time to execute query |
 
 ## Configuration Options
