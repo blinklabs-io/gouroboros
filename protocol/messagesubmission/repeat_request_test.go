@@ -15,7 +15,6 @@
 package messagesubmission
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -23,37 +22,65 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestClientRefusesRepeatedMessageRequest checks that the client serves a
-// message body at most once while its ID is unacknowledged. The protocol
-// forbids asking for an ID "already asked for", and dmq-node's outbound
-// refuses it (ProtocolErrorDuplicateRequest); serving it again lets a peer
-// make the client resend bodies without bound.
+// TestClientRefusesRepeatedMessageRequest checks that a V2 client serves a
+// message body at most once while its ID is unacknowledged. dmq-node's V2
+// outbound refuses such a request (ProtocolErrorDuplicateRequest); serving it
+// again lets a peer make the client resend bodies without bound.
 func TestClientRefusesRepeatedMessageRequest(t *testing.T) {
-	for _, version := range []uint16{1, MessageSubmissionV2MinVersion} {
-		t.Run(fmt.Sprintf("version=%d", version), func(t *testing.T) {
-			id := testMessageID(0xa1)
-			otherID := testMessageID(0xb2)
-			calls := 0
-			cfg := NewConfig(WithRequestMessagesFunc(
-				func(CallbackContext, [][]byte) { calls++ },
-			))
-			client := NewClient(newTestProtoOptions(version), &cfg)
-			client.pendingMessageIDs = [][]byte{id, otherID}
+	id := testMessageID(0xa1)
+	otherID := testMessageID(0xb2)
+	calls := 0
+	cfg := NewConfig(WithRequestMessagesFunc(
+		func(CallbackContext, [][]byte) { calls++ },
+	))
+	client := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
+	client.pendingMessageIDs = [][]byte{id, otherID}
 
-			require.NoError(t, client.handleRequestMessages(
-				NewMsgRequestMessages([][]byte{id}),
-			))
-			// The application has answered the first request.
-			client.pendingMsgRequest = nil
+	require.NoError(t, client.handleRequestMessages(
+		NewMsgRequestMessages([][]byte{id}),
+	))
+	// The application has answered the first request.
+	client.pendingMsgRequest = nil
 
-			err := client.handleRequestMessages(
-				NewMsgRequestMessages([][]byte{otherID, id}),
-			)
-			require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
-			require.Equal(t, 1, calls)
-			require.Nil(t, client.pendingMsgRequest)
-		})
-	}
+	err := client.handleRequestMessages(
+		NewMsgRequestMessages([][]byte{otherID, id}),
+	)
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+	require.Equal(t, 1, calls)
+	require.Nil(t, client.pendingMsgRequest)
+}
+
+// TestV1ClientServesRepeatedMessageRequest checks that a V1 client serves a
+// body asked for again while its ID is unacknowledged. V1 is tx-submission,
+// whose reference outbound (txSubmissionOutbound) refuses only an ID repeated
+// within one request or not outstanding, so a reference V1 peer may repeat
+// a request across requests and must not be disconnected for it.
+func TestV1ClientServesRepeatedMessageRequest(t *testing.T) {
+	id := testMessageID(0xa1)
+	otherID := testMessageID(0xb2)
+	calls := 0
+	cfg := NewConfig(WithRequestMessagesFunc(
+		func(CallbackContext, [][]byte) { calls++ },
+	))
+	client := NewClient(newTestProtoOptions(1), &cfg)
+	client.pendingMessageIDs = [][]byte{id, otherID}
+
+	require.NoError(t, client.handleRequestMessages(
+		NewMsgRequestMessages([][]byte{id}),
+	))
+	client.pendingMsgRequest = nil
+
+	require.NoError(t, client.handleRequestMessages(
+		NewMsgRequestMessages([][]byte{otherID, id}),
+	))
+	require.Equal(t, 2, calls)
+
+	// A repeat within one request is still refused, as the reference does.
+	client.pendingMsgRequest = nil
+	err := client.handleRequestMessages(
+		NewMsgRequestMessages([][]byte{id, id}),
+	)
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
 }
 
 // TestServerRefusesToRepeatMessageRequest checks that RequestMessages does

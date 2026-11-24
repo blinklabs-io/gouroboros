@@ -379,9 +379,16 @@ func (c *Client) handleRequestMessages(msg protocol.Message) error {
 		c.lock.Unlock()
 		return invalidMessageSubmissionMessage("a request is already pending")
 	}
+	// V2 refuses a body asked for again while its ID is unacknowledged.
+	// V1 is tx-submission, whose reference outbound refuses a repeat only
+	// within one request, so a V1 peer may ask again across requests.
+	alreadyRequested := c.requestedIDs
+	if !isMessageSubmissionV2(c.protoVersion) {
+		alreadyRequested = nil
+	}
 	request, err := requestedMessagesAreOutstanding(
 		c.pendingMessageIDs,
-		c.requestedIDs,
+		alreadyRequested,
 		msgRequest.MessageIDs,
 	)
 	if err != nil {
