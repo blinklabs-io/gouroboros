@@ -96,12 +96,14 @@ const (
 // client's FIFO queue identifies the response it will receive; the head entry
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
-	id            uint64
-	start         pcommon.Point
-	end           pcommon.Point
-	lastPoint     pcommon.Point
-	hasLastPoint  bool
-	protocol      *protocol.Protocol
+	id           uint64
+	start        pcommon.Point
+	end          pcommon.Point
+	lastPoint    pcommon.Point
+	hasLastPoint bool
+	protocol     *protocol.Protocol
+	// goroutines is the group of the instance in protocol, read with it.
+	goroutines    *goroutineGroup
 	delivery      requestDelivery
 	pipelined     bool
 	reservedBytes uint64
@@ -711,7 +713,7 @@ func (c *Client) pipelineError(ctx context.Context, err error) error {
 // call blocks until the first batch completes. Use RequestRange to keep
 // multiple requests outstanding.
 func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
-	c.Protocol.Logger().
+	c.ProtocolInstance().Logger().
 		Debug(
 			fmt.Sprintf("calling GetBlockRange(start: {Slot: %d, Hash: %x}, end: {Slot: %d, Hash: %x})",
 				start.Slot,
@@ -725,8 +727,6 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	token, busyDone := c.acquireBusy()
-	protocolDone := c.DoneChan()
-	_, group := c.protocolAndGoroutines()
 	req, err := c.sendRequestRange(
 		context.Background(),
 		start,
@@ -741,12 +741,15 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 		c.releaseBusy(token)
 		return err
 	}
+	// Watch the instance the request went out on: a concurrent Start may
+	// already have installed a newer one.
+	protocolDone := req.protocol.DoneChan()
 	// Wait for batch start
 	if err := c.waitForBatchStart(req, protocolDone); err != nil {
 		c.releaseBusy(token)
 		return err
 	}
-	if !group.Go(func() {
+	if !req.goroutines.Go(func() {
 		c.releaseBusyOnProtocolDone(token, busyDone, protocolDone)
 	}) {
 		// Stop is past waiting for the protocol, so it is done.
@@ -758,7 +761,7 @@ func (c *Client) GetBlockRange(start pcommon.Point, end pcommon.Point) error {
 // GetBlock requests and returns a single block specified by the provided point.
 // This is a synchronous call that returns the block or an error.
 func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
-	c.Protocol.Logger().
+	c.ProtocolInstance().Logger().
 		Debug(
 			fmt.Sprintf("calling GetBlock(point: {Slot: %d, Hash: %x})", point.Slot, point.Hash),
 			"component", "network",
@@ -767,7 +770,6 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	token, _ := c.acquireBusy()
-	protocolDone := c.DoneChan()
 	req, err := c.sendRequestRange(
 		context.Background(),
 		point,
@@ -782,6 +784,9 @@ func (c *Client) GetBlock(point pcommon.Point) (ledger.Block, error) {
 		c.releaseBusy(token)
 		return nil, err
 	}
+	// Watch the instance the request went out on: a concurrent Start may
+	// already have installed a newer one.
+	protocolDone := req.protocol.DoneChan()
 	// Wait for batch start
 	if err := c.waitForBatchStart(req, protocolDone); err != nil {
 		c.releaseBusy(token)
@@ -1165,6 +1170,7 @@ func (c *Client) sendRequestRange(
 			start:         start,
 			end:           end,
 			protocol:      proto,
+			goroutines:    group,
 			delivery:      delivery,
 			pipelined:     pipelined,
 			reservedBytes: expectedBytes,
