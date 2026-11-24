@@ -16,8 +16,10 @@ package conway_test
 
 import (
 	"fmt"
+	"math/big"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
@@ -43,7 +45,7 @@ func govModelActions() []govModelAction {
 	keyDeposit := uint(2_000_000)
 	return []govModelAction{
 		{"NoConfidence", common.GovActionTypeNoConfidence, &common.NoConfidenceGovAction{}},
-		{"UpdateCommittee", common.GovActionTypeUpdateCommittee, &common.UpdateCommitteeGovAction{}},
+		{"UpdateCommittee", common.GovActionTypeUpdateCommittee, &common.UpdateCommitteeGovAction{Quorum: modelQuorum()}},
 		{"NewConstitution", common.GovActionTypeNewConstitution, &common.NewConstitutionGovAction{}},
 		{"HardForkInitiation", common.GovActionTypeHardForkInitiation, &common.HardForkInitiationGovAction{}},
 		{"ParameterChangeSecurity", common.GovActionTypeParameterChange, &conway.ConwayParameterChangeGovAction{
@@ -217,7 +219,10 @@ func TestGovProposalAncestryTableModel(t *testing.T) {
 			}},
 		{"UpdateCommittee", committee, common.GovActionTypeUpdateCommittee,
 			func(p *common.GovActionId) common.GovAction {
-				return &common.UpdateCommitteeGovAction{ActionId: p}
+				return &common.UpdateCommitteeGovAction{
+					ActionId: p,
+					Quorum:   modelQuorum(),
+				}
 			}},
 		{"NewConstitution", constitution, common.GovActionTypeNewConstitution,
 			func(p *common.GovActionId) common.GovAction {
@@ -303,4 +308,11 @@ func TestGovProposalAncestryTableModel(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2*len(kinds)*(3+len(kinds)), cells)
+}
+
+// modelQuorum is a committee quorum for the UpdateCommittee proposals. The
+// zero cbor.Rat cannot be encoded, and a transaction body without stored
+// CBOR is hashed from its encoding.
+func modelQuorum() cbor.Rat {
+	return cbor.Rat{Rat: big.NewRat(2, 3)}
 }
