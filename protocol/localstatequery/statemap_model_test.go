@@ -88,9 +88,8 @@ type modelReceiveRow struct {
 	outcome string
 }
 
-// lsqModelReceive is the receive table of the local-state-query
-// mini-protocol, printed by the TLA+ model LocalStateQueryTable.tla. It is
-// the full role x state x kind product, so a cell missing here is a cell
+// lsqModelReceive is the receive table of the local-state-query mini-protocol.
+// It is the full role x state x kind product, so a cell missing here is a cell
 // nobody decided.
 //
 //   - Within a run a message is judged against the reader's state, by the
@@ -296,7 +295,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 			stateIdle, stateAcquiring, stateAcquired, stateQuerying, stateDone,
 		},
 		states,
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	require.Equal(t, protocol.AgencyClient, StateMap[stateIdle].Agency)
 	require.Equal(t, protocol.AgencyServer, StateMap[stateAcquiring].Agency)
@@ -529,7 +528,7 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 }
 
@@ -656,10 +655,10 @@ func driveClient(t *testing.T, state protocol.State) (*modelHarness, modelCall) 
 	return h, call
 }
 
-// TestReceiveMatchesModel drives a running client or server into each cell
-// of the receive table it can rest in, sends the cell's message, and checks
-// the outcome. Cells the model marks Waits are checked against gOuroboros's
-// stricter behavior (see gouroborosRejectsEarly).
+// TestReceiveMatchesModel drives a running client or server into each cell of
+// the receive table it can rest in, sends the cell's message, and checks the
+// outcome. Cells the reference table marks Waits are checked against
+// gOuroboros's stricter behavior (see gouroborosRejectsEarly).
 func TestReceiveMatchesModel(t *testing.T) {
 	t.Parallel()
 	for _, row := range lsqModelReceive {
@@ -780,11 +779,10 @@ func newModelPair(
 	return client, server, errs
 }
 
-// TestConcurrentCallsGetOwnAnswers runs two kinds of query from many
-// goroutines at once. busyMutex keeps one request outstanding, so each call
-// must decode the answer to its own query; an answer reaching another call
-// fails to decode or carries the other query's value (OwnAnswer in
-// LocalStateQueryClient.tla).
+// TestConcurrentCallsGetOwnAnswers runs two kinds of query from many goroutines
+// at once. busyMutex keeps one request outstanding, so each call must decode
+// the answer to its own query; an answer reaching another call fails to decode
+// or carries the other query's value.
 func TestConcurrentCallsGetOwnAnswers(t *testing.T) {
 	t.Parallel()
 	client, _, errs := newModelPair(t, func(
