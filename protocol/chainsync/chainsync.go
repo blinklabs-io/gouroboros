@@ -244,12 +244,16 @@ const (
 const PendingReceiveBytesNtC = 8 * 1024 * 1024
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.8).
+//
+// The server waits in MustReply until it has a new block, so a short MustReply
+// bound disconnects honest peers during a streak of empty slots, and a random
+// pick keeps every peer from timing out at once.
 const (
 	IdleTimeout         = 3673 * time.Second  // Timeout for client to send next request
 	CanAwaitTimeout     = 10 * time.Second    // Timeout for server to provide next block or await
 	IntersectTimeout    = 10 * time.Second    // Timeout for server to respond to intersect request
-	MustReplyTimeoutMin = 135 * time.Second   // Minimum random timeout for MustReply state
-	MustReplyTimeoutMax = 269 * time.Second   // Maximum random timeout for MustReply state
+	MustReplyTimeoutMin = 601 * time.Second   // Minimum random timeout for MustReply state
+	MustReplyTimeoutMax = 911 * time.Second   // Maximum random timeout for MustReply state
 	MustReplyTimeout    = MustReplyTimeoutMax // Fixed timeout for backward compatibility
 )
 

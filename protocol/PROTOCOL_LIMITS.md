@@ -134,7 +134,7 @@ The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 | Idle | 3673 seconds | 462,000 |
 | CanAwait | 10 seconds | 462,000 |
 | Intersect | 10 seconds | 462,000 |
-| MustReply | random in `[135, 269)` seconds | 462,000 |
+| MustReply | random in `[601, 911)` seconds | 462,000 |
 | Done | none | 462,000 |
 
 The N2C map has no state timeouts or pending-message byte limits, so no
