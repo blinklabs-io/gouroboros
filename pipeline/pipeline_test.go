@@ -1962,6 +1962,87 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	}
 }
 
+// A drain that succeeds because Stop has begun is still a rollback boundary:
+// it must not return while ApplyFunc is committing a block accepted before it.
+func TestBlockPipelineWaitForDrainDuringStopWaitsForApply(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	var applyReturned atomic.Bool
+	p := NewBlockPipeline(validatedTestPipelineOptions(t,
+		func(*BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			applyReturned.Store(true)
+			return nil
+		},
+	)...)
+	require.NoError(t, p.Start(context.Background()))
+	defer release()
+	shelley := getValidShelleyBlock(t)
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			shelley.BlockType,
+			shelley.Cbor,
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- p.Stop() }()
+	// Stop publishes stopping before it cancels the pipeline context.
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the pipeline context")
+	}
+
+	type drainResult struct {
+		err           error
+		applyReturned bool
+	}
+	drainDone := make(chan drainResult, 1)
+	go func() {
+		err := p.WaitForDrain(context.Background())
+		drainDone <- drainResult{err: err, applyReturned: applyReturned.Load()}
+	}()
+	select {
+	case result := <-drainDone:
+		require.NoError(t, result.err)
+		require.True(
+			t,
+			result.applyReturned,
+			"WaitForDrain returned while ApplyFunc was still committing",
+		)
+	case <-time.After(100 * time.Millisecond):
+		release()
+		select {
+		case result := <-drainDone:
+			require.NoError(t, result.err)
+			require.True(t, result.applyReturned)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not return after ApplyFunc finished")
+		}
+	}
+	release()
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return")
+	}
+}
+
 func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 	t *testing.T,
 ) {

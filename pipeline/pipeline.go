@@ -1068,6 +1068,9 @@ func (p *BlockPipeline) PendingCount() int {
 // WaitForDrain blocks until every block accepted before the drain boundary has
 // completed ordered processing, or the context is cancelled. This is useful
 // before handling rollbacks to ensure no earlier block is applied afterward.
+// Once Stop has begun, WaitForDrain succeeds without waiting for the boundary,
+// but only after the apply runner has exited, so no ApplyFunc call is still
+// committing when it returns.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1078,19 +1081,35 @@ func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	// Preserve the historical lifecycle contract: explicit shutdown makes the
 	// drain vacuous, including while Stop waits for the submission gate.
 	if p.stopping.Load() || p.stopped.Load() {
-		return nil
+		return p.waitForApplyRunner(ctx)
 	}
 	err := p.Fence(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if p.stopping.Load() || p.stopped.Load() {
-		return nil
+		return p.waitForApplyRunner(ctx)
 	}
 	if p.ctx.Err() != nil {
 		return p.stoppedError()
 	}
 	return err
+}
+
+// waitForApplyRunner waits for the apply runner to exit. Stop cancels the
+// pipeline context before the runner returns, and an ApplyFunc call already
+// under way still commits its block, so a drain that reported success as soon
+// as Stop began would let a caller roll back state that block then changes.
+func (p *BlockPipeline) waitForApplyRunner(ctx context.Context) error {
+	p.applyRunner.mu.Lock()
+	done := p.applyRunner.done
+	p.applyRunner.mu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // metricsCollector collects metrics from processed items.
