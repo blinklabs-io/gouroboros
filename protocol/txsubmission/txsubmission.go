@@ -225,7 +225,8 @@ const (
 	// ranges of the count fields, not an in-flight window, so they cannot
 	// serve as the multiplier here. Every txid and tx request is bounded
 	// against this window, so a request a peer could not satisfy within
-	// MaxPendingMessageBytes is refused rather than attempted.
+	// MaxPendingMessageBytes is refused, or from node-to-node version 16
+	// clamped by the client, rather than attempted.
 	MaxUnackedTxIds = 10
 	// txOutboundClampVersion is the node-to-node version from which the
 	// client clamps a MsgRequestTxIds that asks past its window instead of
