@@ -448,9 +448,9 @@ func (h *modelHarness) requireError(t *testing.T, contains string) error {
 		require.ErrorContains(t, err, contains)
 		return err
 	case v := <-h.finished:
-		t.Fatalf("handshake finished with version %d; the model forbids it", v)
+		t.Fatalf("handshake finished with version %d; the reference forbids it", v)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 	return nil
 }
@@ -666,13 +666,12 @@ func (a modelAnswer) String() string {
 	return fmt.Sprintf("type %d version %d reason %d", a.msgType, a.version, a.reason)
 }
 
-// TestServerNegotiationMatchesModel checks the server's answer against
-// Negotiate and ServerDecision in the model, which follow the
+// TestServerNegotiationMatchesModel checks the server's answer against the
 // specification's server algorithm and acceptOrRefuse in the reference
 // (Handshake/Client.hs, Server.hs): the highest common version, then
-// VersionMismatch, HandshakeDecodeError or Refused, and a query reply only
-// when the version would have been accepted. Rows where gOuroboros answers
-// otherwise would give both answers; there are none.
+// VersionMismatch, HandshakeDecodeError or Refused, and a query reply only when
+// the version would have been accepted. Rows where gOuroboros answers otherwise
+// would give both answers; there are none.
 func TestServerNegotiationMatchesModel(t *testing.T) {
 	t.Parallel()
 	accept := func(v uint16) modelAnswer { return modelAnswer{MessageTypeAcceptVersion, v, 0} }
