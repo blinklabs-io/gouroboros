@@ -42,8 +42,8 @@ const (
 	modelHeld = "Held"
 )
 
-// The states of the local-tx-monitor model. The busy state's kind is part
-// of its name, as in the reference's StBusy StBusyKind.
+// The states of the local-tx-monitor state machine. The busy state's kind is
+// part of its name, as in the reference's StBusy StBusyKind.
 const (
 	stIdle             = "StIdle"
 	stAcquiring        = "StAcquiring"
@@ -102,11 +102,11 @@ var modelAgency = map[string]string{
 	stDone:            modelAgencyNobody,
 }
 
-// modelTransitions is Transitions in specs/09-localtx/LocalTxMonitor.tla of
-// gouroboros-tla-models: the specification's transition table, with
-// StBusy HasTx answered by MsgReplyHasTx as the reference's Type.hs has it
-// (the table's MsgReplyNextTx there is a typo). MsgAcquire from StAcquired
-// is MsgAwaitAcquire: the reference encodes both as [1].
+// modelTransitions is the local tx-monitor transition table of
+// docs/network-spec/miniprotocols.tex (lines 2105-2166), with StBusy HasTx
+// answered by MsgReplyHasTx as the reference's LocalTxMonitor/Type.hs has it
+// (the table's MsgReplyNextTx there is a typo). MsgAcquire from StAcquired is
+// MsgAwaitAcquire: the reference encodes both as [1].
 var modelTransitions = []struct{ from, kind, to string }{
 	{stIdle, kindAcquire, stAcquiring},
 	{stIdle, kindDone, stDone},
@@ -139,12 +139,12 @@ func modelJudge(state, kind string) string {
 	return modelViolation
 }
 
-// modelReceive is ReceiveTable in LocalTxMonitor.tla with the reference's
-// settings: a message is judged against the reader's state, or waits while
-// the reader holds agency; a server whose run ended restarts in StIdle, as
-// the inbound governor restarts responders ("Inbound side: the inbound
-// governor" in docs/network-spec/connection-manager.tex); a client whose
-// run ended leaves it unread.
+// modelReceive is the receive table with the reference's settings: a message is
+// judged against the reader's state, or waits while the reader holds agency; a
+// server whose run ended restarts in StIdle, as the inbound governor restarts
+// responders ("Inbound side: the inbound governor" in
+// docs/network-spec/connection-manager.tex); a client whose run ended leaves it
+// unread.
 func modelReceive(role, state, kind string) string {
 	if state == stDone {
 		if role == modelRoleServer {
@@ -162,7 +162,7 @@ func isMeasuresKind(kind string) bool {
 	return kind == kindGetMeasures || kind == kindReplyMeasures
 }
 
-// gouroborosReceive maps the model onto gOuroboros where they differ, each
+// gouroborosReceive maps the reference onto gOuroboros where they differ, each
 // a recorded deviation, not a defect:
 //   - protocol.Protocol refuses a message sent while the receiver holds
 //     agency instead of leaving it to wait.
@@ -218,7 +218,7 @@ func modelBusyOf(query uint8) string {
 	return ""
 }
 
-// modelGoState is the gOuroboros state for a model state, and the query
+// modelGoState is the gOuroboros state for a reference state, and the query
 // its stateContext records in a busy state.
 func modelGoState(state string) (protocol.State, uint8, bool) {
 	switch state {
@@ -323,7 +323,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 		t,
 		[]protocol.State{stateIdle, stateAcquiring, stateAcquired, stateBusy, stateDone},
 		stateMapStates(),
-		"StateMap must hold the model's states, with one Busy for the kinds",
+		"StateMap must hold the reference states, with one Busy for the kinds",
 	)
 	require.Len(t, queryReplyTypes, len(modelBusyQuery),
 		"Busy must have one kind per query gOuroboros knows")
@@ -368,7 +368,7 @@ func TestDoneCannotBeLeft(t *testing.T) {
 
 // TestBusyGetMeasuresCannotBeEntered checks that gOuroboros has no
 // MsgGetMeasures: the query does not decode, so neither role can reach the
-// model's StBusy GetMeasures. The reference understands it at every
+// reference's StBusy GetMeasures. The reference understands it at every
 // node-to-client version.
 func TestBusyGetMeasuresCannotBeEntered(t *testing.T) {
 	t.Parallel()
@@ -519,7 +519,7 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 }
 
@@ -633,7 +633,7 @@ var modelReplyOf = map[string]uint8{
 
 // TestReceiveMatchesModel drives a running client or server into each cell
 // of the receive table it can rest in, sends the cell's message, and checks
-// the outcome against the model as gOuroboros deviates from it (see
+// the outcome against the reference as gOuroboros deviates from it (see
 // gouroborosReceive).
 func TestReceiveMatchesModel(t *testing.T) {
 	t.Parallel()
