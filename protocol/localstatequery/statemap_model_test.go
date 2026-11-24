@@ -684,7 +684,7 @@ func TestReceiveMatchesModel(t *testing.T) {
 
 func checkServerOutcome(t *testing.T, h *modelHarness, row modelReceiveRow) {
 	t.Helper()
-	switch gouroborosServer(row) {
+	switch gouroborosRejectsEarly(row.outcome) {
 	case "Acquiring":
 		h.receiveType(t, MessageTypeAcquired)
 	case "Querying":
@@ -703,10 +703,6 @@ func checkServerOutcome(t *testing.T, h *modelHarness, row modelReceiveRow) {
 		// The run ended; the next must still be served.
 		h.send(t, NewMsgAcquireVolatileTip())
 		h.receiveType(t, MessageTypeAcquired)
-	case modelDoneNoRestart:
-		h.requireQuiet(t)
-		h.send(t, NewMsgAcquireVolatileTip())
-		h.requireQuiet(t)
 	case modelHeld:
 		h.requireQuiet(t)
 	case modelViolation:
@@ -739,26 +735,6 @@ func checkClientOutcome(
 	default:
 		t.Fatalf("no check for outcome %q", row.outcome)
 	}
-}
-
-// modelDoneNoRestart: the server's run ended and no new run starts, so the
-// next run's first message is never answered.
-const modelDoneNoRestart = "DoneNoRestart"
-
-// gouroborosServer maps a server row onto gOuroboros. Besides
-// gouroborosRejectsEarly, the gOuroboros server does not restart after
-// MsgDone: it leaves every later message unread, where the reference's
-// inbound governor starts a new run. That is a defect, not a recorded
-// difference: a client's second run on the connection waits until its
-// acquire times out.
-func gouroborosServer(row modelReceiveRow) string {
-	if row.state == stateDone {
-		return modelHeld
-	}
-	if row.outcome == "Done" {
-		return modelDoneNoRestart
-	}
-	return gouroborosRejectsEarly(row.outcome)
 }
 
 // newModelPair connects a client to a gOuroboros server over a pipe.
