@@ -70,13 +70,13 @@ func (v modelVersion) kinds() []modelKind {
 	return ret
 }
 
-// modelSide names who holds agency in a state of the model: the outbound
-// side has the messages and the inbound side asks for them. In gOuroboros
-// the outbound side is the Client type and the inbound side the Server type
-// in both versions, but the initiator differs: the outbound side in V1
-// (tx-submission's shape) and the inbound side in V2 (dmq-node's
-// SigSubmissionV2), so the StateMap's AgencyClient means the outbound side
-// in V1 and the inbound side in V2.
+// modelSide names who holds agency in a reference state: the outbound side has
+// the messages and the inbound side asks for them. In gOuroboros the outbound
+// side is the Client type and the inbound side the Server type in both
+// versions, but the initiator differs: the outbound side in V1 (tx-submission's
+// shape) and the inbound side in V2 (dmq-node's SigSubmissionV2), so the
+// StateMap's AgencyClient means the outbound side in V1 and the inbound side in
+// V2.
 type modelSide int
 
 const (
@@ -175,7 +175,7 @@ func (v modelVersion) responder() modelSide {
 // the state has a transition for it ("Protocols as State Machines" in
 // docs/network-spec/miniprotocols.tex). A message sent while the receiver
 // holds agency would wait in the reference; gOuroboros refuses it on
-// arrival, as for every protocol, so the model's cell is Violation here.
+// arrival, as for every protocol, so the reference cell is Violation here.
 func (v modelVersion) modelReceive(
 	role protocol.ProtocolRole,
 	state protocol.State,
@@ -284,7 +284,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 			t,
 			modelStatesList,
 			modelStates(v.stateMap),
-			"%s StateMap must hold exactly the states of the model",
+			"%s StateMap must hold exactly the states of the reference",
 			v.name,
 		)
 		for state, side := range v.agency {
@@ -317,9 +317,9 @@ func TestStateMapMatchesModel(t *testing.T) {
 }
 
 // TestDoneIsEnteredOnlyAsModelled checks the states that cannot be entered
-// except as the model allows: Done only by MsgDone, from StMessageIdsBlocking
-// in V1 and from StIdle in V2; Init never re-entered and absent from V2; and
-// nothing leaves Done within a run.
+// except as the reference allows: Done only by MsgDone, from
+// StMessageIdsBlocking in V1 and from StIdle in V2; Init never re-entered and
+// absent from V2; and nothing leaves Done within a run.
 func TestDoneIsEnteredOnlyAsModelled(t *testing.T) {
 	t.Parallel()
 	doneFrom := map[string]protocol.State{
