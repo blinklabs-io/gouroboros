@@ -85,15 +85,11 @@ type Client struct {
 	testQuiesceBeforeLoopStopClose  func()
 	testRollForwardBeforeAnswered   func()
 
-	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
-	// is empty.
-	//
 	// want* only processes one request per message reply received from the server. If the message
 	// request fails, it is the responsibility of the caller to clear the channel.
-	waitingForCurrentTipChan chan chan<- Tip
-	wantCurrentTipChan       chan chan<- Tip
-	wantFirstBlockChan       chan chan<- clientPointResult
-	wantIntersectFoundChan   chan intersectRequest
+	wantCurrentTipChan     chan chan<- Tip
+	wantFirstBlockChan     chan chan<- clientPointResult
+	wantIntersectFoundChan chan intersectRequest
 }
 
 type clientPointResult struct {
@@ -163,7 +159,6 @@ func (c *Client) initProtocol() {
 	// signals to be dropped (with non-blocking sends) or deadlock (with blocking sends
 	// while holding lifecycleMutex).
 	c.readyForNextBlockChan = make(chan bool, c.config.PipelineLimit)
-	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
 	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
 	c.wantIntersectFoundChan = make(chan intersectRequest, 1)
@@ -608,45 +603,25 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		<-requestWorkerDone
 	}()
 
-	waitingResultChan := make(chan Tip, 1)
-	waitingForCurrentTipChan := c.waitingForCurrentTipChan
-
-	for {
-		select {
-		case <-doneChan:
-			done.Store(true)
-			return nil, protocol.ErrProtocolShuttingDown
-		case waitingForCurrentTipChan <- waitingResultChan:
-			// The request is being handled by another request, wait for the result.
-			waitingForCurrentTipChan = nil
-		case tip := <-waitingResultChan:
-			proto.Logger().
-				Debug(
-					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-				)
-			// The result from the other request is ready.
-			done.Store(true)
-			return &tip, nil
-		case tip := <-requestResultChan:
-			proto.Logger().
-				Debug(
-					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-				)
-			// If waitingForCurrentTipChan is full, the for loop that empties it might finish the
-			// loop before the select statement that writes to it is triggered. For that reason we
-			// require requestResultChan here.
-			return &tip, nil
-		case err := <-requestErrorChan:
-			return nil, err
-		}
+	// Only the answer to this call's own MsgFindIntersect is returned. A tip
+	// another handler delivers, such as a roll answering an earlier
+	// MsgRequestNext, may be older than the one the server answers with.
+	select {
+	case <-doneChan:
+		done.Store(true)
+		return nil, protocol.ErrProtocolShuttingDown
+	case tip := <-requestResultChan:
+		proto.Logger().
+			Debug(
+				fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		return &tip, nil
+	case err := <-requestErrorChan:
+		return nil, err
 	}
 }
 
@@ -1407,21 +1382,10 @@ func (c *Client) syncLoop(
 }
 
 func (c *Client) sendCurrentTip(tip Tip) {
-	// Sends to the requester.
 	select {
 	case ch := <-c.wantCurrentTipChan:
 		ch <- tip
 	default:
-	}
-
-	// Sends to all passive listeners that are in the queue.
-	for {
-		select {
-		case ch := <-c.waitingForCurrentTipChan:
-			ch <- tip
-		default:
-			return
-		}
 	}
 }
 

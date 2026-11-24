@@ -47,6 +47,10 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 	t.Cleanup(clientMuxer.Stop)
 	t.Cleanup(serverMuxer.Stop)
 
+	// The roll and the answer carry different tips, so the test can tell
+	// which one GetCurrentTip returned.
+	rollTip := Tip{BlockNumber: 7}
+	answerTip := Tip{BlockNumber: 42}
 	requested := make(chan struct{}, 1)
 	releaseRoll := make(chan struct{})
 	releaseNotFound := make(chan struct{})
@@ -59,7 +63,7 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 		) (pcommon.Point, Tip, error) {
 			if len(points) == 0 {
 				<-releaseNotFound
-				return pcommon.Point{}, Tip{}, ErrIntersectNotFound
+				return pcommon.Point{}, answerTip, ErrIntersectNotFound
 			}
 			return points[0], Tip{}, nil
 		}),
@@ -70,7 +74,7 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 			requested <- struct{}{}
 			go func() {
 				<-releaseRoll
-				_ = ctx.Server.RollBackward(pcommon.NewPointOrigin(), Tip{})
+				_ = ctx.Server.RollBackward(pcommon.NewPointOrigin(), rollTip)
 			}()
 			return nil
 		}),
@@ -108,12 +112,16 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 		t.Fatal("server never received MsgRequestNext")
 	}
 
+	type tipResult struct {
+		tip *Tip
+		err error
+	}
 	var tipReturned atomic.Bool
-	tipErr := make(chan error, 1)
+	tipDone := make(chan tipResult, 1)
 	go func() {
-		_, err := client.GetCurrentTip()
+		tip, err := client.GetCurrentTip()
 		tipReturned.Store(true)
-		tipErr <- err
+		tipDone <- tipResult{tip, err}
 	}()
 	require.Eventually(t, func() bool {
 		return len(client.wantCurrentTipChan)+
@@ -126,8 +134,10 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 
 	releaseAnswer()
 	select {
-	case err := <-tipErr:
-		require.NoError(t, err)
+	case res := <-tipDone:
+		require.NoError(t, res.err)
+		require.Equal(t, answerTip.BlockNumber, res.tip.BlockNumber,
+			"GetCurrentTip returned the roll's tip, not its own answer's")
 	case <-time.After(5 * time.Second):
 		t.Fatal("GetCurrentTip did not return after its answer")
 	}
