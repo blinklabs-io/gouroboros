@@ -144,7 +144,11 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 		if err := proto.SendMessage(NewMsgAwaitReply()); err != nil {
 			return err
 		}
-		go s.awaitObjectIDs(proto, msg.RequestCount)
+		// RunLoop contains a panic in AwaitObjectIDsFunc as the receive
+		// loop contains one in any other callback.
+		proto.RunLoop("await object IDs", func() {
+			s.awaitObjectIDs(proto, msg.RequestCount)
+		})
 		return nil
 	}
 	return proto.SendMessage(NewMsgReplyObjectIDs(ids))

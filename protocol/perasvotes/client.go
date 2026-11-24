@@ -40,9 +40,12 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	onceStart       sync.Once
-	opMu            sync.Mutex
-	objectIDsChan   chan objectIDsResult
-	objectsChan     chan objectsResult
+	// opSem serializes whole request/reply exchanges, so a reply belongs to
+	// the one caller waiting for it. It is a channel rather than a mutex so
+	// that a caller waiting for it can give up when its context ends.
+	opSem         chan struct{}
+	objectIDsChan chan objectIDsResult
+	objectsChan   chan objectsResult
 }
 
 // NewClient creates a client endpoint with the supplied protocol options.
@@ -52,6 +55,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		config:        cfg,
 		objectIDsChan: make(chan objectIDsResult, 1),
 		objectsChan:   make(chan objectsResult, 1),
+		opSem:         make(chan struct{}, 1),
 	}
 	c.callbackContext = CallbackContext{
 		Client: c, ConnectionId: protoOptions.ConnectionId,
@@ -121,8 +125,10 @@ func (c *Client) RequestObjectIDs(
 	if ctx == nil {
 		return nil, errors.New("context must not be nil")
 	}
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+	if err := c.lockOp(ctx); err != nil {
+		return nil, err
+	}
+	defer c.unlockOp()
 	return c.requestObjectIDs(ctx, blocking, ackCount, requestCount)
 }
 
@@ -164,8 +170,10 @@ func (c *Client) RequestObjects(
 	if ctx == nil {
 		return nil, errors.New("context must not be nil")
 	}
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+	if err := c.lockOp(ctx); err != nil {
+		return nil, err
+	}
+	defer c.unlockOp()
 	return c.requestObjects(ctx, ids)
 }
 
@@ -196,7 +204,10 @@ func (c *Client) requestObjects(
 
 // Sync continuously requests and acknowledges vote batches until cancellation
 // or shutdown. A VoteFunc error stops the protocol because the batch is no
-// longer safe to acknowledge.
+// longer safe to acknowledge. VoteFunc runs while Sync holds the request
+// exchange, so a VoteFunc that calls RequestObjectIDs, RequestObjects or Done
+// on the same client waits until its own context ends; to end the sync from
+// VoteFunc, return an error or cancel Sync's context.
 func (c *Client) Sync(ctx context.Context) error {
 	if c.config.VoteFunc == nil {
 		return errors.New("peras vote function must be configured for sync")
@@ -204,8 +215,10 @@ func (c *Client) Sync(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("context must not be nil")
 	}
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+	if err := c.lockOp(ctx); err != nil {
+		return err
+	}
+	defer c.unlockOp()
 	var ackCount uint16
 	for {
 		ids, err := c.requestObjectIDs(
@@ -248,10 +261,23 @@ func (c *Client) Done(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("context must not be nil")
 	}
-	c.opMu.Lock()
-	defer c.opMu.Unlock()
+	if err := c.lockOp(ctx); err != nil {
+		return err
+	}
+	defer c.unlockOp()
 	return c.SendMessageContextAndWait(ctx, NewMsgDone())
 }
+
+func (c *Client) lockOp(ctx context.Context) error {
+	select {
+	case c.opSem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) unlockOp() { <-c.opSem }
 
 // Stop interrupts the client protocol.
 //
