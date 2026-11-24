@@ -545,26 +545,41 @@ func TestClientFullReplayCacheDoesNotRejectDuplicateAdmission(t *testing.T) {
 }
 
 func TestClientPreservesGenuineEmptyReplyCallback(t *testing.T) {
-	for _, blocking := range []bool{false, true} {
-		t.Run(fmt.Sprintf("blocking=%t", blocking), func(t *testing.T) {
-			var callbacks atomic.Int32
-			cfg := NewConfig(
-				WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
-				WithReplyMessagesFunc(
-					func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
-						callbacks.Add(1)
-						require.Empty(t, messages)
-					},
-				),
-			)
-			client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+				callbacks.Add(1)
+				require.Empty(t, messages)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 
-			require.NoError(t, client.messageHandler(
-				testReplyMessages(blocking, nil),
-			))
-			require.Equal(t, int32(1), callbacks.Load())
-		})
-	}
+	require.NoError(t, client.messageHandler(testReplyMessages(false, nil)))
+	require.Equal(t, int32(1), callbacks.Load())
+}
+
+// TestClientRefusesEmptyBlockingReply checks that an empty answer to a
+// blocking request is a protocol violation: CIP-0137 defines the blocking
+// reply as [2, [+ message]], and dmq-node's codec fails to decode an empty
+// one, so a server that sends it is broken and the callback must not see it.
+func TestClientRefusesEmptyBlockingReply(t *testing.T) {
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+
+	err := client.messageHandler(testReplyMessages(true, nil))
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+	require.Zero(t, callbacks.Load())
 }
 
 func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {

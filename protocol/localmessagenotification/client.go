@@ -232,12 +232,21 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"message_count", len(msgReply.Messages),
 		)
+	// A blocking request is answered only once there is a message, so an
+	// empty answer means the server broke the protocol (CIP-0137 encodes it
+	// as [2, [+ message]], and dmq-node's codec refuses an empty one).
+	if len(msgReply.Messages) == 0 {
+		return fmt.Errorf(
+			"%s: empty reply to a blocking request: %w",
+			ProtocolName,
+			protocol.ErrProtocolViolationInvalidMessage,
+		)
+	}
 	messages, err := c.validateAndReserve(msgReply.Messages)
 	if err != nil {
 		return err
 	}
-	if c.config.ReplyMessagesFunc != nil &&
-		(len(msgReply.Messages) == 0 || len(messages) > 0) {
+	if c.config.ReplyMessagesFunc != nil && len(messages) > 0 {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
 		c.config.ReplyMessagesFunc(c.callbackContext, messages, false)
 	}
