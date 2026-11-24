@@ -74,6 +74,20 @@ func envelopeTestHeader(
 	}
 }
 
+// envelopeAsBlock wraps a header built by envelopeTestHeader in its block.
+// The predecessor's kind comes from the block, not from how it is passed:
+// the reference takes it from byronHeaderIsEBB (Byron/Ledger/
+// HeaderValidation.hs 30-32, getTipInfo).
+func envelopeAsBlock(header envelopeHeader) envelopeHeader {
+	switch h := header.(type) {
+	case *byron.ByronEpochBoundaryBlockHeader:
+		return &byron.ByronEpochBoundaryBlock{BlockHeader: h}
+	case *byron.ByronMainBlockHeader:
+		return &byron.ByronMainBlock{BlockHeader: h}
+	}
+	panic(fmt.Sprintf("unexpected envelope header %T", header))
+}
+
 // refEnvelopeOK transcribes the reference envelope rule for Byron
 // (ouroboros-consensus ec239d57, HeaderValidation.hs 378-423 and
 // Byron/Ledger/HeaderValidation.hs 39-52). After Origin the block number is
@@ -103,9 +117,18 @@ func refEnvelopeOK(
 
 // TestByronEnvelopeMatchesReferenceTable checks the envelope's slot and
 // block-number rules for every pair of predecessor and header kinds, with
-// the header at an earlier, the same or a later slot and at the same, the
-// next or a skipped block number.
+// the predecessor passed as a header or as a block, and the header at an
+// earlier, the same or a later slot and at the same, the next or a skipped
+// block number.
 func TestByronEnvelopeMatchesReferenceTable(t *testing.T) {
+	for _, prevAsBlock := range []bool{false, true} {
+		t.Run(fmt.Sprintf("predecessor as block %t", prevAsBlock), func(t *testing.T) {
+			checkByronEnvelopeTable(t, prevAsBlock)
+		})
+	}
+}
+
+func checkByronEnvelopeTable(t *testing.T, prevAsBlock bool) {
 	config := ByronConfig{
 		ProtocolMagic: 7,
 		SlotsPerEpoch: envelopeSlotsPerEpoch,
@@ -117,6 +140,9 @@ func TestByronEnvelopeMatchesReferenceTable(t *testing.T) {
 		var prevHeader envelopeHeader
 		if prev != envelopeOrigin {
 			prevHeader = envelopeTestHeader(prev, prevSlot, prevBlock, nil)
+			if prevAsBlock {
+				prevHeader = envelopeAsBlock(prevHeader)
+			}
 		}
 		for _, cur := range []envelopeKind{envelopeMain, envelopeEBB} {
 			slots := []uint64{prevSlot - 1, prevSlot, prevSlot + 1}

@@ -1195,6 +1195,8 @@ func genesisIssuerVerificationKey(input *ValidateHeaderInput) ([]byte, error) {
 
 // ValidateByronBlockHeader validates a Byron block header (main block or EBB).
 // Set isEBB to true for Epoch Boundary Blocks, false for main blocks.
+// prevHeader is the predecessor, as a header or as a block, or nil when the
+// header is the first on the chain.
 //
 // Note: This function performs envelope validation only. For main blocks (isEBB=false),
 // full validation including block signature and genesis delegate verification requires
@@ -1239,7 +1241,13 @@ func ValidateByronBlockHeader(
 	if prevHeader == nil {
 		input.PrevIsOrigin = true
 	} else {
-		_, input.PrevIsEBB = prevHeader.(*byron.ByronEpochBoundaryBlockHeader)
+		// The predecessor's kind comes from the block, however the caller
+		// holds it: the reference reads byronHeaderIsEBB (getTipInfo).
+		switch prevHeader.(type) {
+		case *byron.ByronEpochBoundaryBlockHeader,
+			*byron.ByronEpochBoundaryBlock:
+			input.PrevIsEBB = true
+		}
 		prevSlot, err := slotNumberWithEpochLength(
 			prevHeader,
 			config.SlotsPerEpoch,
