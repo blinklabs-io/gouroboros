@@ -183,9 +183,9 @@ func errorsMatch(errs []error, target error) bool {
 }
 
 // TestOverlayScheduleMatchesModel checks the overlay schedule against the
-// cells of the model's Classify and GenesisIndex (specs/25-consensus-eras
-// HeaderValidation.tla: 6-slot epoch, f = 1/2, two genesis keys) and
-// mainnet-like cells (f = 1/20, seven genesis keys).
+// reference's isOverlaySlot and classifyOverlaySlot (cardano-ledger TPraos
+// Rules/Overlay.hs) for every slot of a 6-slot epoch with f = 1/2 and two
+// genesis keys, and for mainnet-like cells (f = 1/20, seven genesis keys).
 func TestOverlayScheduleMatchesModel(t *testing.T) {
 	const (
 		praos  = overlaySlotPraos

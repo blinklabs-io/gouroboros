@@ -31,7 +31,8 @@ import (
 )
 
 // Header defects, named after the reference error each one causes
-// (specs/25-consensus-eras HeaderValidation model).
+// (ouroboros-consensus HeaderValidation.hs and PolyPraos.hs, cardano-ledger
+// TPraos Rules/Overlay.hs and Rules/OCert.hs).
 const (
 	orderBlockNo         = "BlockNo"
 	orderSlot            = "Slot"
@@ -92,7 +93,7 @@ type orderRefCheck struct {
 	onFail string // "halt", "skipGroup" or "continue"
 }
 
-// orderReferenceProgram transcribes the model's RefProg: the envelope
+// orderReferenceProgram lists the reference's checks in order: the envelope
 // (HeaderValidation.hs validateEnvelope), then Praos's KES side and VRF side
 // (PolyPraos.hs updateChainDepStatePolyPraos), or TPraos's VRF group and
 // OCERT rule (cardano-ledger TPraos Rules/Overlay.hs and Rules/OCert.hs).
@@ -374,8 +375,8 @@ func orderName(d map[string]bool) string {
 }
 
 // TestValidateHeaderMatchesReferenceOrderTable runs ValidateHeader on every
-// header of the HeaderValidation model with at most two consistent defects,
-// in both modes, and checks the model's invariants: the verdict matches the
+// header with at most two consistent defects, in both modes, and checks it
+// against the reference's checks in order: the verdict matches the
 // reference, every reported error is a defect the header has, the reference's
 // errors are all reported, the first error is the one the reference reports
 // first, and no error is reported twice.
