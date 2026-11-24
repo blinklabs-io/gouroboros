@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"math"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -33,15 +34,27 @@ type Server struct {
 	mempoolCapacity  uint32
 	mempoolTxs       []TxAndEraId
 	mempoolNextTxIdx int
-	// txHashes holds the IDs computed by HasTx, by era and transaction CBOR.
-	// Entries survive an Acquire while their transaction is still in the
-	// snapshot, so a client polling Acquire and HasTx parses each
-	// transaction once rather than the whole mempool on every poll.
-	txHashes   map[uint]map[string]*txHashEntry
+	// txHashes holds the IDs computed by HasTx, by era and the maphash of the
+	// transaction CBOR. Each entry points at the snapshot's own bytes rather
+	// than a copy, and acquireMempool re-points carried entries at the new
+	// snapshot, so the cache never pins bytes from an older one. Entries
+	// survive an Acquire while their transaction is still in the snapshot, so
+	// a client polling Acquire and HasTx parses each transaction once rather
+	// than the whole mempool on every poll.
+	txHashes   map[uint]map[uint64]*txHashEntry
 	snapshotId uint64
 }
 
+// txHashSeed keys txHashes. Entries are confirmed with bytes.Equal, so a
+// hash collision costs a reparse and never a wrong answer.
+var txHashSeed = maphash.MakeSeed()
+
+func txHashKey(txCbor []byte) uint64 {
+	return maphash.Bytes(txHashSeed, txCbor)
+}
+
 type txHashEntry struct {
+	tx         []byte
 	hash       lcommon.Blake2b256
 	snapshotId uint64
 }
@@ -142,9 +155,14 @@ func (s *Server) acquireMempool() (uint64, error) {
 	copy(s.mempoolTxs, mempoolTxs)
 	// Keep the IDs of transactions still in the snapshot and drop the rest,
 	// so the cache never outgrows the current mempool.
+	if len(s.txHashes) == 0 {
+		return mempoolSlotNumber, nil
+	}
 	s.snapshotId++
 	for _, tx := range s.mempoolTxs {
-		if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
+		entry, ok := s.txHashes[tx.EraId][txHashKey(tx.Tx)]
+		if ok && bytes.Equal(entry.tx, tx.Tx) {
+			entry.tx = tx.Tx
 			entry.snapshotId = s.snapshotId
 		}
 	}
@@ -236,23 +254,30 @@ func (s *Server) hasTx(msg *MsgHasTx) (bool, error) {
 // txHash returns the ID of a snapshot transaction, parsing it only the first
 // time it is seen.
 func (s *Server) txHash(tx TxAndEraId) (lcommon.Blake2b256, error) {
-	if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
-		return entry.hash, nil
+	key := txHashKey(tx.Tx)
+	existing, found := s.txHashes[tx.EraId][key]
+	if found && bytes.Equal(existing.tx, tx.Tx) {
+		return existing.hash, nil
 	}
 	txObj, err := ledger.NewTransactionFromCbor(tx.EraId, tx.Tx)
 	if err != nil {
 		return lcommon.Blake2b256{}, err
 	}
 	hash := txObj.Hash()
+	if found {
+		// Another transaction owns this key; leave it and do not cache.
+		return hash, nil
+	}
 	if s.txHashes == nil {
-		s.txHashes = make(map[uint]map[string]*txHashEntry)
+		s.txHashes = make(map[uint]map[uint64]*txHashEntry)
 	}
 	eraHashes := s.txHashes[tx.EraId]
 	if eraHashes == nil {
-		eraHashes = make(map[string]*txHashEntry)
+		eraHashes = make(map[uint64]*txHashEntry)
 		s.txHashes[tx.EraId] = eraHashes
 	}
-	eraHashes[string(tx.Tx)] = &txHashEntry{
+	eraHashes[key] = &txHashEntry{
+		tx:         tx.Tx,
 		hash:       hash,
 		snapshotId: s.snapshotId,
 	}
