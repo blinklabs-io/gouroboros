@@ -47,7 +47,6 @@ import (
 //
 // A chain is the list of its block slots after the immutable tip, which
 // sits at slot 0; chains with equal slot prefixes share those blocks.
-// These tables are the Go side of the TLA+ model GenesisDensity.tla.
 
 type genesisModelConfig struct {
 	peers   int
@@ -88,7 +87,7 @@ func (f *exactFragment) BlockCountInWindow(windowSlots uint64) uint64 {
 	return n
 }
 
-// refGenesisState is one model state: what every peer has sent, and which
+// refGenesisState is one test state: what every peer has sent, and which
 // peers have said they have nothing more.
 type refGenesisState struct {
 	cands [][]uint64
@@ -206,7 +205,7 @@ func genesisModelChains(cfg genesisModelConfig) [][]uint64 {
 	return out
 }
 
-// forEachGenesisState visits every state of the model: each peer's chain
+// forEachGenesisState visits every test state: each peer's chain
 // and idle flag chosen independently.
 func forEachGenesisState(cfg genesisModelConfig, visit func(refGenesisState)) {
 	chains := genesisModelChains(cfg)
@@ -242,7 +241,7 @@ func genesisModelSelector(t *testing.T, cfg genesisModelConfig) *GenesisSelector
 }
 
 // TestGenesisModelPreferredAgainstGDD checks Preferred, on fragments
-// anchored at the LoE tip, against the reference bounds in every model
+// anchored at the LoE tip, against the reference bounds in every test
 // state: it picks a chain with the most blocks in the window, breaks a
 // window tie by total length and then by candidate order, and the governor
 // would drop the chain it picked only on an exact tie with another chain.
@@ -356,8 +355,8 @@ func TestGenesisModelPreferredAgainstGDD(t *testing.T) {
 					}
 				}
 			})
-			// Every cell group the model's probes reach must be reached here
-			// too, or the table has stopped covering the model.
+			// Every cell group the reference bounds distinguish must be
+			// reached, or the table has stopped covering them.
 			require.Positive(t, denserShorter, "density never beat length")
 			require.Positive(t, tieBothLose, "no tie dropped both peers")
 			require.Positive(t, choiceLosesOnTie, "the chosen chain never lost on a tie")
