@@ -294,6 +294,10 @@ type BlockPipeline struct {
 	errorsChan    chan error
 	resultsDone   chan struct{}
 
+	// losslessResults is set by Start: WithLosslessResults, or a pipeline
+	// without an ApplyFunc, whose only output is Results.
+	losslessResults bool
+
 	// Metrics
 	metrics *PipelineMetrics
 
@@ -578,6 +582,8 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		}
 	}
 
+	p.losslessResults = p.config.LosslessResults || p.config.ApplyFunc == nil
+
 	// Create cancellable context
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
@@ -704,7 +710,7 @@ func (p *BlockPipeline) forwardResults() {
 	defer close(p.resultsChan)
 	maxItems := max(p.config.PrefetchBufferSize, 1)
 	maxBytes := p.maxRawCborBytes()
-	lossless := p.config.LosslessResults
+	lossless := p.losslessResults
 	// stopping is set once the pipeline context ends. Lossless mode then stops
 	// holding the runner back, so Stop never waits for a reader that is gone.
 	stopping := false
@@ -996,10 +1002,11 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 // clear their raw and decoded CBOR.
 // If the pipeline has not been started, it returns a closed channel.
 //
-// By default results are observational and reading them is optional:
-// committing, Fence and WaitForDrain never wait for a reader. With
-// WithLosslessResults, every committed block is delivered and committing waits
-// for the reader instead of dropping results. The pipeline holds at most
+// With an ApplyFunc, results are observational by default and reading them is
+// optional: committing, Fence and WaitForDrain never wait for a reader. With
+// WithLosslessResults, and always in header-only and trusted decode-only
+// modes, where Results is the only output, every committed block is delivered
+// and committing waits for the reader instead of dropping results. The pipeline holds at most
 // PrefetchBufferSize undelivered results, retaining at most MaxRawCborBytes of
 // CBOR. A reader that stays within both bounds receives every result. When a
 // new result would exceed either bound, the oldest undelivered result is

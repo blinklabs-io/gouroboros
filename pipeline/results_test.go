@@ -78,11 +78,12 @@ func TestBlockPipelineFenceDoesNotWaitForResultsReader(t *testing.T) {
 // reader the retained-CBOR budget filled and Submit waited for ever.
 func TestBlockPipelineUnreadResultsDoNotHoldSubmitBudget(t *testing.T) {
 	const blocks = 4
-	raw := getValidBlockCbor(t)
-	p := NewBlockPipeline(
-		WithTrustedDecodeOnly(),
+	shelley := getValidShelleyBlock(t)
+	raw := shelley.Cbor
+	p := NewBlockPipeline(append(
+		validatedTestPipelineOptions(t, func(*BlockItem) error { return nil }),
 		WithMaxRawCborBytes(2*uint64(len(raw))),
-	)
+	)...)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
@@ -91,7 +92,7 @@ func TestBlockPipelineUnreadResultsDoNotHoldSubmitBudget(t *testing.T) {
 	for i := range blocks {
 		require.NoError(t, p.Submit(
 			ctx,
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			raw,
 			createTestTip(uint64(i), uint64(i)),
 		), "submit %d", i)
@@ -159,11 +160,12 @@ func TestBlockPipelineResultsDropOldestWhenReaderFallsBehind(t *testing.T) {
 		bound  = 3
 		blocks = 8
 	)
-	raw := getValidBlockCbor(t)
-	p := NewBlockPipeline(
-		WithTrustedDecodeOnly(),
+	shelley := getValidShelleyBlock(t)
+	raw := shelley.Cbor
+	p := NewBlockPipeline(append(
+		validatedTestPipelineOptions(t, func(*BlockItem) error { return nil }),
 		WithPrefetchBufferSize(bound),
-	)
+	)...)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
@@ -172,7 +174,7 @@ func TestBlockPipelineResultsDropOldestWhenReaderFallsBehind(t *testing.T) {
 	for i := range blocks {
 		require.NoError(t, p.Submit(
 			ctx,
-			uint(ledger.BlockTypeConway),
+			shelley.BlockType,
 			raw,
 			createTestTip(uint64(i), uint64(i)),
 		))

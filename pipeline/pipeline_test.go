@@ -150,25 +150,26 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 }
 
 func TestBlockPipelineRawCborBudgetReturnsWhenResultIsCommitted(t *testing.T) {
-	raw := getValidBlockCbor(t)
-	p := NewBlockPipeline(
-		WithTrustedDecodeOnly(),
+	shelley := getValidShelleyBlock(t)
+	raw := shelley.Cbor
+	p := NewBlockPipeline(append(
+		validatedTestPipelineOptions(t, func(*BlockItem) error { return nil }),
 		WithMaxRawCborBytes(2*uint64(len(raw))),
-	)
+	)...)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
 	t.Cleanup(func() { require.NoError(t, p.Stop()) })
 	err := p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		make([]byte, len(raw)+1),
 		createTestTip(0, 0),
 	)
 	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
 	require.NoError(t, p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		raw,
 		createTestTip(0, 0),
 	))
@@ -181,7 +182,7 @@ func TestBlockPipelineRawCborBudgetReturnsWhenResultIsCommitted(t *testing.T) {
 
 	require.NoError(t, p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		raw,
 		createTestTip(1, 1),
 	))
@@ -1446,6 +1447,9 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	config.ChainContextValidator = acceptTestChainContext
 	config.VerifyConfig = validatingTestVerifyConfig(t)
 	config.VerifyConfigProvider = validatingTestVerifyConfigProvider(t)
+	// The test counts every result, so a slow reader must not lose one to
+	// the one-result bound.
+	config.LosslessResults = true
 	var appliedSequences []uint64
 	var appliedMu sync.Mutex
 	readyToEnqueue := make(chan struct{})

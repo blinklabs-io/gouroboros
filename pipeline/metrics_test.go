@@ -260,6 +260,13 @@ func runPipeline(
 		for range p.Errors() {
 		}
 	})
+	// Header-only and trusted decode-only Results are lossless, so committing
+	// waits for a reader.
+	drained.Go(func() {
+		for item := range p.Results() {
+			item.Release()
+		}
+	})
 
 	for i := range count {
 		tip := createTestTip(uint64(1000+i), uint64(i))
@@ -268,12 +275,9 @@ func runPipeline(
 			p.Submit(ctx, blockType, rawCbor, tip),
 		)
 	}
-	// Results are optional and bounded, so completion is read from Fence
-	// rather than by counting results.
+	// Completion is read from Fence rather than by counting results, which
+	// a pipeline with an ApplyFunc may drop.
 	require.NoError(t, p.Fence(ctx), "timed out waiting for pipeline results")
-	for _, item := range p.DrainResults() {
-		item.Release()
-	}
 	require.NoError(t, p.Stop())
 	drained.Wait()
 	return p.Stats()

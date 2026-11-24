@@ -140,3 +140,53 @@ func TestLosslessResultsStopWithoutReader(t *testing.T) {
 		t.Fatal("Stop waited for a Results reader")
 	}
 }
+
+// Header-only and trusted decode-only pipelines have no ApplyFunc, so Results
+// is their only output and must not drop a committed block for a slow reader,
+// even without WithLosslessResults.
+func TestDecodeOnlyResultsAreLosslessByDefault(t *testing.T) {
+	const blocks = 8
+	shelley := getValidShelleyBlock(t)
+	modes := map[string][]PipelineOption{
+		"trusted decode-only": {WithTrustedDecodeOnly()},
+		"header-only": {
+			WithHeaderOnly(),
+			WithValidateWorkers(1),
+			WithBlockTypeResolver(resolveTestBlockType),
+			WithEta0Provider(StaticEta0Provider(shelleyBlockEta0)),
+			WithSlotsPerKesPeriod(129600),
+		},
+	}
+	for name, opts := range modes {
+		t.Run(name, func(t *testing.T) {
+			p := NewBlockPipeline(append(opts, WithPrefetchBufferSize(1))...)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			require.NoError(t, p.Start(ctx))
+			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+
+			go func() {
+				for range blocks {
+					if p.Submit(
+						ctx, shelley.BlockType, shelley.Cbor, createTestTip(1000, 500),
+					) != nil {
+						return
+					}
+				}
+			}()
+			// Let a dropping pipeline commit and drop before reading.
+			time.Sleep(300 * time.Millisecond)
+			for want := range uint64(blocks) {
+				select {
+				case item := <-p.Results():
+					require.Equal(t, want, item.SequenceNumber(),
+						"a committed block was not delivered")
+					item.Release()
+				case <-time.After(2 * time.Second):
+					t.Fatalf("result %d never delivered", want)
+				}
+			}
+			require.Zero(t, p.Stats().ResultsDropped)
+		})
+	}
+}

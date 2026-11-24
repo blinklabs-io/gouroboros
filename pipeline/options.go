@@ -76,8 +76,9 @@ type PipelineConfig struct {
 	// WaitForDrain) waits for the reader once PrefetchBufferSize results or
 	// MaxRawCborBytes of their CBOR are undelivered. Without it, reading
 	// Results is optional and a reader that falls that far behind loses the
-	// oldest undelivered results. Either way, delivery is not guaranteed
-	// after Stop begins.
+	// oldest undelivered results. HeaderOnly and TrustedDecodeOnly, which have
+	// no ApplyFunc, are always lossless. Either way, delivery is not
+	// guaranteed after Stop begins.
 	LosslessResults bool
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
 	// This is required for VRF validation since the epoch nonce changes every epoch.
@@ -137,6 +138,8 @@ func DefaultPipelineConfig() PipelineConfig {
 // WithTrustedDecodeOnly configures the pipeline to decode blocks and return
 // them through Results without validation or application. It is intended for
 // trusted persisted data whose consumer performs validation separately.
+// Results is lossless in this mode, as with WithLosslessResults: committing
+// waits for the reader, so the caller must read Results or call Stop.
 func WithTrustedDecodeOnly() PipelineOption {
 	return func(c *PipelineConfig) {
 		c.TrustedDecodeOnly = true
@@ -147,6 +150,8 @@ func WithTrustedDecodeOnly() PipelineOption {
 // validator. It must not be used directly on untrusted peer input.
 // Header cryptography, body integrity, and authoritative era resolution remain
 // mandatory; Results do not certify transaction or chain-state validity.
+// Results is lossless in this mode, as with WithLosslessResults: committing
+// waits for the reader, so the caller must read Results or call Stop.
 func WithHeaderOnly() PipelineOption {
 	return func(c *PipelineConfig) { c.HeaderOnly = true }
 }
@@ -219,8 +224,9 @@ func WithValidateWorkers(n int) PipelineOption {
 
 // WithLosslessResults makes Results deliver every committed block, with
 // committing waiting for the reader instead of dropping undelivered results.
-// Use it when Results is how the caller receives decoded blocks, as in
-// trusted decode-only mode, where no ApplyFunc runs.
+// Use it when Results is how the caller receives decoded blocks alongside an
+// ApplyFunc. Header-only and trusted decode-only modes, where no ApplyFunc
+// runs, are always lossless.
 func WithLosslessResults() PipelineOption {
 	return func(c *PipelineConfig) {
 		c.LosslessResults = true
@@ -249,8 +255,10 @@ func WithMaxPendingBlocks(n int) PipelineOption {
 }
 
 // WithMaxRawCborBytes sets the aggregate in-flight block CBOR byte budget.
-// A result stays charged until the consumer receives it; this limit does not
-// account for results retained by callers afterwards. Zero selects
+// A block stays charged from admission until it is handed to Results;
+// committed results awaiting a Results reader are bounded separately by the same number
+// of bytes. The limit does not account for results retained by callers after
+// they receive them. Zero selects
 // DefaultMaxRawCborBytes.
 func WithMaxRawCborBytes(maxBytes uint64) PipelineOption {
 	return func(c *PipelineConfig) {
