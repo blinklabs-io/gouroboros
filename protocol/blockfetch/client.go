@@ -63,6 +63,15 @@ var ErrRangeBlockLimit = errors.New("block-fetch range block limit exceeded")
 // for one range request.
 var ErrRangeByteLimit = errors.New("block-fetch range byte limit exceeded")
 
+// ErrStoppedWithoutDone is reported on the protocol's error channel when
+// Client.Stop stops the protocol without delivering MsgClientDone, because a
+// range was still outstanding. The server may still answer the abandoned
+// ranges, so the block-fetch state on the connection is no longer known: the
+// connection must be closed, and Client.Start does not start the client again.
+var ErrStoppedWithoutDone = errors.New(
+	"block-fetch stopped before MsgClientDone was delivered",
+)
+
 // ErrRangeTimeout is returned when a range exceeds its total lifetime.
 var ErrRangeTimeout = errors.New("block-fetch range total deadline exceeded")
 
@@ -170,6 +179,11 @@ type Client struct {
 	protoStarted    bool // Whether Protocol.Start() was called
 	pipelineCtx     context.Context
 	pipelineCancel  context.CancelFunc
+	// stoppedWithoutDone is set, under lifecycleMutex, when Stop reported
+	// ErrStoppedWithoutDone. The server may still answer the abandoned
+	// ranges, so Start must not register a new instance on this connection.
+	stoppedWithoutDone bool
+
 	// queueMutex protects the outstanding request queue and the in-flight
 	// byte accounting.
 	queueMutex    sync.Mutex
@@ -383,6 +397,10 @@ func (c *Client) Start() {
 			continue
 
 		case clientStateStopped, clientStateNew:
+			if c.stoppedWithoutDone {
+				c.lifecycleMutex.Unlock()
+				return
+			}
 			// We will be the goroutine that performs initialization/start.
 			prevState := c.lifecycleState
 			c.lifecycleState = clientStateStarting
@@ -522,6 +540,20 @@ func (c *Client) Stop() error {
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
+		}
+		if sendErr != nil {
+			// MsgClientDone is legal only in StIdle, so it is still queued
+			// behind an outstanding range or was not written. The server
+			// keeps that range's state and may yet answer it, which a
+			// protocol instance started on this connection would receive in
+			// StIdle. Report the error before stopping, while SendError
+			// still reaches the error channel, so the connection is closed.
+			// The connection closes on its own goroutine, so Start also
+			// refuses to restart in the meantime.
+			c.stoppedWithoutDone = true
+			c.SendError(
+				fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr),
+			)
 		}
 	}
 
