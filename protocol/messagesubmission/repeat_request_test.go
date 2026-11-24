@@ -37,13 +37,13 @@ func TestClientRefusesRepeatedMessageRequest(t *testing.T) {
 	client.pendingMessageIDs = [][]byte{id, otherID}
 
 	require.NoError(t, client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{id}),
+		NewMsgRequestMessages(client.protoVersion, [][]byte{id}),
 	))
 	// The application has answered the first request.
 	client.pendingMsgRequest = nil
 
 	err := client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{otherID, id}),
+		NewMsgRequestMessages(client.protoVersion, [][]byte{otherID, id}),
 	)
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
 	require.Equal(t, 1, calls)
@@ -66,19 +66,19 @@ func TestV1ClientServesRepeatedMessageRequest(t *testing.T) {
 	client.pendingMessageIDs = [][]byte{id, otherID}
 
 	require.NoError(t, client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{id}),
+		NewMsgRequestMessages(client.protoVersion, [][]byte{id}),
 	))
 	client.pendingMsgRequest = nil
 
 	require.NoError(t, client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{otherID, id}),
+		NewMsgRequestMessages(client.protoVersion, [][]byte{otherID, id}),
 	))
 	require.Equal(t, 2, calls)
 
 	// A repeat within one request is still refused, as the reference does.
 	client.pendingMsgRequest = nil
 	err := client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{id, id}),
+		NewMsgRequestMessages(client.protoVersion, [][]byte{id, id}),
 	)
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
 }
@@ -127,6 +127,7 @@ func TestServerMayRequestReannouncedID(t *testing.T) {
 	}
 	server.lock.Unlock()
 	require.NoError(t, server.handleReplyMessageIds(NewMsgReplyMessageIds(
+		server.protoVersion,
 		[]pcommon.MessageIDAndSize{{MessageID: id, SizeInBytes: 1}},
 	)))
 
@@ -148,3 +149,4 @@ func TestServerUnsentRequestReleasesItsIDs(t *testing.T) {
 	defer server.lock.Unlock()
 	require.Empty(t, server.requestedIDs)
 }
+

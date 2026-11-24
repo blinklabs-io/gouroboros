@@ -31,28 +31,52 @@ const modelViolation = "Violation"
 type modelKind string
 
 const (
-	kindInit                  modelKind = "MsgInit"
-	kindRequestIdsBlocking    modelKind = "MsgRequestMessageIdsBlocking"
-	kindRequestIdsNonBlocking modelKind = "MsgRequestMessageIdsNonBlocking"
-	kindReplyIds              modelKind = "MsgReplyMessageIds"
-	kindRequestMessages       modelKind = "MsgRequestMessages"
-	kindReplyMessages         modelKind = "MsgReplyMessages"
-	kindDone                  modelKind = "MsgDone"
+	modelInit                  modelKind = "MsgInit"
+	modelRequestIdsBlocking    modelKind = "MsgRequestMessageIdsBlocking"
+	modelRequestIdsNonBlocking modelKind = "MsgRequestMessageIdsNonBlocking"
+	modelReplyIds              modelKind = "MsgReplyMessageIds"
+	modelReplyNoIds            modelKind = "MsgReplyNoMessageIds"
+	modelRequestMessages       modelKind = "MsgRequestMessages"
+	modelReplyMessages         modelKind = "MsgReplyMessages"
+	modelDone                  modelKind = "MsgDone"
 )
 
 var modelKinds = []modelKind{
-	kindInit,
-	kindRequestIdsBlocking,
-	kindRequestIdsNonBlocking,
-	kindReplyIds,
-	kindRequestMessages,
-	kindReplyMessages,
-	kindDone,
+	modelInit,
+	modelRequestIdsBlocking,
+	modelRequestIdsNonBlocking,
+	modelReplyIds,
+	modelReplyNoIds,
+	modelRequestMessages,
+	modelReplyMessages,
+	modelDone,
 }
 
-// modelSide names who holds agency in a state of the model. In gOuroboros
-// the outbound side, which has the messages, is the Client and the inbound
-// side, which asks for them, is the Server, in both versions.
+// kinds is the kinds of message the version has. MsgInit exists only in V1
+// and MsgReplyNoMessageIds only in V2; each reuses a tag of the other
+// version (6 is V2's MsgDone, 3 is V1's MsgReplyMessages), so a cell for a
+// message the version lacks would test a different message.
+func (v modelVersion) kinds() []modelKind {
+	ret := make([]modelKind, 0, len(modelKinds))
+	for _, kind := range modelKinds {
+		if kind == modelInit && v.initiator == sideInbound {
+			continue
+		}
+		if kind == modelReplyNoIds && v.initiator == sideOutbound {
+			continue
+		}
+		ret = append(ret, kind)
+	}
+	return ret
+}
+
+// modelSide names who holds agency in a state of the model: the outbound
+// side has the messages and the inbound side asks for them. In gOuroboros
+// the outbound side is the Client type and the inbound side the Server type
+// in both versions, but the initiator differs: the outbound side in V1
+// (tx-submission's shape) and the inbound side in V2 (dmq-node's
+// SigSubmissionV2), so the StateMap's AgencyClient means the outbound side
+// in V1 and the inbound side in V2.
 type modelSide int
 
 const (
@@ -68,6 +92,8 @@ const (
 // is not allowed there.
 type modelVersion struct {
 	name        string
+	version     uint16
+	initiator   modelSide
 	stateMap    protocol.StateMap
 	agency      map[protocol.State]modelSide
 	transitions map[protocol.State]map[modelKind]protocol.State
@@ -77,8 +103,10 @@ var modelVersions = []modelVersion{
 	{
 		// V1 is tx-submission's shape: the outbound opens with MsgInit and
 		// may end the run only instead of answering a blocking request.
-		name:     "V1",
-		stateMap: stateMapV1,
+		name:      "V1",
+		version:   protocol.ProtocolVersionDMQNtN1,
+		initiator: sideOutbound,
+		stateMap:  stateMapV1,
 		agency: map[protocol.State]modelSide{
 			protocolStateInit:             sideOutbound,
 			protocolStateIdle:             sideInbound,
@@ -88,27 +116,28 @@ var modelVersions = []modelVersion{
 			protocolStateDone:             sideNobody,
 		},
 		transitions: map[protocol.State]map[modelKind]protocol.State{
-			protocolStateInit: {kindInit: protocolStateIdle},
+			protocolStateInit: {modelInit: protocolStateIdle},
 			protocolStateIdle: {
-				kindRequestIdsBlocking:    protocolStateMessageIdsBlock,
-				kindRequestIdsNonBlocking: protocolStateMessageIdsNonBlk,
-				kindRequestMessages:       protocolStateMessages,
+				modelRequestIdsBlocking:    protocolStateMessageIdsBlock,
+				modelRequestIdsNonBlocking: protocolStateMessageIdsNonBlk,
+				modelRequestMessages:       protocolStateMessages,
 			},
 			protocolStateMessageIdsBlock: {
-				kindReplyIds: protocolStateIdle,
-				kindDone:     protocolStateDone,
+				modelReplyIds: protocolStateIdle,
+				modelDone:     protocolStateDone,
 			},
-			protocolStateMessageIdsNonBlk: {kindReplyIds: protocolStateIdle},
-			protocolStateMessages:         {kindReplyMessages: protocolStateIdle},
+			protocolStateMessageIdsNonBlk: {modelReplyIds: protocolStateIdle},
+			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
 	},
 	{
-		// V2 has no StInit, and the inbound side ends the run from StIdle.
-		// dmq-node's V2 also lets the outbound answer a blocking request
-		// with MsgReplyNoSigIds; gOuroboros has no such message, a recorded
-		// difference, so it is not a cell here.
-		name:     "V2",
-		stateMap: stateMapV2,
+		// V2 has no StInit, and the inbound side, the initiator, ends the
+		// run from StIdle. The outbound side may answer a blocking request
+		// with MsgReplyNoMessageIds (dmq-node's MsgReplyNoSigIds).
+		name:      "V2",
+		version:   protocol.ProtocolVersionDMQNtN2,
+		initiator: sideInbound,
+		stateMap:  stateMapV2,
 		agency: map[protocol.State]modelSide{
 			protocolStateIdle:             sideInbound,
 			protocolStateMessageIdsBlock:  sideOutbound,
@@ -118,16 +147,27 @@ var modelVersions = []modelVersion{
 		},
 		transitions: map[protocol.State]map[modelKind]protocol.State{
 			protocolStateIdle: {
-				kindRequestIdsBlocking:    protocolStateMessageIdsBlock,
-				kindRequestIdsNonBlocking: protocolStateMessageIdsNonBlk,
-				kindRequestMessages:       protocolStateMessages,
-				kindDone:                  protocolStateDone,
+				modelRequestIdsBlocking:    protocolStateMessageIdsBlock,
+				modelRequestIdsNonBlocking: protocolStateMessageIdsNonBlk,
+				modelRequestMessages:       protocolStateMessages,
+				modelDone:                  protocolStateDone,
 			},
-			protocolStateMessageIdsBlock:  {kindReplyIds: protocolStateIdle},
-			protocolStateMessageIdsNonBlk: {kindReplyIds: protocolStateIdle},
-			protocolStateMessages:         {kindReplyMessages: protocolStateIdle},
+			protocolStateMessageIdsBlock: {
+				modelReplyIds:   protocolStateIdle,
+				modelReplyNoIds: protocolStateIdle,
+			},
+			protocolStateMessageIdsNonBlk: {modelReplyIds: protocolStateIdle},
+			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
 	},
+}
+
+// responder is the side that is not the version's initiator.
+func (v modelVersion) responder() modelSide {
+	if v.initiator == sideOutbound {
+		return sideInbound
+	}
+	return sideOutbound
 }
 
 // modelReceive is what role does with a message of kind from its peer in
@@ -141,9 +181,9 @@ func (v modelVersion) modelReceive(
 	state protocol.State,
 	kind modelKind,
 ) string {
-	peer := sideInbound
+	peer := v.responder()
 	if role == protocol.ProtocolRoleServer {
-		peer = sideOutbound
+		peer = v.initiator
 	}
 	if v.agency[state] != peer {
 		return modelViolation
@@ -155,22 +195,24 @@ func (v modelVersion) modelReceive(
 	return next.String()
 }
 
-func modelMessage(kind modelKind) protocol.Message {
+func modelMessage(version uint16, kind modelKind) protocol.Message {
 	switch kind {
-	case kindInit:
+	case modelInit:
 		return NewMsgInit()
-	case kindRequestIdsBlocking:
-		return NewMsgRequestMessageIds(true, 0, 1)
-	case kindRequestIdsNonBlocking:
-		return NewMsgRequestMessageIds(false, 1, 1)
-	case kindReplyIds:
-		return NewMsgReplyMessageIds(nil)
-	case kindRequestMessages:
-		return NewMsgRequestMessages(nil)
-	case kindReplyMessages:
-		return NewMsgReplyMessages(nil)
+	case modelRequestIdsBlocking:
+		return NewMsgRequestMessageIds(version, true, 0, 1)
+	case modelRequestIdsNonBlocking:
+		return NewMsgRequestMessageIds(version, false, 1, 1)
+	case modelReplyIds:
+		return NewMsgReplyMessageIds(version, nil)
+	case modelReplyNoIds:
+		return NewMsgReplyNoMessageIds()
+	case modelRequestMessages:
+		return NewMsgRequestMessages(version, nil)
+	case modelReplyMessages:
+		return NewMsgReplyMessages(version, nil)
 	default:
-		return NewMsgDone()
+		return NewMsgDone(version)
 	}
 }
 
@@ -180,13 +222,13 @@ func modelMessage(kind modelKind) protocol.Message {
 // accept the message.
 func stateMapReceive(
 	t *testing.T,
-	stateMap protocol.StateMap,
+	v modelVersion,
 	role protocol.ProtocolRole,
 	state protocol.State,
 	kind modelKind,
 ) string {
 	t.Helper()
-	entry, ok := stateMap[state]
+	entry, ok := v.stateMap[state]
 	require.True(t, ok, "StateMap has no entry for %s", state)
 	peerAgency := protocol.AgencyServer
 	if role == protocol.ProtocolRoleServer {
@@ -195,7 +237,7 @@ func stateMapReceive(
 	if entry.Agency != peerAgency {
 		return modelViolation
 	}
-	msg := modelMessage(kind)
+	msg := modelMessage(v.version, kind)
 	for _, transition := range entry.Transitions {
 		if transition.MsgType != msg.Type() {
 			continue
@@ -247,9 +289,9 @@ func TestStateMapMatchesModel(t *testing.T) {
 		)
 		for state, side := range v.agency {
 			want := map[modelSide]protocol.ProtocolStateAgency{
-				sideNobody:   protocol.AgencyNone,
-				sideOutbound: protocol.AgencyClient,
-				sideInbound:  protocol.AgencyServer,
+				sideNobody:    protocol.AgencyNone,
+				v.initiator:   protocol.AgencyClient,
+				v.responder(): protocol.AgencyServer,
 			}[side]
 			require.Equal(t, want, v.stateMap[state].Agency,
 				"%s agency in %s", v.name, state)
@@ -258,14 +300,14 @@ func TestStateMapMatchesModel(t *testing.T) {
 		}
 		for _, role := range roles {
 			for state := range v.agency {
-				for _, kind := range modelKinds {
+				for _, kind := range v.kinds() {
 					name := fmt.Sprintf("%s/%s/in%s/%s",
 						v.name, modelRoleName(role), state, kind)
 					t.Run(name, func(t *testing.T) {
 						require.Equal(
 							t,
 							v.modelReceive(role, state, kind),
-							stateMapReceive(t, v.stateMap, role, state, kind),
+							stateMapReceive(t, v, role, state, kind),
 						)
 					})
 				}
@@ -294,7 +336,7 @@ func TestDoneIsEnteredOnlyAsModelled(t *testing.T) {
 					continue
 				}
 				require.Equal(t, doneFrom[v.name], state, v.name)
-				require.Equal(t, uint8(MessageTypeDone), transition.MsgType)
+				require.Equal(t, wireTag(v.version, kindDone), transition.MsgType)
 			}
 		}
 	}
