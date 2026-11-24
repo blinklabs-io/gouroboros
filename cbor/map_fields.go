@@ -27,13 +27,20 @@ import (
 // entries that actually decode.
 const rawMapPresizePairs = 32
 
+// RawMapKey lists the key types DecodeRawMap accepts. Every one is hashable
+// whatever its value, so a decoded key can always index the result.
+type RawMapKey interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~string
+}
+
 // DecodeRawMap decodes the CBOR map at the start of data into a map of
 // undecoded values, applying the same well-formedness, collection limit, and
 // duplicate-key rules as DecodeLedgerMap. It returns the map and the number of
 // bytes read. A CBOR null yields a nil map. It stops at the first key that does
 // not decode as K, so memory grows only with entries that decode, never with
 // the pair count the input declares.
-func DecodeRawMap[K comparable](data []byte) (map[K]RawMessage, int, error) {
+func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
 	count, headerSize, indefinite := MapInfo(data)
 	if count < 0 {
 		// Without a map head there is no pair count to size from, so the
