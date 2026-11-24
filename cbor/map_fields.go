@@ -17,7 +17,68 @@ package cbor
 import (
 	"errors"
 	"fmt"
+
+	_cbor "github.com/fxamacker/cbor/v2"
 )
+
+// DecodeRawMap decodes the CBOR map at the start of data into a map of
+// undecoded values, applying the same well-formedness, collection limit, and
+// duplicate-key rules as DecodeLedgerMap. It returns the map and the number of
+// bytes read. A CBOR null yields a nil map. It stops at the first key that does
+// not decode as K, so memory grows only with entries that decode, never with
+// the pair count the input declares.
+func DecodeRawMap[K comparable](data []byte) (map[K]RawMessage, int, error) {
+	count, headerSize, indefinite := MapInfo(data)
+	if count < 0 {
+		// Without a map head there is no pair count to size from, so the
+		// full decoder can report null, another type, or a bad head.
+		var fields map[K]RawMessage
+		n, err := DecodeLedgerMap(data, &fields)
+		if err != nil {
+			return nil, 0, err
+		}
+		return fields, n, nil
+	}
+	decMode, err := getDecMode()
+	if err != nil {
+		return nil, 0, err
+	}
+	if decMode == nil {
+		return nil, 0, errors.New("CBOR decoder mode not initialized")
+	}
+	// Decoding into a Go map would not do: fxamacker sizes a nil map from
+	// the declared count, and on a bad key records an error per pair and
+	// keeps walking. Validating the whole item first keeps the limits a full
+	// decode applies, and lets the walk below index without bounds checks.
+	var item listItem
+	rest, err := decMode.UnmarshalFirst(data, &item)
+	if err != nil {
+		return nil, 0, err
+	}
+	n := len(data) - len(rest)
+	fields := map[K]RawMessage{}
+	pos := int(headerSize)
+	for i := 0; indefinite || i < count; i++ {
+		if indefinite && data[pos] == 0xff {
+			break
+		}
+		var key K
+		if rest, err = decMode.UnmarshalFirst(data[pos:n], &key); err != nil {
+			return nil, 0, err
+		}
+		pos = n - len(rest)
+		var value RawMessage
+		if rest, err = decMode.UnmarshalFirst(data[pos:n], &value); err != nil {
+			return nil, 0, err
+		}
+		pos = n - len(rest)
+		if _, found := fields[key]; found {
+			return nil, 0, &_cbor.DupMapKeyError{Key: key, Index: i}
+		}
+		fields[key] = value
+	}
+	return fields, n, nil
+}
 
 // ValidateMapFields checks required integer keys and rejects explicitly empty
 // array, map, or set values for selected fields in a CBOR map.
@@ -26,8 +87,8 @@ func ValidateMapFields(
 	requiredKeys []uint64,
 	nonEmptyKeys []uint64,
 ) error {
-	var fields map[uint64]RawMessage
-	if _, err := DecodeLedgerMap(data, &fields); err != nil {
+	fields, _, err := DecodeRawMap[uint64](data)
+	if err != nil {
 		return fmt.Errorf("decode CBOR integer-keyed map: %w", err)
 	}
 	for _, key := range requiredKeys {

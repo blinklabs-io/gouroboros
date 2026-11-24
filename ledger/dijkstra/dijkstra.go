@@ -1302,8 +1302,8 @@ func (b *DijkstraTransactionBody) UnmarshalCBOR(cborData []byte) error {
 			return fmt.Errorf("collateral return: %w", err)
 		}
 	}
-	var rawFields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &rawFields); err != nil {
+	rawFields, _, err := cbor.DecodeRawMap[uint64](cborData)
+	if err != nil {
 		return err
 	}
 	if _, ok := rawFields[23]; ok {

@@ -133,8 +133,7 @@ func transactionBodyFieldPresent(cborData []byte, field uint) bool {
 	if len(cborData) == 0 {
 		return false
 	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err == nil {
+	if bodyFields, _, err := cbor.DecodeRawMap[uint](cborData); err == nil {
 		_, present := bodyFields[field]
 		return present
 	}
@@ -143,7 +142,8 @@ func transactionBodyFieldPresent(cborData []byte, field uint) bool {
 		len(txFields) == 0 {
 		return false
 	}
-	if _, err := cbor.DecodeLedgerMap(txFields[0], &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](txFields[0])
+	if err != nil {
 		return false
 	}
 	_, present := bodyFields[field]
@@ -376,8 +376,8 @@ func ValidateMapFields(
 	unsupportedFields []uint,
 	positiveFields ...uint,
 ) error {
-	var fields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint](cborData)
+	if err != nil {
 		return err
 	}
 	for _, field := range requiredFields {
@@ -456,8 +456,8 @@ func (b *TransactionBodyBase) SetCborReference(cborData []byte) {
 func decodeTransactionBodyFieldPresence(
 	cborData []byte,
 ) (transactionBodyFieldPresence, error) {
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](cborData)
+	if err != nil {
 		return transactionBodyFieldPresence{}, err
 	}
 	_, upperBoundPresent := bodyFields[3]

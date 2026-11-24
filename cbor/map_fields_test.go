@@ -15,6 +15,9 @@
 package cbor_test
 
 import (
+	"bytes"
+	"encoding/binary"
+	"runtime"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -63,4 +66,37 @@ func TestValidateMapFields(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, cbor.ValidateMapFields(data, nil, []uint64{4}))
 	})
+}
+
+// Not t.Parallel: measures process-wide allocation via runtime.MemStats.
+func TestValidateMapFieldsRejectsBadKeysWithoutSizingMap(t *testing.T) {
+	const pairs = 50_000
+	// Map header declaring pairs entries, each an empty byte string key and
+	// a zero value: well-formed, but no key decodes as an integer.
+	data := []byte{0xba, 0, 0, 0, 0}
+	binary.BigEndian.PutUint32(data[1:], pairs)
+	data = append(data, bytes.Repeat([]byte{0x40, 0x00}, pairs)...)
+
+	validate := func() {
+		require.Error(t, cbor.ValidateMapFields(data, nil, nil))
+	}
+	validate()
+
+	const runs = 5
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	for range runs {
+		validate()
+	}
+	runtime.ReadMemStats(&after)
+	perRun := (after.TotalAlloc - before.TotalAlloc) / runs
+	require.Less(
+		t,
+		perRun,
+		uint64(len(data)),
+		"ValidateMapFields allocated %d bytes per call for %d input bytes",
+		perRun,
+		len(data),
+	)
 }
