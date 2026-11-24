@@ -61,7 +61,7 @@ The LocalTxSubmission protocol submits transactions to the local node's mempool.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Submit Timeout | 30 seconds | Time to process transaction |
+| Submit Timeout | none | Time to process transaction. The node holds a submission while its mempool is full, so there is no default; `WithTimeout` sets one |
 
 ## Configuration Options
 

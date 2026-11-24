@@ -315,7 +315,7 @@ applies the configured operation timeout where indicated:
 | Local State Query | Querying | 180 seconds |
 | Local Tx Monitor | Acquiring | 5 seconds |
 | Local Tx Monitor | Busy queries | 30 seconds |
-| Local Tx Submission | Busy submit | 30 seconds |
+| Local Tx Submission | Busy submit | none (set one with `WithTimeout`) |
 
 The local protocols have no additional queue, pipeline, or pending-message
 byte limits in their state maps. A Local Message Notification client bounds

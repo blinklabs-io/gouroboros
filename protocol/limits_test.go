@@ -744,15 +744,11 @@ func TestProtocolStateTimeouts(t *testing.T) {
 	})
 
 	t.Run("LocalTxSubmission timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification,
+		// and a node holds a submission while its mempool is full.
 		cfg := localtxsubmission.NewConfig()
-		if cfg.Timeout <= 0 {
-			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
-		}
-		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
-			t.Errorf(
-				"Timeout should be between 1 second and 1 hour, got %v",
-				cfg.Timeout,
-			)
+		if cfg.Timeout != 0 {
+			t.Errorf("Timeout should default to none, got %v", cfg.Timeout)
 		}
 	})
 
