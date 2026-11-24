@@ -86,7 +86,7 @@ func TestServerAnswersPipelinedRequestNext(t *testing.T) {
 
 	voteData, err := cbor.Encode(NewMsgVote(testVote()))
 	require.NoError(t, err)
-	var stream []byte
+	stream := make([]byte, 0, 3*len(voteData))
 	for len(stream) < 3*len(voteData) {
 		select {
 		case err := <-errs:
