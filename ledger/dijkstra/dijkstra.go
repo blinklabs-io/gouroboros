@@ -1433,6 +1433,17 @@ func (b DijkstraTransactionBody) MarshalCBOR() ([]byte, error) {
 	)
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *DijkstraTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
+}
+
 func validateDijkstraCertificateTypes(
 	certificates []common.CertificateWrapper,
 ) error {
@@ -1821,6 +1832,17 @@ func (b DijkstraSubTransactionBody) MarshalCBOR() ([]byte, error) {
 	)
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *DijkstraSubTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
+}
+
 func (b *DijkstraSubTransactionBody) Inputs() []common.TransactionInput {
 	return dijkstraTransactionInputs(b.TxInputs.Items())
 }
@@ -2149,6 +2171,17 @@ func (t DijkstraTransaction) Id() common.Blake2b256 {
 	// Atomic cache operations can make their receiver escape. Limit that
 	// allocation to the embedded base rather than the whole transaction.
 	body := t.Body.TransactionBodyBase
+	if body.Cbor() == nil {
+		return encodedDijkstraTransactionBodyId(t.Body)
+	}
+	return body.Id()
+}
+
+// encodedDijkstraTransactionBodyId hashes a body with no stored CBOR. It takes
+// its own copy so that only this rarely used path lets a body escape.
+func encodedDijkstraTransactionBodyId(
+	body DijkstraTransactionBody,
+) common.Blake2b256 {
 	return body.Id()
 }
 
