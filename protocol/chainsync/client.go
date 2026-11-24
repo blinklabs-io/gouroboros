@@ -275,6 +275,10 @@ func (c *Client) endOperation() {
 	}
 }
 
+// Start starts the client, or restarts it after Stop or StopAfterDrain with a
+// new protocol instance on the same connection. After a Stop that gave up on
+// the connection (see Stop), Start does nothing: the server may still answer
+// the abandoned requests, and the connection is being closed.
 func (c *Client) Start() {
 	for {
 		c.lifecycleMutex.Lock()
@@ -393,6 +397,16 @@ func (c *Client) Start() {
 // After waiting for any busy operation, it allows up to 250ms for delivery.
 // Delivery errors are returned after shutdown; an already shutting-down
 // protocol is treated as successfully stopped.
+//
+// MsgDone is legal only once every request has been answered. If a reply is
+// still owed when the 250ms run out, as at the chain tip after
+// MsgAwaitReply, the server may still send it, so Stop gives up on the
+// connection: it reports ErrStoppedWithoutDone on the protocol's error
+// channel, stops the muxer, which closes the connection, and leaves the
+// client so that Start does not start it again. The return value is then
+// the delivery error, such as context.DeadlineExceeded, not
+// ErrStoppedWithoutDone. Use StopAfterDrain to stop and later restart on the
+// same connection.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	switch c.lifecycleState {
