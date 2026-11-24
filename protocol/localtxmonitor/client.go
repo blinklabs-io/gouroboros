@@ -17,6 +17,7 @@ package localtxmonitor
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -54,10 +55,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	stateCtx := &stateContext{}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[stateAcquiring]; ok {
-		entry.Timeout = c.config.AcquireTimeout
+		// MsgAwaitAcquire waits for the mempool to change, which may take
+		// any time, so only an acquire from Idle is timed.
+		acquireTimeout := c.config.AcquireTimeout
+		entry.TimeoutFunc = func() time.Duration {
+			if stateCtx.awaiting.Load() {
+				return 0
+			}
+			return acquireTimeout
+		}
 		stateMap[stateAcquiring] = entry
 	}
 	if entry, ok := stateMap[stateBusy]; ok {
@@ -75,7 +85,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateContext:        &stateContext{},
+		StateContext:        stateCtx,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
 	}
