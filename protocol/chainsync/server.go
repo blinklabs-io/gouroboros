@@ -35,6 +35,9 @@ type Server struct {
 	// stopped is set by Stop under protocolMu. initProtocol checks it under
 	// the same lock, so a restart racing with Stop installs no new instance.
 	stopped bool
+	// restartHook is test-only synchronization for a Stop that lands after
+	// StopForRestart and before the restart installs a new instance.
+	restartHook func()
 }
 
 // NewServer returns a new ChainSync server object
@@ -330,6 +333,9 @@ func (s *Server) handleDone() {
 	// Restart protocol
 	old := s.ProtocolInstance()
 	old.StopForRestart()
+	if s.restartHook != nil {
+		s.restartHook()
+	}
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return
