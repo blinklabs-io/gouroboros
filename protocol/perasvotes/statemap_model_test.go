@@ -27,13 +27,6 @@ import (
 // torn down.
 const modelViolation = "Violation"
 
-// The reference's two messages gOuroboros does not implement, by their wire
-// tags (ObjectDiffusion/Codec.hs lines 164-171).
-const (
-	refMessageTypeServerIdle uint8 = 6
-	refMessageTypeAwaitReply uint8 = 7
-)
-
 var (
 	modelIDA = VoteID{RoundNo: 1, SeatIndex: 1}
 	modelIDB = VoteID{RoundNo: 1, SeatIndex: 2}
@@ -52,8 +45,14 @@ func noWindow(*testing.T, *stateContext) {}
 
 func oneOutstanding(t *testing.T, ctx *stateContext) {
 	t.Helper()
-	require.True(t, matchBlockingObjectIDsRequest(ctx, NewMsgRequestObjectIDs(true, 0, 1)))
-	require.True(t, matchReplyObjectIDs(ctx, NewMsgReplyObjectIDs([]VoteID{modelIDA})))
+	require.True(
+		t,
+		matchBlockingObjectIDsRequest(ctx, NewMsgRequestObjectIDs(true, 0, 1)),
+	)
+	require.True(
+		t,
+		matchReplyObjectIDs(ctx, NewMsgReplyObjectIDs([]VoteID{modelIDA})),
+	)
 }
 
 var (
@@ -63,25 +62,60 @@ var (
 	modelIDsBlocking = modelState{"ObjectIDsBlocking", StateObjectIDsBlocking,
 		func(t *testing.T, ctx *stateContext) {
 			t.Helper()
-			require.True(t, matchBlockingObjectIDsRequest(ctx, NewMsgRequestObjectIDs(true, 0, 1)))
+			require.True(
+				t,
+				matchBlockingObjectIDsRequest(
+					ctx,
+					NewMsgRequestObjectIDs(true, 0, 1),
+				),
+			)
 		}}
-	modelIDsNonBlocking = modelState{"ObjectIDsNonBlocking", StateObjectIDsNonBlocking,
+	modelIDsMustReply = modelState{
+		"ObjectIDsBlockingMustReply",
+		StateObjectIDsBlockingMustReply,
+		func(t *testing.T, ctx *stateContext) {
+			t.Helper()
+			require.True(
+				t,
+				matchBlockingObjectIDsRequest(
+					ctx,
+					NewMsgRequestObjectIDs(true, 0, 1),
+				),
+			)
+		},
+	}
+	modelIDsNonBlocking = modelState{
+		"ObjectIDsNonBlocking",
+		StateObjectIDsNonBlocking,
 		func(t *testing.T, ctx *stateContext) {
 			t.Helper()
 			oneOutstanding(t, ctx)
-			require.True(t, matchNonBlockingObjectIDsRequest(ctx, NewMsgRequestObjectIDs(false, 0, 1)))
-		}}
+			require.True(
+				t,
+				matchNonBlockingObjectIDsRequest(
+					ctx,
+					NewMsgRequestObjectIDs(false, 0, 1),
+				),
+			)
+		},
+	}
 	modelObjects = modelState{"Objects", StateObjects,
 		func(t *testing.T, ctx *stateContext) {
 			t.Helper()
 			oneOutstanding(t, ctx)
-			require.True(t, matchRequestObjects(ctx, NewMsgRequestObjects([]VoteID{modelIDA})))
+			require.True(
+				t,
+				matchRequestObjects(
+					ctx,
+					NewMsgRequestObjects([]VoteID{modelIDA}),
+				),
+			)
 		}}
 )
 
 var modelStates = []modelState{
 	modelInit, modelIdleEmpty, modelIdleOne,
-	modelIDsBlocking, modelIDsNonBlocking, modelObjects,
+	modelIDsBlocking, modelIDsMustReply, modelIDsNonBlocking, modelObjects,
 }
 
 // modelKind is a kind of message a peer can send.
@@ -132,9 +166,9 @@ func (k modelKind) message(t *testing.T) protocol.Message {
 	case kindReplyObjectsOther:
 		return NewMsgReplyObjects([]VoteObject{testVoteObject(t, modelIDB)})
 	case kindAwaitReply:
-		return &protocol.MessageBase{MessageType: refMessageTypeAwaitReply}
+		return NewMsgAwaitReply()
 	default:
-		return &protocol.MessageBase{MessageType: refMessageTypeServerIdle}
+		return NewMsgServerIdle()
 	}
 }
 
@@ -164,6 +198,7 @@ var modelReceive = map[protocol.ProtocolRole]map[string]map[modelKind]string{
 			kindDone:              "Done",
 		},
 		modelIDsBlocking.name:    {},
+		modelIDsMustReply.name:   {},
 		modelIDsNonBlocking.name: {},
 		modelObjects.name:        {},
 	},
@@ -175,6 +210,10 @@ var modelReceive = map[protocol.ProtocolRole]map[string]map[modelKind]string{
 			kindReplyIDs:   "Idle",
 			kindAwaitReply: "ObjectIDsBlockingMustReply",
 		},
+		modelIDsMustReply.name: {
+			kindReplyIDs:   "Idle",
+			kindServerIdle: "Idle",
+		},
 		modelIDsNonBlocking.name: {
 			kindReplyIDs:      "Idle",
 			kindReplyIDsEmpty: "Idle",
@@ -185,15 +224,11 @@ var modelReceive = map[protocol.ProtocolRole]map[string]map[modelKind]string{
 	},
 }
 
-// gouroborosDeviations are the cells where gOuroboros differs from the
-// reference, with what it does instead. It has no MsgAwaitReply or
-// MsgServerIdle and no MustReply state, so it refuses the reference
-// server's await in a blocking request's state.
-var gouroborosDeviations = map[string]string{
-	"client/inObjectIDsBlocking/AwaitReply": modelViolation,
-}
-
-func modelOutcome(role protocol.ProtocolRole, state modelState, kind modelKind) string {
+func modelOutcome(
+	role protocol.ProtocolRole,
+	state modelState,
+	kind modelKind,
+) string {
 	if outcome, ok := modelReceive[role][state.name][kind]; ok {
 		return outcome
 	}
@@ -249,15 +284,17 @@ func TestStateMapMatchesModel(t *testing.T) {
 		t,
 		[]protocol.State{
 			StateInit, StateIdle, StateObjectIDsBlocking,
-			StateObjectIDsNonBlocking, StateObjects, StateDone,
+			StateObjectIDsBlockingMustReply, StateObjectIDsNonBlocking,
+			StateObjects, StateDone,
 		},
 		stateMapStates(),
-		"StateMap must hold the reference states except MustReply",
+		"StateMap must hold the reference states",
 	)
 	require.Equal(t, protocol.AgencyClient, StateMap[StateInit].Agency)
 	require.Equal(t, protocol.AgencyClient, StateMap[StateIdle].Agency)
 	for _, state := range []protocol.State{
-		StateObjectIDsBlocking, StateObjectIDsNonBlocking, StateObjects,
+		StateObjectIDsBlocking, StateObjectIDsBlockingMustReply,
+		StateObjectIDsNonBlocking, StateObjects,
 	} {
 		require.Equal(t, protocol.AgencyServer, StateMap[state].Agency, state)
 	}
@@ -265,13 +302,19 @@ func TestStateMapMatchesModel(t *testing.T) {
 	for role := range modelReceive {
 		for _, state := range modelStates {
 			for _, kind := range modelKinds {
-				name := fmt.Sprintf("%s/in%s/%s", modelRoleName(role), state.name, kind)
+				name := fmt.Sprintf(
+					"%s/in%s/%s",
+					modelRoleName(role),
+					state.name,
+					kind,
+				)
 				t.Run(name, func(t *testing.T) {
 					want := modelOutcome(role, state, kind)
-					if deviation, ok := gouroborosDeviations[name]; ok {
-						want = deviation
-					}
-					require.Equal(t, want, stateMapReceive(t, role, state, kind))
+					require.Equal(
+						t,
+						want,
+						stateMapReceive(t, role, state, kind),
+					)
 				})
 			}
 		}

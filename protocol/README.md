@@ -112,6 +112,9 @@ Init → Idle → (request/reply cycle)
   five-field Peras V1 tuple, matching the consensus
   [vote ID](https://github.com/IntersectMBO/ouroboros-consensus/blob/7d630e8e54e7df7f694185f231be4b5c83b84388/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Peras/Types.hs)
   and [vote encoding](https://github.com/IntersectMBO/ouroboros-consensus/blob/7d630e8e54e7df7f694185f231be4b5c83b84388/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Peras/Vote/V1.hs).
+  A server with no vote for a blocking request sends `MsgAwaitReply`, then
+  IDs or `MsgServerIdle`; the client's `Sync` asks again after
+  `MsgServerIdle`.
   `WithPerasVotesConfig` advertises the Peras flag in node-to-node version 16,
   and protocol 17 starts only when the remote peer advertises the same
   capability. The existing `Vote` helper preserves CIP-0140 revision

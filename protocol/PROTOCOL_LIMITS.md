@@ -393,13 +393,19 @@ Nonpositive Leios Fetch range limits select the defaults.
 
 | State | Timeout | Pending bytes |
 | --- | ---: | ---: |
-| Init, Idle, ObjectIDsBlocking | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| Init, Idle | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlocking | 10 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlockingMustReply | 60 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
 | ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
 | Done | none | none |
 
 The outstanding object window defaults to 50 and can be configured up to
 1,000. The timeout is configurable and bounds non-blocking ID and object
-requests; blocking ID requests wait for an available vote.
+requests. A blocking ID request follows the reference's shortWait and
+longWait: within 10 seconds the server sends IDs or `MsgAwaitReply`, and
+within 60 seconds of that IDs or `MsgServerIdle`. The server waits up to
+`AwaitTimeout` (30 seconds by default, always below 60) for new IDs before
+it sends `MsgServerIdle`.
 
 ## Enforcement scope
 
