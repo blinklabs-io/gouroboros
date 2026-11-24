@@ -36,6 +36,8 @@ type Client struct {
 	onceStart       sync.Once
 	// scheduleHook is test-only synchronization for the shutdown race.
 	scheduleHook func()
+	// stopHook, when set by a test, runs in Stop once the timer is cleared.
+	stopHook func()
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -155,13 +157,20 @@ func (c *Client) startTimer() {
 // until ctx is done, in which case it returns ctx.Err() and shutdown still
 // proceeds.
 func (c *Client) Stop(ctx context.Context) error {
+	// Signal first: startTimer checks for shutdown under timerMutex, so a
+	// timer callback already running arms no timer once it is cleared.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.timerMutex.Lock()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
 	}
 	c.timerMutex.Unlock()
-	return c.Protocol.Stop(ctx)
+	if c.stopHook != nil {
+		c.stopHook()
+	}
+	return proto.Stop(ctx)
 }
 
 // messageHandler handles incoming protocol messages for the client.
