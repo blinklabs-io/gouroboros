@@ -270,3 +270,81 @@ func TestUtxoValidateCertificateDepositsFollowEarlierLevelEffects(
 		},
 	)
 }
+
+// TestUtxoValidateDelegationSeesEarlierLevelPoolRegistration covers the
+// governance view's PoolCurrentState: delegation decides registration from
+// it, so a pool an earlier level registered must be registered there too,
+// including a pool the wrapped state still reports with the retirement that
+// reaped it.
+func TestUtxoValidateDelegationSeesEarlierLevelPoolRegistration(
+	t *testing.T,
+) {
+	t.Parallel()
+	pool := common.PoolKeyHash{0x01}
+	stake := common.Credential{
+		CredType:   common.CredentialTypeAddrKeyHash,
+		Credential: common.Blake2b224{0x71},
+	}
+	reaped := uint64(5)
+	ledgerState := func(stale bool) common.LedgerState {
+		return mockledger.NewLedgerStateBuilder().
+			WithStakeRegistrations([]common.StakeRegistrationCertificate{
+				{StakeCredential: stake},
+			}).
+			WithPoolCurrentState(func(
+				operator common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if !stale || operator != pool {
+					return nil, nil, nil
+				}
+				return &common.PoolRegistrationCertificate{
+					Operator: pool,
+				}, &reaped, nil
+			}).
+			WithEpochForSlot(func(uint64) (uint64, error) {
+				return reaped, nil
+			}).
+			Build()
+	}
+	delegate := []common.CertificateWrapper{{
+		Type: uint(common.CertificateTypeStakeDelegation),
+		Certificate: &common.StakeDelegationCertificate{
+			CertType:        uint(common.CertificateTypeStakeDelegation),
+			StakeCredential: &stake,
+			PoolKeyHash:     pool,
+		},
+	}}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = 12
+	for _, tc := range []struct {
+		name  string
+		stale bool
+	}{
+		{name: "new pool", stale: false},
+		{name: "reaped pool registered again", stale: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tx := crossLevelTx(
+				DijkstraSubTransactionBody{
+					TxCertificates: []common.CertificateWrapper{
+						crossLevelPoolCert(t, 0x01, 0xaa),
+					},
+				},
+				DijkstraTransactionBody{TxCertificates: delegate},
+			)
+			require.NoError(
+				t,
+				UtxoValidateDelegation(tx, 0, ledgerState(tc.stale), pp),
+			)
+			var unregistered conway.DelegateToUnregisteredPoolError
+			require.ErrorAs(t, UtxoValidateDelegation(
+				crossLevelTx(
+					DijkstraSubTransactionBody{},
+					DijkstraTransactionBody{TxCertificates: delegate},
+				),
+				0, ledgerState(tc.stale), pp,
+			), &unregistered)
+		})
+	}
+}
