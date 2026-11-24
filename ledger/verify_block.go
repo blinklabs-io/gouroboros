@@ -775,10 +775,10 @@ func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 func verifyNonceVrf(
 	result common.VrfResult,
 	vrfKey []byte,
-	slot int64,
-	eta0 []byte,
+	slot uint64,
+	eta0 common.Nonce,
 ) error {
-	message, err := vrf.MkSeedTPraos(slot, eta0, vrf.SeedEta())
+	message, err := vrf.MkSeedTPraosFromNonce(slot, eta0, vrf.SeedEta())
 	if err != nil {
 		return fmt.Errorf("construct nonce VRF input: %w", err)
 	}
@@ -1000,11 +1000,14 @@ func verifyBlock(
 			nil,
 		)
 	}
+	// The 32-byte eta0 has no spelling for NeutralNonce.
+	eta0Nonce := common.Nonce{Type: common.NonceTypeNonce}
+	copy(eta0Nonce.Value[:], eta0)
 	var vrfMsg []byte
 	if isTPraos {
-		vrfMsg, err = vrf.MkSeedTPraos(int64(slot), eta0, vrf.SeedL())
+		vrfMsg, err = vrf.MkSeedTPraosFromNonce(slot, eta0Nonce, vrf.SeedL())
 	} else {
-		vrfMsg, err = vrf.MkInputVrf(int64(slot), eta0)
+		vrfMsg, err = vrf.MkInputVrfFromNonce(slot, eta0Nonce)
 	}
 	if err != nil {
 		return false, "", 0, 0, common.NewValidationError(
@@ -1058,8 +1061,8 @@ func verifyBlock(
 		if err := verifyNonceVrf(
 			nonceVrfResult,
 			vrfKey,
-			int64(slot),
-			eta0,
+			slot,
+			eta0Nonce,
 		); err != nil {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeVRF,

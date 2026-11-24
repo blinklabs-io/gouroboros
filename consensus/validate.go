@@ -381,20 +381,21 @@ func (v *HeaderValidator) verifyCertifiedVRF(
 	// blake2b-256(slot || nonce) (Ouroboros.Consensus.Protocol.Praos.VRF.
 	// mkInputVRF).
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
+	nonce, err := epochNonceFromBytes(epochNonce)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid %sVRF input parameters at slot %d: %w",
+			label,
+			slot,
+			err,
+		)
+	}
 	var vrfInput []byte
-	var err error
 	switch v.mode {
 	case ConsensusModeTPraos:
-		vrfInput, err = vrf.MkSeedTPraos(
-			int64(slot), //nolint:gosec
-			epochNonce,
-			seed,
-		)
+		vrfInput, err = vrf.MkSeedTPraosFromNonce(slot, nonce, seed)
 	case ConsensusModeCPraos:
-		vrfInput, err = vrf.MkInputVrf(
-			int64(slot), //nolint:gosec
-			epochNonce,
-		)
+		vrfInput, err = vrf.MkInputVrfFromNonce(slot, nonce)
 	default:
 		return nil, fmt.Errorf("unknown consensus mode: %d", v.mode)
 	}
