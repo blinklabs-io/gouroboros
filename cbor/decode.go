@@ -1047,17 +1047,45 @@ func (d *StreamDecoder) SkipN(n int) (int, int, error) {
 	return start, end - start, nil
 }
 
+// arrayItemDecModes caches, per StreamDecoder mode, the mode DecodeArrayItems
+// decodes items with. DecodeArrayItems reads the enclosing array header by
+// hand, so each item must be limited to one nesting level fewer than the
+// whole array would have been.
+var arrayItemDecModes sync.Map // _cbor.DecMode -> arrayItemDecModeResult
+
+type arrayItemDecModeResult struct {
+	mode _cbor.DecMode
+	err  error
+}
+
+func arrayItemDecMode(dm _cbor.DecMode) (_cbor.DecMode, error) {
+	if cached, ok := arrayItemDecModes.Load(dm); ok {
+		r := cached.(arrayItemDecModeResult)
+		return r.mode, r.err
+	}
+	opts := dm.DecOptions()
+	opts.MaxNestedLevels--
+	mode, err := opts.DecModeWithTags(customTagSet)
+	cached, _ := arrayItemDecModes.LoadOrStore(
+		dm,
+		arrayItemDecModeResult{mode: mode, err: err},
+	)
+	r := cached.(arrayItemDecModeResult)
+	return r.mode, r.err
+}
+
 // DecodeArrayItems walks the definite-length array at the current position one
 // item at a time, calling the callback for each item before the next item is
 // examined. The callback receives the item index, the item's absolute start
 // offset, its length, and its raw bytes. The data slice aliases the decoder's
-// input and must not be modified. A nil callback only validates and skips the
-// items.
+// input and must not be modified. Each item is validated as the whole-array
+// decode would have validated it, including nesting depth and built-in tag
+// content, before its callback runs; a nil callback only validates the items.
 //
 // Nothing is allocated from the declared element count, and a callback error
-// stops processing immediately and is returned unchanged. Items are not
+// stops processing immediately and is returned unchanged. Later items are not
 // validated ahead of time, so the callback can run for earlier items before a
-// later malformed item is detected; on any error the decoder is left partway
+// later invalid item is detected; on any error the decoder is left partway
 // through the array and must not be reused. The callback must not read from or
 // advance the decoder; doing so is reported as an error.
 //
@@ -1077,13 +1105,22 @@ func (d *StreamDecoder) DecodeArrayItems(
 			d.maxArrayElements,
 		)
 	}
-	end := arrayStart + headerLen
+	itemMode, err := arrayItemDecMode(d.decMode)
+	if err != nil {
+		return 0, 0, fmt.Errorf("decode array: %w", err)
+	}
+	bodyStart := arrayStart + headerLen
+	itemDec := itemMode.NewDecoder(bytes.NewReader(d.data[bodyStart:]))
+	end := bodyStart
 	for i := range count {
 		itemStart := end
-		if err := d.dec.Skip(); err != nil {
-			return 0, 0, fmt.Errorf("skip item %d: %w", i, err)
+		// Decoding into a RawMessage, unlike Skip, checks built-in tag
+		// content. It copies the item, which is bounded by the input.
+		var item RawMessage
+		if err := itemDec.Decode(&item); err != nil {
+			return 0, 0, fmt.Errorf("decode item %d: %w", i, err)
 		}
-		end = d.consumed + d.dec.NumBytesRead()
+		end = bodyStart + itemDec.NumBytesRead()
 		if callback == nil {
 			continue
 		}
@@ -1091,12 +1128,15 @@ func (d *StreamDecoder) DecodeArrayItems(
 		if err := callback(i, itemStart, end-itemStart, data); err != nil {
 			return 0, 0, err
 		}
-		if pos := d.consumed + d.dec.NumBytesRead(); pos != end {
+		if pos := d.consumed + d.dec.NumBytesRead(); pos != bodyStart {
 			return 0, 0, fmt.Errorf(
 				"callback for item %d moved the decoder from offset %d to %d",
-				i, end, pos,
+				i, bodyStart, pos,
 			)
 		}
+	}
+	if err := d.Advance(end - bodyStart); err != nil {
+		return 0, 0, fmt.Errorf("decode array: %w", err)
 	}
 	return arrayStart, end - arrayStart, nil
 }

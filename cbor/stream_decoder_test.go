@@ -15,6 +15,7 @@
 package cbor_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -455,6 +456,75 @@ func TestStreamDecoderDecodeArrayItemsMaxArrayElements(t *testing.T) {
 	)
 	require.ErrorContains(t, err, "exceeded max number of elements 10000000")
 	assert.Empty(t, seen, "the count must be rejected before any callback")
+}
+
+func TestStreamDecoderDecodeArrayItemsNestingCountsOuterArray(t *testing.T) {
+	t.Parallel()
+	// n nested one-element arrays around 0: the outer array read by
+	// DecodeArrayItems is one of the n levels.
+	nested := func(n int) []byte {
+		return append(bytes.Repeat([]byte{0x81}, n), 0x00)
+	}
+	limit := cbor.MaxUntrustedNestedLevels
+
+	dec, err := cbor.NewUntrustedStreamDecoder(nested(limit))
+	require.NoError(t, err)
+	_, length, err := dec.DecodeArrayItems(nil)
+	require.NoError(t, err)
+	assert.Equal(t, limit+1, length)
+
+	dec, err = cbor.NewUntrustedStreamDecoder(nested(limit + 1))
+	require.NoError(t, err)
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return nil
+		},
+	)
+	require.ErrorContains(t, err, "exceeded max nested level")
+	assert.Empty(t, seen)
+}
+
+func TestStreamDecoderDecodeArrayItemsBuiltinTagContent(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		hex     string
+		wantErr string
+	}{
+		"tag 2 with byte string": {hex: "81c24101"},
+		"tag 2 with integer": {
+			hex:     "81c201",
+			wantErr: "tag number 2 or 3 must be followed by byte string",
+		},
+		"tag 1 with map": {
+			hex:     "81c1a0",
+			wantErr: "tag number 1 must be followed by integer",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+			dec, err := cbor.NewStreamDecoder(data)
+			require.NoError(t, err)
+			var seen []int
+			_, _, err = dec.DecodeArrayItems(
+				func(index int, _ int, _ int, _ []byte) error {
+					seen = append(seen, index)
+					return nil
+				},
+			)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				assert.Equal(t, []int{0}, seen)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.Empty(t, seen)
+		})
+	}
 }
 
 func TestStreamDecoderDecodeArrayItemsRejects(t *testing.T) {
