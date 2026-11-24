@@ -237,7 +237,7 @@ func refPreferredCandidate(
 // on a real chain; with free VRFs the unrestricted order has cycles and no
 // sort would be well defined.
 func TestPreferredCandidateMatchesReferenceTable(t *testing.T) {
-	var tips []refTip
+	tips := make([]refTip, 0, 24)
 	for _, blockNo := range []uint64{100, 101} {
 		for _, slot := range []uint64{1000, 1003, 1006} {
 			for _, issuer := range []byte{1, 2} {
