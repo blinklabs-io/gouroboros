@@ -16,7 +16,9 @@ package localtxsubmission
 
 import (
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,4 +32,68 @@ func TestDefaultConfigHasNoBusyTimeout(t *testing.T) {
 	t.Parallel()
 	require.Zero(t, NewConfig().Timeout)
 	require.Zero(t, StateMap[stateBusy].Timeout)
+}
+
+// TestClientBusyTimeout checks the Busy timer that reaches a running client
+// through NewClient's copy of the state map: none by default, so a held
+// submission does not tear the connection down, and the WithTimeout value
+// when the caller opts in.
+func TestClientBusyTimeout(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		h := newModelHarness(t, modelRoleClient)
+		client := NewClient(h.opts, nil)
+		client.Start()
+		t.Cleanup(client.Protocol.Stop)
+		go func() { _ = client.SubmitTx(6, placeholderTx) }()
+		h.requireReceive(t, MessageTypeSubmitTx)
+		select {
+		case err := <-h.errs:
+			t.Fatalf("held submission timed out: %v", err)
+		case <-time.After(time.Second):
+		}
+	})
+	t.Run("WithTimeout", func(t *testing.T) {
+		h := newModelHarness(t, modelRoleClient)
+		cfg := NewConfig(WithTimeout(50 * time.Millisecond))
+		client := NewClient(h.opts, &cfg)
+		client.Start()
+		t.Cleanup(client.Protocol.Stop)
+		go func() { _ = client.SubmitTx(6, placeholderTx) }()
+		h.requireReceive(t, MessageTypeSubmitTx)
+		h.requireViolation(
+			t,
+			"timeout waiting on transition from protocol state Busy",
+		)
+	})
+}
+
+// TestStopDoesNotWaitForSubmit holds a submission, as a node does while its
+// mempool is full, and checks that Stop returns at once, that SubmitTx
+// returns ErrProtocolShuttingDown, and that no MsgDone follows: the node
+// holds agency in Busy. With no default timeout the wait has no bound.
+func TestStopDoesNotWaitForSubmit(t *testing.T) {
+	h := newModelHarness(t, modelRoleClient)
+	client := NewClient(h.opts, nil)
+	client.Start()
+	t.Cleanup(client.Protocol.Stop)
+	submitResult := make(chan error, 1)
+	go func() { submitResult <- client.SubmitTx(6, placeholderTx) }()
+	h.requireReceive(t, MessageTypeSubmitTx)
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- client.Stop() }()
+	select {
+	case err := <-stopResult:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop waited for the node to answer")
+	}
+	select {
+	case err := <-submitResult:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("SubmitTx did not return after Stop")
+	}
+	require.NoError(t, client.Stop())
+	h.requireQuiet(t)
 }
