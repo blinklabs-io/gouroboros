@@ -464,6 +464,12 @@ type PoolDelegation struct {
 type GovActionState struct {
 	ActionId   GovActionId
 	ActionType GovActionType
+	// ExpirySlot is the last slot in which a vote on the action is still
+	// accepted: the final slot of the epoch named by the action's
+	// gasExpiresAfter (proposal epoch plus govActionLifetime). The reference
+	// refuses a vote once the current epoch is past gasExpiresAfter, so the
+	// first slot of that epoch would refuse votes a whole epoch early. Zero
+	// means unknown, and votes on the action then fail closed.
 	ExpirySlot uint64
 	// Action is the governance action itself, as proposed. Rules that need
 	// proposal contents fail closed when it is nil.
@@ -516,7 +522,15 @@ type GovState interface {
 	// Treasury value
 	TreasuryValue() (uint64, error)
 
-	// Governance action queries
+	// GovActionById returns a governance action that is still in the
+	// proposals set, or nil when there is none. An action RATIFY has
+	// classified as expired stays until EPOCH removes it. An action that was
+	// enacted, or removed with its rivals or an expired ancestor, must not be
+	// returned, except that the current root of a purpose may be: proposal
+	// ancestry accepts a predecessor this method returns as a live member of
+	// its purpose tree, so returning an older enacted action would let a
+	// proposal build on a superseded chain.
 	GovActionById(GovActionId) (*GovActionState, error)
+	// GovActionExists reports whether GovActionById would return an action.
 	GovActionExists(GovActionId) bool
 }
