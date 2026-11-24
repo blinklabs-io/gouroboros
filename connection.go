@@ -482,6 +482,9 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.leiosVotes != nil && c.leiosVotes.Server != nil {
 		servers = append(servers, c.leiosVotes.Server)
 	}
+	if c.localTxMonitor != nil && c.localTxMonitor.Server != nil {
+		servers = append(servers, c.localTxMonitor.Server)
+	}
 	return servers
 }
 
@@ -573,7 +576,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxMonitor.Client.Protocol)
 		}
 		if c.localTxMonitor.Server != nil {
-			protocols = append(protocols, c.localTxMonitor.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxMonitor.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.peerSharing != nil {
