@@ -69,9 +69,9 @@ var modelAgency = map[string]string{
 	stDone: "",
 }
 
-// modelTransitions is Transitions in specs/09-localtx/LocalTxSubmission.tla
-// of gouroboros-tla-models: the specification's state machine figure and
-// the reference's Type.hs.
+// modelTransitions is the local tx-submission state machine of
+// docs/network-spec/miniprotocols.tex (lines 1840-1886) and the reference's
+// LocalTxSubmission/Type.hs.
 var modelTransitions = []struct{ from, kind, to string }{
 	{stIdle, kindSubmitTx, stBusy},
 	{stIdle, kindDone, stDone},
@@ -95,12 +95,12 @@ func modelJudge(state, kind string) string {
 	return modelViolation
 }
 
-// modelReceive is ReceiveTable in LocalTxSubmission.tla with the
-// reference's settings: a message is judged against the reader's state, or
-// waits while the reader holds agency; a server whose run ended restarts in
-// StIdle, as the inbound governor restarts responders ("Inbound side: the
-// inbound governor" in docs/network-spec/connection-manager.tex); a client
-// whose run ended leaves it unread.
+// modelReceive is the receive table with the reference's settings: a message is
+// judged against the reader's state, or waits while the reader holds agency; a
+// server whose run ended restarts in StIdle, as the inbound governor restarts
+// responders ("Inbound side: the inbound governor" in
+// docs/network-spec/connection-manager.tex); a client whose run ended leaves it
+// unread.
 func modelReceive(role, state, kind string) string {
 	if state == stDone {
 		if role == modelRoleServer {
@@ -114,7 +114,7 @@ func modelReceive(role, state, kind string) string {
 	return modelJudge(state, kind)
 }
 
-// gouroborosReceive maps the model onto gOuroboros where they differ, each
+// gouroborosReceive maps the reference onto gOuroboros where they differ, each
 // a recorded deviation: protocol.Protocol refuses a message sent while the
 // receiver holds agency instead of leaving it to wait, and the server does
 // not restart after MsgDone, so what follows it is never read.
@@ -361,7 +361,7 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 }
 
@@ -421,7 +421,7 @@ func driveServer(t *testing.T, h *modelHarness, state string) {
 
 // TestReceiveMatchesModel drives a running client or server into each cell
 // of the receive table it can rest in, sends the cell's message, and checks
-// the outcome against the model as gOuroboros deviates from it (see
+// the outcome against the reference as gOuroboros deviates from it (see
 // gouroborosReceive).
 func TestReceiveMatchesModel(t *testing.T) {
 	t.Parallel()
