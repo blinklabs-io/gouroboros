@@ -395,6 +395,8 @@ func (c *Client) releaseBusyOnProtocolDone(
 }
 
 // Start begins the Block Fetch client protocol. Safe to call multiple times.
+// After a Stop that gave up on the connection (see Stop), Start does nothing:
+// the server may still answer the abandoned ranges.
 func (c *Client) Start() {
 	for {
 		c.lifecycleMutex.Lock()
@@ -502,10 +504,6 @@ func (c *Client) startShutdownWatcher(
 	return done
 }
 
-// Stop stops the Block Fetch client protocol and sends a ClientDone message.
-// It waits up to 250ms for message delivery before shutting down the protocol,
-// returning delivery errors, including context.DeadlineExceeded. An already
-// shutting-down protocol is treated as successfully stopped.
 // abandonIfOwed handles a MsgClientDone that was not delivered in time. It
 // must be called with lifecycleMutex held. MsgClientDone is legal only in
 // StIdle, so if a range is outstanding or the state is not StIdle, it is
@@ -534,6 +532,18 @@ func (c *Client) abandonIfOwed(sendErr error) {
 	}
 }
 
+// Stop stops the Block Fetch client protocol and sends a ClientDone message.
+// It waits up to 250ms for message delivery before shutting down the protocol,
+// returning delivery errors, including context.DeadlineExceeded. An already
+// shutting-down protocol is treated as successfully stopped.
+//
+// MsgClientDone is legal only in StIdle. If a range is still outstanding, or
+// the protocol is not in StIdle, when the 250ms run out, the server may still
+// answer, so Stop gives up on the connection: it reports
+// ErrStoppedWithoutDone on the protocol's error channel, stops the muxer,
+// which closes the connection, and leaves the client so that Start does not
+// start it again. The return value is then the delivery error, not
+// ErrStoppedWithoutDone.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
