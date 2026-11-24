@@ -73,6 +73,9 @@ type BlockLedgerState struct {
 	mirTransfers map[uint]*big.Int
 	// genesisFuture holds the genesis delegations this block scheduled.
 	genesisFuture []GenesisDelegation
+	// slot is the block's slot when slotKnown; see NewBlockLedgerStateAt.
+	slot      uint64
+	slotKnown bool
 }
 
 // mirPendingKey identifies a credential's pending instantaneous rewards in
@@ -154,7 +157,19 @@ type LeveledTransaction interface {
 	LedgerEffectLevels() ([]LedgerEffectLevel, error)
 }
 
+// NewBlockLedgerStateAt returns a view of base with no transactions applied
+// for a block at slot. Knowing the slot lets the view decide whether a pool
+// registration is new with PoolRegistered, as every validation rule does.
+func NewBlockLedgerStateAt(base LedgerState, slot uint64) *BlockLedgerState {
+	b := NewBlockLedgerState(base)
+	b.slot = slot
+	b.slotKnown = true
+	return b
+}
+
 // NewBlockLedgerState returns a view of base with no transactions applied.
+// Without a slot the view falls back to IsPoolRegistered to tell a new pool
+// registration from a re-registration; prefer NewBlockLedgerStateAt.
 func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 	return &BlockLedgerState{
 		base:             base,
@@ -565,10 +580,10 @@ func (b *BlockLedgerState) pool(operator PoolKeyHash) *blockPool {
 // when this method records its replacement.
 //
 // The reference tells the two apart by membership of psStakePools, which
-// IsPoolRegistered reports. PoolCurrentState alone cannot: it may still return
-// the last registration of a pool whose retirement has taken effect, and
-// treating that pool as re-registered would leave it unregistered for the
-// rest of the block.
+// PoolRegistered decides. PoolCurrentState's registration alone cannot: it
+// may still be the last registration of a pool whose retirement has taken
+// effect, and treating that pool as re-registered would leave it
+// unregistered for the rest of the block.
 func (b *BlockLedgerState) applyPoolRegistration(
 	cert *PoolRegistrationCertificate,
 ) error {
@@ -576,8 +591,15 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	if err != nil {
 		return err
 	}
+	registered := current != nil
+	if registered {
+		registered, err = b.poolRegistered(cert.Operator)
+		if err != nil {
+			return err
+		}
+	}
 	pool := b.pool(cert.Operator)
-	if current == nil || !b.IsPoolRegistered(cert.Operator) {
+	if !registered {
 		pool.registration = cert
 		pool.registrationKnown = true
 		pool.retirementEpoch = nil
@@ -595,6 +617,17 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	b.vrfKeys[cert.VrfKeyHash] = cert.Operator
 	delete(b.vrfReleased, cert.VrfKeyHash)
 	return nil
+}
+
+// poolRegistered decides membership of the stake-pool map with
+// PoolRegistered when the block's slot is known. A view made without one can
+// only ask IsPoolRegistered, which a provider deriving it from a stale
+// PoolCurrentState answer reports wrongly for a reaped pool.
+func (b *BlockLedgerState) poolRegistered(pool PoolKeyHash) (bool, error) {
+	if b.slotKnown {
+		return PoolRegistered(b, b.slot, pool)
+	}
+	return b.IsPoolRegistered(pool), nil
 }
 
 func blockAmount(amount uint64) uint64 {

@@ -587,3 +587,63 @@ func TestBlockLedgerStateRegistersReapedPoolAsNew(t *testing.T) {
 	require.Same(t, registration, reg)
 	require.Nil(t, retirement)
 }
+
+// With the block's slot known, the view decides new pool versus
+// re-registration with common.PoolRegistered, as every validation rule does,
+// so a provider whose IsPoolRegistered is derived from a stale
+// PoolCurrentState answer (the mock's, here) cannot make a reaped pool's
+// registration a deferred re-registration. A pool whose retirement is still
+// pending is re-registered.
+func TestBlockLedgerStateAtSlotDecidesWithPoolRegistered(t *testing.T) {
+	const currentEpoch = 5
+	for _, test := range []struct {
+		name       string
+		retirement uint64
+		wantNew    bool
+	}{
+		{"reaped", currentEpoch - 1, true},
+		{"retiring", currentEpoch + 1, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pool := common.PoolKeyHash(bytes.Repeat([]byte{0x33}, 28))
+			retirement := test.retirement
+			stale := &common.PoolRegistrationCertificate{
+				Operator:   pool,
+				VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x44}, 32)),
+			}
+			base := mockledger.NewLedgerStateBuilder().
+				WithPoolCurrentState(func(
+					p common.PoolKeyHash,
+				) (*common.PoolRegistrationCertificate, *uint64, error) {
+					if p == pool {
+						return stale, &retirement, nil
+					}
+					return nil, nil, nil
+				}).
+				WithEpochForSlot(func(uint64) (uint64, error) {
+					return currentEpoch, nil
+				}).
+				Build()
+			require.True(t, base.IsPoolRegistered(pool), "stale provider")
+			state := common.NewBlockLedgerStateAt(base, 1000)
+			registration := &common.PoolRegistrationCertificate{
+				Operator:   pool,
+				VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x45}, 32)),
+			}
+			applyBlockTestTxs(t, state,
+				blockTestTx(t, 0xa5, true).WithCertificates(registration),
+			)
+			reg, retirementAfter, err := state.PoolCurrentState(pool)
+			require.NoError(t, err)
+			require.Nil(t, retirementAfter)
+			if test.wantNew {
+				require.Same(t, registration, reg)
+				return
+			}
+			require.Same(t, stale, reg)
+			pending, err := state.PoolPendingParameters(pool)
+			require.NoError(t, err)
+			require.Same(t, registration, pending)
+		})
+	}
+}

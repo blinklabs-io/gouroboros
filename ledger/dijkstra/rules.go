@@ -1171,7 +1171,7 @@ func UtxoValidatePoolCertificates(
 	if err != nil {
 		return err
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := conway.UtxoValidatePoolCertificates(
 			level, slot, state, params,
@@ -1241,7 +1241,7 @@ func UtxoValidateCertificateDeposits(
 			"dijkstra transaction level effects do not match validation levels",
 		)
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for idx, level := range levels {
 		if err := conway.UtxoValidateCertificateDeposits(
 			level, slot, state, pp,
@@ -1793,7 +1793,7 @@ func UtxoValidateRequiredVKeyWitnesses(
 	// state would make every pool lookup panic.
 	var state *common.BlockLedgerState
 	if ls != nil && !dijkstraLedgerStateIsNil(ls) {
-		state = common.NewBlockLedgerState(ls)
+		state = common.NewBlockLedgerStateAt(ls, slot)
 	}
 	ownersRequired := func(cert *common.PoolRegistrationCertificate) bool {
 		return valid && (state == nil ||
@@ -2403,7 +2403,7 @@ func UtxoValidateValueNotConservedLegacyModeUtxo(
 	if err != nil {
 		return err
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for _, level := range effects[:len(effects)-1] {
 		if err := state.ApplyCertificateDepositLevel(level, pp); err != nil {
 			return err
