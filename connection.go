@@ -136,6 +136,13 @@ type Connection struct {
 	// beforeMuxerHook, when set by a test, runs in setupConnection after
 	// doneChan is published and before the muxer is created.
 	beforeMuxerHook func()
+	// trackMu orders goTracked's waitGroup.Go against shutdown's
+	// waitGroup.Wait; see goTracked.
+	trackMu sync.Mutex
+	// beforeProtocolErrorForwarderHook, when set by a test, runs in
+	// setupConnection after the handshake and before the protocol-error
+	// forwarder is started.
+	beforeProtocolErrorForwarderHook func()
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -398,6 +405,7 @@ func (c *Connection) shutdown() {
 			m.Stop()
 		}
 		// Wait for other goroutines to finish
+		c.fenceTracked()
 		c.waitGroup.Wait()
 		// Signal shutdown only on the channel created by this connection.
 		// A channel supplied with WithErrorChan remains caller-owned.
@@ -408,6 +416,33 @@ func (c *Connection) shutdown() {
 		// channels have finished shutting down.
 		close(c.connClosedChan)
 	})
+}
+
+// goTracked runs f on a goroutine that shutdown waits for, unless shutdown
+// has begun. A WaitGroup.Add from zero must happen before the Wait it is
+// meant to delay (sync.WaitGroup), and doneChan can close at any point of
+// setupConnection: a forwarder started after shutdown's Wait is joined by
+// nothing, and once errorChan is closed, forwarding a queued error would
+// send on it. Checking doneChan and calling Go under trackMu, which
+// shutdown takes after doneChan is closed and before Wait, starts every
+// tracked goroutine either before the Wait or not at all.
+func (c *Connection) goTracked(f func()) {
+	c.trackMu.Lock()
+	defer c.trackMu.Unlock()
+	select {
+	case <-c.doneChan:
+		return
+	default:
+	}
+	c.waitGroup.Go(f)
+}
+
+// fenceTracked returns once every goTracked call that began before doneChan
+// was closed has finished; any later call sees doneChan closed and starts
+// nothing. shutdown calls it before waitGroup.Wait.
+func (c *Connection) fenceTracked() {
+	c.trackMu.Lock()
+	defer c.trackMu.Unlock()
 }
 
 // forwardError attempts immediate best-effort delivery without allowing a full
@@ -732,7 +767,7 @@ func (c *Connection) setupConnection() error {
 	}
 	c.setupMu.Unlock()
 	// Start Goroutine to pass along errors from the muxer
-	c.waitGroup.Go(func() {
+	c.goTracked(func() {
 		select {
 		case <-c.doneChan:
 			return
@@ -871,8 +906,11 @@ func (c *Connection) setupConnection() error {
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = c.handshakeVersion
+	if c.beforeProtocolErrorForwarderHook != nil {
+		c.beforeProtocolErrorForwarderHook()
+	}
 	// Start Goroutine to pass along errors from the mini-protocols
-	c.waitGroup.Go(func() {
+	c.goTracked(func() {
 		select {
 		case <-c.doneChan:
 			// Return if we're shutting down
