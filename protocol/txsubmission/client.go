@@ -310,7 +310,8 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// implementation's condition in Ouroboros.Network.TxSubmission.Outbound:
 	// ProtocolErrorAckedTooManyTxids when the peer acknowledges more IDs than
 	// it was sent, and ProtocolErrorRequestedTooManyTxids when
-	// unackedNo - ackNo + reqNo exceeds maxUnacked. MaxPendingMessageBytes is
+	// unackedNo - ackNo + reqNo exceeds maxUnacked (before NodeToNodeV_16; the
+	// clamp below replaces it from then on). MaxPendingMessageBytes is
 	// derived from that same window, and a request far outside it can ask for
 	// a reply larger than our own outbound queue limit, so SendMessage would
 	// fail the protocol, dropping the connection over a request we should
@@ -327,6 +328,24 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 				"unacknowledged", len(unacked),
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
+	}
+	// A blocking request must ask for something and leave nothing
+	// unacknowledged (the reference's ProtocolErrorRequestedNothing and
+	// ProtocolErrorRequestBlocking). Refusing it before the clamp below is
+	// what keeps a blocking request from being clamped to zero: its reply
+	// must not be empty.
+	if msgRequestTxIds.Blocking {
+		if req == 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request for no transaction IDs",
+			)
+		}
+		if remaining := len(unacked) - ack; remaining != 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request leaves %d transaction IDs unacknowledged",
+				remaining,
+			)
+		}
 	}
 	// From NodeToNodeV_16 the window is a local setting of each side, so the
 	// peer cannot know ours and a request past it is not an error: the reply

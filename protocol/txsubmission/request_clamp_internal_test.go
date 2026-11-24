@@ -121,3 +121,136 @@ func TestRequestTxIdsAckOverOutstandingIsRefusedFromV16(t *testing.T) {
 		t.Fatal("an over-acknowledging request was not refused")
 	}
 }
+
+// With the window full, a non-blocking request is clamped to zero IDs and is
+// answered with an empty reply, which the reference allows: its TxOutboundV_2
+// replies with "only as many txids as fit, which can be none for a
+// non-blocking request" (Ouroboros.Network.TxSubmission.Outbound). The
+// callback still runs, with a count of zero, because it is how the caller
+// learns what the peer acknowledged; returning any ID for that count is
+// refused.
+func TestRequestTxIdsNonBlockingClampedToZeroFromV16(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name  string
+		extra int
+	}{
+		{"empty reply", 0},
+		{"reply past the clamp refused", 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			type call struct{ ack, req uint16 }
+			calls := make(chan call, 2)
+			p := newRawRequestingPeerAtVersion(t, &Config{
+				RequestTxIdsFunc: func(
+					_ CallbackContext,
+					blocking bool,
+					ack uint16,
+					req uint16,
+				) ([]TxIdAndSize, error) {
+					calls <- call{ack, req}
+					if blocking {
+						return windowTxIdAndSizes(int(req)), nil
+					}
+					return windowTxIdAndSizes(int(req) + test.extra)[:test.extra], nil
+				},
+			}, 16)
+			outboundStart := p.outboundRead.count.Load()
+			p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
+			require.Equal(t, call{0, MaxUnackedTxIds}, <-calls)
+			p.waitForOutboundMessage(
+				t,
+				outboundStart,
+				NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
+			)
+			outboundStart = p.outboundRead.count.Load()
+			p.send(t, NewMsgRequestTxIds(false, 0, 3))
+			// The callback runs before any refusal of its reply, so wait for
+			// it alone; a refusal of the request itself never reaches it.
+			select {
+			case got := <-calls:
+				require.Equal(t, call{0, 0}, got)
+			case <-time.After(pendingBytesWindow):
+				t.Fatal("a request on a full window never reached the callback")
+			}
+			if test.extra == 0 {
+				p.waitForOutboundMessage(
+					t,
+					outboundStart,
+					NewMsgReplyTxIds([]TxIdAndSize{}),
+				)
+				return
+			}
+			select {
+			case err := <-p.errorChan:
+				require.ErrorIs(
+					t,
+					err,
+					protocol.ErrProtocolViolationRequestExceeded,
+				)
+			case <-time.After(pendingBytesWindow):
+				t.Fatal("a reply past the clamped count was not refused")
+			}
+		})
+	}
+}
+
+// A blocking request is never clamped to zero: the reference refuses a
+// blocking request that leaves IDs unacknowledged (ProtocolErrorRequestBlocking)
+// or asks for none (ProtocolErrorRequestedNothing) before it clamps, and the
+// specification forbids an empty reply to a blocking request
+// (miniprotocols.tex, tx-submission "MsgRequestTxIds"; the reference codec
+// refuses to decode one). Without that refusal a full window would clamp a
+// blocking request to zero and answer it with an empty reply.
+func TestRequestTxIdsBlockingIsNotClampedToZero(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		version uint16
+		ack     uint16
+		req     uint16
+	}{
+		{"v16 full window, nothing acknowledged", 16, 0, 3},
+		{"v16 ids left after the acknowledgement", 16, 4, 3},
+		{"v16 asks for nothing", 16, MaxUnackedTxIds, 0},
+		{"v15 ids left after the acknowledgement", 15, 4, 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			calls := make(chan uint16, 2)
+			p := newRawRequestingPeerAtVersion(t, &Config{
+				RequestTxIdsFunc: func(
+					_ CallbackContext,
+					_ bool,
+					_ uint16,
+					req uint16,
+				) ([]TxIdAndSize, error) {
+					calls <- req
+					return windowTxIdAndSizes(int(req)), nil
+				},
+			}, test.version)
+			outboundStart := p.outboundRead.count.Load()
+			p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
+			require.Equal(t, uint16(MaxUnackedTxIds), <-calls)
+			p.waitForOutboundMessage(
+				t,
+				outboundStart,
+				NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
+			)
+			p.send(t, NewMsgRequestTxIds(true, test.ack, test.req))
+			select {
+			case err := <-p.errorChan:
+				require.ErrorIs(
+					t,
+					err,
+					protocol.ErrProtocolViolationInvalidMessage,
+				)
+			case req := <-calls:
+				t.Fatalf("an illegal blocking request was served: %d", req)
+			case <-time.After(pendingBytesWindow):
+				t.Fatal("an illegal blocking request was not refused")
+			}
+		})
+	}
+}
