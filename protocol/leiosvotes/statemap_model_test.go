@@ -16,9 +16,13 @@ package leiosvotes
 
 import (
 	"fmt"
+	"net"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
@@ -280,4 +284,73 @@ func reachableStates(initial protocol.State) []protocol.State {
 		}
 	}
 	return seen
+}
+
+// TestRequestNextAfterStoppedSyncGetsOwnVote stops a Sync loop with one of
+// its votes still owed, then calls RequestNext. The loop and RequestNext read
+// the same channel, and votes carry no request identifier, so the loop must
+// take the owed vote before RequestNext may run; otherwise RequestNext
+// returns the loop's vote as the answer to its own request.
+func TestRequestNextAfterStoppedSyncGetsOwnVote(t *testing.T) {
+	connA, connB := net.Pipe()
+	t.Cleanup(func() {
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+	m := muxer.New(connA)
+	t.Cleanup(m.Stop)
+	cfg := NewConfig(
+		WithPipelineLimit(1),
+		WithRequestNextCount(2),
+		WithVoteFunc(func(CallbackContext, Vote) error {
+			return ErrStopVoteProcess
+		}),
+	)
+	client := NewClient(
+		protocol.ProtocolOptions{ConnectionId: testConnectionId(), Muxer: m},
+		&cfg,
+	)
+	client.Start()
+	t.Cleanup(client.Protocol.Stop)
+	m.Start()
+	require.NoError(t, client.Sync())
+	requireReadTestSegment(t, connB)
+
+	sendVote := func(slot uint64) {
+		vote := testVote()
+		vote.SlotNo = slot
+		data, err := cbor.Encode(NewMsgVote(vote))
+		require.NoError(t, err)
+		writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, true))
+	}
+	// The loop's two votes: the first stops it, the second is owed.
+	sendVote(1)
+	sendVote(2)
+
+	type result struct {
+		votes []Vote
+		err   error
+	}
+	results := make(chan result, 1)
+	require.Eventually(t, func() bool {
+		client.busyMutex.Lock()
+		running := client.syncRunning
+		client.busyMutex.Unlock()
+		return !running
+	}, 5*time.Second, time.Millisecond, "the loop never ended")
+	go func() {
+		votes, err := client.RequestNext(1)
+		results <- result{votes, err}
+	}()
+	requireReadTestSegment(t, connB)
+	sendVote(3)
+	select {
+	case r := <-results:
+		require.NoError(t, r.err)
+		require.Len(t, r.votes, 1)
+		require.Equal(t, uint64(3), r.votes[0].SlotNo,
+			"RequestNext returned a vote the stopped loop was owed")
+	case <-time.After(5 * time.Second):
+		t.Fatal("RequestNext did not return")
+	}
 }
