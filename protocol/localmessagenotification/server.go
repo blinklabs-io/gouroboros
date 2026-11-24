@@ -44,7 +44,6 @@ type Server struct {
 	// added after it last looked at the queue, and every waiter wakes, not
 	// only one.
 	messageAdded       chan struct{}
-	stopped            bool
 	done               chan struct{}
 	stopOnce           sync.Once
 	connectionDoneChan <-chan any
@@ -320,16 +319,7 @@ func (s *Server) Stop() error {
 
 func (s *Server) stop() {
 	s.stopOnce.Do(func() {
-		// Close channels and signal shutdown
-		s.lock.Lock()
-		if !s.stopped {
-			// Close done channel to signal protocol shutdown
-			close(s.done)
-			s.stopped = true
-		}
-		s.lock.Unlock()
-
-		// Stop the expiration cleaner
+		close(s.done)
 		s.stopExpirationCleaner()
 	})
 }
