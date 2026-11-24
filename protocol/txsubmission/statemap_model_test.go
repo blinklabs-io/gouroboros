@@ -78,10 +78,9 @@ type modelReceiveRow struct {
 }
 
 // txSubmissionModelReceive is the receive table of the node-to-node
-// tx-submission mini-protocol, printed by TxSubmissionTable.tla in the
-// gouroboros-tla-models repository (specs/07-txsubmission). It is the full
-// role x state x kind product, so a cell missing here is a cell nobody
-// decided. Sources, at IntersectMBO/ouroboros-network 5f356486ab3e:
+// tx-submission mini-protocol. It is the full role x state x kind product, so a
+// cell missing here is a cell nobody decided. Sources, at
+// IntersectMBO/ouroboros-network 5f356486ab3e:
 //
 //   - States, agency and transitions: "Tx-Submission mini-protocol" in
 //     docs/network-spec/miniprotocols.tex, and TxSubmission2/Type.hs.
@@ -325,7 +324,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 			stateTxIdsNonblocking, stateTxs, stateDone,
 		},
 		states,
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	agency := map[protocol.State]protocol.ProtocolStateAgency{
 		stateInit:             protocol.AgencyClient,
@@ -353,11 +352,11 @@ func TestStateMapMatchesModel(t *testing.T) {
 	}
 }
 
-// TestStatesThatCannotBeEntered checks the transitions into the two states
-// the model enters only one way: nothing leads back into Init, and only
-// MsgDone in TxIdsBlocking leads into Done, which nothing leaves within a
-// run. MsgDone answering a non-blocking request is the case the
-// specification rules out by name.
+// TestStatesThatCannotBeEntered checks the transitions into the two states the
+// reference enters only one way: nothing leads back into Init, and only MsgDone
+// in TxIdsBlocking leads into Done, which nothing leaves within a run. MsgDone
+// answering a non-blocking request is the case the specification rules out by
+// name.
 func TestStatesThatCannotBeEntered(t *testing.T) {
 	t.Parallel()
 	require.Empty(t, StateMap[stateDone].Transitions)
@@ -503,7 +502,7 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 }
 
