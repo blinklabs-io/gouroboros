@@ -66,6 +66,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		InitialState:        statePropose,
 		InitialStateTimeout: protoOptions.Mode == protocol.ProtocolModeNodeToNode,
 	}
+	if protoOptions.Muxer != nil {
+		protoConfig.MessageIncompleteFunc = protoOptions.Muxer.StartOnce
+	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
 }

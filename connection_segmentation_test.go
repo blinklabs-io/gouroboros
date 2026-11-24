@@ -190,3 +190,82 @@ func TestSegmentedHandshakeLimits(t *testing.T) {
 		})
 	}
 }
+
+func TestHandshakeQueryReplyBeforePeerClose(t *testing.T) {
+	versions := protocol.GetProtocolVersionMap(
+		protocol.ProtocolModeNodeToClient, 42, false, false, false,
+	)
+	reply, err := cbor.Encode(handshake.NewMsgQueryReply(versions))
+	require.NoError(t, err)
+	for _, split := range []bool{false, true} {
+		t.Run(fmt.Sprintf("split=%v", split), func(t *testing.T) {
+			for range 30 {
+				local, peer := net.Pipe()
+				sent := make(chan error, 1)
+				go func() {
+					defer peer.Close()
+					if err := readHandshakeSegment(peer); err != nil {
+						sent <- err
+						return
+					}
+					chunks := [][]byte{reply}
+					if split {
+						chunks = [][]byte{reply[:1], reply[1:]}
+					}
+					for _, chunk := range chunks {
+						if err := writeHandshakeSegment(peer, chunk, true); err != nil {
+							sent <- err
+							return
+						}
+					}
+					sent <- nil
+				}()
+				conn, err := ouroboros.NewConnection(
+					ouroboros.WithConnection(local),
+					ouroboros.WithNetworkMagic(42),
+					ouroboros.WithHandshakeTimeout(time.Second),
+					ouroboros.WithQueryMode(true),
+				)
+				if conn != nil {
+					defer conn.Close()
+				}
+				require.NoError(t, <-sent)
+				require.NoError(t, err)
+				require.Len(t, conn.QueryReplyVersionMap(), len(versions))
+				require.NoError(t, conn.Close())
+			}
+		})
+	}
+}
+
+func TestIncompleteHandshakeQueryReplyBeforePeerClose(t *testing.T) {
+	versions := protocol.GetProtocolVersionMap(
+		protocol.ProtocolModeNodeToClient, 42, false, false, false,
+	)
+	reply, err := cbor.Encode(handshake.NewMsgQueryReply(versions))
+	require.NoError(t, err)
+	require.Greater(t, len(reply), 1)
+	local, peer := net.Pipe()
+	defer local.Close()
+	sent := make(chan error, 1)
+	go func() {
+		defer peer.Close()
+		if err := readHandshakeSegment(peer); err != nil {
+			sent <- err
+			return
+		}
+		sent <- writeHandshakeSegment(peer, reply[:len(reply)-1], true)
+	}()
+	conn, err := ouroboros.NewConnection(
+		ouroboros.WithConnection(local),
+		ouroboros.WithNetworkMagic(42),
+		ouroboros.WithHandshakeTimeout(2*time.Second),
+		ouroboros.WithQueryMode(true),
+	)
+	if conn != nil {
+		defer conn.Close()
+	}
+	require.NoError(t, <-sent)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "handshake did not complete within")
+}

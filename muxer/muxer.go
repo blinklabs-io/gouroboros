@@ -124,17 +124,12 @@ const (
 	ProtocolRoleResponder ProtocolRole = 2 // Responder (server) protocol role
 )
 
-type readStart struct {
-	once       bool
-	protocolId uint16
-}
-
 // Muxer wraps a connection to allow running multiple mini-protocols over a single connection
 type Muxer struct {
 	errorChan              chan error
 	conn                   net.Conn
 	egress                 egress
-	startChan              chan readStart
+	startChan              chan struct{}
 	startedChan            chan struct{}
 	onceStart              sync.Once
 	doneChan               chan bool
@@ -1053,7 +1048,7 @@ func NewWithSegmentReadTimeout(
 ) *Muxer {
 	m := &Muxer{
 		conn:               conn,
-		startChan:          make(chan readStart, 1),
+		startChan:          make(chan struct{}, 1),
 		startedChan:        make(chan struct{}),
 		doneChan:           make(chan bool),
 		errorChan:          make(chan error, 10),
@@ -1096,17 +1091,7 @@ func (m *Muxer) Start() {
 // StartOnce unblocks the read loop for one segment.
 func (m *Muxer) StartOnce() {
 	select {
-	case m.startChan <- readStart{once: true}:
-	default:
-	}
-}
-
-// StartProtocol reads segments for protocolId until Start enables all protocols.
-// A segment for another protocol waits for Start before being dispatched.
-// Call this before Start, with the selected protocol already registered.
-func (m *Muxer) StartProtocol(protocolId uint16) {
-	select {
-	case m.startChan <- readStart{protocolId: protocolId}:
+	case m.startChan <- struct{}{}:
 	default:
 	}
 }
@@ -1422,8 +1407,6 @@ func (m *Muxer) readLoop() {
 		m.protocolReceiversMutex.Unlock()
 	}()
 	started := false
-	restricted := false
-	var startupProtocol uint16
 	for {
 		// Break out of read loop if we're shutting down
 		select {
@@ -1439,10 +1422,7 @@ func (m *Muxer) readLoop() {
 				return
 			case <-m.startedChan:
 				started = true
-			case v := <-m.startChan:
-				started = !v.once
-				restricted = !v.once
-				startupProtocol = v.protocolId
+			case <-m.startChan:
 			}
 		}
 		// Set read deadline to prevent slowloris-style DoS attacks against an
@@ -1486,16 +1466,7 @@ func (m *Muxer) readLoop() {
 			m.sendError(readLoopError("reading payload", err))
 			return
 		}
-		if restricted && msg.GetProtocolId() != startupProtocol {
-			// Registration and diffusion mode must be ready before dispatching
-			// traffic that follows the startup protocol on the same connection.
-			select {
-			case <-m.doneChan:
-				return
-			case <-m.startedChan:
-				restricted = false
-			}
-		}
+
 		// Check for message from initiator when we're not configured as a responder
 		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator &&
 			!msg.IsResponse() {

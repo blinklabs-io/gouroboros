@@ -25,7 +25,7 @@ import (
 	"go.uber.org/goleak"
 )
 
-func TestStartProtocolGatesOtherProtocols(t *testing.T) {
+func TestStartOnceGatesFollowingSegments(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	for _, resume := range []bool{false, true} {
 		name := "stop"
@@ -38,7 +38,7 @@ func TestStartProtocolGatesOtherProtocols(t *testing.T) {
 			m := muxer.New(local)
 			defer m.Stop()
 			_, startup, _ := m.RegisterProtocol(0, muxer.ProtocolRoleResponder)
-			m.StartProtocol(0)
+			m.StartOnce()
 			written := make(chan error, 1)
 			go func() {
 				for _, id := range []uint16{0, 0, 1} {
@@ -55,26 +55,20 @@ func TestStartProtocolGatesOtherProtocols(t *testing.T) {
 				}
 				written <- nil
 			}()
-			for range 2 {
+			for i := range 2 {
 				select {
 				case segment := <-startup:
 					require.NotNil(t, segment)
+					if i == 0 {
+						m.StartOnce()
+					}
 				case <-time.After(time.Second):
 					t.Fatal("startup segment was not delivered")
 				}
 			}
 			select {
 			case err := <-written:
-				require.NoError(t, err)
-			case <-time.After(time.Second):
-				t.Fatal("muxer did not read the following segment")
-			}
-			select {
-			case err := <-m.ErrorChan():
-				t.Fatalf(
-					"dispatched unregistered protocol before Start: %v",
-					err,
-				)
+				t.Fatalf("read another segment before Start: %v", err)
 			case <-time.After(20 * time.Millisecond):
 			}
 			if resume {
@@ -99,14 +93,14 @@ func TestStartProtocolGatesOtherProtocols(t *testing.T) {
 	}
 }
 
-func TestStartOverridesPendingProtocolStart(t *testing.T) {
+func TestStartOverridesPendingStartOnce(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	local, peer := net.Pipe()
 	defer peer.Close()
 	m := muxer.New(local)
 	defer m.Stop()
 	_, recv, _ := m.RegisterProtocol(1, muxer.ProtocolRoleResponder)
-	m.StartProtocol(0)
+	m.StartOnce()
 	m.Start()
 	require.NoError(t, peer.SetWriteDeadline(time.Now().Add(time.Second)))
 	segment := muxer.NewSegment(1, []byte{1}, false)

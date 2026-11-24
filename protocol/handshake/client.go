@@ -71,6 +71,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		StateMap:            stateMap,
 		InitialState:        statePropose,
 	}
+	if protoOptions.Muxer != nil {
+		protoConfig.MessageIncompleteFunc = protoOptions.Muxer.StartOnce
+	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }

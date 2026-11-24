@@ -767,7 +767,7 @@ func (c *Connection) setupConnection() error {
 	} else {
 		c.handshake.Client.Start()
 	}
-	c.muxer.StartProtocol(handshake.ProtocolId)
+	c.muxer.StartOnce()
 	// Wait for handshake completion or error
 	handshakeTimer := time.NewTimer(c.handshakeTimeout)
 	defer handshakeTimer.Stop()

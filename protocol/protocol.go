@@ -185,9 +185,13 @@ type ProtocolConfig struct {
 	// to one while an earlier request is still unanswered. It runs on the read
 	// loop and must not block.
 	MessageReceivedFunc func(Message)
-	StateMap            StateMap
-	StateContext        any
-	InitialState        State
+	// MessageIncompleteFunc is called when reassembly needs another segment.
+	// A startup protocol can use it to resume a muxer paused by StartOnce.
+	// It runs on the read loop and must not block.
+	MessageIncompleteFunc func()
+	StateMap              StateMap
+	StateContext          any
+	InitialState          State
 	// InitialStateTimeout enables the initial state's configured timeout.
 	// It is disabled by default because most protocols begin timing out only
 	// after their first state transition.
@@ -2069,6 +2073,9 @@ func (p *Protocol) readLoop() {
 			break
 		}
 		if incomplete {
+			if p.config.MessageIncompleteFunc != nil {
+				p.config.MessageIncompleteFunc()
+			}
 			continue
 		}
 		if scanResult.messageLength == 0 || !scanResult.hasMessageType {
