@@ -1017,7 +1017,9 @@ func (m *DijkstraDirectDeposits) UnmarshalCBOR(cborData []byte) error {
 func validateDijkstraDirectDepositsForEncoding(
 	deposits DijkstraDirectDeposits,
 ) error {
-	if deposits == nil {
+	// The encoder omits an empty map, as the reference's encodeTxBodyRaw
+	// does; only the decoder refuses one on the wire.
+	if len(deposits) == 0 {
 		return nil
 	}
 	return validateDijkstraAccountAddressMapKeys(
@@ -1078,7 +1080,9 @@ func (m *DijkstraAccountBalanceIntervals) UnmarshalCBOR(cborData []byte) error {
 func validateDijkstraAccountBalanceIntervalsForEncoding(
 	intervals DijkstraAccountBalanceIntervals,
 ) error {
-	if intervals == nil {
+	// The encoder omits an empty map, as the reference's encodeTxBodyRaw
+	// does; only the decoder refuses one on the wire.
+	if len(intervals) == 0 {
 		return nil
 	}
 	if err := validateDijkstraAccountAddressMapKeys(
@@ -1188,7 +1192,9 @@ func (m *DijkstraRequiredTopLevelGuards) UnmarshalCBOR(cborData []byte) error {
 func validateDijkstraRequiredTopLevelGuardsForEncoding(
 	required DijkstraRequiredTopLevelGuards,
 ) error {
-	if required == nil {
+	// The encoder omits an empty map, as the reference's encodeTxBodyRaw
+	// does; only the decoder refuses one on the wire.
+	if len(required) == 0 {
 		return nil
 	}
 	if err := validateDijkstraCredentialMapKeys(
