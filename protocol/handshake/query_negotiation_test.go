@@ -69,6 +69,9 @@ func answerProposal(t *testing.T, proposal protocol.ProtocolVersionMap) uint8 {
 	data, err := cbor.Encode(NewMsgProposeVersions(proposal))
 	require.NoError(t, err)
 	segment := muxer.NewSegment(ProtocolId, data, false)
+	if segment == nil {
+		t.Fatal("failed to construct proposal segment")
+	}
 	buf := &bytes.Buffer{}
 	require.NoError(t, binary.Write(buf, binary.BigEndian, &segment.SegmentHeader))
 	buf.Write(segment.Payload)
