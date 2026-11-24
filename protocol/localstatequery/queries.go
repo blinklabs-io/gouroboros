@@ -853,9 +853,10 @@ type EraHistoryResult struct {
 }
 
 func (r *EraHistoryResult) UnmarshalCBOR(data []byte) error {
-	// A null would otherwise decode into a zero summary without error, so a
-	// reply of one-byte nulls would still cost a whole summary per byte.
-	if len(data) == 1 && (data[0] == 0xf6 || data[0] == 0xf7) {
+	// A null, tagged or not, would otherwise decode into a zero summary
+	// without error, so a reply of nulls would still cost a whole summary per
+	// few bytes.
+	if d := cbor.SkipTags(data); len(d) == 1 && (d[0] == 0xf6 || d[0] == 0xf7) {
 		return errors.New("era history summary cannot be null or undefined")
 	}
 	type plain EraHistoryResult

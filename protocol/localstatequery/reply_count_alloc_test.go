@@ -63,6 +63,26 @@ func TestReplyCollectionsGrowAsEntriesDecode(t *testing.T) {
 			},
 		},
 		{
+			name:     "era history tagged null entries",
+			data:     taggedSimpleEntries(0xf6),
+			elemSize: unsafe.Sizeof(EraHistoryResult{}),
+			decode: func(data []byte) error {
+				var r eraHistoryReply
+				_, err := cbor.Decode(data, &r)
+				return err
+			},
+		},
+		{
+			name:     "era history tagged undefined entries",
+			data:     taggedSimpleEntries(0xf7),
+			elemSize: unsafe.Sizeof(EraHistoryResult{}),
+			decode: func(data []byte) error {
+				var r eraHistoryReply
+				_, err := cbor.Decode(data, &r)
+				return err
+			},
+		},
+		{
 			name: "ledger peer snapshot v1 pools",
 			// [1, [origin, [...]]]
 			data:     oneByteEntries(0x82, 0x01, 0x82, 0x81, 0x00),
@@ -120,7 +140,7 @@ func TestReplyCollectionsGrowAsEntriesDecode(t *testing.T) {
 				}
 			})
 			t.Logf(
-				"%d one-byte entries: %d bytes/op",
+				"%d entries: %d bytes/op",
 				governanceAllocEntries,
 				result.AllocedBytesPerOp(),
 			)
@@ -131,4 +151,20 @@ func TestReplyCollectionsGrowAsEntriesDecode(t *testing.T) {
 			)
 		})
 	}
+}
+
+// taggedSimpleEntries is an array of 258(simple) entries, simple being null
+// or undefined.
+func taggedSimpleEntries(simple byte) []byte {
+	return concat(
+		[]byte{
+			0x99,
+			governanceAllocEntries >> 8,
+			governanceAllocEntries & 0xff,
+		},
+		bytes.Repeat(
+			[]byte{0xd9, 0x01, 0x02, simple},
+			governanceAllocEntries,
+		),
+	)
 }
