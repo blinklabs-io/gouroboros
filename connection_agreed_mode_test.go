@@ -119,9 +119,13 @@ func TestServerEndsWithAgreedDiffusionMode(t *testing.T) {
 
 	// A segment from a responder reaches a server whose muxer also runs
 	// as an initiator; a responder-only muxer refuses it on arrival.
-	require.NoError(t, clientMuxer.Send(
-		muxer.NewSegment(keepalive.ProtocolId, []byte{0x82, 0x01, 0x00}, true),
-	))
+	segment := muxer.NewSegment(
+		keepalive.ProtocolId,
+		[]byte{0x82, 0x01, 0x00},
+		true,
+	)
+	require.NotNil(t, segment)
+	require.NoError(t, clientMuxer.Send(segment))
 	select {
 	case err := <-server.conn.ErrorChan():
 		require.ErrorContains(t, err, "not configured as an initiator")
