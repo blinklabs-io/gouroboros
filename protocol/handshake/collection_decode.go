@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
@@ -53,7 +54,13 @@ func validateVersionMapMessage(data []byte) error {
 		return tooManyHandshakeVersions(count)
 	}
 	pos := int(headerSize)
+	// Recognised versions must ascend, as the reference codec enforces on
+	// decode (decodeVersions); a version it does not recognise is skipped
+	// there, so its position is not checked here either. Encoders sort the
+	// keys, so only a broken or hostile peer sends any other order.
 	var seen [1 << 13]byte
+	var previous uint16
+	haveRecognised := false
 	for idx := 0; indefinite || idx < count; idx++ {
 		position := pos
 		if indefinite {
@@ -85,6 +92,18 @@ func validateVersionMapMessage(data []byte) error {
 			return fmt.Errorf("duplicate handshake version %d", version)
 		}
 		seen[byteIndex] |= bit
+		versionInfo := protocol.GetProtocolVersion(version)
+		if versionInfo.NewVersionDataFromCborFunc != nil {
+			if haveRecognised && version < previous {
+				return fmt.Errorf(
+					"handshake version %d out of order after %d",
+					version,
+					previous,
+				)
+			}
+			previous = version
+			haveRecognised = true
+		}
 		if length, err := cborwalk.ItemLength(collection[pos:]); err != nil {
 			return fmt.Errorf("decode handshake version data %d: %w", idx, err)
 		} else {
