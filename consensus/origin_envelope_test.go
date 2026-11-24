@@ -107,7 +107,7 @@ func refShelleyEnvelopeOK(
 // predicates together against the reference on every combination of
 // predecessor (Origin or a block), slot, block number and named
 // predecessor hash (absent, the zero hash, the previous block's hash or
-// another block's). This is model 13's ShelleyEnvelope table.
+// another block's).
 func TestShelleyEnvelopeMatchesReferenceTable(t *testing.T) {
 	t.Parallel()
 	v := &HeaderValidator{}
