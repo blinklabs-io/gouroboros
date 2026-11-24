@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -32,6 +33,9 @@ type Server struct {
 	// reading MsgDone checks it before installing a new instance, so Stop
 	// cannot be undone by a restart it raced with.
 	stopped bool
+	// restartHook is test-only synchronization for a Stop that lands after
+	// StopForRestart and before the restart installs a new instance.
+	restartHook func()
 }
 
 // NewServer creates and returns a new keep-alive protocol server with the given options and configuration.
@@ -140,9 +144,17 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 		}
 	}
 	proto.StopForRestart()
+	if s.restartHook != nil {
+		s.restartHook()
+	}
 	s.protocolMu.Lock()
 	if s.stopped {
 		s.protocolMu.Unlock()
+		// StopForRestart left the muxer receiver suspended, buffering for
+		// the next instance. There will be none, so release it.
+		if m := s.protoOptions.Muxer; m != nil {
+			m.UnregisterProtocol(ProtocolId, muxer.ProtocolRoleResponder)
+		}
 		return nil
 	}
 	p := s.newProtocol()
