@@ -1115,21 +1115,15 @@ func (c *Client) sendRequestRange(
 		break
 	}
 	// The token is held from the queue append through the MsgRequestRange
-	// enqueue, which is what keeps queue order equal to wire order. It is
-	// handed back before any RangeDoneFunc below, so a callback that requests
-	// another range cannot deadlock on it.
-	err := func() error {
-		defer func() {
-			c.rangeSendToken <- struct{}{}
-		}()
-		if c.beforeRangeSend != nil {
-			c.beforeRangeSend()
-		}
-		return proto.SendMessageContext(
-			rangeCtx,
-			NewMsgRequestRange(start, end),
-		)
-	}()
+	// enqueue, which is what keeps queue order equal to wire order, and, when
+	// the send fails, until the unsent request has left the queue: a range
+	// queued behind it would otherwise get its answers. It is handed back
+	// before any RangeDoneFunc below, so a callback that requests another
+	// range cannot deadlock on it.
+	if c.beforeRangeSend != nil {
+		c.beforeRangeSend()
+	}
+	err := proto.SendMessageContext(rangeCtx, NewMsgRequestRange(start, end))
 	c.queueMutex.Lock()
 	req.sending = false
 	drainErr := req.drainErr
@@ -1139,9 +1133,11 @@ func (c *Client) sendRequestRange(
 		// took it out left it unresolved, so its caller gets only this error.
 		c.removeLocked(req)
 		c.queueMutex.Unlock()
+		c.rangeSendToken <- struct{}{}
 		return nil, c.rangeAdmissionError(ctx, err)
 	}
 	c.queueMutex.Unlock()
+	c.rangeSendToken <- struct{}{}
 	if drainErr != nil {
 		// A drain took the request out of the queue before the send
 		// succeeded and left it to be resolved here, now that its caller

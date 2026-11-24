@@ -2095,3 +2095,59 @@ func TestRequestRangeDrainedBeforeSendIsResolvedOnce(t *testing.T) {
 	require.Empty(t, c.queue)
 	require.Zero(t, c.inFlightBytes)
 }
+
+// TestRequestRangeRefusedHoldsTokenUntilRemoved covers a send that fails while
+// the protocol still runs. The send token is what keeps queue order equal to
+// wire order, so it must not be free while the refused request is still in
+// the queue: another RequestRange could then queue its request behind the
+// stale entry, and headForResponse would give that range's answers to it.
+func TestRequestRangeRefusedHoldsTokenUntilRemoved(t *testing.T) {
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc:     func(CallbackContext, error) error { return nil },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type observation struct {
+		tokenFree   bool
+		staleQueued bool
+	}
+	observed := make(chan observation, 1)
+	var hookOnce sync.Once
+	c.beforeRangeSend = func() {
+		hookOnce.Do(func() {
+			// The send below fails on the canceled context. Hold queueMutex
+			// so the failed request cannot be removed, then see whether its
+			// caller hands the token back anyway.
+			cancel()
+			locked := make(chan struct{})
+			go func() {
+				c.queueMutex.Lock()
+				close(locked)
+				var got observation
+				select {
+				case <-c.rangeSendToken:
+					got.tokenFree = true
+					got.staleQueued = len(c.queue) > 0
+					c.rangeSendToken <- struct{}{}
+				case <-time.After(500 * time.Millisecond):
+				}
+				c.queueMutex.Unlock()
+				observed <- got
+			}()
+			<-locked
+		})
+	}
+
+	id, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, id)
+	got := <-observed
+	require.False(t, got.tokenFree,
+		"send token released while the refused request was queued (still queued: %v)",
+		got.staleQueued)
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
+}
