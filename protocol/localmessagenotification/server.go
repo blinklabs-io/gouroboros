@@ -32,20 +32,23 @@ type Server struct {
 	callbackContext CallbackContext
 
 	// Message queue management
-	lock                   sync.Mutex
-	messageQueue           []*pcommon.DmqMessage
-	acknowledgedIDs        map[string]time.Time // Maps message ID to acknowledgment timestamp for TTL-based expiration
-	acknowledgedIDsTTL     time.Duration        // TTL for acknowledged message IDs (default: 10 minutes)
-	expirationTicker       *time.Ticker
-	expirationStopChan     chan struct{}
-	expirationDoneChan     chan struct{}
-	newMessageSignal       chan struct{}
-	newMessageSignalClosed bool
-	done                   chan struct{}
-	stopOnce               sync.Once
-	connectionDoneChan     <-chan any
-	muxerDoneChan          <-chan bool
-	now                    func() time.Time
+	lock               sync.Mutex
+	messageQueue       []*pcommon.DmqMessage
+	acknowledgedIDs    map[string]time.Time // Maps message ID to acknowledgment timestamp for TTL-based expiration
+	acknowledgedIDsTTL time.Duration        // TTL for acknowledged message IDs (default: 10 minutes)
+	expirationTicker   *time.Ticker
+	expirationStopChan chan struct{}
+	expirationDoneChan chan struct{}
+	// messageAdded is closed, and replaced, by every AddMessage. A waiter
+	// takes the current channel under lock, so it wakes for any message
+	// added after it last looked at the queue, and every waiter wakes, not
+	// only one.
+	messageAdded       chan struct{}
+	done               chan struct{}
+	stopOnce           sync.Once
+	connectionDoneChan <-chan any
+	muxerDoneChan      <-chan bool
+	now                func() time.Time
 }
 
 // NewServer returns a new LocalMessageNotification server object
@@ -61,7 +64,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		acknowledgedIDsTTL: 10 * time.Minute, // TTL for acknowledged message IDs
 		expirationStopChan: make(chan struct{}),
 		expirationDoneChan: make(chan struct{}),
-		newMessageSignal:   make(chan struct{}, 1),
+		messageAdded:       make(chan struct{}),
 		done:               make(chan struct{}),
 		connectionDoneChan: protoOptions.ConnectionDoneChan,
 		now:                time.Now,
@@ -141,14 +144,8 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 
 	s.messageQueue = append(s.messageQueue, &queued)
 
-	// Signal that a new message is available (non-blocking).
-	// Check the closed flag under the lock to avoid sending to a closed channel.
-	if !s.newMessageSignalClosed {
-		select {
-		case s.newMessageSignal <- struct{}{}:
-		default:
-		}
-	}
+	close(s.messageAdded)
+	s.messageAdded = make(chan struct{})
 
 	s.Protocol.Logger().
 		Debug("message added to queue",
@@ -178,36 +175,37 @@ func cloneDmqMessage(msg pcommon.DmqMessage) pcommon.DmqMessage {
 	return msg
 }
 
-// WaitForMessage blocks until a message is available or timeout occurs
+// WaitForMessage blocks until a message is queued or timeout occurs. It
+// returns at once if a message is already queued. A timeout of zero waits
+// indefinitely.
 func (s *Server) WaitForMessage(timeout time.Duration) error {
+	s.lock.Lock()
+	if len(s.messageQueue) > 0 {
+		s.lock.Unlock()
+		return nil
+	}
+	added := s.messageAdded
+	s.lock.Unlock()
+	return s.waitForMessageAdded(added, timeout)
+}
+
+// waitForMessageAdded waits until added is closed by AddMessage, the
+// timeout passes, or the server shuts down.
+func (s *Server) waitForMessageAdded(
+	added <-chan struct{},
+	timeout time.Duration,
+) error {
+	var timerChan <-chan time.Time
 	if timeout > 0 {
 		timer := time.NewTimer(timeout)
 		defer timer.Stop()
-		select {
-		case _, ok := <-s.newMessageSignal:
-			if !ok {
-				return protocol.ErrProtocolShuttingDown
-			}
-			return nil
-		case <-timer.C:
-			return errors.New("timeout waiting for message")
-		case <-s.done:
-			return protocol.ErrProtocolShuttingDown
-		case <-s.StopChan():
-			return protocol.ErrProtocolShuttingDown
-		case <-s.connectionDoneChan:
-			return protocol.ErrProtocolShuttingDown
-		case <-s.muxerDoneChan:
-			return protocol.ErrProtocolShuttingDown
-		}
+		timerChan = timer.C
 	}
-	// Wait indefinitely
 	select {
-	case _, ok := <-s.newMessageSignal:
-		if !ok {
-			return protocol.ErrProtocolShuttingDown
-		}
+	case <-added:
 		return nil
+	case <-timerChan:
+		return errors.New("timeout waiting for message")
 	case <-s.done:
 		return protocol.ErrProtocolShuttingDown
 	case <-s.StopChan():
@@ -274,10 +272,12 @@ func (s *Server) handleBlockingRequest() error {
 			replyMsg := NewMsgReplyMessagesBlocking(messages)
 			return s.SendMessage(replyMsg)
 		}
+		// Take the channel before releasing the lock, so a message added
+		// between the drain and the wait still wakes this request.
+		added := s.messageAdded
 		s.lock.Unlock()
 
-		// Wait for a message to arrive (no timeout - blocking indefinitely)
-		if err := s.WaitForMessage(0); err != nil {
+		if err := s.waitForMessageAdded(added, 0); err != nil {
 			return err
 		}
 	}
@@ -319,18 +319,7 @@ func (s *Server) Stop() error {
 
 func (s *Server) stop() {
 	s.stopOnce.Do(func() {
-		// Close channels and signal shutdown
-		s.lock.Lock()
-		if !s.newMessageSignalClosed {
-			// Close newMessageSignal to wake up any goroutines waiting on it
-			close(s.newMessageSignal)
-			// Close done channel to signal protocol shutdown
-			close(s.done)
-			s.newMessageSignalClosed = true
-		}
-		s.lock.Unlock()
-
-		// Stop the expiration cleaner
+		close(s.done)
 		s.stopExpirationCleaner()
 	})
 }
