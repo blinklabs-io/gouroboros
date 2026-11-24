@@ -1726,6 +1726,33 @@ func TestSlotToEpoch(t *testing.T) {
 	}
 }
 
+// TestSlotToEpochStopsAtByronEnd uses mainnet's Byron to Shelley boundary:
+// Byron epochs of 21600 slots end at slot 4492800, where Shelley epoch 208
+// starts with 432000-slot epochs. Slot 4514400 is still in epoch 208, but
+// the Byron formula gives 209.
+func TestSlotToEpochStopsAtByronEnd(t *testing.T) {
+	end := uint64(4492800)
+	config := &ByronConfig{SlotsPerEpoch: 21600, EndSlot: &end}
+
+	epoch, err := config.SlotToEpochChecked(end - 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(207), epoch)
+
+	for _, slot := range []uint64{end, end + 21600} {
+		_, err = config.SlotToEpochChecked(slot)
+		require.ErrorIs(t, err, ErrSlotAfterByron, "slot %d", slot)
+		require.Zero(t, config.SlotToEpoch(slot), "slot %d", slot)
+	}
+
+	config.EndSlot = nil
+	epoch, err = config.SlotToEpochChecked(end + 21600)
+	require.NoError(t, err)
+	require.Equal(t, uint64(209), epoch)
+
+	_, err = (&ByronConfig{}).SlotToEpochChecked(1)
+	require.Error(t, err)
+}
+
 func TestEpochFirstSlot(t *testing.T) {
 	config := testByronConfig()
 	tests := []struct {
