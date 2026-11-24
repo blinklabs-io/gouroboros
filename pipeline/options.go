@@ -71,6 +71,14 @@ type PipelineConfig struct {
 	// should call BlockItem.Release to clear their data.
 	// Zero selects DefaultMaxRawCborBytes.
 	MaxRawCborBytes uint64
+	// LosslessResults makes Results a data path rather than an observer:
+	// every committed block is delivered, and committing (and so Fence and
+	// WaitForDrain) waits for the reader once PrefetchBufferSize results or
+	// MaxRawCborBytes of their CBOR are undelivered. Without it, reading
+	// Results is optional and a reader that falls that far behind loses the
+	// oldest undelivered results. Either way, delivery is not guaranteed
+	// after Stop begins.
+	LosslessResults bool
 	// Eta0Provider dynamically provides the epoch nonce for each block's slot.
 	// This is required for VRF validation since the epoch nonce changes every epoch.
 	// For simple test cases, use StaticEta0Provider to wrap a constant value.
@@ -206,6 +214,16 @@ func WithValidateWorkers(n int) PipelineOption {
 		if n >= 0 {
 			c.ValidateWorkers = n
 		}
+	}
+}
+
+// WithLosslessResults makes Results deliver every committed block, with
+// committing waiting for the reader instead of dropping undelivered results.
+// Use it when Results is how the caller receives decoded blocks, as in
+// trusted decode-only mode, where no ApplyFunc runs.
+func WithLosslessResults() PipelineOption {
+	return func(c *PipelineConfig) {
+		c.LosslessResults = true
 	}
 }
 

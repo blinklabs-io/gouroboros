@@ -704,6 +704,11 @@ func (p *BlockPipeline) forwardResults() {
 	defer close(p.resultsChan)
 	maxItems := max(p.config.PrefetchBufferSize, 1)
 	maxBytes := p.maxRawCborBytes()
+	lossless := p.config.LosslessResults
+	// stopping is set once the pipeline context ends. Lossless mode then stops
+	// holding the runner back, so Stop never waits for a reader that is gone.
+	stopping := false
+	done := p.ctx.Done()
 	var pending []pendingResult
 	var pendingBytes uint64
 	pop := func() pendingResult {
@@ -720,6 +725,11 @@ func (p *BlockPipeline) forwardResults() {
 		p.markItemDelivered(item)
 		pending = append(pending, pendingResult{item: item, bytes: bytes})
 		pendingBytes += bytes
+		// In lossless mode the receive case below is disabled while the queue
+		// is full, so nothing is dropped before Stop begins.
+		if lossless && !stopping {
+			return
+		}
 		// The newest result always stays: admission already bounded its size
 		// by MaxRawCborBytes.
 		for len(pending) > maxItems ||
@@ -736,8 +746,18 @@ func (p *BlockPipeline) forwardResults() {
 			out = p.resultsChan
 			head = pending[0].item
 		}
+		// In lossless mode a full queue stops taking results, so the runner
+		// waits for the reader instead of a result being dropped.
+		in := p.resultsQueue
+		if lossless && !stopping && len(pending) > 0 &&
+			(len(pending) >= maxItems || pendingBytes >= maxBytes) {
+			in = nil
+		}
 		select {
-		case item, ok := <-p.resultsQueue:
+		case <-done:
+			stopping = true
+			done = nil
+		case item, ok := <-in:
 			if !ok {
 				for len(pending) > 0 {
 					pop().item.Release()
@@ -976,8 +996,10 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 // clear their raw and decoded CBOR.
 // If the pipeline has not been started, it returns a closed channel.
 //
-// Results are observational and reading them is optional: committing, Fence
-// and WaitForDrain never wait for a reader. The pipeline holds at most
+// By default results are observational and reading them is optional:
+// committing, Fence and WaitForDrain never wait for a reader. With
+// WithLosslessResults, every committed block is delivered and committing waits
+// for the reader instead of dropping results. The pipeline holds at most
 // PrefetchBufferSize undelivered results, retaining at most MaxRawCborBytes of
 // CBOR. A reader that stays within both bounds receives every result. When a
 // new result would exceed either bound, the oldest undelivered result is
