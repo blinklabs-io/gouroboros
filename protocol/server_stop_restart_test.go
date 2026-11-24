@@ -22,6 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
@@ -66,6 +67,16 @@ var restartingServerCases = []restartingServerCase{
 		newServer: func(o protocol.ProtocolOptions) restartingServer {
 			o.Mode = protocol.ProtocolModeNodeToClient
 			return chainsync.NewServer(o, &chainsync.Config{})
+		},
+	},
+	{
+		name:       "keepalive",
+		protocolId: keepalive.ProtocolId,
+		hold:       "done",
+		done:       keepalive.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToNode
+			return keepalive.NewServer(o, nil)
 		},
 	},
 	{

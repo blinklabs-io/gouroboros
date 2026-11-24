@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/keepalive"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagenotification"
 	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
 	"github.com/stretchr/testify/require"
@@ -131,4 +132,36 @@ func TestConnectionShutdownStopsRestartingServer(t *testing.T) {
 	require.Never(t, func() bool { return calls.Load() > 0 },
 		200*time.Millisecond, 5*time.Millisecond,
 		"a server stopped by connection shutdown ran an application callback")
+}
+
+// TestConnectionShutdownStopsRestartingKeepAliveServer is the keep-alive
+// counterpart: stopProtocols during the server's MsgDone handling must leave
+// no new instance running.
+func TestConnectionShutdownStopsRestartingKeepAliveServer(t *testing.T) {
+	h := restartwindow.New(t, keepalive.ProtocolId)
+	server := keepalive.NewServer(
+		protocol.ProtocolOptions{
+			Muxer:  h.Server,
+			Logger: h.Logger("done"),
+			Mode:   protocol.ProtocolModeNodeToNode,
+		},
+		nil,
+	)
+	conn, err := New()
+	require.NoError(t, err)
+	conn.keepAlive = &keepalive.KeepAlive{Server: server}
+	conn.protocolsReady = true
+	server.Start()
+	t.Cleanup(server.Stop)
+	h.Start()
+
+	h.Send(keepalive.NewMsgDone())
+	h.WaitHeld()
+	stopped := server.ProtocolInstance()
+	conn.stopProtocols()
+	h.Release()
+
+	restarted := func() bool { return server.ProtocolInstance() != stopped }
+	require.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
+		"a server stopped by connection shutdown installed a new instance")
 }

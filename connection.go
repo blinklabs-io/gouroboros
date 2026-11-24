@@ -457,9 +457,12 @@ func (c *Connection) stopProtocols() {
 // protocol instance after MsgDone. The caller must hold c.protocolMu for
 // reading.
 func (c *Connection) restartingServersLocked() []interface{ Stop() } {
-	servers := make([]interface{ Stop() }, 0, 7)
+	servers := make([]interface{ Stop() }, 0, 8)
 	if c.chainSync != nil && c.chainSync.Server != nil {
 		servers = append(servers, c.chainSync.Server)
+	}
+	if c.keepAlive != nil && c.keepAlive.Server != nil {
+		servers = append(servers, c.keepAlive.Server)
 	}
 	if c.blockFetch != nil && c.blockFetch.Server != nil {
 		servers = append(servers, c.blockFetch.Server)

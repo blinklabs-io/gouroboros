@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -150,11 +149,7 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 	s.protocolMu.Lock()
 	if s.stopped {
 		s.protocolMu.Unlock()
-		// StopForRestart left the muxer receiver suspended, buffering for
-		// the next instance. There will be none, so release it.
-		if m := s.protoOptions.Muxer; m != nil {
-			m.UnregisterProtocol(ProtocolId, muxer.ProtocolRoleResponder)
-		}
+		proto.CancelRestart()
 		return nil
 	}
 	p := s.newProtocol()
