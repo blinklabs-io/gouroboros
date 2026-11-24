@@ -16,6 +16,7 @@ package handshake_test
 
 import (
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -152,19 +153,32 @@ func TestServerAcceptsWithNegotiatedVersionData(t *testing.T) {
 			},
 		},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			accept := runServerHandshake(
-				t,
-				test.mode,
-				protocol.ProtocolVersionMap{test.ver: test.server},
-				protocol.ProtocolVersionMap{test.ver: test.client},
-			)
-			require.Equal(t, test.ver, accept.Version)
-			got, err := protocol.GetProtocolVersion(test.ver).
-				NewVersionDataFromCborFunc(accept.VersionData)
-			require.NoError(t, err)
-			require.Equal(t, test.want, got)
-		})
+		// The version data interface has value receivers, so a table may
+		// hold a pointer; it must agree the same way and stay unchanged.
+		serverPtr := reflect.New(reflect.TypeOf(test.server))
+		serverPtr.Elem().Set(reflect.ValueOf(test.server))
+		for _, form := range []struct {
+			name  string
+			local protocol.VersionData
+		}{
+			{"value", test.server},
+			{"pointer", serverPtr.Interface().(protocol.VersionData)},
+		} {
+			t.Run(test.name+" "+form.name, func(t *testing.T) {
+				accept := runServerHandshake(
+					t,
+					test.mode,
+					protocol.ProtocolVersionMap{test.ver: form.local},
+					protocol.ProtocolVersionMap{test.ver: test.client},
+				)
+				require.Equal(t, test.ver, accept.Version)
+				got, err := protocol.GetProtocolVersion(test.ver).
+					NewVersionDataFromCborFunc(accept.VersionData)
+				require.NoError(t, err)
+				require.Equal(t, test.want, got)
+				require.Equal(t, test.server, serverPtr.Elem().Interface())
+			})
+		}
 	}
 }
 
