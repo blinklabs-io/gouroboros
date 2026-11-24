@@ -59,6 +59,10 @@ type Client struct {
 	syncLoopWaitGroup      sync.WaitGroup
 	outstandingRequestNext int
 	requestNextDrained     chan struct{}
+	// stoppedWithoutDone is set, under lifecycleMutex, when a stop reported
+	// ErrStoppedWithoutDone. The server may still reply to the abandoned
+	// requests, so Start must not register a new instance on this connection.
+	stoppedWithoutDone bool
 	// syncLoopStop and syncLoopDone belong to the most recently started sync
 	// loop. Closing syncLoopStop makes that loop exit; the loop closes
 	// syncLoopDone on its way out.
@@ -271,6 +275,10 @@ func (c *Client) endOperation() {
 	}
 }
 
+// Start starts the client, or restarts it after Stop or StopAfterDrain with a
+// new protocol instance on the same connection. After a Stop that gave up on
+// the connection (see Stop), Start does nothing: the server may still answer
+// the abandoned requests, and the connection is being closed.
 func (c *Client) Start() {
 	for {
 		c.lifecycleMutex.Lock()
@@ -301,6 +309,10 @@ func (c *Client) Start() {
 			continue
 
 		case clientStateStopped, clientStateNew:
+			if c.stoppedWithoutDone {
+				c.lifecycleMutex.Unlock()
+				return
+			}
 			// We will be the goroutine that performs initialization/start.
 			// Save previous state before transitioning to prevent other goroutines from also starting.
 			prevState := c.lifecycleState
@@ -338,7 +350,9 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				// Requests sent on the stopped instance are never answered.
+				// The stopped instance delivered MsgDone, so the server
+				// owes it nothing: a stop that could not deliver it leaves
+				// the client stopped (stoppedWithoutDone).
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
 			}
@@ -383,6 +397,16 @@ func (c *Client) Start() {
 // After waiting for any busy operation, it allows up to 250ms for delivery.
 // Delivery errors are returned after shutdown; an already shutting-down
 // protocol is treated as successfully stopped.
+//
+// MsgDone is legal only once every request has been answered. If a reply is
+// still owed when the 250ms run out, as at the chain tip after
+// MsgAwaitReply, the server may still send it, so Stop gives up on the
+// connection: it reports ErrStoppedWithoutDone on the protocol's error
+// channel, stops the muxer, which closes the connection, and leaves the
+// client so that Start does not start it again. The return value is then
+// the delivery error, such as context.DeadlineExceeded, not
+// ErrStoppedWithoutDone. Use StopAfterDrain to stop and later restart on the
+// same connection.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	switch c.lifecycleState {
@@ -481,6 +505,35 @@ func (c *Client) stopRunning(
 	)
 }
 
+// abandonIfOwed handles a MsgDone that was not delivered in time. MsgDone is
+// legal only in StIdle, so if a request is unanswered or the state is not
+// StIdle, it is still queued behind the server's reply and never will be
+// sent: the server keeps that request's state and may yet reply, which a
+// protocol instance started on this connection would receive in StIdle. The
+// connection is then closed, as the reference does when a mini-protocol does
+// not terminate in time. A MsgDone that was sendable but slow to write may
+// still reach the peer, which then owes nothing, so it is left alone.
+func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
+	c.lifecycleMutex.Lock()
+	owed := c.outstandingRequestNext > 0 || !proto.IsInTerminalOrIdleState()
+	if owed {
+		// The connection closes on its own goroutine, so Start refuses to
+		// restart in the meantime.
+		c.stoppedWithoutDone = true
+	}
+	c.lifecycleMutex.Unlock()
+	if !owed {
+		return
+	}
+	// Report the error before stopping, while SendError still reaches the
+	// error channel. SendError drops it if nothing receives, so the muxer is
+	// stopped as well: no reply can then reach this connection.
+	proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
+	if c.protoOptions.Muxer != nil {
+		c.protoOptions.Muxer.Stop()
+	}
+}
+
 func (c *Client) finishStop(
 	ctx context.Context,
 	proto *protocol.Protocol,
@@ -509,6 +562,9 @@ func (c *Client) finishStop(
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
+		}
+		if sendErr != nil {
+			c.abandonIfOwed(proto, sendErr)
 		}
 	}
 	if busyLocked {
