@@ -15,8 +15,10 @@
 package handshake
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -75,7 +77,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
-// Start begins the handshake process
+// Start begins the handshake process. It returns once the proposal is queued
+// and the client is waiting for the answer, so a muxer started afterwards
+// cannot deliver the peer's messages too early.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
@@ -97,7 +101,15 @@ func (c *Client) Start() {
 				)
 			// Start cannot return this error, so log it and still clean up.
 			c.Stop()
+			return
 		}
+		// A peer that dials at the same moment sends its own proposal,
+		// which is only legal once ours has moved the client to Confirm;
+		// arriving in Propose it would be a protocol violation. Returning
+		// after that transition lets the caller start reading safely.
+		// An error here means the protocol is already shutting down and
+		// has reported why.
+		_ = c.WaitForStateExit(context.Background(), statePropose)
 	})
 }
 
@@ -110,6 +122,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleRefuse(msg)
 	case MessageTypeQueryReply:
 		err = c.handleQueryReply(msg)
+	case MessageTypeProposeVersions:
+		err = c.handleReplyVersions(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -167,6 +181,80 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 		msgAcceptVersion.Version,
 		versionData,
 	)
+}
+
+// handleReplyVersions handles the peer's MsgProposeVersions, received in
+// Confirm when both sides dialled at once (MsgReplyVersions in the
+// specification). As the reference client does, it chooses the version
+// itself, with the same rule the server applies, so that both sides reach the
+// same choice. A refusal is returned as the typed error a server would have
+// sent; nothing is sent to the peer, which makes its own choice and sees the
+// connection close.
+func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug("received peer proposal in simultaneous open",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	msg, ok := msgGeneric.(*MsgProposeVersions)
+	if !ok {
+		return fmt.Errorf(
+			"%s: malformed reply versions message: expected *MsgProposeVersions, got %T",
+			ProtocolName,
+			msgGeneric,
+		)
+	}
+	if c.config.FinishedFunc == nil {
+		return errors.New(
+			"received handshake ReplyVersions message but no callback function is defined",
+		)
+	}
+	var version uint16
+	found := false
+	for proposed := range msg.VersionMap {
+		if _, ok := c.config.ProtocolVersionMap[proposed]; !ok {
+			continue
+		}
+		if !found || proposed > version {
+			version = proposed
+			found = true
+		}
+	}
+	if !found {
+		supported := make([]uint16, 0, len(c.config.ProtocolVersionMap))
+		for v := range c.config.ProtocolVersionMap {
+			supported = append(supported, v)
+		}
+		slices.Sort(supported)
+		return &VersionMismatchError{SupportedVersions: supported}
+	}
+	ownData := c.config.ProtocolVersionMap[version]
+	decode := protocol.GetProtocolVersion(version).NewVersionDataFromCborFunc
+	if ownData == nil || decode == nil {
+		return &DecodeError{
+			Version: version,
+			Message: "no version data for the chosen version",
+		}
+	}
+	peerData, err := decode(msg.VersionMap[version])
+	if err != nil {
+		return &DecodeError{Version: version, Message: err.Error()}
+	}
+	if peerData == nil {
+		return &DecodeError{
+			Version: version,
+			Message: "empty version data",
+		}
+	}
+	if peerData.NetworkMagic() != ownData.NetworkMagic() {
+		return &RefusedError{
+			Version: version,
+			Message: "network magic mismatch",
+		}
+	}
+	return c.config.FinishedFunc(c.callbackContext, version, peerData)
 }
 
 func (c *Client) handleRefuse(msgGeneric protocol.Message) error {

@@ -114,6 +114,18 @@ const (
 	DiffusionModeInitiatorAndResponder DiffusionMode = 3 // Initiator and responder (full duplex) mode
 )
 
+// handshakeProtocolId is the handshake mini-protocol, which runs before the
+// muxer is started.
+const handshakeProtocolId = 0
+
+// otherRole returns the role at the other end of a mini-protocol.
+func otherRole(role ProtocolRole) ProtocolRole {
+	if role == ProtocolRoleInitiator {
+		return ProtocolRoleResponder
+	}
+	return ProtocolRoleInitiator
+}
+
 // ProtocolRole is an enum of the protocol roles
 type ProtocolRole uint
 
@@ -1513,6 +1525,15 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		recvChan := protocolRoles[protocolRole]
+		if recvChan == nil && !started &&
+			msg.GetProtocolId() == handshakeProtocolId {
+			// Before Start, only the handshake runs, and it reads its
+			// segments whatever their direction bit, as the reference
+			// reads it straight off the bearer. Two nodes that dial each
+			// other at once both run the handshake client, so each
+			// peer's proposal is marked as coming from an initiator.
+			recvChan = protocolRoles[otherRole(protocolRole)]
+		}
 		if recvChan == nil {
 			if _, tombstoned := m.protocolTombstones[msg.GetProtocolId()][protocolRole]; tombstoned {
 				m.protocolReceiversMutex.Unlock()

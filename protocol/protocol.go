@@ -112,7 +112,10 @@ type Protocol struct {
 	currentStateMu           sync.RWMutex
 	currentState             State
 	currentStateGeneration   uint64
-	peerAgencyReserved       bool
+	// stateChangedChan is closed and replaced, under currentStateMu, each
+	// time the state is set, waking every WaitForStateExit caller at once.
+	stateChangedChan   chan struct{}
+	peerAgencyReserved bool
 	// pipelinedTypeGenerations maps each peer message type that a local-agency
 	// state accepts as peer-pipelined to the last generation at which such a
 	// state was entered. A message that waited out a whole round trip uses it
@@ -305,13 +308,14 @@ func New(config ProtocolConfig) *Protocol {
 		config.RecvQueueSize = DefaultRecvQueueSize
 	}
 	p := &Protocol{
-		config:       config,
-		currentState: config.InitialState,
-		doneChan:     make(chan struct{}),
-		stopChan:     make(chan struct{}),
-		readDoneChan: make(chan struct{}),
-		recvDoneChan: make(chan struct{}),
-		sendDoneChan: make(chan struct{}),
+		config:           config,
+		currentState:     config.InitialState,
+		stateChangedChan: make(chan struct{}),
+		doneChan:         make(chan struct{}),
+		stopChan:         make(chan struct{}),
+		readDoneChan:     make(chan struct{}),
+		recvDoneChan:     make(chan struct{}),
+		sendDoneChan:     make(chan struct{}),
 	}
 	return p
 }
@@ -650,6 +654,35 @@ func (p *Protocol) WaitSendQueueDrained(timeout time.Duration) bool {
 			return false
 		}
 		time.Sleep(2 * time.Millisecond)
+	}
+}
+
+// WaitForStateExit blocks until the protocol is no longer in state, the
+// context ends, or the protocol shuts down. A message passed to SendMessage
+// changes the state before its bytes reach the muxer, so waiting for the
+// state it leaves orders everything read afterwards behind that message, which
+// waiting for delivery cannot do on a connection, such as net.Pipe, that only
+// accepts a write once the peer reads.
+func (p *Protocol) WaitForStateExit(ctx context.Context, state State) error {
+	for {
+		p.currentStateMu.RLock()
+		current := p.currentState
+		changed := p.stateChangedChan
+		p.currentStateMu.RUnlock()
+		if current != state {
+			return nil
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-p.stopChan:
+			return ErrProtocolShuttingDown
+		case <-p.doneChan:
+			return ErrProtocolShuttingDown
+		case <-p.muxerDoneChan:
+			return ErrProtocolShuttingDown
+		}
 	}
 }
 
@@ -2297,6 +2330,11 @@ func (p *Protocol) stateLoop(ch <-chan protocolStateTransition) {
 		// rechecks the current state before handling each queued message.
 		p.currentStateMu.Lock()
 		p.currentState = s
+		// Absent on a Protocol not built by New.
+		if p.stateChangedChan != nil {
+			close(p.stateChangedChan)
+		}
+		p.stateChangedChan = make(chan struct{})
 		if initialStateSet {
 			p.currentStateGeneration++
 			p.peerAgencyReserved = false
