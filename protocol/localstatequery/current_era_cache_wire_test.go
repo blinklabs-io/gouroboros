@@ -121,6 +121,9 @@ func newWireCacheHarness(
 func TestCurrentEraCacheAcrossSnapshotTransitions(t *testing.T) {
 	h := newWireCacheHarness(t, false, false)
 	client := h.client.LocalStateQuery().Client
+	// The cache lives as long as an acquired state. A call made without
+	// one releases its own state on return, so acquire explicitly.
+	require.NoError(t, client.AcquireVolatileTip())
 	era, err := client.GetCurrentEra()
 	require.NoError(t, err)
 	require.Equal(t, 5, era)
@@ -149,6 +152,9 @@ func TestCurrentEraCacheAcrossSnapshotTransitions(t *testing.T) {
 func TestCurrentEraCacheInvalidatesAfterReacquire(t *testing.T) {
 	h := newWireCacheHarness(t, false, false)
 	client := h.client.LocalStateQuery().Client
+	// The cache lives as long as an acquired state. A call made without
+	// one releases its own state on return, so acquire explicitly.
+	require.NoError(t, client.AcquireVolatileTip())
 	era, err := client.GetCurrentEra()
 	require.NoError(t, err)
 	require.Equal(t, 5, era)
@@ -162,6 +168,21 @@ func TestCurrentEraCacheInvalidatesAfterReacquire(t *testing.T) {
 		h.queries.Load(),
 		"successful reacquire should invalidate cache",
 	)
+}
+
+// TestCurrentEraNotCachedAcrossImplicitCalls checks that calls made without
+// an explicit acquire do not share a cached era: each answers from a state
+// it acquired itself, and the era may have changed between them.
+func TestCurrentEraNotCachedAcrossImplicitCalls(t *testing.T) {
+	h := newWireCacheHarness(t, false, false)
+	client := h.client.LocalStateQuery().Client
+	era, err := client.GetCurrentEra()
+	require.NoError(t, err)
+	require.Equal(t, 5, era)
+	era, err = client.GetCurrentEra()
+	require.NoError(t, err)
+	require.Equal(t, 6, era)
+	require.Equal(t, int32(2), h.queries.Load())
 }
 
 func TestCurrentEraQueryFailureDoesNotPopulateCache(t *testing.T) {
@@ -199,6 +220,9 @@ func TestCurrentEraCacheRejectsAfterShutdown(t *testing.T) {
 func TestCurrentEraCacheInvalidatesAfterRelease(t *testing.T) {
 	h := newWireCacheHarness(t, false, false)
 	client := h.client.LocalStateQuery().Client
+	// The cache lives as long as an acquired state. A call made without
+	// one releases its own state on return, so acquire explicitly.
+	require.NoError(t, client.AcquireVolatileTip())
 	_, err := client.GetCurrentEra()
 	require.NoError(t, err)
 	require.NoError(t, client.Release())
@@ -211,6 +235,9 @@ func TestCurrentEraCacheInvalidatesAfterRelease(t *testing.T) {
 func TestCurrentEraCacheInvalidatesAfterFailedReacquire(t *testing.T) {
 	h := newWireCacheHarness(t, false, true)
 	client := h.client.LocalStateQuery().Client
+	// The cache lives as long as an acquired state. A call made without
+	// one releases its own state on return, so acquire explicitly.
+	require.NoError(t, client.AcquireVolatileTip())
 	_, err := client.GetCurrentEra()
 	require.NoError(t, err)
 	require.ErrorIs(
