@@ -45,13 +45,13 @@ import (
 const (
 	// goEmptyUpdateFixed: an update whose proposal map is empty still has its
 	// target epoch checked (Rules/Ppup.hs ppupTransitionNonEmpty).
-	goEmptyUpdateFixed = false
+	goEmptyUpdateFixed = true
 	// goPhase2InvalidPpupFixed: PPUP does not run for an IsValid false transaction
 	// (Alonzo and Babbage Rules/Utxos.hs run it on the valid branch only).
-	goPhase2InvalidPpupFixed = false
+	goPhase2InvalidPpupFixed = true
 	// goMirQuorumPhase2InvalidFixed: the MIR genesis quorum is checked for every
 	// transaction (UTXOW validateMIRInsufficientGenesisSigs).
-	goMirQuorumPhase2InvalidFixed = false
+	goMirQuorumPhase2InvalidFixed = true
 )
 
 // modelTx overrides what the composed rules read from a transaction:
