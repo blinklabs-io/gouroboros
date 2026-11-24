@@ -106,8 +106,8 @@ Init → Idle → (request/reply cycle)
 
 ### Peras
 - **PerasVotes**: Protocol 17 implements the reference ObjectDiffusion state
-  machine from [ouroboros-network's ObjectDiffusion CDDL](https://github.com/IntersectMBO/ouroboros-network/blob/a3d8017e798b225055aaf9118ad062fe58bc650f/cardano-diffusion/protocols/cddl/specs/object-diffusion.cddl)
-  and [codec](https://github.com/IntersectMBO/ouroboros-network/blob/a3d8017e798b225055aaf9118ad062fe58bc650f/ouroboros-network/protocols/lib/Ouroboros/Network/Protocol/ObjectDiffusion/Codec.hs).
+  machine from [ouroboros-network's ObjectDiffusion CDDL](https://github.com/IntersectMBO/ouroboros-network/blob/5f356486ab3e6cc16ab15bddb04ed5068b9ed84c/cardano-diffusion/protocols/cddl/specs/object-diffusion.cddl)
+  and [codec](https://github.com/IntersectMBO/ouroboros-network/blob/5f356486ab3e6cc16ab15bddb04ed5068b9ed84c/ouroboros-network/protocols/lib/Ouroboros/Network/Protocol/ObjectDiffusion/Codec.hs).
   Vote IDs use `[round, seat index]`, and opaque vote objects use the
   five-field Peras V1 tuple, matching the consensus
   [vote ID](https://github.com/IntersectMBO/ouroboros-consensus/blob/7d630e8e54e7df7f694185f231be4b5c83b84388/ouroboros-consensus/src/ouroboros-consensus/Ouroboros/Consensus/Peras/Types.hs)
