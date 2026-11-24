@@ -112,38 +112,43 @@ func MustReplyTimeoutFunc() time.Duration {
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.
 var StateMapNtN = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IdleTimeout,
-		Transitions:             idleTransitions,
+		Agency:                   protocol.AgencyClient,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IdleTimeout,
+		Transitions:              idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 CanAwaitTimeout,
-		Transitions:             canAwaitTransitions,
-		AllowPipelinedSend:      true,
-		PipelinedMessageTypes:   []uint8{MessageTypeRequestNext},
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  CanAwaitTimeout,
+		Transitions:              canAwaitTransitions,
+		AllowPipelinedSend:       true,
+		PipelinedMessageTypes:    []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IntersectTimeout,
-		Transitions:             intersectTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IntersectTimeout,
+		Transitions:              intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		TimeoutFunc:             MustReplyTimeoutFunc,
-		Transitions:             mustReplyTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		TimeoutFunc:              MustReplyTimeoutFunc,
+		Transitions:              mustReplyTransitions,
 		// A client pipelines RequestNext against its own view of CanAwait,
 		// which lags the server's: the server may already have sent
 		// AwaitReply when the request arrives.
 		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Agency:                   protocol.AgencyNone,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
 	},
 }
 
@@ -233,6 +238,13 @@ const (
 	MaxPendingMessageBytes      = 462000 // NtN mux ingress buffer per spec Table 3.15 (462KB)
 	DefaultPipelineDrainTimeout = 30 * time.Second
 )
+
+// SmallMaxPendingMessageBytes is the node-to-node size limit of every
+// chain-sync state, which bounds each message received in it. The
+// specification's chain-sync size table and the reference's
+// byteLimitsChainSync both give 65535 bytes. MaxPendingMessageBytes, the
+// ingress queue, is a separate and larger limit.
+const SmallMaxPendingMessageBytes = 65535
 
 // PendingReceiveBytesNtC is the most received, not yet handled, node-to-client
 // ChainSync message bytes a connection holds. The reference node-to-client
