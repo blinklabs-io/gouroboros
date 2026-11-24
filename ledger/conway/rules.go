@@ -33,6 +33,14 @@ import (
 )
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	// BadInputs runs first. cardano-ledger accumulates every failure, so a
+	// missing input always yields BadInputsUTxO; this list stops at the first
+	// failure, and the rules below resolve collateral and reference inputs
+	// and would otherwise report the same missing input in their own terms.
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
 	{
 		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
 		Validator: common.UtxoValidateCurrentTreasuryValue,
@@ -157,10 +165,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
-	},
-	{
-		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: UtxoValidateBadInputsUtxo,
 	},
 	// Ensure script witness presence/absence is validated after the
 	// redeemer/script relation.
@@ -300,6 +304,7 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(UtxoValidateBadInputsUtxo),
 	common.AlwaysUtxoValidationRules(common.UtxoValidateCurrentTreasuryValue),
 	common.AlwaysUtxoValidationRules(UtxoValidateMetadata),
 	common.Phase2ValidUtxoValidationRules(UtxoValidateProposalProcedures),
@@ -338,7 +343,6 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateCollateralContainsNonAda,
 		UtxoValidateCollateralEqBalance,
 		UtxoValidateNoCollateralInputs,
-		UtxoValidateBadInputsUtxo,
 		UtxoValidateScriptWitnesses,
 		UtxoValidateRequiredRedeemers,
 		UtxoValidateValueNotConservedUtxo,
@@ -2083,13 +2087,9 @@ func UtxoValidateScriptDataHash(
 	view, err := script.NewTxScriptView(tx, ls)
 	if err != nil {
 		if errors.Is(err, common.ErrInputResolution) {
-			// A spent input that does not resolve is reported by
-			// UtxoValidateBadInputsUtxo, which runs on every transaction in
-			// this same rule list. Reporting it from here would change which
-			// error an invalid transaction produces, and this rule is
-			// registered ahead of that one. A reference input that does not
-			// resolve is reported by that rule too, but its error is not
-			// ErrInputResolution, so it still surfaces here first.
+			// A spent input that does not resolve is left to
+			// UtxoValidateBadInputsUtxo, which runs first in this era's rule
+			// list and reports it as the reference does.
 			return nil
 		}
 		return err

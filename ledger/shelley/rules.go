@@ -281,7 +281,8 @@ func UtxoValidateBadInputsUtxo(
 // are treated as one union, as cardano-ledger's validateBadInputsUTxO
 // receives it: an input named in more than one set is listed once, in the
 // order it is first seen. Later eras pass their collateral and reference
-// inputs here as well as the spent inputs.
+// inputs here as well as the spent inputs. A nil ledger state resolves no
+// input, so every input is listed.
 func ValidateBadInputs(
 	ls common.LedgerState,
 	inputSets ...[]common.TransactionInput,
@@ -299,6 +300,10 @@ func ValidateBadInputs(
 				continue
 			}
 			seen[key] = struct{}{}
+			if ls == nil {
+				badInputs = append(badInputs, tmpInput)
+				continue
+			}
 			if _, err := ls.UtxoById(tmpInput); err != nil {
 				badInputs = append(badInputs, tmpInput)
 			}

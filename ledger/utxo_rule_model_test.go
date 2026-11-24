@@ -28,17 +28,15 @@
 // gOuroboros accepts exactly the transactions the model accepts.
 //
 // Rules outside the model (signatures, witnesses, metadata, script data
-// hash, network) are run too, but only an input-resolution failure from
-// one of them counts: gOuroboros resolves collateral and reference inputs
-// in those rules rather than in BadInputs, and a missing input must still
-// reject the transaction. Plutus scripts are not evaluated; the model's
-// pass field stands for their result and is fed to
+// hash, network) are run too, but none of their failures counts, not even
+// one about an input missing from the UTxO: BadInputs, a restated rule,
+// must reject that transaction first. Plutus scripts are not
+// evaluated; the model's pass field stands for their result and is fed to
 // common.ValidatePlutusScriptResult.
 
 package ledger_test
 
 import (
-	"errors"
 	"fmt"
 	"math/big"
 	"testing"
@@ -810,12 +808,6 @@ var umModelled = map[common.UtxoValidationRuleId]bool{
 	common.UtxoValidationRuleDisjointRefInputs:        true,
 }
 
-// umResolutionFailure reports whether err says an input is not in the UTxO.
-func umResolutionFailure(err error) bool {
-	return errors.Is(err, common.ErrInputResolution) ||
-		errors.Is(err, mockledger.ErrNotFound)
-}
-
 // umGoVerdict runs the era's rules on the transaction and returns whether
 // gOuroboros accepts it, and the first rejecting rule.
 func umGoVerdict(t *testing.T, era umEra, s umState, m umTx) (bool, string) {
@@ -837,7 +829,7 @@ func umGoVerdict(t *testing.T, era umEra, s umState, m umTx) (bool, string) {
 		if err == nil {
 			continue
 		}
-		if umModelled[rule.Id] || umResolutionFailure(err) {
+		if umModelled[rule.Id] {
 			return false, fmt.Sprintf("%s: %v", rule.Id, err)
 		}
 	}
