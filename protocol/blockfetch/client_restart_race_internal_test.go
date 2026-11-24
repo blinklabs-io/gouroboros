@@ -81,6 +81,13 @@ func TestFetchDuringRestartReadsProtocolUnderLock(t *testing.T) {
 				_, _ = io.Copy(io.Discard, peerConn)
 				close(peerDone)
 			}()
+			// Runs on failure too, so a failed case leaves no goroutine
+			// for the leak checks of later tests.
+			t.Cleanup(func() {
+				_ = m.Stop(context.Background())
+				_ = peerConn.Close()
+				<-peerDone
+			})
 			gate := make(chan struct{})
 			c := NewClient(protocol.ProtocolOptions{
 				ConnectionId: connection.ConnectionId{
@@ -102,12 +109,13 @@ func TestFetchDuringRestartReadsProtocolUnderLock(t *testing.T) {
 			c.Start()
 			close(gate)
 			// The fetch waits for a batch the peer never starts; Stop
-			// ends that wait.
-			require.NoError(t, c.Stop(context.Background()))
+			// ends that wait. If the fetch's request went out first,
+			// MsgClientDone is not sendable in Busy, and Stop reports its
+			// delivery deadline, as its doc says.
+			if err := c.Stop(context.Background()); err != nil {
+				require.ErrorIs(t, err, context.DeadlineExceeded)
+			}
 			require.Error(t, <-fetched)
-			m.Stop()
-			_ = peerConn.Close()
-			<-peerDone
 		})
 	}
 }
