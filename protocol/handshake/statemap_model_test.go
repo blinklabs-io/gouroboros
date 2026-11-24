@@ -118,8 +118,6 @@ var handshakeModelReceive = []modelReceiveRow{
 //
 //   - protocol.Protocol judges a message the moment it arrives, so one sent
 //     while the receiver holds agency is refused rather than left to wait.
-//   - gOuroboros has no MsgReplyVersions: a client does not support
-//     simultaneous open, and refuses MsgProposeVersions in Confirm.
 //   - The client refuses a MsgQueryReply it did not ask for. An honest
 //     server only answers a query, so this is stricter, not incompatible.
 //   - After Done, the protocol is stopped and the muxer drops further
@@ -127,9 +125,6 @@ var handshakeModelReceive = []modelReceiveRow{
 func gouroborosOutcome(row modelReceiveRow) string {
 	switch {
 	case row.outcome == modelWaits:
-		return modelViolation
-	case row.role == protocol.ProtocolRoleClient && row.state == stateConfirm &&
-		row.kind == kindPropose:
 		return modelViolation
 	case row.role == protocol.ProtocolRoleClient && row.state == stateConfirm &&
 		row.kind == kindQueryReply:
@@ -258,7 +253,13 @@ func TestDoneCannotBeLeft(t *testing.T) {
 				case stateDone:
 					require.Equal(t, stateConfirm, state, mode)
 					require.Contains(t,
-						[]uint8{MessageTypeAcceptVersion, MessageTypeRefuse, MessageTypeQueryReply},
+						[]uint8{
+							MessageTypeAcceptVersion,
+							MessageTypeRefuse,
+							MessageTypeQueryReply,
+							// MsgReplyVersions, the simultaneous-open answer.
+							MessageTypeProposeVersions,
+						},
 						transition.MsgType, mode)
 				case stateConfirm:
 					require.Equal(t, statePropose, state, mode)
@@ -568,7 +569,9 @@ func TestReceiveMatchesModel(t *testing.T) {
 func checkClientDone(t *testing.T, h *modelHarness, kind modelKind, version uint16) {
 	t.Helper()
 	switch kind {
-	case kindAccept:
+	case kindAccept, kindPropose:
+		// On a simultaneous open the peer's MsgProposeVersions is read as
+		// MsgReplyVersions and the client picks the version itself.
 		h.requireFinished(t, version)
 	case kindRefuse:
 		err := h.requireError(t, "version mismatch")
@@ -669,7 +672,7 @@ func (a modelAnswer) String() string {
 // (Handshake/Client.hs, Server.hs): the highest common version, then
 // VersionMismatch, HandshakeDecodeError or Refused, and a query reply only
 // when the version would have been accepted. Rows where gOuroboros answers
-// otherwise give both answers.
+// otherwise would give both answers; there are none.
 func TestServerNegotiationMatchesModel(t *testing.T) {
 	t.Parallel()
 	accept := func(v uint16) modelAnswer { return modelAnswer{MessageTypeAcceptVersion, v, 0} }
@@ -691,9 +694,9 @@ func TestServerNegotiationMatchesModel(t *testing.T) {
 		{"magic mismatch", map[uint16]protocol.VersionData{14: modelData(43, false)}, server, refuse(RefuseReasonRefused, 14), nil},
 		{"lower version magic ignored", map[uint16]protocol.VersionData{13: modelData(43, false), 14: modelData(42, false)}, server, accept(14), nil},
 		{"query", map[uint16]protocol.VersionData{14: modelData(42, true)}, server, query, nil},
-		{"query without common version", map[uint16]protocol.VersionData{15: modelData(42, true)}, server, refuse(RefuseReasonVersionMismatch, 0), &query},
-		{"query with magic mismatch", map[uint16]protocol.VersionData{14: modelData(43, true)}, server, refuse(RefuseReasonRefused, 14), &query},
-		{"query on a version not chosen", map[uint16]protocol.VersionData{13: modelData(42, true), 14: modelData(42, false)}, server, accept(14), &query},
+		{"query without common version", map[uint16]protocol.VersionData{15: modelData(42, true)}, server, refuse(RefuseReasonVersionMismatch, 0), nil},
+		{"query with magic mismatch", map[uint16]protocol.VersionData{14: modelData(43, true)}, server, refuse(RefuseReasonRefused, 14), nil},
+		{"query on a version not chosen", map[uint16]protocol.VersionData{13: modelData(42, true), 14: modelData(42, false)}, server, accept(14), nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
