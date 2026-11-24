@@ -87,6 +87,11 @@ var StateMap = protocol.StateMap{
 				NewState:  stateBusy,
 				MatchFunc: matchQuery,
 			},
+			{
+				MsgType:   MessageTypeGetMeasures,
+				NewState:  stateBusy,
+				MatchFunc: matchQuery,
+			},
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
@@ -107,6 +112,11 @@ var StateMap = protocol.StateMap{
 				NewState:  stateAcquired,
 				MatchFunc: matchReply,
 			},
+			{
+				MsgType:   MessageTypeReplyGetMeasures,
+				NewState:  stateAcquired,
+				MatchFunc: matchReply,
+			},
 		},
 	},
 	stateDone: protocol.StateMapEntry{
@@ -117,9 +127,10 @@ var StateMap = protocol.StateMap{
 // queryReplyTypes maps each query that hands agency to the server to the
 // only reply that may answer it.
 var queryReplyTypes = map[uint8]uint8{
-	MessageTypeHasTx:    MessageTypeReplyHasTx,
-	MessageTypeNextTx:   MessageTypeReplyNextTx,
-	MessageTypeGetSizes: MessageTypeReplyGetSizes,
+	MessageTypeHasTx:       MessageTypeReplyHasTx,
+	MessageTypeNextTx:      MessageTypeReplyNextTx,
+	MessageTypeGetSizes:    MessageTypeReplyGetSizes,
+	MessageTypeGetMeasures: MessageTypeReplyGetMeasures,
 }
 
 // stateContext records the query in flight so that Busy accepts only its
@@ -169,6 +180,29 @@ type Config struct {
 type TxAndEraId struct {
 	EraId uint
 	Tx    []byte
+}
+
+// MempoolMeasures is the answer to GetMeasures: the number of transactions
+// and, by measure name, their size against the mempool's capacity.
+type MempoolMeasures struct {
+	TxCount  uint32
+	Measures map[string]MeasureSizeAndCapacity
+}
+
+// MeasureTransactionBytes is the measure of transaction sizes in bytes, the
+// name the reference node uses.
+const MeasureTransactionBytes = "transaction_bytes"
+
+// getMeasuresMinVersion is the first node-to-client version that has
+// MsgGetMeasures and MsgReplyGetMeasures.
+const getMeasuresMinVersion = 20
+
+// supportsGetMeasures reports whether the negotiated version has
+// MsgGetMeasures. A version below the node-to-client offset, as an
+// unconfigured test uses, wraps around and counts as supported, the same as
+// the local-state-query version checks.
+func supportsGetMeasures(version uint16) bool {
+	return version-protocol.ProtocolVersionNtCOffset >= getMeasuresMinVersion
 }
 
 // Callback context

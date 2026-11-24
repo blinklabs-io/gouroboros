@@ -26,7 +26,8 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
                                 │                  │
                    ┌────────────┼────────────┐     │
                    │            │            │     │
-         HasTx     │   NextTx   │  GetSizes  │     │
+         HasTx     │   NextTx   │  GetSizes, │     │
+                   │            │ GetMeasures│     │
                    │            │            │     │
                    ▼            ▼            ▼     │
               ┌────────────────────────────────┐   │
@@ -34,7 +35,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
               └────────────────┬───────────────┘   │
                                │                   │
                     ReplyHasTx │ ReplyNextTx       │
-                    ReplyGetSizes                  │
+                    ReplyGetSizes, ReplyGetMeasures│
                                │                   │
                                └───────────────────┘
 ```
@@ -63,6 +64,8 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `ReplyHasTx` | 8 | Server → Client | HasTx result (bool) |
 | `GetSizes` | 9 | Client → Server | Get mempool sizes |
 | `ReplyGetSizes` | 10 | Server → Client | Mempool size information |
+| `GetMeasures` | 11 | Client → Server | Get mempool measures (node-to-client v20+) |
+| `ReplyGetMeasures` | 12 | Server → Client | Transaction count and measures (v20+) |
 
 ## State Transitions
 
@@ -85,6 +88,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `HasTx` | Busy |
 | `NextTx` | Busy |
 | `GetSizes` | Busy |
+| `GetMeasures` | Busy |
 
 ### From Busy (Server Agency)
 | Message | New State | Accepted after |
@@ -92,6 +96,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `ReplyHasTx` | Acquired | `HasTx` |
 | `ReplyNextTx` | Acquired | `NextTx` |
 | `ReplyGetSizes` | Acquired | `GetSizes` |
+| `ReplyGetMeasures` | Acquired | `GetMeasures` |
 
 Busy accepts only the reply to the query that entered it. Any other reply is a
 protocol error and is refused before the transition to Acquired.
@@ -134,6 +139,9 @@ for {
 // Get mempool statistics
 capacity, size, numTxs, err := client.GetSizes()
 
+// Get mempool measures (node-to-client version 20 or later)
+measures, err := client.GetMeasures()
+
 // Release snapshot
 client.Release()
 ```
@@ -144,6 +152,15 @@ The `GetSizes` query returns:
 - **Capacity**: Maximum mempool capacity in bytes
 - **Size**: Current mempool size in bytes
 - **NumTxs**: Number of transactions in mempool
+
+`GetMeasures` exists from node-to-client version 20. On an older version the
+client returns `ErrGetMeasuresUnsupported` without sending it, and the server
+refuses it, as the reference encoder does. It returns the number of
+transactions and, by measure name, their size against the mempool's capacity.
+As in the reference server, both cover the transactions `NextTx` has not yet
+returned. The gOuroboros server reports `transaction_bytes`; the reference
+node also reports `ex_units_memory`, `ex_units_steps` and
+`reference_scripts_bytes`.
 
 ## Notes
 

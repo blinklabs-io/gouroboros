@@ -37,8 +37,9 @@ type Server struct {
 	// Entries survive an Acquire while their transaction is still in the
 	// snapshot, so a client polling Acquire and HasTx parses each
 	// transaction once rather than the whole mempool on every poll.
-	txHashes   map[uint]map[string]*txHashEntry
-	snapshotId uint64
+	txHashes          map[uint]map[string]*txHashEntry
+	snapshotId        uint64
+	enableGetMeasures bool
 }
 
 type txHashEntry struct {
@@ -53,7 +54,8 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config: cfg,
+		config:            cfg,
+		enableGetMeasures: supportsGetMeasures(protoOptions.Version),
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -92,6 +94,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = s.handleNextTx()
 	case MessageTypeGetSizes:
 		err = s.handleGetSizes()
+	case MessageTypeGetMeasures:
+		err = s.handleGetMeasures()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -316,4 +320,45 @@ func (s *Server) handleGetSizes() error {
 		return err
 	}
 	return nil
+}
+
+// handleGetMeasures answers with the transactions NextTx has not yet
+// returned from the snapshot, as the reference server does: its count and
+// MeasureTransactionBytes are taken over the remaining transactions, while
+// GetSizes covers the whole snapshot. The reference encoder refuses
+// MsgReplyGetMeasures before node-to-client version 20, so this does too.
+func (s *Server) handleGetMeasures() error {
+	s.Protocol.Logger().
+		Debug("get measures",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	if !s.enableGetMeasures {
+		return fmt.Errorf(
+			"%s: received GetMeasures before node-to-client version %d",
+			ProtocolName,
+			getMeasuresMinVersion,
+		)
+	}
+	remaining := s.mempoolTxs[s.mempoolNextTxIdx:]
+	numTxs := uint64(len(remaining))
+	if numTxs > math.MaxUint32 {
+		return errors.New("integer overflow in tx count")
+	}
+	var totalTxSize uint64
+	for _, tx := range remaining {
+		totalTxSize += uint64(len(tx.Tx))
+	}
+	newMsg := NewMsgReplyGetMeasures(
+		uint32(numTxs),
+		map[string]MeasureSizeAndCapacity{
+			MeasureTransactionBytes: {
+				Size:     totalTxSize,
+				Capacity: uint64(s.mempoolCapacity),
+			},
+		},
+	)
+	return s.SendMessage(newMsg)
 }
