@@ -9,7 +9,9 @@ The protocol framework applies a state's `PendingMessageByteLimit` while that
 state is active. A state timeout closes the protocol when the peer holding
 agency does not send its message before the timeout expires. Only the side
 waiting for that message enforces it, as the reference driver does; the side
-holding agency is never timed, however long it takes to send. These are
+holding agency is never timed, however long it takes to send. The waiting
+side's timer starts once its handler for the previous message has returned,
+so the time its own callbacks take never counts against the peer. These are
 transport and state-machine safeguards, not application-level transaction or block
 validation.
 
@@ -358,7 +360,9 @@ carrying more addresses than it requested.
 | Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
 | Leios Notify client | Quit | 60 seconds | none |
 | Leios Votes client | Busy | 60 seconds | 1,111 |
-| Leios Votes server with a configured request callback | Busy | 60 seconds | none |
+
+The Leios Votes server holds agency in Busy, so it sets no Busy timeout and
+`WithTimeout` applies only to the client.
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
 context, not by a protocol state timeout. Leios Fetch admits at most 65,535
