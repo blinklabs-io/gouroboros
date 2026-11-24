@@ -90,7 +90,7 @@ func (k byronModelKey) witness(t *testing.T, txId common.Blake2b256) cbor.Value 
 	return witness
 }
 
-// byronModelUtxo is one entry of the model's starting UTxO.
+// byronModelUtxo is one entry of the test's starting UTxO.
 type byronModelUtxo struct {
 	input byron.ByronTransactionInput
 	key   byronModelKey
@@ -140,8 +140,8 @@ func buildByronModelTx(
 	return tx
 }
 
-// byronRefAccepts transcribes the reference UTxO rule that ByronUtxo.tla
-// calls RefAccepts (cardano-ledger 1210d37f, Cardano/Chain/UTxO/Tx.hs and
+// byronRefAccepts transcribes the reference UTxO rule (cardano-ledger
+// 1210d37f, Cardano/Chain/UTxO/Tx.hs and
 // Validation.hs validateTx, validateTxAux): non-empty inputs and outputs,
 // every input in the UTxO, balances over the input set, a non-negative fee
 // of at least a + ceiling(b * size) unless every input is a redeem address.
@@ -195,11 +195,11 @@ func byronRefAccepts(
 }
 
 // TestByronUtxoModelTable checks ValidateAgainstUtxo on every transaction
-// cell of ByronUtxo.tla's starting state: inputs are every list of one or
+// cell of the starting state: inputs are every list of one or
 // two of {pay-to-key, redeem, missing}; outputs every list of one or two
 // values; witnesses one short, exact, or one over. gOuroboros must accept
 // exactly what the reference accepts, apart from its two deliberate
-// tightenings (GoComplete): a repeated input and a witness count that is
+// tightenings: a repeated input and a witness count that is
 // not the input count, which it always rejects.
 //
 // Empty input or output lists are not cells here: the reference cannot
@@ -280,7 +280,7 @@ func TestByronUtxoModelTable(t *testing.T) {
 			}
 		}
 	}
-	// Every cell group the model distinguishes is reached.
+	// Every cell group the reference distinguishes is reached.
 	for _, group := range []string{
 		"accepted",
 		"rejected",
@@ -290,9 +290,9 @@ func TestByronUtxoModelTable(t *testing.T) {
 	}
 }
 
-// TestByronUtxoModelChained covers the model's ProbeChained and the block
-// fold: within one block a transaction may spend an output made by an
-// earlier one, and two transactions may not spend the same output.
+// TestByronUtxoModelChained covers chained spends and the block fold:
+// within one block a transaction may spend an output made by an earlier
+// one, and two transactions may not spend the same output.
 func TestByronUtxoModelChained(t *testing.T) {
 	t.Parallel()
 

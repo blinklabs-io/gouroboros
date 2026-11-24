@@ -27,7 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The constants of ByronDelegation.cfg: two genesis keys, g1 starting
+// The test configuration: two genesis keys, g1 starting
 // delegated to the outsider d1, k = 1, three slots per epoch, blocks up to
 // slot 4.
 const (
@@ -47,8 +47,8 @@ type delegationModelSched struct {
 	dlg, del string
 }
 
-// delegationModelRef transcribes the reference delegation interface that
-// ByronDelegation.tla runs as its r* variables (cardano-ledger 1210d37f,
+// delegationModelRef transcribes the reference delegation interface
+// (cardano-ledger 1210d37f,
 // Cardano/Chain/Delegation/Validation/Interface.hs updateDelegation,
 // Scheduling.hs scheduleCertificate, Activation.hs activateDelegation).
 type delegationModelRef struct {
@@ -144,13 +144,13 @@ func (r delegationModelRef) apply(
 	return next, true
 }
 
-// TestPBFTDelegationModelTable walks every chain of ByronDelegation.cfg: a
+// TestPBFTDelegationModelTable walks every chain of that configuration: a
 // block one or two slots after the last, carrying no certificate, one, or
 // (in the first block) two, from any of g1, g2 or the non-genesis x, to
 // any of g1, g2 or d1, for the previous, current, next or second-next
 // epoch. On every block gOuroboros must accept exactly the payloads the
-// reference accepts (VerdictsAgree) and end with the same active map
-// (MapsAgree), activation slots (SlotsAgree), schedule and key-epoch set.
+// reference accepts and end with the same active map, activation slots,
+// schedule and key-epoch set.
 func TestPBFTDelegationModelTable(t *testing.T) {
 	keys := map[string][]byte{}
 	privs := map[string]ed25519.PrivateKey{}
@@ -239,7 +239,7 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 				wantRef, refOK := n.ref.apply(genesis, epoch, slot, payload)
 				gotGo, err := n.go_.ApplyPayloadCbor(epoch, slot, raw)
 				name := fmt.Sprintf("from %s at slot %d: %v", n.ref.key(n.slot), slot, payload)
-				require.Equal(t, refOK, err == nil, "VerdictsAgree %s: %v", name, err)
+				require.Equal(t, refOK, err == nil, "verdict %s: %v", name, err)
 				if !refOK {
 					counts["rejected"]++
 					continue
@@ -250,7 +250,7 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 				for dlg, del := range gotGo.ActiveDelegations() {
 					active[names[dlg]] = names[del]
 				}
-				require.Equal(t, wantRef.dms, active, "MapsAgree %s", name)
+				require.Equal(t, wantRef.dms, active, "active map %s", name)
 				var scheduled []delegationModelSched
 				for _, s := range gotGo.scheduledDelegations {
 					scheduled = append(scheduled, delegationModelSched{
@@ -266,7 +266,7 @@ func TestPBFTDelegationModelTable(t *testing.T) {
 					keyEpochs[[2]string{fmt.Sprint(ke.epoch), names[ke.delegator]}] = true
 				}
 				require.Equal(t, wantRef.eks, keyEpochs, "key epochs %s", name)
-				// The whole map, as the model's SlotsAgree compares it: a
+				// The whole map, as the reference keeps it: a
 				// missing or extra entry must not read as slot 0.
 				slots := map[string]uint64{}
 				for h, slot := range gotGo.delegationSlots {
