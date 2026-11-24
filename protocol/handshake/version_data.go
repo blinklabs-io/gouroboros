@@ -24,10 +24,12 @@ import "github.com/blinklabs-io/gouroboros/protocol"
 // only if both sides offer them; query is set if either side asks. Every
 // rule is commutative and idempotent, so a peer that combines the agreed
 // data with its own again reaches the same result. Data of a type it does
-// not know, or of mismatched types, is returned as local.
+// not know, or of mismatched types, is returned as local. A table entry
+// held as a pointer agrees as the value it points to.
 func agreedVersionData(
 	local, remote protocol.VersionData,
 ) protocol.VersionData {
+	local, remote = versionDataValue(local), versionDataValue(remote)
 	switch l := local.(type) {
 	case protocol.VersionDataNtC15andUp:
 		if r, ok := remote.(protocol.VersionDataNtC15andUp); ok {
@@ -76,4 +78,38 @@ func agreedVersionDataNtN11(
 	l.CborPeerSharing = min(l.CborPeerSharing, r.CborPeerSharing)
 	l.CborQuery = l.CborQuery || r.CborQuery
 	return l
+}
+
+// versionDataValue returns a copy of the value a version data pointer
+// points to, and any other data as it is. The version data methods have
+// value receivers, so a version table may hold either form; the copy keeps
+// the agreement from changing the caller's entry.
+func versionDataValue(v protocol.VersionData) protocol.VersionData {
+	switch d := v.(type) {
+	case *protocol.VersionDataNtC9to14:
+		if d != nil {
+			return *d
+		}
+	case *protocol.VersionDataNtC15andUp:
+		if d != nil {
+			return *d
+		}
+	case *protocol.VersionDataNtN7to10:
+		if d != nil {
+			return *d
+		}
+	case *protocol.VersionDataNtN11to12:
+		if d != nil {
+			return *d
+		}
+	case *protocol.VersionDataNtN13andUp:
+		if d != nil {
+			return *d
+		}
+	case *protocol.VersionDataNtN16andUp:
+		if d != nil {
+			return *d
+		}
+	}
+	return v
 }

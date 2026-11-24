@@ -17,6 +17,7 @@ package handshake_test
 import (
 	"errors"
 	"net"
+	"reflect"
 	"testing"
 	"time"
 
@@ -73,6 +74,21 @@ func simOpenTableMode(
 		table[version] = data
 	}
 	return table
+}
+
+// simOpenPointerTable returns table with each entry held as a pointer to a
+// copy, which the version data interface allows since its methods have
+// value receivers.
+func simOpenPointerTable(
+	table protocol.ProtocolVersionMap,
+) protocol.ProtocolVersionMap {
+	pointers := protocol.ProtocolVersionMap{}
+	for version, data := range table {
+		ptr := reflect.New(reflect.TypeOf(data))
+		ptr.Elem().Set(reflect.ValueOf(data))
+		pointers[version] = ptr.Interface().(protocol.VersionData)
+	}
+	return pointers
 }
 
 // startSimOpenSide runs a handshake client on conn, as a dialling node does,
@@ -168,6 +184,18 @@ func TestSimultaneousOpen(t *testing.T) {
 		{
 			name: "initiator-only on either side is agreed by both",
 			left: simOpenTable(t, magic, 13, 14),
+			right: simOpenTableMode(
+				t,
+				magic,
+				protocol.DiffusionModeInitiatorOnly,
+				13, 14,
+			),
+			wantVersion: 14,
+			wantMode:    protocol.DiffusionModeInitiatorOnly,
+		},
+		{
+			name: "a table holding pointers agrees like one holding values",
+			left: simOpenPointerTable(simOpenTable(t, magic, 13, 14)),
 			right: simOpenTableMode(
 				t,
 				magic,
