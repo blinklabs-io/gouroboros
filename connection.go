@@ -488,6 +488,9 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.localTxSubmission != nil && c.localTxSubmission.Server != nil {
 		servers = append(servers, c.localTxSubmission.Server)
 	}
+	if c.perasVotes != nil && c.perasVotes.Server != nil {
+		servers = append(servers, c.perasVotes.Server)
+	}
 	return servers
 }
 
@@ -637,7 +640,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.perasVotes.Client.Protocol)
 		}
 		if c.perasVotes.Server != nil {
-			protocols = append(protocols, c.perasVotes.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.perasVotes.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localMessageSubmission != nil {
@@ -943,7 +949,7 @@ func (c *Connection) setupConnection() error {
 				c.leiosVotes.Server.EnsureRegistered()
 			}
 			if c.perasVotes != nil {
-				c.perasVotes.Server.EnsureRegistered()
+				c.perasVotes.Server.ProtocolInstance().EnsureRegistered()
 			}
 		}
 		// Start protocols
