@@ -37,8 +37,6 @@ import (
 //   - Storage/ChainDB/Impl/ChainSel.hs 1260-1266: candidates that the current
 //     chain prefers are sorted by the unrestricted order, best first, with a
 //     stable sort.
-//
-// These tables are the Go side of the TLA+ model ChainSelection.tla.
 
 const refRestrictedMaxDist = 5
 
