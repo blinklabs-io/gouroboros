@@ -53,7 +53,10 @@ func validateVersionMapMessage(data []byte) error {
 		return tooManyHandshakeVersions(count)
 	}
 	pos := int(headerSize)
-	var seen [1 << 13]byte
+	// The keys must be unique and ascending, as the network specification
+	// requires and the reference codec enforces on decode. Encoders sort
+	// them, so only a broken or hostile peer sends any other order.
+	var previous uint16
 	for idx := 0; indefinite || idx < count; idx++ {
 		position := pos
 		if indefinite {
@@ -79,12 +82,17 @@ func validateVersionMapMessage(data []byte) error {
 			versionValue,
 		) // #nosec G115 -- bounded to uint16 above
 		pos += consumed
-		byteIndex := version >> 3
-		bit := byte(1 << (version & 7))
-		if seen[byteIndex]&bit != 0 {
+		if idx > 0 && version == previous {
 			return fmt.Errorf("duplicate handshake version %d", version)
 		}
-		seen[byteIndex] |= bit
+		if idx > 0 && version < previous {
+			return fmt.Errorf(
+				"handshake version %d out of order after %d",
+				version,
+				previous,
+			)
+		}
+		previous = version
 		if length, err := cborwalk.ItemLength(collection[pos:]); err != nil {
 			return fmt.Errorf("decode handshake version data %d: %w", idx, err)
 		} else {
