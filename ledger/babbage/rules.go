@@ -43,6 +43,10 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateSignatures,
 	},
 	{
+		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
+		Validator: UtxoValidateMIRGenesisQuorum,
+	},
+	{
 		Id:        common.UtxoValidationRuleProtocolParameterUpdates,
 		Validator: UtxoValidateProtocolParameterUpdates,
 	},
@@ -187,10 +191,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 		Validator: UtxoValidateDelegation,
 	},
 	{
-		Id:        common.UtxoValidationRuleMIRGenesisQuorum,
-		Validator: UtxoValidateMIRGenesisQuorum,
-	},
-	{
 		Id:        common.UtxoValidationRuleWithdrawals,
 		Validator: UtxoValidateWithdrawals,
 	},
@@ -219,6 +219,9 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateIsValidFlag,
 		UtxoValidateRequiredVKeyWitnesses,
 		UtxoValidateSignatures,
+		// The MIR quorum is a UTXOW check, so it runs for an IsValid
+		// false transaction too.
+		UtxoValidateMIRGenesisQuorum,
 		UtxoValidateProtocolParameterUpdates,
 		UtxoValidateCollateralVKeyWitnesses,
 		common.UtxoValidateCollateralKeyLocked,
@@ -244,7 +247,7 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidatePlutusScripts,
 	),
 	common.Phase2ValidUtxoValidationRules(
-		UtxoValidateDelegation, UtxoValidateMIRGenesisQuorum,
+		UtxoValidateDelegation,
 		UtxoValidateWithdrawals, UtxoValidatePoolCertificates,
 	),
 )
@@ -345,12 +348,19 @@ func UtxoValidateRequiredVKeyWitnesses(
 	return common.ValidateRequiredVKeyWitnesses(tx)
 }
 
+// UtxoValidateProtocolParameterUpdates validates classic PPUP for a
+// phase-2-valid transaction. The reference runs PPUP only on the valid branch
+// of UTXOS, so an IsValid false transaction's update is not checked and only
+// the UTXOW witnesses of its proposing genesis delegates are required.
 func UtxoValidateProtocolParameterUpdates(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	if !tx.IsValid() {
+		return common.ValidateClassicProtocolParameterUpdateWitnesses(tx, slot, ls)
+	}
 	return shelley.UtxoValidateProtocolParameterUpdates(tx, slot, ls, pp)
 }
 

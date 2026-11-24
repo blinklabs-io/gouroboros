@@ -107,6 +107,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateIsValidFlag,                 // UtxoValidationRuleIsValidFlag
 		alonzo.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		alonzo.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		alonzo.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		alonzo.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		alonzo.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
 		common.UtxoValidateCollateralKeyLocked,         // UtxoValidationRuleCollateralKeyLocked
@@ -139,7 +140,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		alonzo.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 		alonzo.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		alonzo.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
-		alonzo.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		alonzo.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		alonzo.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
@@ -148,6 +148,7 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateIsValidFlag,                 // UtxoValidationRuleIsValidFlag
 		babbage.UtxoValidateRequiredVKeyWitnesses,       // UtxoValidationRuleRequiredVKeyWitnesses
 		babbage.UtxoValidateSignatures,                  // UtxoValidationRuleSignatures
+		babbage.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		babbage.UtxoValidateProtocolParameterUpdates,    // UtxoValidationRuleProtocolParameterUpdates
 		babbage.UtxoValidateCollateralVKeyWitnesses,     // UtxoValidationRuleCollateralVKeyWitnesses
 		common.UtxoValidateCollateralKeyLocked,          // UtxoValidationRuleCollateralKeyLocked
@@ -184,7 +185,6 @@ var expectedUtxoValidationRuleValidators = map[string][]common.UtxoValidationRul
 		babbage.UtxoValidateMalformedReferenceScripts,   // UtxoValidationRuleMalformedReferenceScripts
 		babbage.UtxoValidatePlutusScripts,               // UtxoValidationRulePlutusScripts
 		babbage.UtxoValidateDelegation,                  // UtxoValidationRuleDelegation
-		babbage.UtxoValidateMIRGenesisQuorum,            // UtxoValidationRuleMIRGenesisQuorum
 		babbage.UtxoValidateWithdrawals,                 // UtxoValidationRuleWithdrawals
 		babbage.UtxoValidatePoolCertificates,            // UtxoValidationRulePoolCertificates
 	},
