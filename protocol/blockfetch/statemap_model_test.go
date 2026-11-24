@@ -283,7 +283,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 			blockfetch.StateDone,
 		},
 		stateMapStates(),
-		"StateMap must hold exactly the states of the model",
+		"StateMap must hold exactly the states of the reference",
 	)
 	require.Equal(t, protocol.AgencyClient, blockfetch.StateMap[blockfetch.StateIdle].Agency)
 	require.Equal(t, protocol.AgencyServer, blockfetch.StateMap[blockfetch.StateBusy].Agency)
@@ -523,7 +523,7 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
 	case <-time.After(5 * time.Second):
-		t.Fatal("message the model forbids was accepted without an error")
+		t.Fatal("message the reference forbids was accepted without an error")
 	}
 }
 
@@ -779,8 +779,8 @@ func requireServed(t *testing.T, h *modelHarness) {
 
 // TestReceiveMatchesModel drives a running client or server into each cell
 // of the receive table, sends the cell's message, and checks the outcome.
-// Cells the model marks Waits are checked against gOuroboros's stricter
-// behavior (see gouroborosOutcome).
+// Cells the reference table marks Waits are checked against gOuroboros's
+// stricter behavior (see gouroborosOutcome).
 func TestReceiveMatchesModel(t *testing.T) {
 	t.Parallel()
 	for _, row := range blockFetchModelReceive {
