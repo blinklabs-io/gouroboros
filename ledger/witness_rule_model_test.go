@@ -12,19 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A model-driven test of the UTXOW witness rules from Shelley to Dijkstra:
+// A table test of the UTXOW witness rules from Shelley to Dijkstra:
 // the key witnesses a transaction needs and whether they are supplied,
 // native multisig and timelock scripts, needed versus supplied scripts and
 // redeemers, required and supplemental datums, and the script integrity
-// hash's language views. The rules below restate the Witnesses TLA+ model
-// (specs/22-ledger-witnesses in gouroboros-tla-models), which follows
+// hash's language views. The rules below restate
 // eras/<era>/impl/src/Cardano/Ledger/<Era>/Rules/Utxow.hs and the
 // witsVKeyNeeded functions of cardano-ledger 1210d37f.
 //
 // Each family builds real transactions of each era, runs only the era's
 // witness rules (selected by rule id from the era's own rule list, in its
 // order), and checks that gOuroboros accepts exactly the transactions the
-// model accepts. Signatures are real: every supplied vkey and bootstrap
+// restated reference rules accept. Signatures are real: every supplied vkey and bootstrap
 // witness signs the transaction body hash, except the one a cell marks as
 // bad. Plutus scripts are never run.
 
@@ -74,7 +73,7 @@ func (e wmEra) String() string {
 
 func (e wmEra) atLeast(o wmEra) bool { return e >= o }
 
-// The model's three keys. v1 and v2 are vkeys: their hash is supplied by a
+// The test's three keys. v1 and v2 are vkeys: their hash is supplied by a
 // vkey witness. b is a bootstrap key: its hash is the address root a
 // bootstrap witness supplies.
 const (
