@@ -209,7 +209,9 @@ func cloneDmqMessage(msg pcommon.DmqMessage) pcommon.DmqMessage {
 
 // WaitForMessage blocks until a message is queued or timeout occurs. It
 // returns at once if a message is already queued. A timeout of zero waits
-// indefinitely.
+// indefinitely. The client ending a run does not end the wait: the server
+// restarts and keeps its queue. Stop, or the connection closing, ends it
+// with protocol.ErrProtocolShuttingDown.
 func (s *Server) WaitForMessage(timeout time.Duration) error {
 	s.lock.Lock()
 	if len(s.messageQueue) > 0 {
@@ -218,16 +220,18 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 	}
 	added := s.messageAdded
 	s.lock.Unlock()
-	return s.waitForMessageAdded(added, timeout)
+	return s.waitForMessageAdded(added, timeout, nil)
 }
 
 // waitForMessageAdded waits until added is closed by AddMessage, the
-// timeout passes, or the server shuts down.
+// timeout passes, the server shuts down, or runStop is closed. A blocking
+// request passes its run's stop channel; WaitForMessage passes nil, since
+// a restart closes that channel and the wait belongs to the server.
 func (s *Server) waitForMessageAdded(
 	added <-chan struct{},
 	timeout time.Duration,
+	runStop <-chan struct{},
 ) error {
-	stopChan := s.ProtocolInstance().StopChan()
 	var timerChan <-chan time.Time
 	if timeout > 0 {
 		timer := time.NewTimer(timeout)
@@ -241,7 +245,7 @@ func (s *Server) waitForMessageAdded(
 		return errors.New("timeout waiting for message")
 	case <-s.done:
 		return protocol.ErrProtocolShuttingDown
-	case <-stopChan:
+	case <-runStop:
 		return protocol.ErrProtocolShuttingDown
 	case <-s.connectionDoneChan:
 		return protocol.ErrProtocolShuttingDown
@@ -297,6 +301,7 @@ func (s *Server) handleNonBlockingRequest() error {
 
 func (s *Server) handleBlockingRequest() error {
 	// For blocking requests, wait until at least one message is available
+	runStop := s.ProtocolInstance().StopChan()
 	for {
 		s.lock.Lock()
 		messages := s.drainValidMessagesLocked(time.Now())
@@ -310,7 +315,7 @@ func (s *Server) handleBlockingRequest() error {
 		added := s.messageAdded
 		s.lock.Unlock()
 
-		if err := s.waitForMessageAdded(added, 0); err != nil {
+		if err := s.waitForMessageAdded(added, 0, runStop); err != nil {
 			return err
 		}
 	}

@@ -106,3 +106,40 @@ func TestServerStopDuringRestartStopsServer(t *testing.T) {
 	assert.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
 		"a stopped server installed a new protocol instance")
 }
+
+// TestWaitForMessageOutlivesRestart waits in WaitForMessage while the client
+// ends its run. The restarted server keeps its queue, so the wait still has
+// a message to wait for and must not be ended by MsgClientDone; in dmq-node
+// the mempool the server reads belongs to the node, not to the run. Only
+// Stop ends it.
+func TestWaitForMessageOutlivesRestart(t *testing.T) {
+	t.Parallel()
+	h := restartwindow.New(t, localmessagenotification.ProtocolID)
+	server := newRestartTestServer(h, "unused hold")
+	t.Cleanup(func() { _ = server.Stop() })
+	h.Start()
+
+	waited := make(chan error, 1)
+	go func() { waited <- server.WaitForMessage(0) }()
+	h.Send(localmessagenotification.NewMsgClientDone())
+	// The next run's reply shows the restart has finished.
+	h.Send(localmessagenotification.NewMsgRequestMessages(false))
+	require.Equal(
+		t,
+		uint(localmessagenotification.MessageTypeReplyMessagesNonBlocking),
+		h.RecvType("ReplyMessagesNonBlocking"),
+	)
+	select {
+	case err := <-waited:
+		t.Fatalf("MsgClientDone ended a WaitForMessage: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.NoError(t, server.Stop())
+	select {
+	case err := <-waited:
+		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not end a WaitForMessage")
+	}
+}
