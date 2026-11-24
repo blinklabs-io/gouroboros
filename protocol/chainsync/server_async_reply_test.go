@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -92,9 +93,9 @@ func TestServerRepliesAfterRequestNextReturnsWithPipelinedClient(t *testing.T) {
 	})
 
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 
@@ -255,9 +256,9 @@ func TestServerAdmitsRequestNextPipelinedIntoMustReply(t *testing.T) {
 			})
 
 			server.Start()
-			t.Cleanup(server.Stop)
+			t.Cleanup(func() { _ = server.Stop(context.Background()) })
 			client.Start()
-			t.Cleanup(client.Stop)
+			t.Cleanup(func() { _ = client.Stop(context.Background()) })
 			serverMuxer.Start()
 			clientMuxer.Start()
 

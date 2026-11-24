@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -99,7 +100,7 @@ func assertUnconfiguredRequestFailsConnection(
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop()
+		server.Protocol.Stop(context.Background())
 		m.Stop()
 		_ = connA.Close()
 		_ = connB.Close()
@@ -194,9 +195,9 @@ func sendRepeatedRequestTest(
 		&peerSharingCfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	peerSharingServer.Start()
-	defer peerSharingServer.Protocol.Stop()
+	defer peerSharingServer.Protocol.Stop(context.Background())
 	m.Start()
 
 	var msgType uint

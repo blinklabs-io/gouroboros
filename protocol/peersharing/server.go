@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -81,12 +82,19 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {
@@ -139,7 +147,7 @@ func (s *Server) handleShareRequest(
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		int(msgShareRequest.Amount),
 	)
 	if err != nil {
@@ -180,7 +188,7 @@ func (s *Server) handleDone(proto *protocol.Protocol) {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	proto.StopForRestart()
+	_ = proto.StopForRestart(proto.CallbackContext())
 	if !s.initProtocol() {
 		proto.CancelRestart()
 		return

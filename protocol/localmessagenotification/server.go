@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -311,10 +312,16 @@ func (s *Server) handleClientDone() error {
 
 // Stop terminates the server and releases background resources. It is safe to
 // call before Start when protocol registration or construction fails.
-func (s *Server) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.stop()
-	s.Protocol.Stop()
-	return nil
+	return s.Protocol.Stop(ctx)
 }
 
 func (s *Server) stop() {

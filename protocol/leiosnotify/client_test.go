@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -637,14 +638,18 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 		Muxer: m,
 	}, nil)
 	client.Start()
-	defer client.Protocol.Stop()
+	defer client.Protocol.Stop(context.Background())
 	m.Start()
 
-	require.NoError(t, client.Stop())
+	// Stop waits for MsgClientQuit to be written, and net.Pipe writes
+	// block until read.
+	stopErr := make(chan error, 1)
+	go func() { stopErr <- client.Stop(context.Background()) }()
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(2*time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x81, MessageTypeQuit}, segment.Payload)
+	require.NoError(t, <-stopErr)
 
 	doneData, err := cbor.Encode(NewMsgDone())
 	require.NoError(t, err)

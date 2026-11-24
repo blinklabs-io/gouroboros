@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -317,7 +318,7 @@ func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
 	client.Start()
 	serverMuxer.Start()
 	clientMuxer.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	return client, []pcommon.Point{intersect}
 }
 

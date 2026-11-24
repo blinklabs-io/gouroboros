@@ -14,7 +14,10 @@
 
 package muxer
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // protocolLoops tracks the goroutines that run the mini-protocols on this
 // muxer's connection, so the connection can wait for them when it closes.
@@ -25,6 +28,11 @@ type protocolLoops struct {
 	mu      sync.Mutex
 	closed  bool
 	running map[*protocolLoop]struct{}
+	// excused holds the owners whose loops WaitProtocolLoops does not wait
+	// for, including loops an excused owner starts later: a callback of an
+	// excused owner may start another of its loops while it waits for the
+	// connection to close.
+	excused map[any]struct{}
 	// changed is closed, and replaced, whenever a loop exits or is
 	// excused, waking waiters to re-check.
 	changed chan struct{}
@@ -33,10 +41,6 @@ type protocolLoops struct {
 type protocolLoop struct {
 	// owner identifies the protocol instance the loop belongs to.
 	owner any
-	// excused loops are not waited for by WaitProtocolLoops: a callback
-	// on their protocol instance is itself waiting for the connection to
-	// close.
-	excused bool
 }
 
 func (l *protocolLoops) notifyLocked() {
@@ -46,20 +50,25 @@ func (l *protocolLoops) notifyLocked() {
 	l.changed = make(chan struct{})
 }
 
-// waitUntil blocks until done, evaluated with mu held, is true.
-func (l *protocolLoops) waitUntil(done func() bool) {
+// waitUntil blocks until done, evaluated with mu held, is true, or until ctx
+// is done, when it returns ctx.Err().
+func (l *protocolLoops) waitUntil(ctx context.Context, done func() bool) error {
 	for {
 		l.mu.Lock()
 		if done() {
 			l.mu.Unlock()
-			return
+			return nil
 		}
 		if l.changed == nil {
 			l.changed = make(chan struct{})
 		}
 		changed := l.changed
 		l.mu.Unlock()
-		<-changed
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 }
 
@@ -104,9 +113,9 @@ func (m *Muxer) CloseProtocolLoops() {
 // loops excused by ExcuseProtocolLoops.
 func (m *Muxer) WaitProtocolLoops() {
 	l := &m.protocolLoops
-	l.waitUntil(func() bool {
+	_ = l.waitUntil(context.Background(), func() bool {
 		for entry := range l.running {
-			if !entry.excused {
+			if _, excused := l.excused[entry.owner]; !excused {
 				return false
 			}
 		}
@@ -114,32 +123,34 @@ func (m *Muxer) WaitProtocolLoops() {
 	})
 }
 
-// ExcuseProtocolLoops excuses owner's running loops from WaitProtocolLoops,
-// for a callback of owner that closes the connection: the wait would
-// otherwise wait for the callback's own caller. Owners are compared by
-// identity; it reports whether owner has a running loop on this muxer.
+// ExcuseProtocolLoops excuses owner's loops, running or started later, from
+// WaitProtocolLoops, for a callback of owner that closes the connection:
+// the wait would otherwise wait for the callback's own caller. Owners are
+// compared by identity; it reports whether owner has a running loop on this
+// muxer.
 func (m *Muxer) ExcuseProtocolLoops(owner any) bool {
 	l := &m.protocolLoops
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	found := false
+	if l.excused == nil {
+		l.excused = make(map[any]struct{})
+	}
+	l.excused[owner] = struct{}{}
+	l.notifyLocked()
 	for entry := range l.running {
 		if entry.owner == owner {
-			entry.excused = true
-			found = true
+			return true
 		}
 	}
-	if found {
-		l.notifyLocked()
-	}
-	return found
+	return false
 }
 
 // WaitProtocolLoopsExcept returns once every protocol loop that does not
-// belong to owner has exited, excused or not. A nil owner excepts nothing.
-func (m *Muxer) WaitProtocolLoopsExcept(owner any) {
+// belong to owner has exited, excused or not, or returns ctx.Err() once ctx
+// is done. A nil owner excepts nothing.
+func (m *Muxer) WaitProtocolLoopsExcept(ctx context.Context, owner any) error {
 	l := &m.protocolLoops
-	l.waitUntil(func() bool {
+	return l.waitUntil(ctx, func() bool {
 		for entry := range l.running {
 			if owner == nil || entry.owner != owner {
 				return false

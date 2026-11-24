@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -146,14 +147,21 @@ func (c *Client) startTimer() {
 }
 
 // Stop stops the keep-alive protocol client and cancels any pending timers.
-func (c *Client) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.timerMutex.Lock()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
 	}
 	c.timerMutex.Unlock()
-	c.Protocol.Stop()
+	return c.Protocol.Stop(ctx)
 }
 
 // messageHandler handles incoming protocol messages for the client.
@@ -199,8 +207,7 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	}
 
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
-		callbackContext := c.callbackContext
-		callbackContext.Context = c.CallbackContext()
+		callbackContext := c.callbackContext.withOwner(c.Protocol)
 		return c.config.KeepAliveResponseFunc(callbackContext, msg.Cookie)
 	}
 	// Call optional notification callback if provided

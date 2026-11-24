@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -80,7 +81,7 @@ func TestRepeatedDoneDoesNotStallSharedMuxer(t *testing.T) {
 		m.Stop()
 		_ = remoteConn.Close()
 		_ = localConn.Close()
-		server.ProtocolInstance().Stop()
+		server.ProtocolInstance().Stop(context.Background())
 	})
 
 	doneCbor, err := cbor.Encode(NewMsgDone())

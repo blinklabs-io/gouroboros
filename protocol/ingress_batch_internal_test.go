@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestReadLoopBatchStaysWithinReadBufferCap(t *testing.T) {
 	}
 	p.muxerRecvChan = queued
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	for i := range messages {
 		select {
 		case <-handled:

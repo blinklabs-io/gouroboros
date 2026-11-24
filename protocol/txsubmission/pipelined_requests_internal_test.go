@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -145,9 +146,9 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	})
 
 	peer.Start()
-	t.Cleanup(peer.Stop)
+	t.Cleanup(func() { _ = peer.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 	client.Init()

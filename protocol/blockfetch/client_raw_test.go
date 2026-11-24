@@ -732,7 +732,7 @@ func runTestExpectingError(
 	case <-time.After(5 * time.Second):
 		require.Fail(t, "connection did not report an error within timeout")
 	}
-	_ = oConn.Close()
+	_ = oConn.Close(context.Background())
 	// Wait for connection shutdown before the deferred leak check runs.
 	// Close only starts the teardown, so returning here would race the
 	// connection's own goroutines and report them as leaks.

@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -67,7 +68,7 @@ func TestNewConnectionSynchronizesByronSlotsPerEpoch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			conn, err := NewConnection(test.options...)
 			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, conn.Close()) })
+			t.Cleanup(func() { require.NoError(t, conn.Close(context.Background())) })
 			require.NotNil(t, conn.blockFetchConfig)
 			require.NotNil(t, conn.chainSyncConfig)
 			require.Equal(

@@ -289,31 +289,20 @@ func (c *Connection) DialTimeout(
 	return nil
 }
 
-// Close will shutdown the Ouroboros connection. It tears down whatever has
-// been set up, even while Dial or New is still setting the connection up,
-// and a later Dial fails. Close returns once every mini-protocol goroutine
-// has exited, so no callback runs after it returns: a callback that does not
-// return when its protocol's StopChan closes holds Close until it does. A
-// callback must not call Close, which would wait for itself; it calls
-// CloseContext instead.
-func (c *Connection) Close() error {
-	return c.closeExcept(nil)
-}
-
-// CloseContext is Close for a mini-protocol callback that closes its own
-// connection. Pass the context the callback was given (its callback
-// context's Context field). When ctx marks a protocol instance of this
-// connection, CloseContext does not wait for that instance's goroutines,
-// one of which is running the callback; it still waits for every other
-// one. A ctx from another connection's callback, or with no marker, makes
-// CloseContext the same as Close.
-func (c *Connection) CloseContext(ctx context.Context) error {
-	return c.closeExcept(protocol.CallbackOwner(ctx))
-}
-
-// closeExcept closes the connection and waits for every protocol goroutine
-// except those of owner, which a nil owner excepts none of.
-func (c *Connection) closeExcept(owner any) error {
+// Close shuts down the Ouroboros connection and waits for it to finish. It
+// tears down whatever has been set up, even while Dial or New is still
+// setting the connection up, and a later Dial fails.
+//
+// Close signals shutdown at once. It then waits until every mini-protocol
+// goroutine and every muxer goroutine has returned, so that no callback runs
+// after it returns: a callback that does not return when its protocol's
+// StopChan closes holds Close until it does. When ctx is the Context of a
+// mini-protocol CallbackContext of this connection, Close does not wait for
+// the goroutines of the protocol instance that made the callback, one of
+// which is running it; it still waits for every other one. If ctx is done
+// first, Close returns ctx.Err() and shutdown still proceeds.
+func (c *Connection) Close(ctx context.Context) error {
+	owner := protocol.CallbackOwner(ctx)
 	c.setupMu.Lock()
 	c.closeRequested = true
 	doneChan, conn, m := c.doneChan, c.conn, c.muxer
@@ -333,11 +322,19 @@ func (c *Connection) closeExcept(owner any) error {
 	c.requestClose()
 	// Wait until all connection-owned goroutines have stopped. After this
 	// returns, a caller may safely close a channel supplied with WithErrorChan.
-	<-c.connClosedChan
+	select {
+	case <-c.connClosedChan:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	if m != nil {
-		// Shutdown did not wait for loops whose callback is in
-		// CloseContext; wait for them now, except the caller's own.
-		m.WaitProtocolLoopsExcept(owner)
+		// Shutdown did not wait for loops whose callback is in Close;
+		// wait for them now, except the caller's own.
+		var except any
+		if owner != nil {
+			except = owner
+		}
+		return m.WaitProtocolLoopsExcept(ctx, except)
 	}
 	return nil
 }
@@ -508,6 +505,14 @@ func (c *Connection) fenceTracked() {
 
 var errConnectionClosed = errors.New("connection closed")
 
+// signalOnly is an already-cancelled context. A Stop given it signals
+// shutdown and returns without waiting.
+var signalOnly = func() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}()
+
 // forwardError attempts immediate best-effort delivery without allowing a full
 // or undrained consumer channel to prevent connection shutdown.
 func (c *Connection) forwardError(err error) {
@@ -550,18 +555,21 @@ func (c *Connection) stopProtocols() {
 	}
 	c.protocolMu.RUnlock()
 
+	// Every Stop here only signals: the loops are waited for once the muxer
+	// is stopped too, and a protocol's callback may need another protocol
+	// to stop before it returns.
 	if notificationServer != nil {
-		_ = notificationServer.Stop()
+		_ = notificationServer.Stop(signalOnly)
 	}
 	// A server that restarts after MsgDone replaces its protocol instance,
 	// so stopping the instance read above does not stop a restart already
 	// in progress. Only the server's own Stop does.
 	for _, s := range restarting {
-		s.Stop()
+		_ = s.Stop(signalOnly)
 	}
 	for _, p := range protocols {
 		if p != nil {
-			p.Stop()
+			_ = p.Stop(signalOnly)
 		}
 	}
 }
@@ -569,8 +577,12 @@ func (c *Connection) stopProtocols() {
 // restartingServersLocked returns the constructed servers that replace their
 // protocol instance after MsgDone. The caller must hold c.protocolMu for
 // reading.
-func (c *Connection) restartingServersLocked() []interface{ Stop() } {
-	servers := make([]interface{ Stop() }, 0, 8)
+func (c *Connection) restartingServersLocked() []interface {
+	Stop(context.Context) error
+} {
+	servers := make([]interface {
+		Stop(context.Context) error
+	}, 0, 8)
 	if c.chainSync != nil && c.chainSync.Server != nil {
 		servers = append(servers, c.chainSync.Server)
 	}
@@ -955,12 +967,12 @@ func (c *Connection) setupConnection() error {
 		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
 	case err := <-c.protoErrorChan:
 		// Shutdown the connection and return the error
-		c.Close()
+		_ = c.Close(context.Background())
 		return err
 	case <-c.handshakeFinishedChan:
 		// This is purposely empty, but we need this case to break out when this channel is closed
 	case <-handshakeTimer.C:
-		c.Close()
+		_ = c.Close(context.Background())
 		return fmt.Errorf(
 			"handshake did not complete within %s",
 			c.handshakeTimeout,

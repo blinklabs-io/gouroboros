@@ -84,7 +84,7 @@ func runTest(
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -144,7 +144,7 @@ func runTestCollectingConnErrors(
 	}()
 	t.Cleanup(func() {
 		// Ensure failed assertions also release the mock and protocol goroutines.
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 		select {
 		case <-connDone:
 		case <-time.After(10 * time.Second):

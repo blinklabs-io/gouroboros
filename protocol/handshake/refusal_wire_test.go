@@ -16,6 +16,7 @@ package handshake_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -58,7 +59,7 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 		Mode: protocol.ProtocolModeNodeToClient,
 	}, &cfg)
 	server.Start()
-	defer server.Stop()
+	defer server.Stop(context.Background())
 	proposal, err := cbor.Encode(handshake.NewMsgProposeVersions(
 		protocol.ProtocolVersionMap{version: protocol.VersionDataNtC9to14(42)},
 	))
@@ -81,7 +82,7 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 	_, err = io.ReadFull(peer, header)
 	require.NoError(t, err)
 	require.Positive(t, binary.BigEndian.Uint16(header[6:]))
-	server.Stop()
+	server.Stop(context.Background())
 	select {
 	case <-server.DoneChan():
 	case <-time.After(5 * time.Second):
@@ -189,8 +190,8 @@ func startHandshakeWirePair(
 		Mode: protocol.ProtocolModeNodeToClient,
 	}, clientCfg)
 	t.Cleanup(func() {
-		server.Stop()
-		client.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
 		serverMux.Stop()
 		clientMux.Stop()
 		_ = serverConn.Close()

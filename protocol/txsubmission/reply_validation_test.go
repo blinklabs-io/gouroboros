@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -92,7 +93,7 @@ func newReplyValidationPeerWithConfig(
 	}()
 	t.Cleanup(func() {
 		proto := server.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
@@ -318,7 +319,7 @@ func TestServerShutdownClearsPendingTxIdRequest(t *testing.T) {
 		resultChan <- err
 	}()
 	peer.waitForRequest(t)
-	peer.server.ProtocolInstance().Stop()
+	peer.server.ProtocolInstance().Stop(context.Background())
 	select {
 	case err := <-resultChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

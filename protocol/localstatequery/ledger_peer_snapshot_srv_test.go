@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -117,8 +118,8 @@ func querySnapshotResultOverPipe(
 	t.Cleanup(func() {
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
 		serverMuxer.Stop()
 		clientMuxer.Stop()
 	})

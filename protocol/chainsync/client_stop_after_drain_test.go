@@ -150,7 +150,7 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 	clientMuxer.Start()
 	t.Cleanup(func() {
 		close(h.stop)
-		_ = h.client.Stop()
+		_ = h.client.Stop(context.Background())
 	})
 	return sd
 }
@@ -262,7 +262,7 @@ func TestStopAfterDrainConnectionCloseDuringDrain(t *testing.T) {
 func TestStopAfterDrainWhenNotRunning(t *testing.T) {
 	t.Parallel()
 	h := newStopDrainHarness(t)
-	require.NoError(t, h.client.Stop())
+	require.NoError(t, h.client.Stop(context.Background()))
 	require.NoError(t, h.client.StopAfterDrain(context.Background()))
 }
 

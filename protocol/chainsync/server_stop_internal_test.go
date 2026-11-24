@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -41,11 +42,12 @@ func TestServerStopAfterRestartBeganReleasesReceiver(t *testing.T) {
 	)
 	stopped := make(chan struct{})
 	server.restartHook = func() {
-		server.Stop()
+		// The hook runs on the stopping instance's receive loop.
+		_ = server.Stop(server.ProtocolInstance().CallbackContext())
 		close(stopped)
 	}
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	original := server.ProtocolInstance()

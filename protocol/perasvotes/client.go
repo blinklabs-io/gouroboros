@@ -146,7 +146,7 @@ func (c *Client) requestObjectIDs(
 	case result := <-c.objectIDsChan:
 		return result.ids, result.err
 	case <-ctx.Done():
-		c.Protocol.Stop()
+		_ = c.Protocol.Stop(ctx)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
@@ -185,7 +185,7 @@ func (c *Client) requestObjects(
 	case result := <-c.objectsChan:
 		return result.objects, result.err
 	case <-ctx.Done():
-		c.Protocol.Stop()
+		_ = c.Protocol.Stop(ctx)
 		return nil, ctx.Err()
 	case <-c.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
@@ -230,11 +230,11 @@ func (c *Client) Sync(ctx context.Context) error {
 		for _, object := range objects {
 			id, err := object.VoteID()
 			if err != nil {
-				c.Protocol.Stop()
+				_ = c.Protocol.Stop(ctx)
 				return err
 			}
-			if err := c.config.VoteFunc(c.callbackContext, id, object); err != nil {
-				c.Protocol.Stop()
+			if err := c.config.VoteFunc(c.callbackContext.withOwner(c.Protocol), id, object); err != nil {
+				_ = c.Protocol.Stop(ctx)
 				return fmt.Errorf("process Peras vote %v: %w", id, err)
 			}
 		}
@@ -254,7 +254,14 @@ func (c *Client) Done(ctx context.Context) error {
 }
 
 // Stop interrupts the client protocol.
-func (c *Client) Stop() { c.Protocol.Stop() }
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error { return c.Protocol.Stop(ctx) }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {

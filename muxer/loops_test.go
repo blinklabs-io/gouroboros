@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -96,12 +97,12 @@ func TestExcusedLoopIsNotWaitedFor(t *testing.T) {
 	requireReturns(t, m.WaitProtocolLoops, "WaitProtocolLoops waited for an excused loop")
 	requireReturns(
 		t,
-		func() { m.WaitProtocolLoopsExcept(owner) },
+		func() { _ = m.WaitProtocolLoopsExcept(context.Background(), owner) },
 		"WaitProtocolLoopsExcept waited for its own owner's loop",
 	)
 	waited := make(chan struct{})
 	go func() {
-		m.WaitProtocolLoopsExcept(other)
+		_ = m.WaitProtocolLoopsExcept(context.Background(), other)
 		close(waited)
 	}()
 	select {

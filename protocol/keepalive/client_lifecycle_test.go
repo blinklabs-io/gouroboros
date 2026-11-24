@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"sync"
@@ -62,7 +63,7 @@ func TestSendKeepAliveDoesNotRearmDuringShutdown(t *testing.T) {
 	}
 	stopDone := make(chan struct{})
 	go func() {
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		close(stopDone)
 	}()
 	select {
@@ -107,7 +108,7 @@ func TestIsStoppingTracksShutdownRequest(t *testing.T) {
 	if client.IsStopping() {
 		t.Fatal("new protocol reports shutdown in progress")
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	if !client.IsStopping() {
 		t.Fatal("protocol did not report its shutdown request")
 	}

@@ -15,6 +15,7 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -72,8 +73,8 @@ func newSubmissionTestSession(
 	client.Start()
 	server.Start()
 	t.Cleanup(func() {
-		_ = client.Stop()
-		server.Protocol.Stop()
+		_ = client.Stop(context.Background())
+		server.Protocol.Stop(context.Background())
 		clientMuxer.Stop()
 		serverMuxer.Stop()
 		_ = clientConn.Close()
@@ -570,8 +571,8 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 			client.Start()
 			server.Start()
 			t.Cleanup(func() {
-				_ = client.Stop()
-				server.Protocol.Stop()
+				_ = client.Stop(context.Background())
+				server.Protocol.Stop(context.Background())
 				clientMuxer.Stop()
 				serverMuxer.Stop()
 				_ = clientConn.Close()

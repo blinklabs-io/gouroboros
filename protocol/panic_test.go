@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -101,7 +102,7 @@ func startPanicTestProtocol(
 
 	p := New(config)
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	sendMessage := func() {
 		// A one-element CBOR array holding message type 1, which is what

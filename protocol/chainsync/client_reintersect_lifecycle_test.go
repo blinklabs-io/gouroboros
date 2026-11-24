@@ -64,7 +64,7 @@ func TestStartAfterStopWithPipelinedRequestsStaysStopped(t *testing.T) {
 	h.startPipelined()
 
 	// MsgDone cannot be delivered while requests are outstanding.
-	require.ErrorIs(t, h.client.Stop(), context.DeadlineExceeded)
+	require.ErrorIs(t, h.client.Stop(context.Background()), context.DeadlineExceeded)
 	h.client.Start()
 	syncRefused(t, h.client)
 }

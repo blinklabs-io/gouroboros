@@ -16,6 +16,7 @@ package handshake_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -117,7 +118,7 @@ func TestServerInitialProposeTimeout(t *testing.T) {
 				Role:      protocol.ProtocolRoleServer,
 			}, &cfg)
 			s.Start()
-			defer s.Stop()
+			defer s.Stop(context.Background())
 
 			if test.wantTimeout {
 				select {
@@ -198,7 +199,7 @@ func TestServerBasicN2NHandshake(t *testing.T) {
 		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
 	}()
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -254,7 +255,7 @@ func TestServerFinishedWaitsForAcceptVersionDelivery(t *testing.T) {
 		gatedConn.releaseWrite()
 		_ = peerConn.Close()
 		_ = serverConn.Close()
-		s.Stop()
+		s.Stop(context.Background())
 		m.Stop()
 	}()
 	m.Start()
@@ -349,7 +350,7 @@ func TestServerBasicHandshake(t *testing.T) {
 		}
 		panic(fmt.Sprintf("unexpected Ouroboros error: %s", err))
 	}()
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	select {
@@ -420,7 +421,7 @@ func TestServerHandshakeRefuseVersionMismatch(t *testing.T) {
 			t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 		}
 	} else {
-		oConn.Close()
+		oConn.Close(context.Background())
 		// Wait for connection shutdown
 		select {
 		case <-oConn.ErrorChan():
@@ -527,7 +528,7 @@ func TestServerQueryMode(t *testing.T) {
 			t.Fatalf("unexpected error when creating Ouroboros object: %s", err)
 		}
 	} else {
-		oConn.Close()
+		oConn.Close(context.Background())
 		select {
 		case <-oConn.ErrorChan():
 		case <-time.After(10 * time.Second):

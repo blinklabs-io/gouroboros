@@ -420,7 +420,7 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 
 	// Invoke callback
 	if s.config.ReplyMessageIdsFunc != nil {
-		s.config.ReplyMessageIdsFunc(s.callbackContext, msgReply.Messages)
+		s.config.ReplyMessageIdsFunc(s.callbackContext.withOwner(s.Protocol), msgReply.Messages)
 	}
 
 	return nil
@@ -501,7 +501,7 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, fresh)
+		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.Protocol), fresh)
 	}
 
 	return nil

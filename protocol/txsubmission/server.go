@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -125,12 +126,19 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) Start() {
@@ -492,7 +500,7 @@ func (s *Server) handleDone() error {
 	}
 	s.stopping = true
 	s.pendingTxIds = nil
-	callbackContext := s.callbackContext
+	callbackContext := s.callbackContext.withOwner(s.ProtocolInstance())
 	resultChan := s.requestTxIdsResultChan
 	s.stateMu.Unlock()
 	p.Logger().
@@ -515,7 +523,7 @@ func (s *Server) handleDone() error {
 		}
 	}
 	// Restart protocol
-	p.StopForRestart()
+	_ = p.StopForRestart(p.CallbackContext())
 	if !s.initProtocol() {
 		p.CancelRestart()
 		return nil
@@ -527,7 +535,7 @@ func (s *Server) handleDone() error {
 func (s *Server) handleInit() error {
 	p := s.ProtocolInstance()
 	s.stateMu.Lock()
-	callbackContext := s.callbackContext
+	callbackContext := s.callbackContext.withOwner(s.ProtocolInstance())
 	s.stateMu.Unlock()
 	p.Logger().
 		Debug("init",

@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -81,7 +82,7 @@ func TestRequestNextBurstPipelinesWhileServerHasAgency(t *testing.T) {
 				InitialState: stateIdle,
 			})
 			p.Start()
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 			encoded, err := cbor.Encode(NewMsgRequestNext())
 			require.NoError(t, err)

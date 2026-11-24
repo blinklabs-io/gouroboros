@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"net"
@@ -104,7 +105,7 @@ func newPipelineTestServer(t *testing.T) pipelineTestServer {
 	// Release the held callback before the teardown waits on its handler.
 	t.Cleanup(func() {
 		releaseFn()
-		server.ProtocolInstance().Stop()
+		server.ProtocolInstance().Stop(context.Background())
 		m.Stop()
 		_ = connA.Close()
 		_ = connB.Close()

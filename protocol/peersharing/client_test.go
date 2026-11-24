@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -211,7 +212,7 @@ func TestClientGetPeersRefusesWhenLocalDisabled(t *testing.T) {
 	require.ErrorIs(t, err, ErrPeerSharingDisabledLocally)
 	require.Nil(t, peers)
 
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	m.Stop()
 	_ = remoteConn.Close()
 	select {
@@ -251,7 +252,7 @@ func TestClientGetPeersReturnsAfterBusyTimeout(t *testing.T) {
 	client.Start()
 	m.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		m.Stop()
 		_ = remoteConn.Close()
 		select {
@@ -333,7 +334,7 @@ func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(
 	client.Start()
 	m.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		m.Stop()
 		_ = remoteConn.Close()
 		select {
@@ -353,7 +354,7 @@ func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(
 	case err := <-resultChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 	case <-time.After(time.Second):
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		select {
 		case <-resultChan:
 		case <-time.After(time.Second):

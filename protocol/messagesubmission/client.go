@@ -15,12 +15,14 @@
 package messagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 // Client implements the MessageSubmission client
@@ -143,9 +145,17 @@ func (c *Client) Start() {
 }
 
 // Stop transitions the protocol to the Done state.
-// In V1, the client sends MsgDone. In V2, only the server can send MsgDone;
-// the client-side Stop is a no-op.
-func (c *Client) Stop() error {
+// In V1, the client sends MsgDone. In V2, only the server can send MsgDone,
+// so the client stops its protocol instance without sending anything.
+//
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		if isMessageSubmissionV2(c.protoVersion) {
 			// V2: client cannot send MsgDone; server controls termination
@@ -164,8 +174,11 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgDone()
-		c.stopErr = c.SendMessage(msg)
+		c.stopErr = stopping.SendDone(ctx, c.Protocol, msg)
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return c.stopErr
 }
 
@@ -340,7 +353,7 @@ func (c *Client) handleRequestMessageIds(msg protocol.Message) error {
 	// Invoke callback to get available message IDs
 	if c.config.RequestMessageIdsFunc != nil {
 		c.config.RequestMessageIdsFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.Protocol),
 			msgRequest.IsBlocking,
 			msgRequest.AckCount,
 			msgRequest.RequestCount,
@@ -384,7 +397,7 @@ func (c *Client) handleRequestMessages(msg protocol.Message) error {
 
 	if c.config.RequestMessagesFunc != nil {
 		c.config.RequestMessagesFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.Protocol),
 			cloneMessageIDs(msgRequest.MessageIDs),
 		)
 	}
@@ -401,7 +414,7 @@ func (c *Client) handleDone() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config != nil && c.config.DoneFunc != nil {
-		return c.config.DoneFunc(c.callbackContext)
+		return c.config.DoneFunc(c.callbackContext.withOwner(c.Protocol))
 	}
 	return nil
 }

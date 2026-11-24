@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -93,9 +94,9 @@ func newTipHarness(t *testing.T, clientErrors chan error) *tipHarness {
 	}, &clientCfg)
 
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 	t.Cleanup(releaseRoll)
@@ -118,7 +119,7 @@ func newTipHarness(t *testing.T, clientErrors chan error) *tipHarness {
 // cannot be sent, and requires ErrStoppedWithoutDone on the error channel.
 func (h *tipHarness) stopWithoutDone(t *testing.T) {
 	t.Helper()
-	require.Error(t, h.client.Stop(),
+	require.Error(t, h.client.Stop(context.Background()),
 		"Stop delivered MsgDone with a request unanswered")
 	select {
 	case err := <-h.clientErrors:
@@ -182,7 +183,7 @@ func TestStartAfterStopWithoutDoneStaysStopped(t *testing.T) {
 func TestStopWithoutDoneStopsMuxerWhenErrorDropped(t *testing.T) {
 	t.Parallel()
 	h := newTipHarness(t, make(chan error))
-	require.Error(t, h.client.Stop())
+	require.Error(t, h.client.Stop(context.Background()))
 	select {
 	case <-h.clientMuxer.DoneChan():
 	case <-time.After(time.Second):
@@ -215,7 +216,7 @@ func TestSlowDoneWithNothingOwedIsNotAbandoned(t *testing.T) {
 	clientMuxer.Start()
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- client.Stop() }()
+	go func() { stopped <- client.Stop(context.Background()) }()
 	select {
 	case err := <-stopped:
 		require.Error(t, err, "MsgDone was written although nothing reads")

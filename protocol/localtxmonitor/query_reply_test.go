@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -185,7 +186,7 @@ func startAcquiredTestClient(t *testing.T) (*Client, net.Conn, chan error) {
 	}, nil)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 
 	acquired := make(chan error, 1)
 	go func() { acquired <- client.Acquire() }()
@@ -265,7 +266,7 @@ func TestClientStopReleasesCaller(t *testing.T) {
 		result <- err
 	}()
 	requireQueryTestMessageType(t, conn, MessageTypeHasTx)
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	select {
 	case err := <-result:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -289,7 +290,7 @@ func TestReplyDeliveryStopsAtShutdown(t *testing.T) {
 		t.Fatal("reply was delivered with no caller waiting")
 	case <-time.After(100 * time.Millisecond):
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	select {
 	case <-delivered:
 	case <-time.After(5 * time.Second):

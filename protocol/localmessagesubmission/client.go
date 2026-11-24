@@ -15,12 +15,14 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 // Client implements the LocalMessageSubmission client
@@ -81,7 +83,15 @@ func (c *Client) Start() {
 }
 
 // Stop transitions the protocol to the Done state
-func (c *Client) Stop() error {
+//
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
@@ -90,8 +100,11 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgDone()
-		c.stopErr = c.SendMessage(msg)
+		c.stopErr = stopping.SendDone(ctx, c.Protocol, msg)
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return c.stopErr
 }
 
@@ -143,7 +156,7 @@ func (c *Client) handleAcceptMessage() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	if c.config.AcceptMessageFunc != nil {
-		c.config.AcceptMessageFunc(c.callbackContext)
+		c.config.AcceptMessageFunc(c.callbackContext.withOwner(c.Protocol))
 	}
 	return nil
 }
@@ -180,7 +193,7 @@ func (c *Client) handleRejectMessage(msg protocol.Message) error {
 		if err != nil {
 			return err
 		}
-		c.config.RejectMessageFunc(c.callbackContext, rr)
+		c.config.RejectMessageFunc(c.callbackContext.withOwner(c.Protocol), rr)
 	}
 	return nil
 }

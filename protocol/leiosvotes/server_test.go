@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -67,8 +68,8 @@ func TestUnconfiguredRequestRemainsBusyAndPreservesSharedBearer(t *testing.T) {
 	peerSharingServer.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Stop()
-		peerSharingServer.Stop()
+		server.Stop(context.Background())
+		peerSharingServer.Stop(context.Background())
 		m.Stop()
 		_ = connA.Close()
 		_ = connB.Close()
@@ -125,7 +126,7 @@ func TestUnconfiguredInvalidRequestReportsStateError(t *testing.T) {
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Stop()
+		server.Stop(context.Background())
 		m.Stop()
 		_ = connA.Close()
 		_ = connB.Close()
@@ -196,7 +197,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 		Muxer:              m,
 	}, &cfg)
 	server.Start()
-	defer server.ProtocolInstance().Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	defer func() {
 		select {
 		case <-connectionDone:

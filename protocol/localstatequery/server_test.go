@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -137,8 +138,8 @@ func testAcquisitionSequence(t *testing.T, steps []acquisitionStep) {
 		// Release transport reads/writes even when an assertion aborts the sequence.
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
 		serverMuxer.Stop()
 		clientMuxer.Stop()
 	})

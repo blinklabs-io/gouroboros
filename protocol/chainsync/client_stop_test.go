@@ -93,7 +93,7 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	// has transitioned to stopping and released that mutex.
 	client.busyMutex.Lock()
 	firstStopDone := make(chan error, 1)
-	go func() { firstStopDone <- client.Stop() }()
+	go func() { firstStopDone <- client.Stop(context.Background()) }()
 	client.busyMutex.Unlock()
 	<-firstStopInitiated
 	client.busyMutex.Lock()
@@ -101,7 +101,7 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	// The active sync loop is still blocked at its test hook, so the second Stop
 	// is the only waiter that can acquire busyMutex.
 	secondStopDone := make(chan error, 1)
-	go func() { secondStopDone <- client.Stop() }()
+	go func() { secondStopDone <- client.Stop(context.Background()) }()
 	client.busyMutex.Unlock()
 	<-secondStopWaiting
 
@@ -137,7 +137,7 @@ func TestStopWaitsForActiveOperationBeforeRestart(t *testing.T) {
 	defer finishOperation()
 	ready <- true
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 
 	select {
 	case <-done:
@@ -203,7 +203,7 @@ func TestStopJoinsGetAvailableBlockRange(t *testing.T) {
 	}
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 	select {
 	case err := <-rangeDone:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -242,7 +242,7 @@ func TestStopJoinsGetCurrentTipWorkerWaitingForBusyLock(t *testing.T) {
 	}, time.Second, time.Millisecond)
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 	select {
 	case <-stopInitiated:
 	case <-time.After(time.Second):
@@ -286,7 +286,7 @@ func TestStopUnblocksInitialRequestEnqueue(t *testing.T) {
 		t.Fatal("Sync did not reach the initial request fence")
 	}
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 	select {
 	case <-stopInitiated:
 	case <-time.After(time.Second):
@@ -350,7 +350,7 @@ func TestStopUnblocksPipelineRequestBurstEnqueue(t *testing.T) {
 		t.Fatal("sync loop did not reach the pipeline request fence")
 	}
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 	select {
 	case <-stopInitiated:
 	case <-time.After(time.Second):
@@ -371,7 +371,7 @@ func TestStopUnblocksPipelineRequestBurstEnqueue(t *testing.T) {
 func TestStopDuringStartAbortsUnstartedProtocol(t *testing.T) {
 	client, cleanup := newStartedTestClient(t, nil)
 	defer cleanup()
-	require.NoError(t, client.Stop())
+	require.NoError(t, client.Stop(context.Background()))
 
 	beforeProtocolStart := make(chan struct{})
 	allowProtocolStart := make(chan struct{})
@@ -390,7 +390,7 @@ func TestStopDuringStartAbortsUnstartedProtocol(t *testing.T) {
 		t.Fatal("Start did not reach the protocol-start fence")
 	}
 
-	require.NoError(t, client.Stop())
+	require.NoError(t, client.Stop(context.Background()))
 	client.lifecycleMutex.Lock()
 	require.Equal(t, clientStateStopped, client.lifecycleState)
 	require.Nil(t, client.startingDone)
@@ -454,7 +454,7 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 		&Config{Pipeline: p},
 	)
 	client.Start()
-	defer func() { require.NoError(t, client.Stop()) }()
+	defer func() { require.NoError(t, client.Stop(context.Background())) }()
 
 	shelley := chainSyncShelleyBlock(t)
 	require.NoError(
@@ -490,7 +490,7 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	}
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop() }()
+	go func() { stopDone <- client.Stop(context.Background()) }()
 	select {
 	case err := <-stopDone:
 		require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -521,7 +521,7 @@ func newStartedTestClient(t *testing.T, cfg *Config) (*Client, func()) {
 	)
 	client.Start()
 	return client, func() {
-		_ = client.Stop()
+		_ = client.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = peerConn.Close()
 		m.Stop()

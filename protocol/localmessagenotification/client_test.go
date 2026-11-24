@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -458,7 +459,7 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 		&cfg,
 	)
 	t.Cleanup(func() {
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		m.Stop()
 		_ = localConn.Close()
 		_ = peerConn.Close()

@@ -90,7 +90,7 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	}
 	msgSubmitTx := msg.(*MsgSubmitTx)
 	// Call the user callback function and send Accept/RejectTx based on result
-	err := s.config.SubmitTxFunc(s.callbackContext, msgSubmitTx.Transaction)
+	err := s.config.SubmitTxFunc(s.callbackContext.withOwner(s.Protocol), msgSubmitTx.Transaction)
 	if err == nil {
 		newMsg := NewMsgAcceptTx()
 		if err := s.SendMessage(newMsg); err != nil {

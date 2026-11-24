@@ -131,7 +131,7 @@ func (s *Server) handleAcquire() error {
 // computes them on demand.
 func (s *Server) acquireMempool() (uint64, error) {
 	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 	)
 	if err != nil {
 		return 0, err

@@ -331,7 +331,7 @@ func (c *Client) Start() {
 
 			// If we were stopped, ensure the old instance is fully stopped before re-registering.
 			if oldDone != nil {
-				oldProto.Stop()
+				_ = oldProto.Stop(context.Background())
 				<-oldDone
 			}
 
@@ -407,7 +407,14 @@ func (c *Client) Start() {
 // the delivery error, such as context.DeadlineExceeded, not
 // ErrStoppedWithoutDone. Use StopAfterDrain to stop and later restart on the
 // same connection.
-func (c *Client) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting for the protocol and the sync loop, since the goroutine running
+// the callback may be one of them; the stop completes once the callback
+// returns. Otherwise it waits until they have finished, or until ctx is
+// done, in which case it returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.lifecycleMutex.Lock()
 	switch c.lifecycleState {
 	case clientStateNew, clientStateStopped:
@@ -427,14 +434,18 @@ func (c *Client) Stop() error {
 		return nil
 	case clientStateStopping:
 		ch := c.stoppingDone
+		proto := c.ProtocolInstance()
 		c.lifecycleMutex.Unlock()
 		if c.testStopWaitingForComplete != nil {
 			c.testStopWaitingForComplete()
 		}
 		if ch != nil {
-			<-ch
+			if err := c.waitStopped(ctx, proto, ch); err != nil {
+				return err
+			}
 		}
-		return nil
+		// Join the protocol's goroutines too, unless ctx marks proto.
+		return proto.Stop(ctx)
 	case clientStateRunning:
 		c.lifecycleState = clientStateStopping
 		// AwaitReply runs on the protocol receive loop. Cancel its pipeline fence
@@ -455,7 +466,7 @@ func (c *Client) Stop() error {
 		c.lifecycleMutex.Unlock()
 
 		return c.stopRunning(
-			context.Background(), proto, stoppingDone, operationsDrained, nil,
+			ctx, proto, stoppingDone, operationsDrained, nil,
 		)
 	default:
 		c.lifecycleState = clientStateStopped
@@ -584,21 +595,51 @@ func (c *Client) finishStop(
 	c.lifecycleMutex.Unlock()
 
 	// Stop/unregister the underlying protocol instance, then wait for it and
-	// the sync loop to finish before allowing a restart to replace their state.
-	doneChan := proto.DoneChan()
-	proto.Stop()
-	<-doneChan
-	c.syncLoopWaitGroup.Wait()
-	<-operationsDrained
+	// the sync loop to finish before allowing a restart to replace their
+	// state. The wait runs on its own goroutine so that a Stop called from
+	// one of proto's callbacks, which must not wait for its own goroutine,
+	// still completes the stop once the callback returns.
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
+	go func() {
+		<-proto.DoneChan()
+		c.syncLoopWaitGroup.Wait()
+		<-operationsDrained
 
-	c.lifecycleMutex.Lock()
-	c.lifecycleState = clientStateStopped
-	if c.stoppingDone == stoppingDone {
-		close(stoppingDone)
-		c.stoppingDone = nil
+		c.lifecycleMutex.Lock()
+		c.lifecycleState = clientStateStopped
+		if c.stoppingDone == stoppingDone {
+			close(stoppingDone)
+			c.stoppingDone = nil
+		}
+		c.lifecycleMutex.Unlock()
+	}()
+	if err := c.waitStopped(ctx, proto, stoppingDone); err != nil {
+		return err
 	}
-	c.lifecycleMutex.Unlock()
+	if protocol.CallbackOwner(ctx) != proto {
+		if err := proto.Stop(ctx); err != nil {
+			return err
+		}
+	}
 	return sendErr
+}
+
+// waitStopped waits for a stop to complete, unless ctx is the context of a
+// callback proto runs, or until ctx is done.
+func (c *Client) waitStopped(
+	ctx context.Context,
+	proto *protocol.Protocol,
+	stoppingDone <-chan struct{},
+) error {
+	if protocol.CallbackOwner(ctx) == proto {
+		return nil
+	}
+	select {
+	case <-stoppingDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // GetCurrentTip returns the current chain tip
@@ -1646,7 +1687,7 @@ func (c *Client) handleAwaitReply() error {
 		}
 	}
 	if c.config != nil && c.config.AwaitReplyFunc != nil {
-		return c.config.AwaitReplyFunc(c.callbackContext)
+		return c.config.AwaitReplyFunc(c.callbackContext.withOwner(c.ProtocolInstance()))
 	}
 	return nil
 }
@@ -1762,14 +1803,14 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		// Call the user callback function
 		if c.config.RollForwardRawFunc != nil {
 			callbackErr = c.config.RollForwardRawFunc(
-				c.callbackContext,
+				c.callbackContext.withOwner(c.ProtocolInstance()),
 				blockType,
 				blockHeaderBytes,
 				msg.Tip,
 			)
 		} else {
 			callbackErr = c.config.RollForwardFunc(
-				c.callbackContext,
+				c.callbackContext.withOwner(c.ProtocolInstance()),
 				blockType,
 				blockHeader,
 				msg.Tip,
@@ -1876,14 +1917,14 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		// Call the user callback function
 		if c.config.RollForwardRawFunc != nil {
 			callbackErr = c.config.RollForwardRawFunc(
-				c.callbackContext,
+				c.callbackContext.withOwner(c.ProtocolInstance()),
 				msg.BlockType(),
 				msg.BlockCbor(),
 				msg.Tip,
 			)
 		} else {
 			callbackErr = c.config.RollForwardFunc(
-				c.callbackContext,
+				c.callbackContext.withOwner(c.ProtocolInstance()),
 				msg.BlockType(),
 				block,
 				msg.Tip,
@@ -1985,7 +2026,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 			)
 		}
 		// Call the user callback function
-		if callbackErr := c.config.RollBackwardFunc(c.callbackContext, msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
+		if callbackErr := c.config.RollBackwardFunc(c.callbackContext.withOwner(c.ProtocolInstance()), msgRollBackward.Point, msgRollBackward.Tip); callbackErr != nil {
 			if errors.Is(callbackErr, ErrStopSyncProcess) {
 				// Signal that we're cancelling the sync
 				c.lifecycleMutex.Lock()
@@ -2044,7 +2085,7 @@ func (c *Client) handleIntersectFound(msg protocol.Message) error {
 	c.sendCurrentTip(msgIntersectFound.Tip)
 	if c.config != nil && c.config.IntersectFoundFunc != nil {
 		if err := c.config.IntersectFoundFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.ProtocolInstance()),
 			msgIntersectFound.Point,
 			msgIntersectFound.Tip,
 		); err != nil {

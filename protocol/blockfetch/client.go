@@ -403,7 +403,7 @@ func (c *Client) Start() {
 
 			// If we were stopped, ensure the old instance is fully stopped before re-registering.
 			if oldDone != nil {
-				oldProto.Stop()
+				_ = oldProto.Stop(context.Background())
 				<-oldDone
 			}
 
@@ -457,12 +457,15 @@ func (c *Client) startShutdownWatcher(
 	proto *protocol.Protocol,
 ) <-chan struct{} {
 	done := make(chan struct{})
-	go func() {
+	watch := func() {
 		defer close(done)
-		proto.RunLoop("shutdown watcher", func() {
-			c.failOutstandingOnProtocolDone(proto)
-		})
-	}()
+		c.failOutstandingOnProtocolDone(proto)
+	}
+	if !proto.RunLoop("shutdown watcher", watch) {
+		// The connection is already closing and refuses new loops; the
+		// outstanding ranges must still be resolved.
+		go watch()
+	}
 	return done
 }
 
@@ -470,7 +473,15 @@ func (c *Client) startShutdownWatcher(
 // It waits up to 250ms for message delivery before shutting down the protocol,
 // returning delivery errors, including context.DeadlineExceeded. An already
 // shutting-down protocol is treated as successfully stopped.
-func (c *Client) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting for the protocol, since the goroutine running the callback may be
+// one of its own; the outstanding ranges are then resolved once the
+// protocol is done. Otherwise it waits until the protocol's goroutines have
+// returned and resolves the outstanding ranges, or until ctx is done, in
+// which case it returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
 
@@ -514,11 +525,8 @@ func (c *Client) Stop() error {
 	// Check if protocol is already done before sending ClientDone message
 	if !c.IsDone() {
 		msg := NewMsgClientDone()
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
-			250*time.Millisecond,
-		)
-		sendErr = c.SendMessageContextAndWait(ctx, msg)
+		sendCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		sendErr = c.SendMessageContextAndWait(sendCtx, msg)
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
@@ -527,24 +535,33 @@ func (c *Client) Stop() error {
 
 	// Stop/unregister the underlying protocol instance first, then wait for
 	// message handlers to finish before resolving outstanding requests.
-	doneChan := c.DoneChan()
-	c.Protocol.Stop()
+	// The callback marker makes this Stop only signal; the wait follows
+	// once lifecycleMutex is released.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 
 	// Release lock while waiting for protocol shutdown to avoid deadlock.
 	c.lifecycleMutex.Unlock()
-	<-doneChan
-	// Every queued request is resolved with a terminal error. Each request
-	// owns its own buffered channels, so a handler that is still running
-	// cannot send on a closed channel and no waiter is stranded.
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
-	c.releaseCurrentBusy()
+	joinErr := proto.Stop(ctx)
+	if joinErr == nil && protocol.CallbackOwner(ctx) != proto {
+		// Every queued request is resolved with a terminal error. Each
+		// request owns its own buffered channels, so a handler that is
+		// still running cannot send on a closed channel and no waiter is
+		// stranded. A Stop that does not wait leaves this to the shutdown
+		// watcher.
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		c.releaseCurrentBusy()
+	}
 
 	c.lifecycleMutex.Lock()
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
 		c.startingDone = nil
+	}
+	if joinErr != nil {
+		return joinErr
 	}
 	return sendErr
 }
@@ -1320,7 +1337,7 @@ func (c *Client) failOutstandingOnProtocolDone(proto *protocol.Protocol) {
 // callbackContextFor returns the callback context for a request, carrying its
 // FIFO identity.
 func (c *Client) callbackContextFor(req *rangeRequest) CallbackContext {
-	ctx := c.callbackContext
+	ctx := c.callbackContext.withOwner(req.protocol)
 	ctx.RequestId = req.id
 	return ctx
 }

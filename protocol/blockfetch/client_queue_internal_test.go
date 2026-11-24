@@ -303,13 +303,13 @@ func TestPipelineBatchShutdownReportsProtocolError(t *testing.T) {
 			stopDone := make(chan error, 1)
 			if directProtocolStop {
 				proto := c.ProtocolInstance()
-				proto.Stop()
+				proto.Stop(context.Background())
 				go func() {
 					<-proto.DoneChan()
 					stopDone <- nil
 				}()
 			} else {
-				go func() { stopDone <- c.Stop() }()
+				go func() { stopDone <- c.Stop(context.Background()) }()
 			}
 			select {
 			case err := <-done:
@@ -1154,7 +1154,7 @@ func newInMemoryPeer(
 	c.Start()
 	t.Cleanup(func() {
 		proto := c.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(time.Second):
@@ -1605,7 +1605,7 @@ func TestShutdownWatcherContainsRangeDonePanic(t *testing.T) {
 	req := c.appendTestRequest(1)
 	proto := c.ProtocolInstance()
 	done := c.startShutdownWatcher(proto)
-	proto.Stop()
+	proto.Stop(context.Background())
 
 	select {
 	case err := <-errorChan:

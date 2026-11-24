@@ -16,6 +16,7 @@ package leiosvotes
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math"
 	"net"
@@ -210,7 +211,13 @@ func startBudgetTestClient(
 	)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() {
+		// The vote callback may still be held here; its own cleanup, which
+		// runs after this one, releases it and waits for it to return.
+		signalOnly, cancel := context.WithCancel(context.Background())
+		cancel()
+		_ = client.Protocol.Stop(signalOnly)
+	})
 	require.NoError(t, client.Sync())
 	assert.Equal(
 		t,

@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -450,7 +451,7 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 				ErrorChan: errs,
 			}, &cfg)
 			client.Start()
-			t.Cleanup(func() { client.Protocol.Stop() })
+			t.Cleanup(func() { client.Protocol.Stop(context.Background()) })
 			m.Start()
 
 			require.NoError(t, client.RequestMessagesBlocking())

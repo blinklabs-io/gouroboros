@@ -266,7 +266,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 			s.config.replayState.release(msgSubmit.Message.ID(), token)
 		}
 	}()
-	reason := s.config.SubmitMessageFunc(s.callbackContext, &msgSubmit.Message)
+	reason := s.config.SubmitMessageFunc(s.callbackContext.withOwner(s.Protocol), &msgSubmit.Message)
 	if reason != nil {
 		s.Protocol.Logger().
 			Warn("message rejected by handler",
@@ -291,7 +291,7 @@ func (s *Server) refuse(
 	reason pcommon.RejectReason,
 ) error {
 	if s.config.SubmitRefusedFunc != nil {
-		s.config.SubmitRefusedFunc(s.callbackContext, &msg.Message, reason)
+		s.config.SubmitRefusedFunc(s.callbackContext.withOwner(s.Protocol), &msg.Message, reason)
 	}
 	return s.sendReject(reason)
 }

@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"encoding/binary"
 	"net"
 	"sync"
@@ -274,8 +275,8 @@ func newWindowHarness(
 	clientMuxer.Start()
 	t.Cleanup(func() {
 		close(h.stop)
-		_ = client.Stop()
-		server.Stop()
+		_ = client.Stop(context.Background())
+		server.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = serverConn.Close()
 		clientMuxer.Stop()
@@ -441,7 +442,7 @@ func TestStopDuringWindowDeliversNothingAfterReturn(t *testing.T) {
 	)
 	require.NoError(t, h.client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
 	h.waitDelivered(t, 100)
-	_ = h.client.Stop()
+	_ = h.client.Stop(context.Background())
 	after := len(h.delivered())
 	require.Never(t, func() bool {
 		return len(h.delivered()) != after

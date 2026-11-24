@@ -15,6 +15,7 @@
 package chainsync_test
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -230,7 +231,7 @@ func syncInlinedCertRb(
 			case <-time.After(10 * time.Second):
 				t.Fatal("timed out waiting for RollForwardFunc")
 			}
-			require.NoError(t, oConn.ChainSync().Client.Stop())
+			require.NoError(t, oConn.ChainSync().Client.Stop(context.Background()))
 		},
 		ouroboros.WithChainSyncConfig(chainsync.Config{
 			SkipBlockValidation: false,
@@ -380,8 +381,8 @@ func syncCertRbOverPipe(
 		t.Fatal("server connection did not finish its handshake")
 	}
 	t.Cleanup(func() {
-		_ = client.Close()
-		_ = server.Close()
+		_ = client.Close(context.Background())
+		_ = server.Close(context.Background())
 	})
 	require.NoError(
 		t,

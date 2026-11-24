@@ -18,6 +18,7 @@
 package blockfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -240,6 +241,27 @@ type CallbackContext struct {
 	// and completion to the MsgRequestRange that asked for it. It is zero
 	// for server-side callbacks.
 	RequestId uint64
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // BlockFunc is a callback for handling decoded blocks.

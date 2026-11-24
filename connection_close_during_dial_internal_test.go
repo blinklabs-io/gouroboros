@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -59,7 +60,7 @@ func TestCloseBeforeMuxerCreatedClosesConn(t *testing.T) {
 		WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
 		func(c *Connection) {
 			c.beforeMuxerHook = func() {
-				require.NoError(t, c.Close())
+				require.NoError(t, c.Close(context.Background()))
 			}
 		},
 	)

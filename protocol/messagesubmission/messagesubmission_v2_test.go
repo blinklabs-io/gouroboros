@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -189,10 +190,10 @@ func TestV2ClientStopIsNoop(t *testing.T) {
 	cfg := NewConfig()
 	c := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
 	// Stop should be a no-op in V2 (no MsgDone sent)
-	err := c.Stop()
+	err := c.Stop(context.Background())
 	assert.NoError(t, err, "V2 client Stop() must succeed as a no-op")
 	// Calling Stop again should also be fine
-	err = c.Stop()
+	err = c.Stop(context.Background())
 	assert.NoError(t, err)
 }
 

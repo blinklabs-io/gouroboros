@@ -16,6 +16,7 @@ package keepalive
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
 	"strconv"
@@ -77,7 +78,7 @@ func newLimitsServer(t *testing.T) (net.Conn, chan error) {
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop()
+		server.Protocol.Stop(context.Background())
 		m.Stop()
 		_ = connA.Close()
 		_ = connB.Close()

@@ -1100,7 +1100,10 @@ func (m *Muxer) StartOnce() {
 	}
 }
 
-// Stop shuts down the muxer
+// Stop shuts down the muxer. It closes the connection, which ends a pending
+// read or write on a standard net.Conn, and returns without waiting. The
+// read loop, the protocol forwarders, which run the Metrics callbacks, and
+// the segment senders have all returned once ErrorChan is closed.
 func (m *Muxer) Stop() {
 	m.onceStop.Do(func() {
 		// Close doneChan to signify that we're shutting down

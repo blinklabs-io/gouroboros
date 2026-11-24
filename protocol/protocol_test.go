@@ -36,7 +36,7 @@ func TestEnsureRegisteredRefusesAfterStop(t *testing.T) {
 	t.Cleanup(protocolMuxer.Stop)
 	proto := New(ProtocolConfig{Muxer: protocolMuxer})
 
-	proto.Stop()
+	proto.Stop(context.Background())
 	proto.EnsureRegistered()
 
 	require.False(t, proto.registered)
@@ -76,7 +76,7 @@ func TestInitialStateTimeoutOptIn(t *testing.T) {
 				InitialStateTimeout: test.enabled,
 			})
 			p.Start()
-			defer p.Stop()
+			defer p.Stop(context.Background())
 
 			if test.wantTimeout {
 				select {
@@ -146,7 +146,7 @@ func testSubsequentStateTimeoutRemainsActive(
 		InitialStateTimeout: initialStateTimeout,
 	})
 	p.Start()
-	defer p.Stop()
+	defer p.Stop(context.Background())
 
 	msg := &MessageBase{MessageType: 1}
 	require.NoError(t, p.transitionState(msg))
@@ -369,7 +369,7 @@ func TestProtocolStopChanSignalsStopRequest(t *testing.T) {
 	p := New(ProtocolConfig{})
 	stop := p.StopChan()
 
-	p.Stop()
+	p.Stop(context.Background())
 
 	select {
 	case <-stop:
@@ -741,7 +741,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 		muxerDoneChan: make(chan bool),
 		muxerRecvChan: muxerRecvChan,
 	}
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	go p.readLoop()
 
 	select {
@@ -887,7 +887,7 @@ func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
 		// its receive channel until its own stopChan closes. Stop is
 		// once-guarded, so it is also safe for the protocol that already
 		// stopped itself by reporting the budget error.
-		t.Cleanup(p.proto.Stop)
+		t.Cleanup(func() { _ = p.proto.Stop(context.Background()) })
 		errorChans = append(errorChans, p.errorChan)
 		go p.proto.readLoop()
 	}
@@ -1053,7 +1053,7 @@ func TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap(t *testing.T) {
 	p := newBudgetTestProtocol(
 		t, m, "first", maxBufferSize, []*muxer.Segment{segment},
 	)
-	t.Cleanup(p.proto.Stop)
+	t.Cleanup(func() { _ = p.proto.Stop(context.Background()) })
 	go p.proto.readLoop()
 
 	select {

@@ -16,6 +16,7 @@ package keepalive
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -473,7 +474,7 @@ func driveToState(t *testing.T, row modelReceiveRow) (*modelHarness, uint16) {
 	if row.role == protocol.ProtocolRoleServer {
 		server := NewServer(opts, nil)
 		server.Start()
-		t.Cleanup(server.Stop)
+		t.Cleanup(func() { _ = server.Stop(context.Background()) })
 		if row.state == StateDone {
 			// The server cannot be observed resting in Done, so MsgDone and
 			// the message under test go back to back; the pipe keeps order.
@@ -490,7 +491,7 @@ func driveToState(t *testing.T, row modelReceiveRow) (*modelHarness, uint16) {
 	)
 	client := NewClient(opts, &cfg)
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	ping, ok := h.receive(t).(*MsgKeepAlive)
 	require.True(t, ok, "client must open with MsgKeepAlive")
 	require.Equal(t, modelCookie, ping.Cookie)
@@ -558,7 +559,7 @@ func TestClientTimesOutWhenServerFallsSilent(t *testing.T) {
 	)
 	client := NewClient(opts, &cfg)
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	_, ok := h.receive(t).(*MsgKeepAlive)
 	require.True(t, ok)
 	h.requireViolation(t, "timeout waiting on transition from protocol state Server")
@@ -581,15 +582,15 @@ func TestServerStopWinsOverRestart(t *testing.T) {
 	h, opts := newModelHarness(t, protocol.ProtocolRoleServer)
 	var server *Server
 	stopped := make(chan struct{})
-	cfg := NewConfig(WithDoneFunc(func(CallbackContext) error {
-		server.Stop()
+	cfg := NewConfig(WithDoneFunc(func(ctx CallbackContext) error {
+		_ = server.Stop(ctx.Context())
 		close(stopped)
 		return nil
 	}))
 	server = NewServer(opts, &cfg)
 	original := server.ProtocolInstance()
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.send(t, NewMsgDone())
 	<-stopped
 	// The ping must arrive after any restart has had time to run; one sent
@@ -614,11 +615,12 @@ func TestServerStopAfterRestartBeganReleasesReceiver(t *testing.T) {
 	server := NewServer(opts, nil)
 	stopped := make(chan struct{})
 	server.restartHook = func() {
-		server.Stop()
+		// The hook runs on the stopping instance's receive loop.
+		_ = server.Stop(server.ProtocolInstance().CallbackContext())
 		close(stopped)
 	}
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.send(t, NewMsgDone())
 	<-stopped
 	// The muxer hands up to 11 segments to a receiver's channel and its

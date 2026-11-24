@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -50,7 +51,7 @@ func TestNoForwarderStartedAfterShutdown(t *testing.T) {
 				conn = c
 				c.beforeProtocolErrorForwarderHook = func() {
 					c.protoErrorChan <- errors.New("late protocol error")
-					require.NoError(t, c.Close())
+					require.NoError(t, c.Close(context.Background()))
 				}
 			},
 		)
