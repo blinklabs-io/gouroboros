@@ -27,6 +27,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -570,4 +571,34 @@ func TestStateMapTimeoutsMatchSpec(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, 97*time.Second, StateMap[StateClient].Timeout)
 	require.Equal(t, 60*time.Second, StateMap[StateServer].Timeout)
+}
+
+// TestServerStopWinsOverRestart stops the server while it handles MsgDone,
+// between reading MsgDone and installing the next run's instance. Stop must
+// still stop the server: the restart must not bring keep-alive back.
+func TestServerStopWinsOverRestart(t *testing.T) {
+	t.Parallel()
+	h, opts := newModelHarness(t, protocol.ProtocolRoleServer)
+	var server *Server
+	stopped := make(chan struct{})
+	cfg := NewConfig(WithDoneFunc(func(CallbackContext) error {
+		server.Stop()
+		close(stopped)
+		return nil
+	}))
+	server = NewServer(opts, &cfg)
+	original := server.ProtocolInstance()
+	server.Start()
+	t.Cleanup(server.Stop)
+	h.send(t, NewMsgDone())
+	<-stopped
+	// The ping must arrive after any restart has had time to run; one sent
+	// with MsgDone is read, and dropped, by the instance being stopped.
+	restarted := func() bool { return server.ProtocolInstance() != original }
+	if !assert.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
+		"a stopped server installed a new protocol instance") {
+		return
+	}
+	h.send(t, NewMsgKeepAlive(modelCookie))
+	h.requireQuiet(t)
 }
