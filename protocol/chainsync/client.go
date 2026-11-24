@@ -338,7 +338,9 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				// Requests sent on the stopped instance are never answered.
+				// The stopped instance either delivered MsgDone, so the
+				// server owes it nothing, or reported ErrStoppedWithoutDone
+				// so its connection is closed.
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
 			}
@@ -509,6 +511,15 @@ func (c *Client) finishStop(
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
+		}
+		if sendErr != nil {
+			// MsgDone is legal only in StIdle, so it is still queued behind
+			// an unanswered request or was not written. The server keeps
+			// that request's state and may yet reply, which a protocol
+			// instance started on this connection would receive in StIdle.
+			// Report the error before stopping, while SendError still
+			// reaches the error channel, so the connection is closed.
+			proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
 		}
 	}
 	if busyLocked {

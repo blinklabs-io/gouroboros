@@ -23,6 +23,15 @@ var ErrIntersectNotFound = errors.New("chain intersection not found")
 // MsgRequestNext is still unanswered, so the protocol is not in StIdle.
 var ErrSyncInProgress = errors.New("chain sync in progress")
 
+// ErrStoppedWithoutDone is reported on the protocol's error channel when
+// Client.Stop or Client.StopAfterDrain stops the protocol without delivering
+// MsgDone, typically because a MsgRequestNext was still unanswered. The server
+// may still send replies to the abandoned requests, so the chain-sync state on
+// the connection is no longer known and the connection must be closed.
+var ErrStoppedWithoutDone = errors.New(
+	"chain sync stopped before MsgDone was delivered",
+)
+
 // StopChainSync is used as a special return value from a RollForward or RollBackward handler function
 // to signify that the sync process should be stopped
 var ErrStopSyncProcess = errors.New("stop sync process")
