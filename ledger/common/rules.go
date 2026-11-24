@@ -1097,7 +1097,9 @@ func ValidateClassicProtocolParameterUpdates(
 	pp ProtocolParameters,
 ) error {
 	targetEpoch, updates := tx.ProtocolParameterUpdates()
-	if len(updates) == 0 {
+	// Only an absent update (a nil map) skips the rule. An update whose
+	// proposal map is empty still has its target epoch checked.
+	if updates == nil {
 		return nil
 	}
 	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
