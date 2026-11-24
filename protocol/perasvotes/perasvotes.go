@@ -351,9 +351,11 @@ type (
 	// and the server sends MsgAwaitReply and calls AwaitObjectIDsFunc.
 	ObjectIDsFunc func(CallbackContext, uint16, uint16) ([]VoteID, error)
 	// AwaitObjectIDsFunc waits, until ctx ends, for up to the requested
-	// number of IDs after the server sent MsgAwaitReply. Returning none, or
-	// returning once ctx has ended, sends MsgServerIdle. When it is nil the
-	// server waits AwaitTimeout and then sends MsgServerIdle.
+	// number of IDs after the server sent MsgAwaitReply. The server sends
+	// the IDs it returns, even after ctx has ended, or MsgServerIdle when it
+	// returns none. An error returned before ctx ends fails the connection;
+	// one returned after it does not. When it is nil the server waits
+	// AwaitTimeout and then sends MsgServerIdle.
 	AwaitObjectIDsFunc func(
 		context.Context,
 		CallbackContext,
