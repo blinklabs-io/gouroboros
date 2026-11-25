@@ -425,3 +425,35 @@ func TestRewardUpdateCells(t *testing.T) {
 		}
 	}
 }
+
+// TestValidatePoolPledgeCountsEachOwnerOnce checks that a pool owner listed
+// twice counts once. cardano-ledger (1210d37f) keeps a pool's owners as a
+// set (sppOwners in libs/cardano-ledger-core/src/Cardano/Ledger/State/
+// StakePool.hs) and sums the self-delegated owners' stake over that set
+// (SnapShots.hs 230-235) before comparing it with the pledge
+// (mkPoolRewardInfo in Shelley/Rewards.hs).
+func TestValidatePoolPledgeCountsEachOwnerOnce(t *testing.T) {
+	owner, other := common.AddrKeyHash{0x01}, common.AddrKeyHash{0x02}
+	stake := map[common.AddrKeyHash]uint64{owner: 6, other: 3}
+	for _, tc := range []struct {
+		name   string
+		owners []common.AddrKeyHash
+		pledge uint64
+		met    bool
+	}{
+		{"once, met", []common.AddrKeyHash{owner}, 6, true},
+		{"once, unmet", []common.AddrKeyHash{owner}, 7, false},
+		{"repeated, unmet", []common.AddrKeyHash{owner, owner}, 7, false},
+		{"repeated, met at set sum", []common.AddrKeyHash{owner, owner}, 6, true},
+		{"two owners, met", []common.AddrKeyHash{owner, other}, 9, true},
+		{"two owners, one repeated, unmet", []common.AddrKeyHash{owner, other, other}, 10, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.met, common.ValidatePoolPledge(
+				common.PoolKeyHash{},
+				&common.PoolRegistrationCertificate{Pledge: tc.pledge, PoolOwners: tc.owners},
+				stake,
+			))
+		})
+	}
+}

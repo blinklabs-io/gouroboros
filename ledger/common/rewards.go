@@ -832,8 +832,9 @@ func CalculateOptimalPoolCount(_ uint64, k uint64) uint64 {
 	return k
 }
 
-// ValidatePoolPledge validates that a pool meets its pledge requirement
-// poolID is unused as validation only depends on pool parameters and owner stake amounts
+// ValidatePoolPledge reports whether the stake the pool's owners delegate
+// meets its pledge. Owners are a set, as in cardano-ledger: an owner listed
+// more than once counts once. poolID is unused.
 func ValidatePoolPledge(
 	_ PoolKeyHash,
 	poolParams *PoolRegistrationCertificate,
@@ -842,17 +843,8 @@ func ValidatePoolPledge(
 	if poolParams == nil {
 		return false
 	}
-
-	// Calculate total owner stake
-	totalOwnerStake := uint64(0)
-	for _, owner := range poolParams.PoolOwners {
-		if stake, exists := ownerStake[owner]; exists {
-			totalOwnerStake += stake
-		}
-	}
-
-	// Check if owners meet the pledge requirement
-	return totalOwnerStake >= poolParams.Pledge
+	total, _ := poolOwnerStake(poolParams.PoolOwners, ownerStake)
+	return total >= poolParams.Pledge
 }
 
 // CalculatePoolSaturation calculates the saturation level of a pool
