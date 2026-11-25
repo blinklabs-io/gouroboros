@@ -155,11 +155,17 @@ func TestGoldenConwayInputSetAsReference(t *testing.T) {
 	if _, err := cbor.Decode(data, &tx); err != nil {
 		t.Fatal(err)
 	}
+	if len(tx) == 0 {
+		t.Fatal("transaction has no components")
+	}
 	fields, _, err := cbor.DecodeRawMap[uint64](tx[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := fields[0]
+	raw, ok := fields[0]
+	if !ok || len(raw) < 3 {
+		t.Fatalf("field 0 missing or short: %x", raw)
+	}
 	if hex.EncodeToString(raw[:3]) != "d90102" {
 		t.Fatalf("field 0 starts %x, not tag 258", raw[:3])
 	}
@@ -188,7 +194,7 @@ func TestStreamDecoderOverRFC8949Sequence(t *testing.T) {
 		"9f018202039f0405ffff", "f5", "c249010000000000000000",
 	}
 	var seq []byte
-	var starts []int
+	starts := make([]int, 0, len(items))
 	for _, h := range items {
 		starts = append(starts, len(seq))
 		seq = append(seq, mustHex(t, h)...)

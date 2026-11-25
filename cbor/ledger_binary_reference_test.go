@@ -543,7 +543,10 @@ func TestUntrustedNestingLimit(t *testing.T) {
 	if _, err := cbor.DecodeUntrustedExact(over, &v2); err == nil {
 		t.Error("DecodeUntrustedExact accepted one level too deep")
 	}
-	sd, _ := cbor.NewUntrustedStreamDecoder(over)
+	sd, err := cbor.NewUntrustedStreamDecoder(over)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err := sd.Skip(); err == nil {
 		t.Error("untrusted Skip accepted one level too deep")
 	}
