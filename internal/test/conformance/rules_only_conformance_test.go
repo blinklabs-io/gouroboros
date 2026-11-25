@@ -406,7 +406,10 @@ func TestRulesOnlyConformanceVectors(t *testing.T) {
 	slices.Sort(families)
 	total := 0
 	for _, f := range families {
-		c := byFamily[f]
+		c, ok := byFamily[f]
+		if !ok || c == nil {
+			continue
+		}
 		total += c.ok + c.excluded
 		t.Logf("family=%s matched=%d rejected_tx=%d excluded=%d", f, c.ok, c.rejected, c.excluded)
 	}
