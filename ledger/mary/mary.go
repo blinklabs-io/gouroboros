@@ -847,6 +847,18 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 	); err != nil {
 		return err
 	}
+	// The pair's coin is a plain unsigned integer like a bare coin: the
+	// library would read a tag 2 bignum that fits a uint64 into Amount.
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(data, &parts); err != nil {
+		return err
+	}
+	if len(parts) != 2 || len(parts[0]) == 0 ||
+		parts[0][0]&cbor.CborTypeMask != 0 {
+		return errors.New(
+			"mary transaction output coin must be an unsigned integer",
+		)
+	}
 	type tMaryTransactionOutputValue MaryTransactionOutputValue
 	var tmp tMaryTransactionOutputValue
 	if _, err := cbor.Decode(data, &tmp); err != nil {
