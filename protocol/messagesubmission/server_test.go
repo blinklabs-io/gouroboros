@@ -78,6 +78,9 @@ func serverTestSignedMessages(
 	}
 	authenticator, err := pcommon.NewMessageAuthenticator(
 		pcommon.MessageAuthenticatorConfig{
+			// The fixtures sign several messages of one pool at once to
+			// test the opcert counter, so the rate limit is off.
+			MinSigDelay:    -1,
 			StakeAuthority: serverTestStakeAuthority{},
 			CurrentSlot: func() (uint64, error) {
 				return 129600, nil

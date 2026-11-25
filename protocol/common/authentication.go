@@ -40,6 +40,10 @@ const (
 	MaxMessageBodySize = 2000
 )
 
+// DefaultMinSigDelay is dmq-node's minimum delay between two messages from
+// one pool (DMQ.Policy.minSigDelay).
+const DefaultMinSigDelay = 60 * time.Second
+
 // DefaultMaxKESEvolutions is the Cardano mainnet maxKESEvolutions genesis value.
 const DefaultMaxKESEvolutions uint64 = 62
 
@@ -80,6 +84,11 @@ var (
 	// [MinMessageBodySize, MaxMessageBodySize].
 	ErrMessageBodySize = errors.New(
 		"protocol/common: message body size out of range",
+	)
+	// ErrMessageTooFrequent is returned when a pool's message arrives less
+	// than the minimum delay after the last message accepted from that pool.
+	ErrMessageTooFrequent = errors.New(
+		"protocol/common: message too soon after the pool's last message",
 	)
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
@@ -122,8 +131,36 @@ type MessageAuthenticator struct {
 	mu             sync.Mutex
 	kesOpCertCache map[PoolKeyHash]uint64
 
+	// lastSig and acceptedIDs back the per-pool rate limit, guarded by mu.
+	// lastSig holds the time of each pool's last accepted message;
+	// acceptedIDs the IDs of accepted, unexpired messages, which verify
+	// again without the rate limit, as dmq-node never re-validates a
+	// message already in its mempool. Both are written only once every
+	// check has passed, so their keys are staked pools and the messages
+	// those pools signed: at most one per pool per minSigDelay, kept until
+	// expiry.
+	lastSig     map[PoolKeyHash]time.Time
+	acceptedIDs map[string]uint32
+	lastPrune   time.Time
+	minSigDelay time.Duration
+	now         func() time.Time
+
+	// parent and batchAccepted are set only on PrepareMessages' private
+	// authenticator: rate-limit lookups fall through to parent, and the
+	// batch's acceptances wait in batchAccepted until commit.
+	parent        *MessageAuthenticator
+	batchAccepted []rateRecord
+
 	// Maximum evolution distance allowed from an operational certificate.
 	maxKESEvolutions uint64
+}
+
+// rateRecord is one accepted message, as the rate limit records it.
+type rateRecord struct {
+	pool      PoolKeyHash
+	id        string
+	expiresAt uint32
+	at        time.Time
 }
 
 // MessageAuthenticatorConfig configures a MessageAuthenticator.
@@ -152,6 +189,13 @@ type MessageAuthenticatorConfig struct {
 	// MaxKESEvolutions is the Shelley genesis maxKESEvolutions parameter.
 	// Defaults to 62 (Cardano mainnet) when zero.
 	MaxKESEvolutions uint64
+	// MinSigDelay is the least time between two messages accepted from one
+	// pool. Defaults to DefaultMinSigDelay when zero; a negative value turns
+	// the limit off, as a vcMinSigDelay of zero does in dmq-node.
+	MinSigDelay time.Duration
+	// Now returns the current time, read once per verification call.
+	// Defaults to time.Now.
+	Now func() time.Time
 	// Logger, when nil, defaults to slog.Default().
 	Logger *slog.Logger
 }
@@ -176,7 +220,22 @@ func NewMessageAuthenticator(
 	if maxKESEvolutions == 0 {
 		maxKESEvolutions = DefaultMaxKESEvolutions
 	}
+	minSigDelay := cfg.MinSigDelay
+	switch {
+	case minSigDelay == 0:
+		minSigDelay = DefaultMinSigDelay
+	case minSigDelay < 0:
+		minSigDelay = 0
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &MessageAuthenticator{
+		lastSig:          make(map[PoolKeyHash]time.Time),
+		acceptedIDs:      make(map[string]uint32),
+		minSigDelay:      minSigDelay,
+		now:              now,
 		logger:           logger,
 		stakeAuthority:   cfg.StakeAuthority,
 		kesOpCertCache:   make(map[PoolKeyHash]uint64),
@@ -212,17 +271,92 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if msg == nil {
 		return errors.New("message is nil")
 	}
-	return m.verifyMessageInternal(msg)
+	// Prepare and commit, so that the counter and the rate limit are
+	// recorded together or not at all.
+	return m.VerifyMessages([]DmqMessage{*msg})
 }
 
-// PrepareMessages verifies a batch and returns a function that atomically commits its operational-certificate
-// observations. Verification does not mutate the authenticator until the
-// returned function succeeds.
+// PrepareMessages verifies a batch and returns a function that atomically
+// commits its observations. Verification does not mutate the authenticator
+// until the returned function succeeds. One failing message fails the batch.
 func (m *MessageAuthenticator) PrepareMessages(
 	messages []DmqMessage,
 ) (func() error, error) {
+	return m.prepareAll(messages, true)
+}
+
+// PrepareAdmitted verifies a batch another node has already admitted, such
+// as a local node's notifications, as PrepareMessages does but without the
+// per-pool rate limit: the admitting node applied it at the times it
+// accepted each message, which the receiver cannot see, so two messages of
+// one pool accepted a minute apart may arrive together. Nothing is recorded
+// for the rate limit.
+func (m *MessageAuthenticator) PrepareAdmitted(
+	messages []DmqMessage,
+) (func() error, error) {
+	return m.prepareAll(messages, false)
+}
+
+// PrepareEach verifies each message of a batch on its own: errs[i] is
+// message i's verdict, and a refused message leaves the state the later ones
+// are checked against unchanged. The returned function re-checks each
+// accepted message against the state at commit, records the ones that still
+// pass, and returns their verdicts: commitErrs[i] is non-nil for a message
+// accepted when prepared but refused at commit, such as one whose pool had
+// another message accepted meanwhile. A refusal at commit refuses only that
+// message.
+func (m *MessageAuthenticator) PrepareEach(
+	messages []DmqMessage,
+) (errs []error, commit func() (commitErrs []error)) {
+	errs, judge := m.prepare(messages, false, true)
+	return errs, func() []error { return judge(false) }
+}
+
+func (m *MessageAuthenticator) prepareAll(
+	messages []DmqMessage,
+	rateLimit bool,
+) (func() error, error) {
+	errs, judge := m.prepare(messages, true, rateLimit)
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	return func() error {
+		for _, err := range judge(true) {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
+}
+
+// preparedMessage is what commit re-checks for one message that passed
+// verification: its pool's counter and, unless it was already held or the
+// rate limit is off, its rate-limit record.
+type preparedMessage struct {
+	index int
+	pool  PoolKeyHash
+	issue uint64
+	rate  *rateRecord
+}
+
+// prepare verifies messages against a private copy of the state and returns
+// each message's verdict and a commit function. commit(atomic) re-checks
+// every message that passed, in order, against the state at commit and the
+// earlier messages of the batch, and returns a verdict per message. With
+// atomic set, one refusal records nothing; otherwise the messages that pass
+// are recorded and the rest are not.
+func (m *MessageAuthenticator) prepare(
+	messages []DmqMessage,
+	stopOnError bool,
+	rateLimit bool,
+) ([]error, func(atomic bool) []error) {
+	errs := make([]error, len(messages))
+	noCommit := func(bool) []error { return make([]error, len(messages)) }
 	if m.disableValidation || len(messages) == 0 {
-		return func() error { return nil }, nil
+		return errs, noCommit
 	}
 	m.mu.Lock()
 	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
@@ -230,58 +364,122 @@ func (m *MessageAuthenticator) PrepareMessages(
 		cacheSnapshot[poolID] = issueNumber
 	}
 	m.mu.Unlock()
+	batchNow := m.now()
+	minSigDelay := m.minSigDelay
+	if !rateLimit {
+		minSigDelay = 0
+	}
 	batchAuthenticator := &MessageAuthenticator{
+		parent:           m,
+		minSigDelay:      minSigDelay,
+		now:              func() time.Time { return batchNow },
 		logger:           m.logger,
 		stakeAuthority:   m.stakeAuthority,
 		kesOpCertCache:   cacheSnapshot,
 		maxKESEvolutions: m.maxKESEvolutions,
 	}
-	// lowestIssue keeps each touched pool's lowest counter in the batch. At
-	// commit every message must still be no lower than the pool's recorded
-	// counter, as if it were validated then; checking only the batch's
-	// final counter would let an earlier, lower one through after a
-	// concurrent commit recorded a higher one.
-	lowestIssue := make(map[PoolKeyHash]uint64)
+	// Every message is re-checked at commit against the pool's recorded
+	// counter, as if it were validated then; checking only the batch's final
+	// counter would let an earlier, lower one through after a concurrent
+	// commit recorded a higher one.
+	var prepared []preparedMessage
 	for i := range messages {
+		records := len(batchAuthenticator.batchAccepted)
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
-			return nil, fmt.Errorf(
-				"message %d authentication failed: %w",
-				i,
-				err,
-			)
+			errs[i] = err
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
-			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
+			errs[i] = fmt.Errorf("compute pool id: %w", err)
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
-		issue := messages[i].OperationalCertificate.IssueNumber
-		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
-			lowestIssue[poolID] = issue
+		p := preparedMessage{
+			index: i,
+			pool:  poolID,
+			issue: messages[i].OperationalCertificate.IssueNumber,
 		}
+		if rateLimit && len(batchAuthenticator.batchAccepted) > records {
+			r := batchAuthenticator.batchAccepted[records]
+			p.rate = &r
+		}
+		prepared = append(prepared, p)
 	}
 
-	return func() error {
+	return errs, func(atomic bool) []error {
+		verdicts := make([]error, len(messages))
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		for poolID, issueNumber := range lowestIssue {
-			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
-				issueNumber < currentIssue {
-				return fmt.Errorf(
+		// The batch's own acceptances so far, over the recorded state.
+		issues := make(map[PoolKeyHash]uint64)
+		lastAt := make(map[PoolKeyHash]time.Time)
+		ids := make(map[string]struct{})
+		var passed []preparedMessage
+		for _, p := range prepared {
+			current, exists := issues[p.pool]
+			if !exists {
+				current, exists = m.kesOpCertCache[p.pool]
+			}
+			if exists && p.issue < current {
+				verdicts[p.index] = fmt.Errorf(
 					"opcert number went backwards: previous=%d, current=%d",
-					currentIssue,
-					issueNumber,
+					current,
+					p.issue,
 				)
+				continue
+			}
+			// A message accepted meanwhile by another commit is a
+			// duplicate: valid, and already recorded, so it is neither
+			// refused nor recorded again.
+			rate := p.rate
+			if rate != nil {
+				_, heldBefore := m.acceptedIDs[rate.id]
+				_, heldInBatch := ids[rate.id]
+				if heldBefore || heldInBatch {
+					rate = nil
+				}
+			}
+			if rate != nil {
+				last, seen := lastAt[p.pool]
+				if !seen {
+					last, seen = m.lastSig[p.pool]
+				}
+				if seen && m.tooSoon(rate.at, last) {
+					verdicts[p.index] = fmt.Errorf(
+						"%w: %s since the last",
+						ErrMessageTooFrequent,
+						rate.at.Sub(last),
+					)
+					continue
+				}
+				lastAt[p.pool] = rate.at
+				ids[rate.id] = struct{}{}
+			}
+			if !exists || p.issue > current {
+				issues[p.pool] = p.issue
+			}
+			p.rate = rate
+			passed = append(passed, p)
+		}
+		if atomic && len(passed) < len(prepared) {
+			return verdicts
+		}
+		for _, p := range passed {
+			if p.rate != nil {
+				m.recordRateLocked(*p.rate)
 			}
 		}
-		for poolID := range lowestIssue {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
-				issueNumber > currentIssue {
-				m.kesOpCertCache[poolID] = issueNumber
-			}
+		for poolID, issueNumber := range issues {
+			m.kesOpCertCache[poolID] = issueNumber
 		}
-		return nil
-	}, nil
+		return verdicts
+	}
 }
 
 // VerifyMessages verifies a batch and commits its authentication state.
@@ -328,6 +526,24 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		return err
 	}
 
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return fmt.Errorf("compute pool id: %w", err)
+	}
+
+	// The rate limit comes first, as in dmq-node (Validate.hs 124-145,
+	// after only the expiry checks), so a too-frequent message is refused
+	// as such whatever else is wrong with it.
+	now := m.now()
+	held, last, seen := m.rateLookup(poolID, string(msg.ID()))
+	if !held && seen && m.tooSoon(now, last) {
+		return fmt.Errorf(
+			"%w: %s since the last",
+			ErrMessageTooFrequent,
+			now.Sub(last),
+		)
+	}
+
 	// Step 1: Verify deterministic message ID before heavier auth checks.
 	if err := m.verifyMessageID(msg); err != nil {
 		return fmt.Errorf("message ID verification failed: %w", err)
@@ -335,10 +551,6 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 
 	// Step 2: Stake authorization before either signature check -- see the
 	// doc comment above for why.
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	if err != nil {
-		return fmt.Errorf("compute pool id: %w", err)
-	}
 	stake, err := m.stakeAuthority.PoolActiveStake(poolID)
 	if err != nil {
 		return fmt.Errorf("look up pool stake: %w", err)
@@ -368,7 +580,96 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		return fmt.Errorf("KES period rotation verification failed: %w", err)
 	}
 
+	if !held {
+		return m.recordRate(rateRecord{
+			pool:      poolID,
+			id:        string(msg.ID()),
+			expiresAt: msg.Payload.ExpiresAt,
+			at:        now,
+		})
+	}
 	return nil
+}
+
+// rateLookup reports whether message id is already accepted, and the time
+// of pool's last accepted message. In a batch the batch's own acceptances
+// come first.
+func (m *MessageAuthenticator) rateLookup(
+	pool PoolKeyHash,
+	id string,
+) (bool, time.Time, bool) {
+	var last time.Time
+	seen := false
+	for _, r := range m.batchAccepted {
+		if r.id == id {
+			return true, time.Time{}, false
+		}
+		if r.pool == pool {
+			last, seen = r.at, true
+		}
+	}
+	owner := m
+	if m.parent != nil {
+		owner = m.parent
+	}
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if _, held := owner.acceptedIDs[id]; held {
+		return true, time.Time{}, false
+	}
+	if !seen {
+		last, seen = owner.lastSig[pool]
+	}
+	return false, last, seen
+}
+
+// recordRate records an accepted message: in a batch, until commit;
+// otherwise at once, re-checking the limit under the lock in case another
+// message of the pool was accepted since the lookup.
+func (m *MessageAuthenticator) recordRate(r rateRecord) error {
+	if m.parent != nil {
+		m.batchAccepted = append(m.batchAccepted, r)
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, held := m.acceptedIDs[r.id]; held {
+		return nil
+	}
+	if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
+		return fmt.Errorf(
+			"%w: %s since the last",
+			ErrMessageTooFrequent,
+			r.at.Sub(last),
+		)
+	}
+	m.recordRateLocked(r)
+	return nil
+}
+
+// tooSoon reports whether a message of a pool at time at comes less than
+// the minimum delay after the pool's last accepted message, at last. With the
+// limit off nothing is too soon, even a time before last: a batch's time is
+// read before the batch is verified, so another message of the pool can be
+// accepted after it.
+func (m *MessageAuthenticator) tooSoon(at, last time.Time) bool {
+	return m.minSigDelay > 0 && at.Sub(last) < m.minSigDelay
+}
+
+// recordRateLocked stores r and, at most once a minute, forgets accepted IDs
+// whose messages have expired. The caller holds m.mu.
+func (m *MessageAuthenticator) recordRateLocked(r rateRecord) {
+	m.lastSig[r.pool] = r.at
+	m.acceptedIDs[r.id] = r.expiresAt
+	if r.at.Sub(m.lastPrune) < time.Minute {
+		return
+	}
+	m.lastPrune = r.at
+	for id, expiresAt := range m.acceptedIDs {
+		if !r.at.Before(time.Unix(int64(expiresAt), 0)) {
+			delete(m.acceptedIDs, id)
+		}
+	}
 }
 
 // verifyOperationalCertificate verifies the operational certificate signature by the cold key.

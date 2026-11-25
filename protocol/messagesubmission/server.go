@@ -569,24 +569,42 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			return err
 		}
 	}
-	commitAuthentication := func() error { return nil }
+	// A too-frequent message is refused on its own, as dmq-node does: the
+	// rest of the reply is accepted, and the connection ends once they have
+	// been delivered (SigTooFrequent is fatal from a node-to-node peer).
+	// Any other failure when verifying still refuses the whole reply; at
+	// commit, where the rest may already be recorded, every refusal is the
+	// refused message's alone.
+	var fatal error
+	refuse := func(i int, err error) {
+		s.ProtocolInstance().Logger().
+			Warn("message authentication failed",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "server",
+				"connection_id", s.callbackContext.ConnectionId.String(),
+				"error", err,
+			)
+		if fatal == nil {
+			fatal = fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	errs := make([]error, len(fresh))
+	commitAuthentication := func() []error { return make([]error, len(fresh)) }
 	if len(fresh) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
-			fresh,
-		)
-		if err != nil {
-			s.ProtocolInstance().Logger().
-				Warn("message authentication failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
+		errs, commitAuthentication = s.config.Authenticator.PrepareEach(fresh)
+		for i, err := range errs {
+			if err == nil {
+				continue
+			}
+			if !errors.Is(err, pcommon.ErrMessageTooFrequent) {
+				refuse(i, err)
+				return fatal
+			}
+			refuse(i, err)
 		}
 	}
 	s.lock.Lock()
@@ -596,21 +614,29 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message request changed while validating its reply",
 		)
 	}
-	if err := commitAuthentication(); err != nil {
-		s.lock.Unlock()
-		return err
-	}
+	commitErrs := commitAuthentication()
+	accepted := make([]pcommon.DmqMessage, 0, len(fresh))
 	for i := range fresh {
-		s.deliveredIDs[string(fresh[i].ID())] = fresh[i].Payload.ExpiresAt
+		if errs[i] != nil {
+			continue
+		}
+		if commitErrs[i] != nil {
+			refuse(i, commitErrs[i])
+			continue
+		}
+		accepted = append(accepted, fresh[i])
+	}
+	for i := range accepted {
+		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt
 	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, fresh)
+		s.config.ReplyMessagesFunc(s.callbackContext, accepted)
 	}
 
-	return nil
+	return fatal
 }
 
 // handleDone restarts the server in its initial state after the client's
