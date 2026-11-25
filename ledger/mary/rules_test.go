@@ -798,6 +798,22 @@ func TestUtxoValidateOutputTooSmallUtxoAssetOutputs(t *testing.T) {
 		require.Len(t, target.Outputs, 1)
 		assert.Nil(t, target.Outputs[0].Assets())
 	})
+	t.Run("other parameters are rejected without an asset-free output", func(t *testing.T) {
+		for _, outputs := range [][]mary.MaryTransactionOutput{
+			nil,
+			{assetOutput(lowCoin, 1)},
+		} {
+			err := mary.UtxoValidateOutputTooSmallUtxo(
+				&mary.MaryTransaction{
+					Body: mary.MaryTransactionBody{TxOutputs: outputs},
+				},
+				0,
+				mockledger.NewLedgerStateBuilder().Build(),
+				&shelley.ShelleyProtocolParameters{},
+			)
+			require.Error(t, err)
+		}
+	})
 }
 
 func TestUtxoValidateValueNotConservedChecksZeroPolicyMint(t *testing.T) {

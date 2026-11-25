@@ -16,6 +16,7 @@ package messagesubmission
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -564,37 +565,41 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		return err
 	}
 
+	// Each message is judged on its own, as dmq-node's mempool writer does:
+	// the valid ones are accepted even when another one in the reply ends
+	// the connection, which happens only once they have been delivered.
+	var fatal error
+	checked := make([]pcommon.DmqMessage, 0, len(fresh))
 	for i := range fresh {
-		if err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i]); err != nil {
-			s.ProtocolInstance().Logger().
-				Warn("message validation failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
+		err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i])
+		if err == nil {
+			checked = append(checked, fresh[i])
+			continue
+		}
+		s.logRejectedMessage(fresh[i], err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
 		}
 	}
-	commitAuthentication := func() error { return nil }
-	if len(fresh) > 0 {
+	refuse := func(msg pcommon.DmqMessage, err error) {
+		s.logRejectedMessage(msg, err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
+		}
+	}
+	errs := make([]error, len(checked))
+	commitAuthentication := func() []error { return make([]error, len(checked)) }
+	if len(checked) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
-			fresh,
+		errs, commitAuthentication = s.config.Authenticator.PrepareEach(
+			checked,
 		)
-		if err != nil {
-			s.ProtocolInstance().Logger().
-				Warn("message authentication failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
+		for i, err := range errs {
+			if err != nil {
+				refuse(checked[i], err)
+			}
 		}
 	}
 	s.lock.Lock()
@@ -604,21 +609,53 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message request changed while validating its reply",
 		)
 	}
-	if err := commitAuthentication(); err != nil {
-		s.lock.Unlock()
-		return err
+	// A message refused at commit, such as one whose pool had another
+	// message accepted meanwhile, is refused alone, as at verification.
+	commitErrs := commitAuthentication()
+	accepted := make([]pcommon.DmqMessage, 0, len(checked))
+	for i := range checked {
+		if errs[i] != nil {
+			continue
+		}
+		if commitErrs[i] != nil {
+			refuse(checked[i], commitErrs[i])
+			continue
+		}
+		accepted = append(accepted, checked[i])
 	}
-	for i := range fresh {
-		s.deliveredIDs[string(fresh[i].ID())] = fresh[i].Payload.ExpiresAt
+	for i := range accepted {
+		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt
 	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.Protocol), fresh)
+		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.Protocol), accepted)
 	}
 
-	return nil
+	return fatal
+}
+
+// droppedQuietly reports whether a message refused with err is dropped
+// without ending the connection. dmq-node only traces SigExpired,
+// PoolNotEligible, UnrecognizedPool and NotInitialized from a node-to-node
+// peer and throws for every other validation error (app/Main.hs 210-219).
+func droppedQuietly(err error) bool {
+	return errors.Is(err, pcommon.ErrMessageExpired) ||
+		errors.Is(err, pcommon.ErrPoolNotInStakeDistribution) ||
+		errors.Is(err, pcommon.ErrStakeDistributionUnavailable)
+}
+
+func (s *Server) logRejectedMessage(msg pcommon.DmqMessage, err error) {
+	s.ProtocolInstance().Logger().
+		Warn("message validation failed",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+			"message_id", hex.EncodeToString(msg.ID()),
+			"error", err,
+		)
 }
 
 // handleDone restarts the server in its initial state after the client's

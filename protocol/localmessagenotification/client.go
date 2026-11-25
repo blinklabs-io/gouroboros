@@ -313,7 +313,7 @@ func (c *Client) validateAndReserve(
 			)
 		}
 	}
-	commitAuthentication, err := c.config.Authenticator.PrepareMessages(
+	commitAuthentication, err := c.config.Authenticator.PrepareAdmitted(
 		messages,
 	)
 	if err != nil {
