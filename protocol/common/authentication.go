@@ -362,6 +362,8 @@ func (m *MessageAuthenticator) prepare(
 	// concurrent commit recorded a higher one.
 	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
+		// Looked up before verifying, which records the message.
+		held := batchAuthenticator.holds(&messages[i])
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
 			errs[i] = err
 			if stopOnError {
@@ -375,6 +377,9 @@ func (m *MessageAuthenticator) prepare(
 			if stopOnError {
 				return errs, noCommit
 			}
+			continue
+		}
+		if held {
 			continue
 		}
 		issue := messages[i].OperationalCertificate.IssueNumber
@@ -517,9 +522,13 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	}
 
 	// Step 4: The opcert counter has not gone backwards. Recorded only in
-	// the last step, once every check has passed.
-	if err := m.checkKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
-		return fmt.Errorf("KES period rotation verification failed: %w", err)
+	// the last step, once every check has passed. A held message is exempt:
+	// dmq-node drops a message it already holds before validating it, so a
+	// pool's later, higher counter never refuses it.
+	if !held {
+		if err := m.checkKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
 	}
 
 	// Step 5: Verify operational certificate validity
@@ -539,11 +548,10 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.
-	if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
-		return fmt.Errorf("KES period rotation verification failed: %w", err)
-	}
-
 	if !held {
+		if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
 		return m.recordRate(rateRecord{
 			pool:      poolID,
 			id:        string(msg.ID()),
@@ -552,6 +560,17 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		})
 	}
 	return nil
+}
+
+// holds reports whether msg is already accepted and unexpired, in this
+// batch or by the authenticator.
+func (m *MessageAuthenticator) holds(msg *DmqMessage) bool {
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return false
+	}
+	held, _, _ := m.rateLookup(poolID, string(msg.ID()))
+	return held
 }
 
 // rateLookup reports whether message id is already accepted, and the time
