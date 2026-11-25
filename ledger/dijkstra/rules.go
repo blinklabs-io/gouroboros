@@ -554,6 +554,15 @@ func (s dijkstraCommitteeVotingView) CommitteeCredentialIsElected(
 	return s.votingState.CommitteeCredentialIsElected(cold)
 }
 
+// CapabilityParentLedgerState lets first-provider capability lookups, such as
+// the epoch common.PoolRegistered needs for a pool with a pending retirement,
+// reach the wrapped state. The view does not implement UnwrapLedgerState
+// because common.CommitteeCredentialStateFor and its siblings unwrap fully and
+// would then bypass the earlier levels' committee certificates.
+func (s dijkstraCommitteeCredentialView) CapabilityParentLedgerState() common.LedgerState {
+	return s.LedgerState
+}
+
 func dijkstraCommitteeCredentialState(
 	ls common.LedgerState,
 ) common.LedgerState {
@@ -4879,6 +4888,13 @@ func UtxoValidateWrongNetworkWithdrawal(
 type dijkstraRewardAccountStateView struct {
 	common.LedgerState
 	accounts *dijkstraAccountStateOverlay
+}
+
+// UnwrapLedgerState returns the wrapped state. The view answers only
+// RewardAccountBalance, which no rule resolves by unwrapping, so optional
+// capabilities belong to the wrapped state.
+func (s dijkstraRewardAccountStateView) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
 }
 
 func (s dijkstraRewardAccountStateView) RewardAccountBalance(

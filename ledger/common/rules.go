@@ -287,6 +287,17 @@ func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
 	return nil
 }
 
+// LedgerStateCapabilityParent is implemented by a validation-time view that
+// answers a capability resolved through UnwrapLedgerState itself, such as
+// committee membership after earlier certificates, and so must not implement
+// LedgerStateUnwrapper: unwrapping it would bypass those answers. Every other
+// optional capability belongs to the state it wraps, which
+// CapabilityParentLedgerState returns. First-provider lookups such as
+// EpochStateFor continue through it; UnwrapLedgerState stops at the view.
+type LedgerStateCapabilityParent interface {
+	CapabilityParentLedgerState() LedgerState
+}
+
 // ledgerStateCapabilityFor finds the first provider of a narrow state
 // capability without discarding a validation adapter that implements it.
 func ledgerStateCapabilityFor[T any](ledgerState LedgerState) (T, bool) {
@@ -298,11 +309,15 @@ func ledgerStateCapabilityFor[T any](ledgerState LedgerState) (T, bool) {
 			ledgerState = cached.LedgerState
 			continue
 		}
-		unwrapper, ok := ledgerState.(LedgerStateUnwrapper)
+		if unwrapper, ok := ledgerState.(LedgerStateUnwrapper); ok {
+			ledgerState = unwrapper.UnwrapLedgerState()
+			continue
+		}
+		parent, ok := ledgerState.(LedgerStateCapabilityParent)
 		if !ok {
 			break
 		}
-		ledgerState = unwrapper.UnwrapLedgerState()
+		ledgerState = parent.CapabilityParentLedgerState()
 	}
 	var zero T
 	return zero, false

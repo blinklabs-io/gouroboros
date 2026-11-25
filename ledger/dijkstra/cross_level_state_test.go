@@ -348,3 +348,103 @@ func TestUtxoValidateDelegationSeesEarlierLevelPoolRegistration(
 		})
 	}
 }
+
+// TestUtxoValidateUnknownVotersRetiringPool covers the committee view the
+// voter rule runs under: a pool with a pending retirement is a known voter
+// until its retirement epoch (Conway Gov.hs checks membership of
+// psStakePools), and deciding that needs the wrapped state's epoch.
+func TestUtxoValidateUnknownVotersRetiringPool(t *testing.T) {
+	t.Parallel()
+	pool := common.PoolKeyHash{0x02}
+	retirement := uint64(10)
+	voter := &common.Voter{
+		Type: common.VoterTypeStakingPoolKeyHash,
+		Hash: pool,
+	}
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = 12
+	for _, tc := range []struct {
+		name    string
+		epoch   uint64
+		reaped  bool
+		subTxns bool
+	}{
+		{name: "before retirement", epoch: 9},
+		{name: "before retirement with subtransaction", epoch: 9, subTxns: true},
+		{name: "at retirement", epoch: 10, reaped: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ls := mockledger.NewLedgerStateBuilder().
+				WithPoolCurrentState(func(
+					operator common.PoolKeyHash,
+				) (*common.PoolRegistrationCertificate, *uint64, error) {
+					if operator != pool {
+						return nil, nil, nil
+					}
+					return &common.PoolRegistrationCertificate{
+						Operator: pool,
+					}, &retirement, nil
+				}).
+				WithEpochForSlot(func(uint64) (uint64, error) {
+					return tc.epoch, nil
+				}).
+				Build()
+			top := DijkstraTransactionBody{
+				TxVotingProcedures: common.VotingProcedures{
+					voter: {new(common.GovActionId): {}},
+				},
+			}
+			tx := &DijkstraTransaction{Body: top, TxIsValid: true}
+			if tc.subTxns {
+				tx = crossLevelTx(DijkstraSubTransactionBody{}, top)
+			}
+			err := UtxoValidateUnknownVoters(tx, 0, ls, pp)
+			if !tc.reaped {
+				require.NoError(t, err)
+				return
+			}
+			var unknown conway.UnknownVoterError
+			require.ErrorAs(t, err, &unknown)
+		})
+	}
+}
+
+// TestUtxoValidateWithdrawalsReachesDRepDelegations covers the reward-account
+// view the withdrawal rule runs under. Before PV12 a key-hash withdrawal
+// requires a DRep delegation, which the wrapped state supplies.
+func TestUtxoValidateWithdrawalsReachesDRepDelegations(t *testing.T) {
+	t.Parallel()
+	pp := &DijkstraProtocolParameters{}
+	pp.ProtocolVersion.Major = common.ProtocolVersionVanRossem
+	for _, tc := range []struct {
+		name      string
+		delegated bool
+	}{
+		{name: "delegated", delegated: true},
+		{name: "not delegated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tx, credential := testDijkstraWithdrawalTx(t, 5, nil)
+			ls := mockledger.NewLedgerStateBuilder().
+				WithRewardAccountCredentialBalance(credential, 5).
+				WithDRepDelegation(func(
+					common.Credential,
+				) (*common.Drep, error) {
+					if !tc.delegated {
+						return nil, nil
+					}
+					return &common.Drep{Type: common.DrepTypeAbstain}, nil
+				}).
+				Build()
+			err := UtxoValidateWithdrawals(tx, 0, ls, pp)
+			if tc.delegated {
+				require.NoError(t, err)
+				return
+			}
+			var notDelegated conway.WithdrawalNotDelegatedToDRepError
+			require.ErrorAs(t, err, &notDelegated)
+		})
+	}
+}
