@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
@@ -36,6 +37,7 @@ type Client struct {
 	// for the server's answer. The server then holds agency, so Stop may
 	// not send MsgDone and closes the protocol instead.
 	abandoned        bool
+	muxer            *muxer.Muxer
 	submitResultChan chan error
 	onceStart        sync.Once
 	onceStop         sync.Once
@@ -49,6 +51,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config:           cfg,
+		muxer:            protoOptions.Muxer,
 		stopRequested:    make(chan struct{}),
 		submitResultChan: make(chan error),
 	}
@@ -100,7 +103,9 @@ func (c *Client) Start() {
 // Stop transitions the protocol to the Done state. No more operations will
 // be possible. A SubmitTx waiting for the server's answer returns
 // protocol.ErrProtocolShuttingDown; the server then holds agency, so Stop
-// closes the protocol without sending MsgDone.
+// closes the protocol without sending MsgDone and stops the muxer, which
+// closes the connection: the server still owes that answer, and a client
+// registered later on the same connection would read it as its own.
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
@@ -115,6 +120,9 @@ func (c *Client) Stop() error {
 		defer c.busyMutex.Unlock()
 		if c.abandoned {
 			c.Protocol.Stop()
+			if c.muxer != nil {
+				c.muxer.Stop()
+			}
 			return
 		}
 		msg := NewMsgDone()

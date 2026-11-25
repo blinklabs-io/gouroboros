@@ -70,7 +70,8 @@ func TestClientBusyTimeout(t *testing.T) {
 // TestStopDoesNotWaitForSubmit holds a submission, as a node does while its
 // mempool is full, and checks that Stop returns at once, that SubmitTx
 // returns ErrProtocolShuttingDown, and that no MsgDone follows: the node
-// holds agency in Busy. With no default timeout the wait has no bound.
+// holds agency in Busy. With no default timeout the wait has no bound. The
+// connection then closes (TestStopAfterHeldSubmitClosesConnection).
 func TestStopDoesNotWaitForSubmit(t *testing.T) {
 	h := newModelHarness(t, modelRoleClient)
 	client := NewClient(h.opts, nil)
@@ -95,5 +96,34 @@ func TestStopDoesNotWaitForSubmit(t *testing.T) {
 		t.Fatal("SubmitTx did not return after Stop")
 	}
 	require.NoError(t, client.Stop())
-	h.requireQuiet(t)
+	select {
+	case data, ok := <-h.payload:
+		if ok {
+			t.Fatalf("message sent while the node holds agency: %x", data)
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestStopAfterHeldSubmitClosesConnection checks that a Stop which abandons
+// a submission the node still holds closes the connection. The node answers
+// that submission later; a client registered afterwards on the same
+// connection would otherwise read the answer as its own, or read it in Idle
+// and drop the connection.
+func TestStopAfterHeldSubmitClosesConnection(t *testing.T) {
+	h := newModelHarness(t, modelRoleClient)
+	client := NewClient(h.opts, nil)
+	client.Start()
+	t.Cleanup(client.Protocol.Stop)
+	submitResult := make(chan error, 1)
+	go func() { submitResult <- client.SubmitTx(6, placeholderTx) }()
+	h.requireReceive(t, MessageTypeSubmitTx)
+
+	require.NoError(t, client.Stop())
+	require.ErrorIs(t, <-submitResult, protocol.ErrProtocolShuttingDown)
+	select {
+	case <-h.opts.Muxer.DoneChan():
+	case <-time.After(time.Second):
+		t.Fatal("the connection stayed open with the node's answer still owed")
+	}
 }
