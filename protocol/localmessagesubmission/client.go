@@ -33,13 +33,18 @@ type Client struct {
 	onceStart       sync.Once
 	onceStop        sync.Once
 	stopErr         error
+	// busyMutex holds one submission from its send until its answer, so
+	// the answer that arrives is the answer to the holder's message.
+	busyMutex        sync.Mutex
+	submitResultChan chan error
 }
 
 // NewClient returns a new LocalMessageSubmission client object
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	normalizedCfg := normalizeConfig(cfg)
 	c := &Client{
-		config: &normalizedCfg,
+		config:           &normalizedCfg,
+		submitResultChan: make(chan error),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -79,6 +84,12 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
+		// The receive loop, the only sender, has ended once DoneChan
+		// closes, so closing here cannot race a send.
+		go func() {
+			<-c.DoneChan()
+			close(c.submitResultChan)
+		}()
 	})
 }
 
@@ -108,7 +119,12 @@ func (c *Client) Stop(ctx context.Context) error {
 	return c.stopErr
 }
 
-// SubmitMessage sends a message submission request
+// SubmitMessage submits msg and waits for the node's answer, as the
+// reference client's submit does. It returns nil when the node accepts the
+// message and a MessageRejectedError when it rejects it. Concurrent calls
+// are sent one at a time, and each returns the answer to its own message.
+// AcceptMessageFunc and RejectMessageFunc, when set, run before the call
+// returns.
 func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 	if msg == nil {
 		return errors.New("message cannot be nil")
@@ -126,7 +142,16 @@ func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 	}
 
 	submitMsg := NewMsgSubmitMessage(*msg)
-	return c.SendMessage(submitMsg)
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if err := c.SendMessage(submitMsg); err != nil {
+		return err
+	}
+	err, ok := <-c.submitResultChan
+	if !ok {
+		return protocol.ErrProtocolShuttingDown
+	}
+	return err
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -158,6 +183,7 @@ func (c *Client) handleAcceptMessage() error {
 	if c.config.AcceptMessageFunc != nil {
 		c.config.AcceptMessageFunc(c.callbackContext.withOwner(c.Protocol))
 	}
+	c.submitResultChan <- nil
 	return nil
 }
 
@@ -187,13 +213,23 @@ func (c *Client) handleRejectMessage(msg protocol.Message) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 			"reason", msgReject.Reason,
 		)
+	rr, err := pcommon.FromRejectReasonData(msgReject.Reason)
+	if err != nil {
+		return err
+	}
 	if c.config.RejectMessageFunc != nil {
-		// Convert concrete RejectReasonData back to a RejectReason interface expected by the callback.
-		rr, err := pcommon.FromRejectReasonData(msgReject.Reason)
-		if err != nil {
-			return err
-		}
 		c.config.RejectMessageFunc(c.callbackContext.withOwner(c.Protocol), rr)
 	}
+	c.submitResultChan <- MessageRejectedError{Reason: rr}
 	return nil
+}
+
+// MessageRejectedError is the error SubmitMessage returns when the node
+// rejects the message. Reason is the node's reason.
+type MessageRejectedError struct {
+	Reason pcommon.RejectReason
+}
+
+func (e MessageRejectedError) Error() string {
+	return fmt.Sprintf("%s: message rejected: %+v", ProtocolName, e.Reason)
 }
