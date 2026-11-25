@@ -136,8 +136,8 @@ func ValidateProtocolParameterUpdateDomains(
 	data []byte,
 	era ProtocolParameterUpdateEra,
 ) (map[uint64]cbor.RawMessage, error) {
-	var fields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint64](data)
+	if err != nil {
 		return nil, err
 	}
 	for _, width := range protocolParameterUpdateWidths {

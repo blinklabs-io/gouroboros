@@ -608,8 +608,8 @@ func DecodeAuxiliaryDataToMetadata(raw []byte) (TransactionMetadatum, error) {
 		if metadataRaw, ok := decodeAuxiliaryMetadataOnly(taggedContent); ok {
 			return decodeTransactionMetadataRaw(metadataRaw)
 		}
-		var auxMap map[uint]cbor.RawMessage
-		if _, err := cbor.Decode(taggedContent, &auxMap); err != nil {
+		auxMap, _, err := cbor.DecodeRawMap[uint](taggedContent)
+		if err != nil {
 			return nil, err
 		}
 		if metadataRaw := auxMap[0]; len(metadataRaw) > 0 {

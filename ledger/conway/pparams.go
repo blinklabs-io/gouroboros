@@ -832,8 +832,8 @@ func (u ConwayProtocolParameterUpdate) SecurityGroupFields() []string {
 }
 
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	var fields map[int]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[int](cborData)
+	if err != nil {
 		return err
 	}
 	allowedTags := map[int]struct{}{

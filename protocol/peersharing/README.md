@@ -52,8 +52,9 @@ none.
 |---------|-------|-------------|
 | Busy state (server) | 60s (`BusyTimeout`) | Maximum time the client waits for `SharePeers` after sending `ShareRequest`. Per Ouroboros Network Spec Table 3.15. |
 
-The default is exposed as `peersharing.BusyTimeout`. The server's timeout can
-be overridden per connection via `peersharing.WithTimeout`.
+The default is exposed as `peersharing.BusyTimeout`. The client enforces it,
+since the server holds agency in Busy; it can be overridden per connection via
+`peersharing.WithTimeout`.
 
 ## Size limits
 
@@ -135,7 +136,7 @@ Protocol-level option helpers (in
 | Option | Effect |
 |---|---|
 | `WithShareRequestFunc(fn)` | Required server-side callback. `fn(ctx, amount)` is invoked when a peer asks for up to `amount` peers; the returned slice (possibly nil) is sent back as `SharePeers`. |
-| `WithTimeout(d)` | Overrides the server's `BusyTimeout` (default 60s). |
+| `WithTimeout(d)` | Overrides the client's Busy timeout, `BusyTimeout` (default 60s). |
 | `WithLocalDisabled(bool)` | Internal: set by the connection layer when the local node advertised NoPeerSharing. Exposed for tests. |
 | `WithRemoteDisabled(bool)` | Internal: set by the connection layer when the remote peer advertised NoPeerSharing. Exposed for tests. |
 
