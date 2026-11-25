@@ -30,6 +30,15 @@
 //	Idle -> Acquiring -> Acquired -> Querying -> Acquired -> ...
 //	                 \-> Idle (on release)
 //
+// # Acquired State
+//
+// A query runs against an acquired ledger state. After Acquire,
+// AcquireVolatileTip or AcquireImmutableTip, every query answers from that
+// state until Release or another acquire. A query method called with nothing
+// acquired acquires the volatile tip itself and releases it before it
+// returns, so each such call answers from the chain as it is when called,
+// and every query that one call makes answers from the same state.
+//
 // # Known Incomplete Areas
 //
 // Several query types have partial implementations (see TODOs with issue references):

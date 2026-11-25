@@ -2273,3 +2273,33 @@ func TestUtxoValidateValueNotConservedUtxoStakeDepositsPhase2(t *testing.T) {
 		})
 	}
 }
+
+// TestUtxoValidateBadInputsUtxoCollateral pins the reference's Alonzo
+// BadInputsUTxO input set, txins ∪ collateral: a missing collateral input is
+// a bad input even when no other rule resolves it.
+func TestUtxoValidateBadInputsUtxoCollateral(t *testing.T) {
+	txId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	present := shelley.MustNewShelleyTransactionInput(txId, 0)
+	missing := shelley.MustNewShelleyTransactionInput(txId, 1)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{Id: present}}).
+		Build()
+	newTx := func(coll shelley.ShelleyTransactionInput) *alonzo.AlonzoTransaction {
+		return &alonzo.AlonzoTransaction{
+			Body: alonzo.AlonzoTransactionBody{
+				TxInputs: shelley.NewShelleyTransactionInputSet(
+					[]shelley.ShelleyTransactionInput{present},
+				),
+				TxCollateral: cbor.NewSetType(
+					[]shelley.ShelleyTransactionInput{coll}, true,
+				),
+			},
+		}
+	}
+	pp := &alonzo.AlonzoProtocolParameters{}
+	require.NoError(t, alonzo.UtxoValidateBadInputsUtxo(newTx(present), 0, ls, pp))
+	err := alonzo.UtxoValidateBadInputsUtxo(newTx(missing), 0, ls, pp)
+	var badErr shelley.BadInputsUtxoError
+	require.ErrorAs(t, err, &badErr)
+	require.Equal(t, []common.TransactionInput{missing}, badErr.Inputs)
+}
