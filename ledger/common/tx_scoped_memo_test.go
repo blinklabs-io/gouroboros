@@ -16,9 +16,12 @@ package common_test
 
 import (
 	"errors"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
@@ -202,4 +205,97 @@ func TestIsTransactionScopedLedgerState(t *testing.T) {
 		TransactionScopedMemoizer: scoped.(common.TransactionScopedMemoizer),
 	}
 	require.False(t, common.IsTransactionScopedLedgerState(adapter))
+}
+
+// A build that panics must not leave a result behind. Before, the entry's
+// deferred close published a nil value with a nil error, so every later
+// caller for the key got a success with no value, which NewTxScriptView turns
+// into an empty script view. A value the reference computes lazily raises
+// its failure to every caller that forces it, never an empty success.
+func TestTransactionScopedMemoRetriesAfterBuildPanic(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	require.Panics(t, func() {
+		_, _ = memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			panic("build failed")
+		})
+	})
+
+	builds := 0
+	value, err := memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+		builds++
+		return "built", nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "built", value)
+	require.Equal(t, 1, builds)
+}
+
+func TestTransactionScopedMemoWaiterRetriesAfterBuildPanic(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	started := make(chan struct{})
+	panicNow := make(chan struct{})
+	builderDone := make(chan any, 1)
+	go func() {
+		defer func() { builderDone <- recover() }()
+		_, _ = memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			close(started)
+			<-panicNow
+			panic("build failed")
+		})
+	}()
+	<-started
+
+	type result struct {
+		value any
+		err   error
+	}
+	waiter := make(chan result, 1)
+	go func() {
+		value, err := memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			return "built", nil
+		})
+		waiter <- result{value, err}
+	}()
+	// The waiter must be parked on the in-progress entry before the build
+	// panics; otherwise it arrives after the entry is dropped and takes the
+	// new-entry path, which leaves the retry of an abandoned entry untested.
+	require.Eventually(t, waiterParkedInMemo, 5*time.Second, time.Millisecond)
+	close(panicNow)
+	require.NotNil(t, <-builderDone)
+	got := <-waiter
+	require.NoError(t, got.err)
+	require.Equal(t, "built", got.value)
+}
+
+// waiterParkedInMemo reports whether a goroutine is blocked on a channel
+// receive directly inside TransactionScopedMemo: a caller waiting for another
+// caller's build. The builder also blocks inside TransactionScopedMemo, but
+// in its build function, so its innermost frame is the test's closure.
+func waiterParkedInMemo() bool {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		lines := strings.SplitN(g, "\n", 3)
+		if len(lines) < 2 || !strings.Contains(lines[0], "[chan receive") {
+			continue
+		}
+		if strings.Contains(lines[1], "(*cachedLedgerState).TransactionScopedMemo(") {
+			return true
+		}
+	}
+	return false
 }
