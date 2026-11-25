@@ -30,24 +30,30 @@ import (
 var constructorDecoderTestDefs = []struct {
 	name    string
 	cborHex string
-	tag     uint
-	fields  []any
+	// encHex is ConstructorEncoder's output: plutus writes non-empty
+	// fields as an indefinite list (PlutusCore/Data.hs encodeData).
+	encHex string
+	tag    uint
+	fields []any
 }{
 	{
 		name:    "alternative 1 (tag 122)",
 		cborHex: "D87A83010203",
+		encHex:  "d87a9f010203ff",
 		tag:     1,
 		fields:  []any{uint64(1), uint64(2), uint64(3)},
 	},
 	{
 		name:    "alternative 15 (tag 1288)",
 		cborHex: "D9050883030405",
+		encHex:  "d905089f030405ff",
 		tag:     15,
 		fields:  []any{uint64(3), uint64(4), uint64(5)},
 	},
 	{
 		name:    "alternative 999 (tag 102)",
 		cborHex: "D866821903E7820607",
+		encHex:  "d866821903e79f0607ff",
 		tag:     999,
 		fields:  []any{uint64(6), uint64(7)},
 	},
@@ -106,10 +112,7 @@ func TestConstructorEncoderEncode(t *testing.T) {
 			encoded, err := cbor.Encode(&ce)
 			require.NoError(t, err)
 
-			assert.Equal(t,
-				strings.ToLower(tt.cborHex),
-				hex.EncodeToString(encoded),
-			)
+			assert.Equal(t, tt.encHex, hex.EncodeToString(encoded))
 		})
 	}
 }
@@ -214,10 +217,10 @@ func TestPlutusConstructorWireVectors(t *testing.T) {
 		alt  uint
 		hex  string
 	}{
-		{"compact maximum 127", 127, "d9057881182a"},
-		{"first general-encoder alternative 128", 128, "d86682188081182a"},
-		{"general 256", 256, "d8668219010081182a"},
-		{"general 65535", 65535, "d8668219ffff81182a"},
+		{"compact maximum 127", 127, "d905789f182aff"},
+		{"first general-encoder alternative 128", 128, "d8668218809f182aff"},
+		{"general 256", 256, "d866821901009f182aff"},
+		{"general 65535", 65535, "d8668219ffff9f182aff"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
