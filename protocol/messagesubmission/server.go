@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -556,55 +557,41 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		return err
 	}
 
-	for i := range fresh {
-		if err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i]); err != nil {
-			s.ProtocolInstance().Logger().
-				Warn("message validation failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
-		}
-	}
-	// A too-frequent message is refused on its own, as dmq-node does: the
-	// rest of the reply is accepted, and the connection ends once they have
-	// been delivered (SigTooFrequent is fatal from a node-to-node peer).
-	// Any other failure when verifying still refuses the whole reply; at
-	// commit, where the rest may already be recorded, every refusal is the
-	// refused message's alone.
+	// Each message is judged on its own, as dmq-node's mempool writer does:
+	// the valid ones are accepted even when another one in the reply ends
+	// the connection, which happens only once they have been delivered.
 	var fatal error
-	refuse := func(i int, err error) {
-		s.ProtocolInstance().Logger().
-			Warn("message authentication failed",
-				"component", "network",
-				"protocol", ProtocolName,
-				"role", "server",
-				"connection_id", s.callbackContext.ConnectionId.String(),
-				"error", err,
-			)
-		if fatal == nil {
-			fatal = fmt.Errorf("message %d authentication failed: %w", i, err)
+	checked := make([]pcommon.DmqMessage, 0, len(fresh))
+	for i := range fresh {
+		err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i])
+		if err == nil {
+			checked = append(checked, fresh[i])
+			continue
+		}
+		s.logRejectedMessage(fresh[i], err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
 		}
 	}
-	errs := make([]error, len(fresh))
-	commitAuthentication := func() []error { return make([]error, len(fresh)) }
-	if len(fresh) > 0 {
+	refuse := func(msg pcommon.DmqMessage, err error) {
+		s.logRejectedMessage(msg, err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
+		}
+	}
+	errs := make([]error, len(checked))
+	commitAuthentication := func() []error { return make([]error, len(checked)) }
+	if len(checked) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		errs, commitAuthentication = s.config.Authenticator.PrepareEach(fresh)
+		errs, commitAuthentication = s.config.Authenticator.PrepareEach(
+			checked,
+		)
 		for i, err := range errs {
-			if err == nil {
-				continue
+			if err != nil {
+				refuse(checked[i], err)
 			}
-			if !errors.Is(err, pcommon.ErrMessageTooFrequent) {
-				refuse(i, err)
-				return fatal
-			}
-			refuse(i, err)
 		}
 	}
 	s.lock.Lock()
@@ -614,17 +601,19 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message request changed while validating its reply",
 		)
 	}
+	// A message refused at commit, such as one whose pool had another
+	// message accepted meanwhile, is refused alone, as at verification.
 	commitErrs := commitAuthentication()
-	accepted := make([]pcommon.DmqMessage, 0, len(fresh))
-	for i := range fresh {
+	accepted := make([]pcommon.DmqMessage, 0, len(checked))
+	for i := range checked {
 		if errs[i] != nil {
 			continue
 		}
 		if commitErrs[i] != nil {
-			refuse(i, commitErrs[i])
+			refuse(checked[i], commitErrs[i])
 			continue
 		}
-		accepted = append(accepted, fresh[i])
+		accepted = append(accepted, checked[i])
 	}
 	for i := range accepted {
 		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt
@@ -637,6 +626,28 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	}
 
 	return fatal
+}
+
+// droppedQuietly reports whether a message refused with err is dropped
+// without ending the connection. dmq-node only traces SigExpired,
+// PoolNotEligible, UnrecognizedPool and NotInitialized from a node-to-node
+// peer and throws for every other validation error (app/Main.hs 210-219).
+func droppedQuietly(err error) bool {
+	return errors.Is(err, pcommon.ErrMessageExpired) ||
+		errors.Is(err, pcommon.ErrPoolNotInStakeDistribution) ||
+		errors.Is(err, pcommon.ErrStakeDistributionUnavailable)
+}
+
+func (s *Server) logRejectedMessage(msg pcommon.DmqMessage, err error) {
+	s.ProtocolInstance().Logger().
+		Warn("message validation failed",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+			"message_id", hex.EncodeToString(msg.ID()),
+			"error", err,
+		)
 }
 
 // handleDone restarts the server in its initial state after the client's

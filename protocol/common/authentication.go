@@ -90,11 +90,17 @@ var (
 	ErrMessageTooFrequent = errors.New(
 		"protocol/common: message too soon after the pool's last message",
 	)
+	// ErrStakeDistributionUnavailable wraps a StakeAuthority error: the
+	// node cannot tell yet whether the issuing pool holds stake.
+	ErrStakeDistributionUnavailable = errors.New(
+		"protocol/common: stake distribution unavailable",
+	)
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
 	//
-	// Deprecated: verification always uses a trusted slot and never converts
-	// a claimed KES period to a slot, so this error is no longer returned.
+	// Deprecated: verification checks the claimed KES period against the
+	// operational certificate's window and never converts it to a slot, so
+	// this error is no longer returned.
 	ErrKESPeriodOverflow = errors.New(
 		"protocol/common: message KES period would overflow when converted to a slot",
 	)
@@ -134,8 +140,8 @@ type MessageAuthenticator struct {
 	// lastSig and acceptedIDs back the per-pool rate limit, guarded by mu.
 	// lastSig holds the time of each pool's last accepted message;
 	// acceptedIDs the IDs of accepted, unexpired messages, which verify
-	// again without the rate limit, as dmq-node never re-validates a
-	// message already in its mempool. Both are written only once every
+	// again without the rate limit or the opcert counter check, as dmq-node
+	// never re-validates a message already in its mempool. Both are written only once every
 	// check has passed, so their keys are staked pools and the messages
 	// those pools signed: at most one per pool per minSigDelay, kept until
 	// expiry.
@@ -201,8 +207,7 @@ type MessageAuthenticatorConfig struct {
 }
 
 // NewMessageAuthenticator constructs a MessageAuthenticator. It returns
-// ErrAuthenticatorMisconfigured when any authoritative chain-state lookup is
-// missing.
+// ErrAuthenticatorMisconfigured when StakeAuthority is nil.
 func NewMessageAuthenticator(
 	cfg MessageAuthenticatorConfig,
 ) (*MessageAuthenticator, error) {
@@ -384,6 +389,8 @@ func (m *MessageAuthenticator) prepare(
 	// commit recorded a higher one.
 	var prepared []preparedMessage
 	for i := range messages {
+		// Looked up before verifying, which records the message.
+		held := batchAuthenticator.holds(&messages[i])
 		records := len(batchAuthenticator.batchAccepted)
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
 			errs[i] = err
@@ -398,6 +405,11 @@ func (m *MessageAuthenticator) prepare(
 			if stopOnError {
 				return errs, noCommit
 			}
+			continue
+		}
+		// A held message is a duplicate: commit neither re-checks nor
+		// records it.
+		if held {
 			continue
 		}
 		p := preparedMessage{
@@ -504,13 +516,13 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 
 // verifyMessageInternal contains the core verification logic.
 //
-// Stake authorization runs before either signature check. Deriving a pool ID
-// from ColdVerificationKey needs no signature -- anyone can self-sign an
-// internally consistent opcert/KES chain over freshly generated keys, so the
-// signature checks only prove the sender holds the claimed private keys, not
-// that those keys belong to a real, staked pool. Checking authorization
-// first turns away a message from an unregistered identity before paying
-// for an ed25519 verify and the KES verify, rather than after.
+// After the body size and the rate limit, the checks run in dmq-node's
+// order (Validate.hs 150-212): message ID, the claimed KES period against
+// the opcert's window, the pool's stake, the opcert counter, then the cold
+// and KES signatures. The first failure names the error, and a
+// node-to-node receiver drops a message for some errors (the pool holds no
+// stake) but disconnects for others (a KES period past the window), so the
+// order decides what happens to a message with both.
 func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
@@ -549,17 +561,35 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		return fmt.Errorf("message ID verification failed: %w", err)
 	}
 
-	// Step 2: Stake authorization before either signature check -- see the
-	// doc comment above for why.
+	// Step 2: The claimed KES period lies in the opcert's window.
+	if err := m.checkClaimedKESPeriod(msg); err != nil {
+		return fmt.Errorf("KES signature verification failed: %w", err)
+	}
+
+	// Step 3: Stake authorization, before either signature check.
 	stake, err := m.stakeAuthority.PoolActiveStake(poolID)
 	if err != nil {
-		return fmt.Errorf("look up pool stake: %w", err)
+		return fmt.Errorf(
+			"%w: look up pool stake: %w",
+			ErrStakeDistributionUnavailable,
+			err,
+		)
 	}
 	if stake == 0 {
 		return ErrPoolNotInStakeDistribution
 	}
 
-	// Step 3: Verify operational certificate validity
+	// Step 4: The opcert counter has not gone backwards. Recorded only in
+	// the last step, once every check has passed. A held message is exempt:
+	// dmq-node drops a message it already holds before validating it, so a
+	// pool's later, higher counter never refuses it.
+	if !held {
+		if err := m.checkKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
+	}
+
+	// Step 5: Verify operational certificate validity
 	if err := m.verifyOperationalCertificate(&msg.OperationalCertificate, msg.ColdVerificationKey); err != nil {
 		return fmt.Errorf(
 			"operational certificate verification failed: %w",
@@ -567,20 +597,19 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		)
 	}
 
-	// Step 4: Verify KES signature over message payload.
+	// Step 6: Verify KES signature over message payload.
 	if err := m.verifyKESSignature(msg); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 5: Verify KES period rotation (opcert number doesn't go backwards).
+	// Step 7: Verify KES period rotation (opcert number doesn't go backwards).
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.
-	if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
-		return fmt.Errorf("KES period rotation verification failed: %w", err)
-	}
-
 	if !held {
+		if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
 		return m.recordRate(rateRecord{
 			pool:      poolID,
 			id:        string(msg.ID()),
@@ -589,6 +618,17 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		})
 	}
 	return nil
+}
+
+// holds reports whether msg is already accepted and unexpired, in this
+// batch or by the authenticator.
+func (m *MessageAuthenticator) holds(msg *DmqMessage) bool {
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return false
+	}
+	held, _, _ := m.rateLookup(poolID, string(msg.ID()))
+	return held
 }
 
 // rateLookup reports whether message id is already accepted, and the time
@@ -812,6 +852,21 @@ func (m *MessageAuthenticator) verifyKESSignature(msg *DmqMessage) error {
 	return nil
 }
 
+// checkClaimedKESPeriod checks that the message's claimed KES period lies in
+// [opcert KES period, opcert KES period + maxKESEvolutions).
+func (m *MessageAuthenticator) checkClaimedKESPeriod(msg *DmqMessage) error {
+	certPeriod := msg.OperationalCertificate.KESPeriod
+	msgPeriod := msg.Payload.KESPeriod
+	if msgPeriod < certPeriod {
+		return fmt.Errorf(
+			"message KES period %d precedes certificate issuance period %d",
+			msgPeriod,
+			certPeriod,
+		)
+	}
+	return m.checkKESWindow(msgPeriod, certPeriod)
+}
+
 func (m *MessageAuthenticator) checkKESWindow(
 	period uint64,
 	certPeriod uint64,
@@ -898,6 +953,25 @@ func (m *MessageAuthenticator) verifyKESPeriodRotation(
 	// Update cache with latest opcert number
 	m.kesOpCertCache[poolID] = opcert.IssueNumber
 
+	return nil
+}
+
+// checkKESPeriodRotation reports whether opcert's counter is below the one
+// last recorded for the pool, without recording anything.
+func (m *MessageAuthenticator) checkKESPeriodRotation(
+	poolID PoolKeyHash,
+	opcert *OperationalCertificate,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if last, exists := m.kesOpCertCache[poolID]; exists &&
+		opcert.IssueNumber < last {
+		return fmt.Errorf(
+			"opcert number went backwards: previous=%d, current=%d",
+			last,
+			opcert.IssueNumber,
+		)
+	}
 	return nil
 }
 
