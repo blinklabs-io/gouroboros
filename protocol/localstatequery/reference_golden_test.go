@@ -995,7 +995,9 @@ func TestReferenceEraHistoryResultGolden(t *testing.T) {
 	var items []cbor.RawMessage
 	_, err := cbor.Decode(raw, &items)
 	require.NoError(t, err)
-	require.Len(t, items, len(got))
+	if len(items) != len(got) {
+		t.Fatalf("summary has %d items, want %d", len(items), len(got))
+	}
 	for i := range got {
 		reencoded, err := cbor.Encode(got[i])
 		require.NoError(t, err)
