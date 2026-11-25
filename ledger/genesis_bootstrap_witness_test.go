@@ -86,4 +86,25 @@ func TestGenesisDelegateWitnessedByBootstrap(t *testing.T) {
 			shelley.UtxoValidateProtocolParameterUpdates(tx, 1, ls, pp),
 		)
 	})
+
+	// Alonzo and Babbage check only these witnesses for a phase-2-invalid
+	// transaction's update; the reference does not gate
+	// validateNeededWitnesses on IsValid, so a bootstrap root counts there
+	// too.
+	t.Run("update proposal delegate of an invalid transaction", func(t *testing.T) {
+		tx := &shelley.ShelleyTransaction{
+			Body: shelley.ShelleyTransactionBody{
+				Update: &shelley.ShelleyTransactionPparamUpdate{
+					ProtocolParamUpdates: map[common.Blake2b224]shelley.ShelleyProtocolParameterUpdate{
+						genesisKey: {},
+					},
+				},
+			},
+			WitnessSet: witnesses,
+		}
+		require.NoError(
+			t,
+			common.ValidateClassicProtocolParameterUpdateWitnesses(tx, 1, ls),
+		)
+	})
 }

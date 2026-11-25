@@ -971,8 +971,11 @@ func TestWitnessRuleModelKeys(t *testing.T) {
 		t.Run(era.String(), func(t *testing.T) {
 			cells, failures := 0, 0
 			pp := wmPparams(era)
+			// IsValid exists from Alonzo on. Alonzo and Babbage send a
+			// phase-2-invalid update proposal to a separate witness check,
+			// and Dijkstra excuses an invalid transaction's pool owners.
 			valids := []bool{true}
-			if era == wmDijkstra {
+			if era.atLeast(wmAlonzo) {
 				valids = append(valids, false)
 			}
 			for _, src := range wmKeySources(era) {
