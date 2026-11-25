@@ -273,11 +273,40 @@ func UtxoValidateBadInputsUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	return ValidateBadInputs(ls, tx.Inputs())
+}
+
+// ValidateBadInputs returns a BadInputsUtxoError listing every input of
+// inputSets that is not in the ledger state, or nil when all are. The sets
+// are treated as one union, as cardano-ledger's validateBadInputsUTxO
+// receives it: an input named in more than one set is listed once, in the
+// order it is first seen. Later eras pass their collateral and reference
+// inputs here as well as the spent inputs. A nil ledger state resolves no
+// input, so every input is listed.
+func ValidateBadInputs(
+	ls common.LedgerState,
+	inputSets ...[]common.TransactionInput,
+) error {
+	type inputKey struct {
+		id    common.Blake2b256
+		index uint32
+	}
 	var badInputs []common.TransactionInput
-	for _, tmpInput := range tx.Inputs() {
-		_, err := ls.UtxoById(tmpInput)
-		if err != nil {
-			badInputs = append(badInputs, tmpInput)
+	seen := make(map[inputKey]struct{})
+	for _, inputs := range inputSets {
+		for _, tmpInput := range inputs {
+			key := inputKey{id: tmpInput.Id(), index: tmpInput.Index()}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			if ls == nil {
+				badInputs = append(badInputs, tmpInput)
+				continue
+			}
+			if _, err := ls.UtxoById(tmpInput); err != nil {
+				badInputs = append(badInputs, tmpInput)
+			}
 		}
 	}
 	if len(badInputs) == 0 {

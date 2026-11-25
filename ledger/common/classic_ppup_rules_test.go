@@ -123,6 +123,8 @@ func (tx classicPPUPTestTransaction) ProtocolParameterUpdates() (
 	return tx.Epoch, tx.Updates
 }
 
+func (classicPPUPTestTransaction) IsValid() bool { return true }
+
 func (tx classicPPUPTestTransaction) Witnesses() common.TransactionWitnessSet {
 	return tx.Witness
 }

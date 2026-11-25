@@ -485,8 +485,9 @@ func TestDijkstraDonationScriptCheckUsesNeededScripts(t *testing.T) {
 	)
 }
 
-// TestDijkstraBadInputsCoversSubTransactions pins that an unresolvable input
-// is reported the same way at either transaction level.
+// TestDijkstraBadInputsCoversSubTransactions pins that an unresolvable
+// spent or reference input is reported as BadInputs at either transaction
+// level, as the reference's BadInputsUTxO over allInputsTxBodyF does.
 func TestDijkstraBadInputsCoversSubTransactions(t *testing.T) {
 	input, utxo := dijkstraSubUtxoInput(0)
 	missing, _ := dijkstraSubUtxoInput(7)
@@ -526,9 +527,10 @@ func TestDijkstraBadInputsCoversSubTransactions(t *testing.T) {
 			} else {
 				tx.Body.TxReferenceInputs = body.TxReferenceInputs
 			}
-			var referenceErr common.ReferenceInputResolutionError
-			require.ErrorAs(t, rule(tx, 0, ls, pp), &referenceErr)
-			require.Equal(t, missing.String(), referenceErr.Input.String())
+			var badErr shelley.BadInputsUtxoError
+			require.ErrorAs(t, rule(tx, 0, ls, pp), &badErr)
+			require.Len(t, badErr.Inputs, 1)
+			require.Equal(t, missing.String(), badErr.Inputs[0].String())
 
 			validBody := DijkstraSubTransactionBody{
 				TxReferenceInputs: cbor.NewSetType(
@@ -1137,4 +1139,32 @@ func TestDijkstraOutputRulesCoverSubTransactions(t *testing.T) {
 		&subNetworkErr,
 	)
 	require.Equal(t, topNetworkErr, subNetworkErr)
+}
+
+// TestDijkstraBadInputsCoversCollateral pins that a missing top-level
+// collateral input is a bad input (allInputsTxBodyF includes the
+// collateral) even when no other rule resolves it.
+func TestDijkstraBadInputsCoversCollateral(t *testing.T) {
+	input, utxo := dijkstraSubUtxoInput(0)
+	missing, _ := dijkstraSubUtxoInput(7)
+	ls := mockledger.NewLedgerStateBuilder().WithUtxos([]common.Utxo{utxo}).
+		Build()
+	pp := &DijkstraProtocolParameters{}
+	rule := dijkstraRule(t, common.UtxoValidationRuleBadInputs)
+
+	tx := dijkstraSubUtxoTopLevelTx(
+		[]shelley.ShelleyTransactionInput{input}, nil,
+	)
+	tx.Body.TxCollateral = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{input}, true,
+	)
+	require.NoError(t, rule(tx, 0, ls, pp))
+
+	tx.Body.TxCollateral = cbor.NewSetType(
+		[]shelley.ShelleyTransactionInput{missing}, true,
+	)
+	var badErr shelley.BadInputsUtxoError
+	require.ErrorAs(t, rule(tx, 0, ls, pp), &badErr)
+	require.Len(t, badErr.Inputs, 1)
+	require.Equal(t, missing.String(), badErr.Inputs[0].String())
 }

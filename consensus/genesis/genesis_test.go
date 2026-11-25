@@ -15,6 +15,7 @@
 package genesis
 
 import (
+	"math"
 	"math/big"
 	"reflect"
 	"testing"
@@ -584,6 +585,32 @@ func TestSimpleChainFragmentEstimatesBlocks(t *testing.T) {
 	// 5000/10000 * 500 = 250
 	if blocks != 250 {
 		t.Errorf("expected proportional blocks (250), got %d", blocks)
+	}
+}
+
+// TestSimpleChainFragmentEstimateIsExactFloor pins the estimate to
+// floor(blocks*window/span) in integer arithmetic. Float division rounds
+// window/span down first, so an exact multiple such as 22*15/22 = 15 came
+// out one block short, and large counts lost precision.
+func TestSimpleChainFragmentEstimateIsExactFloor(t *testing.T) {
+	cases := []struct {
+		intersection, tip, blocks, window, want uint64
+	}{
+		{0, 22, 22, 15, 15},
+		{100, 144, 22, 30, 15},
+		{0, 3, 3, 1, 1},
+		{0, 7, 5, 3, 2},
+		{0, math.MaxUint64, math.MaxUint64, math.MaxUint64 - 1, math.MaxUint64 - 1},
+		{0, 1 << 62, 1<<62 - 1, 1 << 61, 1<<61 - 1},
+	}
+	for _, tc := range cases {
+		fragment := &SimpleChainFragment{
+			Intersection: tc.intersection,
+			Tip:          tc.tip,
+			Blocks:       tc.blocks,
+		}
+		assert.Equal(t, tc.want, fragment.BlockCountInWindow(tc.window),
+			"blocks %d window %d span %d", tc.blocks, tc.window, tc.tip-tc.intersection)
 	}
 }
 

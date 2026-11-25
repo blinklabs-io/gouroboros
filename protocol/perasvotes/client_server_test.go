@@ -89,8 +89,13 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, objects, 1)
 	require.True(t, bytes.Equal(object, objects[0]))
+	first := server.ProtocolInstance()
 	require.NoError(t, client.Done(ctx))
-	require.Eventually(t, server.Protocol.IsDone, time.Second, time.Millisecond)
+	// MsgDone ends the run, and the server restarts for the next one.
+	require.Eventually(t, first.IsDone, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		return server.ProtocolInstance() != first
+	}, time.Second, time.Millisecond)
 }
 
 func TestObjectDiffusionWindowAndAgencyRules(t *testing.T) {
