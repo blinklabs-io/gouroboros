@@ -99,7 +99,7 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 		t.Fatal("server did not receive Init")
 	}
 
-	result, err := server.RequestTxIds(false, 1)
+	result, err := server.RequestTxIds(true, 1)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	server.stateMu.Lock()
@@ -107,12 +107,15 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	server.stateMu.Unlock()
 	require.Equal(t, uint16(0), <-acknowledged)
 
-	result, err = server.RequestTxIds(false, 1)
-	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
-	require.Nil(t, result)
-	server.stateMu.Lock()
-	require.Equal(t, 1, server.ackCount)
-	server.stateMu.Unlock()
+	type outcome struct {
+		result []TxIdAndSize
+		err    error
+	}
+	second := make(chan outcome, 1)
+	go func() {
+		result, err := server.RequestTxIds(true, 1)
+		second <- outcome{result: result, err: err}
+	}()
 	require.Equal(t, uint16(1), <-acknowledged)
 	select {
 	case err := <-clientErrors:
@@ -124,6 +127,20 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the client sent a reply larger than the request")
 	}
+	// A blocking request has no timeout, so the server learns of the
+	// refusal only when the connection goes; this muxer has no connection
+	// to close it, so the test stops the server instead.
+	server.Stop()
+	select {
+	case got := <-second:
+		require.ErrorIs(t, got.err, protocol.ErrProtocolShuttingDown)
+		require.Nil(t, got.result)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the server never gave up on the refused request")
+	}
+	server.stateMu.Lock()
+	require.Equal(t, 1, server.ackCount)
+	server.stateMu.Unlock()
 }
 
 func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
@@ -151,11 +168,8 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 			_ CallbackContext,
 			_ bool,
 			_ uint16,
-			req uint16,
+			_ uint16,
 		) ([]TxIdAndSize, error) {
-			if req == 0 {
-				return nil, nil
-			}
 			return []TxIdAndSize{{TxId: TxId{EraId: 1}}}, nil
 		}},
 	)
@@ -179,15 +193,12 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 		t.Fatal("server did not receive Init")
 	}
 
-	result, err := server.RequestTxIds(false, 1)
+	result, err := server.RequestTxIds(true, 1)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	result, err = server.RequestTxIds(false, 2)
+	result, err = server.RequestTxIds(true, 2)
 	require.NoError(t, err)
 	require.Len(t, result, 1)
-	result, err = server.RequestTxIds(false, 0)
-	require.NoError(t, err)
-	require.Empty(t, result)
 }
 
 func TestProtocolAccessSynchronizesDuringRestart(t *testing.T) {

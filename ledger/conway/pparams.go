@@ -832,23 +832,26 @@ func (u ConwayProtocolParameterUpdate) SecurityGroupFields() []string {
 }
 
 func (u *ConwayProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
-	fields, _, err := cbor.DecodeRawMap[int](cborData)
-	if err != nil {
-		return err
-	}
 	allowedTags := map[int]struct{}{
 		0: {}, 1: {}, 2: {}, 3: {}, 4: {}, 5: {}, 6: {}, 7: {}, 8: {},
 		9: {}, 10: {}, 11: {}, 16: {}, 17: {}, 18: {}, 19: {},
 		20: {}, 21: {}, 22: {}, 23: {}, 24: {}, 25: {}, 26: {}, 27: {},
 		28: {}, 29: {}, 30: {}, 31: {}, 32: {}, 33: {},
 	}
-	for key := range fields {
-		if _, ok := allowedTags[key]; !ok {
-			return ConwayProtocolParameterUpdateError{
-				FieldName: fmt.Sprintf("protocol parameter tag %d", key),
-				Reason:    "unknown field",
+	fields, _, err := cbor.DecodeMapIncremental[int, cbor.RawMessage](
+		cborData,
+		func(key int) error {
+			if _, ok := allowedTags[key]; !ok {
+				return ConwayProtocolParameterUpdateError{
+					FieldName: fmt.Sprintf("protocol parameter tag %d", key),
+					Reason:    "unknown field",
+				}
 			}
-		}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
 	}
 	if raw, ok := fields[19]; ok {
 		if err := common.ValidateDefiniteCBORArrayLength(

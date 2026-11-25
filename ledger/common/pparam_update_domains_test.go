@@ -120,6 +120,19 @@ func TestClassicProtocolParameterUpdateDomains(t *testing.T) {
 			wantError: true,
 		},
 		{
+			// ProtVer's minor is a Word32 (ProtVer in
+			// libs/cardano-ledger-core/src/Cardano/Ledger/BaseTypes.hs).
+			name:  "protocol minor Word32 width accepted",
+			field: 14,
+			value: []uint64{2, math.MaxUint32},
+		},
+		{
+			name:      "protocol minor Word32 width",
+			field:     14,
+			value:     []uint64{2, math.MaxUint32 + 1},
+			wantError: true,
+		},
+		{
 			name:  "protocol major Word16 width",
 			field: 14,
 			value: common.ProtocolParametersProtocolVersion{

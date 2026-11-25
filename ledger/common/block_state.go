@@ -73,6 +73,9 @@ type BlockLedgerState struct {
 	mirTransfers map[uint]*big.Int
 	// genesisFuture holds the genesis delegations this block scheduled.
 	genesisFuture []GenesisDelegation
+	// slot is the block's slot when slotKnown; see NewBlockLedgerStateAt.
+	slot      uint64
+	slotKnown bool
 }
 
 // mirPendingKey identifies a credential's pending instantaneous rewards in
@@ -154,7 +157,19 @@ type LeveledTransaction interface {
 	LedgerEffectLevels() ([]LedgerEffectLevel, error)
 }
 
+// NewBlockLedgerStateAt returns a view of base with no transactions applied
+// for a block at slot. Knowing the slot lets the view decide whether a pool
+// registration is new with PoolRegistered, as every validation rule does.
+func NewBlockLedgerStateAt(base LedgerState, slot uint64) *BlockLedgerState {
+	b := NewBlockLedgerState(base)
+	b.slot = slot
+	b.slotKnown = true
+	return b
+}
+
 // NewBlockLedgerState returns a view of base with no transactions applied.
+// Without a slot the view falls back to IsPoolRegistered to tell a new pool
+// registration from a re-registration; prefer NewBlockLedgerStateAt.
 func NewBlockLedgerState(base LedgerState) *BlockLedgerState {
 	return &BlockLedgerState{
 		base:             base,
@@ -563,6 +578,12 @@ func (b *BlockLedgerState) pool(operator PoolKeyHash) *blockPool {
 // key of an earlier re-registration in the block, as the reference does from
 // protocol version 11. IsFutureVrfKeyInUse suppresses an inherited future key
 // when this method records its replacement.
+//
+// The reference tells the two apart by membership of psStakePools, which
+// PoolRegistered decides. PoolCurrentState's registration alone cannot: it
+// may still be the last registration of a pool whose retirement has taken
+// effect, and treating that pool as re-registered would leave it
+// unregistered for the rest of the block.
 func (b *BlockLedgerState) applyPoolRegistration(
 	cert *PoolRegistrationCertificate,
 ) error {
@@ -570,8 +591,15 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	if err != nil {
 		return err
 	}
+	registered := false
+	if current != nil {
+		registered, err = b.poolRegistered(cert.Operator)
+		if err != nil {
+			return err
+		}
+	}
 	pool := b.pool(cert.Operator)
-	if current == nil {
+	if current == nil || !registered {
 		pool.registration = cert
 		pool.registrationKnown = true
 		pool.retirementEpoch = nil
@@ -589,6 +617,17 @@ func (b *BlockLedgerState) applyPoolRegistration(
 	b.vrfKeys[cert.VrfKeyHash] = cert.Operator
 	delete(b.vrfReleased, cert.VrfKeyHash)
 	return nil
+}
+
+// poolRegistered decides membership of the stake-pool map with
+// PoolRegistered when the block's slot is known. A view made without one can
+// only ask IsPoolRegistered, which a provider deriving it from a stale
+// PoolCurrentState answer reports wrongly for a reaped pool.
+func (b *BlockLedgerState) poolRegistered(pool PoolKeyHash) (bool, error) {
+	if b.slotKnown {
+		return PoolRegistered(b, b.slot, pool)
+	}
+	return b.IsPoolRegistered(pool), nil
 }
 
 func blockAmount(amount uint64) uint64 {
@@ -898,15 +937,55 @@ func (b *BlockLedgerState) GovActionExists(id GovActionId) bool {
 }
 
 // CommitteeMember applies earlier transactions' hot-key authorizations and
-// resignations to the wrapped state's member.
+// resignations to the wrapped state's member. A cold key the wrapped state
+// does not know is a potential future member when an UpdateCommittee proposal
+// an earlier transaction made would add it.
 func (b *BlockLedgerState) CommitteeMember(
 	coldKey Blake2b224,
 ) (*CommitteeMember, error) {
 	member, err := b.base.CommitteeMember(coldKey)
-	if err != nil || member == nil {
-		return member, err
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		member = b.proposedCommitteeMember(func(cred Credential) bool {
+			return cred.Credential == coldKey
+		})
+		if member == nil {
+			return nil, nil
+		}
 	}
 	return b.applyCommitteeAuthorization(member), nil
+}
+
+// proposedCommitteeMember returns the member an UpdateCommittee proposal made
+// earlier in the block would add for a cold credential matching match, or nil.
+// GOVCERT reads the proposals the block's earlier transactions left
+// (isPotentialFutureMember in cardano-ledger Conway/Rules/GovCert.hs), so
+// these count as well as the wrapped state's. Where several proposals add the
+// credential, the latest expiry is reported; GOVCERT ignores it.
+func (b *BlockLedgerState) proposedCommitteeMember(
+	match func(Credential) bool,
+) *CommitteeMember {
+	var member *CommitteeMember
+	for _, proposal := range b.proposals {
+		action, ok := proposal.Action.(*UpdateCommitteeGovAction)
+		if !ok || action == nil {
+			continue
+		}
+		for cred, expiry := range action.CredEpochs {
+			if cred == nil || !match(*cred) {
+				continue
+			}
+			if member == nil || expiry > member.ExpiryEpoch {
+				member = &CommitteeMember{
+					ColdKey:     cred.Credential,
+					ExpiryEpoch: expiry,
+				}
+			}
+		}
+	}
+	return member
 }
 
 // applyCommitteeAuthorization returns member with the hot key an earlier
@@ -1335,8 +1414,16 @@ func (s blockCommitteeCredentials) CommitteeCredentialMember(
 	cold Credential,
 ) (*CommitteeMember, error) {
 	member, err := s.base.CommitteeCredentialMember(cold)
-	if err != nil || member == nil {
-		return member, err
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		member = s.block.proposedCommitteeMember(func(cred Credential) bool {
+			return blockCredKey(cred) == blockCredKey(cold)
+		})
+		if member == nil {
+			return nil, nil
+		}
 	}
 	return s.block.applyCommitteeAuthorization(member), nil
 }
