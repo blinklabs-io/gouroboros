@@ -204,28 +204,58 @@ type TipState interface {
 
 // DijkstraLeiosCertificateContext is the ledger state needed to verify a
 // Dijkstra block's Leios certificate. Committee seats are ordered by their
-// signer-bitfield index. A nil key represents a keyless seat.
+// signer-bitfield index. A nil key represents a keyless seat. KeyAge is
+// required: verification refuses a context whose KeyAge is unset.
 type DijkstraLeiosCertificateContext struct {
 	AnnouncingBlockHash Blake2b256
 	TotalActiveStake    uint64
 	Committee           []DijkstraLeiosCommitteeMember
+	KeyAge              DijkstraLeiosKeyAgeContext
 }
 
 // DijkstraLeiosCommitteeMember is one ordered Leios committee seat.
+// KeyRegisteredIn is the epoch in which Key was registered; a key is honoured
+// only for a bounded number of epochs after it (see
+// DijkstraLeiosKeyAgeContext).
 type DijkstraLeiosCommitteeMember struct {
-	Stake uint64
-	Key   *LeiosKey
+	Stake           uint64
+	Key             *LeiosKey
+	KeyRegisteredIn uint64
+}
+
+// DijkstraLeiosKeyAgeContext is what deciding whether a committee seat's
+// voting key is still honoured needs. A key registered in epoch r is honoured
+// while Epoch < r + maxKeyAge, where maxKeyAge is
+// ceil(MaxKESEvolutions * SlotsPerKESPeriod / MarkEpochLength) + 2 epochs
+// (cardano-ledger Cardano.Ledger.Dijkstra.Rules.Snap.kesMaxKeyAgeEpochs); a
+// seat whose key is not honoured is keyless.
+type DijkstraLeiosKeyAgeContext struct {
+	// Epoch is the epoch whose committee verifies the certificate: the
+	// certifying block's epoch.
+	Epoch uint64
+	// MarkEpochLength is the length, in slots, of the epoch in which the
+	// committee's stake snapshot was taken, the epoch before Epoch.
+	MarkEpochLength uint64
+	// MaxKESEvolutions and SlotsPerKESPeriod are the Shelley genesis
+	// maxKESEvolutions and slotsPerKESPeriod.
+	MaxKESEvolutions  uint64
+	SlotsPerKESPeriod uint64
 }
 
 // DijkstraLeiosCertificateState is an optional capability required when a
 // Dijkstra block carries a Leios certificate. Implementations resolve the
 // announcing ranking block, epoch stake snapshot, and ordered committee for
 // the supplied header. Returned keys must be from the snapshot's registered
-// pool parameters; verification checks each key's proof of possession.
+// pool parameters, each with its registration epoch; verification checks
+// each key's proof of possession and age. DijkstraLeiosKeyAgeContext returns
+// the inputs to the age check for the supplied header.
 type DijkstraLeiosCertificateState interface {
 	DijkstraLeiosCertificateContext(
 		header BlockHeader,
 	) (DijkstraLeiosCertificateContext, error)
+	DijkstraLeiosKeyAgeContext(
+		header BlockHeader,
+	) (DijkstraLeiosKeyAgeContext, error)
 }
 
 // DijkstraLeiosHeaderContext is the chain state needed to check a Dijkstra
