@@ -351,3 +351,148 @@ func TestSubTxModelLegacyWithdrawalCertificates(t *testing.T) {
 	}
 	t.Logf("legacy cells: %d (%d accepted)", cells, accepted)
 }
+
+// ---------------------------------------------------------------------------
+// Account balance intervals: a level's interval holds for the account as
+// the earlier levels left it, at the level's start; the top's starting
+// interval holds for the original account (Dijkstra Rules/SubEntities.hs
+// 264, Rules/Entities.hs 287-288 and 485-517). A lower bound is inclusive
+// and an upper bound exclusive (Scripts.hs 670-674).
+
+type subCertIvLevel struct {
+	subCertLevel
+	iv, st string // "none", "exact0", "exact1", "lower1", "upper1"
+}
+
+func subCertInIv(iv string, x int64) bool {
+	switch iv {
+	case "exact0":
+		return x == 0
+	case "exact1":
+		return x == 1
+	case "lower1":
+		return x >= 1
+	case "upper1":
+		return x < 1
+	}
+	return true
+}
+
+func subCertSpecIv(
+	reg bool,
+	bal int64,
+	valid bool,
+	top subCertIvLevel,
+	subs []subCertIvLevel,
+) bool {
+	if !valid {
+		return true
+	}
+	if top.st != "none" && !(reg && subCertInIv(top.st, bal)) {
+		return false
+	}
+	s := subCertAccount{ok: true, reg: reg, bal: bal}
+	var total int64
+	anyWd := false
+	for _, l := range append(append([]subCertIvLevel{}, subs...), top) {
+		if l.iv != "none" {
+			s.ok = s.ok && s.reg && subCertInIv(l.iv, s.bal)
+		}
+		if l.wd != "none" {
+			anyWd = true
+		}
+		if l.wd == "one" {
+			total++
+		}
+		s = subCertSpecLevel(s, l.subCertLevel)
+	}
+	return total <= bal && (!anyWd || reg) && s.ok
+}
+
+func TestSubTxModelBalanceIntervals(t *testing.T) {
+	rules := subCertEntityRules(t)
+	pp := subCertPParams()
+	f := newSubCertFixture(t)
+	ivs := []string{"none", "exact0", "exact1", "lower1", "upper1"}
+	interval := func(iv string) DijkstraAccountBalanceIntervals {
+		one, zero := uint64(subCertCoin), uint64(0)
+		var v *DijkstraAccountBalanceInterval
+		switch iv {
+		case "exact0":
+			v = &DijkstraAccountBalanceInterval{Exact: &zero}
+		case "exact1":
+			v = &DijkstraAccountBalanceInterval{Exact: &one}
+		case "lower1":
+			v = &DijkstraAccountBalanceInterval{LowerBound: &one}
+		case "upper1":
+			v = &DijkstraAccountBalanceInterval{UpperBound: &one}
+		default:
+			return nil
+		}
+		return DijkstraAccountBalanceIntervals{f.key: v}
+	}
+	var subLevels []subCertIvLevel
+	for _, wd := range []string{"none", "one"} {
+		for _, c := range []string{"none", "regS", "unregS"} {
+			for _, dd := range []bool{false, true} {
+				for _, iv := range ivs {
+					subLevels = append(subLevels, subCertIvLevel{
+						subCertLevel: subCertLevel{wd: wd, cert: c, dd: dd},
+						iv:           iv, st: "none",
+					})
+				}
+			}
+		}
+	}
+	var tops []subCertIvLevel
+	for _, l := range subLevels {
+		for _, st := range ivs {
+			l.st = st
+			tops = append(tops, l)
+		}
+	}
+	cells, accepted := 0, 0
+	for _, reg := range []bool{false, true} {
+		bals := []int64{0}
+		if reg {
+			bals = []int64{0, 1}
+		}
+		for _, bal := range bals {
+			ls := f.ledger(t, reg, bal, false)
+			for _, valid := range []bool{false, true} {
+				for _, top := range tops {
+					for _, subs := range modelUpTo1(subLevels) {
+						built := make([]DijkstraSubTransaction, 0, len(subs))
+						for k, l := range subs {
+							sub := subCertSubTx(t, k)
+							sub.Body.TxCertificates = f.certificate(t, l.cert)
+							sub.Body.TxWithdrawals = f.withdrawals(l.wd)
+							sub.Body.TxDirectDeposits = f.directDeposits(l.dd)
+							sub.Body.TxAccountBalanceIntervals = interval(l.iv)
+							built = append(built, sub)
+						}
+						tx := modelBatch(t, valid, modelLevel{ins: []int{0}}, built)
+						tx.Body.TxCertificates = f.certificate(t, top.cert)
+						tx.Body.TxWithdrawals = f.withdrawals(top.wd)
+						tx.Body.TxDirectDeposits = f.directDeposits(top.dd)
+						tx.Body.TxBalanceIntervals = interval(top.iv)
+						tx.Body.TxStartingBalanceIntervals = interval(top.st)
+						err := modelFirstError(tx, ls, pp, rules)
+						want := subCertSpecIv(reg, bal, valid, top, subs)
+						if want != (err == nil) {
+							t.Fatalf(
+								"reg=%v bal=%d valid=%v top=%+v subs=%+v: reference accepts=%v, gOuroboros error=%v",
+								reg, bal, valid, top, subs, want, err,
+							)
+						}
+						cells++
+						if want {
+							accepted++
+						}
+					}
+				}
+			}
+		}
+	}
+	t.Logf("balance-interval cells: %d (%d accepted)", cells, accepted)
+}
