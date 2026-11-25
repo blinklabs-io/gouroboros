@@ -106,8 +106,7 @@ type MessageAuthenticator struct {
 
 	// stakeAuthority backs pool authorization. Immutable after construction,
 	// so it needs no lock.
-	stakeAuthority        StakeAuthority
-	poolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
+	stakeAuthority StakeAuthority
 
 	// KES period tracking from opcerts, keyed by pool ID. Only
 	// verifyKESPeriodRotation writes here, and it runs after stake
@@ -140,9 +139,12 @@ type MessageAuthenticatorConfig struct {
 	//
 	// Deprecated: ignored; leave it nil.
 	CurrentSlot func() (uint64, error)
-	// PoolOpCertIssueNumber returns the latest operational-certificate issue
-	// number known from authoritative chain state. A pool absent from that
-	// state should return (0, false, nil). Required.
+	// PoolOpCertIssueNumber is not used. A message's operational-certificate
+	// counter is compared only with the counters seen in earlier messages from
+	// the same pool, as dmq-node does; comparing it with the chain's counter
+	// would refuse messages dmq-node accepts and relays.
+	//
+	// Deprecated: ignored; leave it nil.
 	PoolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
 	// SlotsPerKESPeriod is not used: no slot is converted to a KES period.
 	//
@@ -167,12 +169,6 @@ func NewMessageAuthenticator(
 			ErrAuthenticatorMisconfigured,
 		)
 	}
-	if cfg.PoolOpCertIssueNumber == nil {
-		return nil, fmt.Errorf(
-			"%w: PoolOpCertIssueNumber is required",
-			ErrAuthenticatorMisconfigured,
-		)
-	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -182,11 +178,10 @@ func NewMessageAuthenticator(
 		maxKESEvolutions = DefaultMaxKESEvolutions
 	}
 	return &MessageAuthenticator{
-		logger:                logger,
-		stakeAuthority:        cfg.StakeAuthority,
-		poolOpCertIssueNumber: cfg.PoolOpCertIssueNumber,
-		kesOpCertCache:        make(map[PoolKeyHash]uint64),
-		maxKESEvolutions:      maxKESEvolutions,
+		logger:           logger,
+		stakeAuthority:   cfg.StakeAuthority,
+		kesOpCertCache:   make(map[PoolKeyHash]uint64),
+		maxKESEvolutions: maxKESEvolutions,
 	}, nil
 }
 
@@ -237,11 +232,10 @@ func (m *MessageAuthenticator) PrepareMessages(
 	}
 	m.mu.Unlock()
 	batchAuthenticator := &MessageAuthenticator{
-		logger:                m.logger,
-		stakeAuthority:        m.stakeAuthority,
-		poolOpCertIssueNumber: m.poolOpCertIssueNumber,
-		kesOpCertCache:        cacheSnapshot,
-		maxKESEvolutions:      m.maxKESEvolutions,
+		logger:           m.logger,
+		stakeAuthority:   m.stakeAuthority,
+		kesOpCertCache:   cacheSnapshot,
+		maxKESEvolutions: m.maxKESEvolutions,
 	}
 	// lowestIssue keeps each touched pool's lowest counter in the batch. At
 	// commit every message must still be no lower than the pool's recorded
@@ -362,25 +356,12 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		)
 	}
 
-	// Step 4: Compare the certificate with authoritative chain state.
-	latestIssue, exists, err := m.poolOpCertIssueNumber(poolID)
-	if err != nil {
-		return fmt.Errorf("look up pool operational certificate: %w", err)
-	}
-	if exists && msg.OperationalCertificate.IssueNumber < latestIssue {
-		return fmt.Errorf(
-			"operational certificate issue number is stale: chain=%d, message=%d",
-			latestIssue,
-			msg.OperationalCertificate.IssueNumber,
-		)
-	}
-
-	// Step 5: Verify KES signature over message payload.
+	// Step 4: Verify KES signature over message payload.
 	if err := m.verifyKESSignature(msg); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 6: Verify KES period rotation (opcert number doesn't go backwards).
+	// Step 5: Verify KES period rotation (opcert number doesn't go backwards).
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.

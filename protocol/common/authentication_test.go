@@ -84,28 +84,6 @@ func TestMessageAuthenticatorRequiresStakeAuthority(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
 }
 
-func TestMessageAuthenticatorRequiresChainAuthorities(t *testing.T) {
-	stake := newStubStakeAuthority()
-	for _, test := range []struct {
-		name string
-		cfg  MessageAuthenticatorConfig
-	}{
-		{
-			name: "operational certificate",
-			cfg: MessageAuthenticatorConfig{
-				StakeAuthority: stake,
-				CurrentSlot:    testCurrentSlot,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			auth, err := NewMessageAuthenticator(test.cfg)
-			require.Nil(t, auth)
-			require.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
-		})
-	}
-}
-
 // TestVerifyMessageNil tests nil message verification
 func TestVerifyMessageNil(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
@@ -1000,26 +978,6 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	firstInvalid := buildSignedTestMessage(t, 100, 103)
 	err = auth.verifyKESSignature(firstInvalid)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
-}
-
-func TestVerifyMessageRejectsOpCertSupersededInChainState(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
-		CurrentSlot:    testCurrentSlot,
-		PoolOpCertIssueNumber: func(PoolKeyHash) (uint64, bool, error) {
-			return 2, true, nil
-		},
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, err)
-	stake.register(poolID, 1000)
-
-	require.ErrorContains(t, auth.VerifyMessage(msg), "issue number is stale")
-	require.Empty(t, auth.kesOpCertCache)
 }
 
 func TestVerifyMessageRejectsMismatchedPoolIdentity(t *testing.T) {
