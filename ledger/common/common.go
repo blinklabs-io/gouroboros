@@ -455,18 +455,14 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 // major type 0 or 1 integer. cardano-ledger decodes output quantities with
 // decodeWord64 and mint quantities with decodeIntegerBounded64
 // (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs), and both refuse a tag-2
-// or tag-3 bignum that the big.Int decoder would accept. A quantity can only
-// be a bignum if one of those tag bytes occurs, so the second decode runs
-// only then.
+// or tag-3 bignum that the big.Int decoder would accept. The quantities are
+// read pair by pair from the wire: a tag head need not be minimal, so no
+// byte search finds every bignum, and before protocol version 9 a decoded
+// map keeps only the last of duplicate asset names, while the reference
+// decodes every entry.
 func checkMultiAssetQuantityHeads(data []byte) error {
-	if bytes.IndexByte(data, 0xc2) < 0 && bytes.IndexByte(data, 0xc3) < 0 {
-		return nil
-	}
-	// Malformed input leaves raw empty; the typed decode reports it.
-	var raw map[cbor.ByteString]map[cbor.ByteString]cbor.RawMessage
-	_, _ = cbor.DecodeLenient(data, &raw)
-	for _, assets := range raw {
-		for _, quantity := range assets {
+	return forEachRawMapValue(data, func(assets []byte) error {
+		return forEachRawMapValue(assets, func(quantity []byte) error {
 			// 0x20 is major type 1, the negative integers.
 			if len(quantity) == 0 ||
 				quantity[0]&cbor.CborTypeMask > 0x20 {
@@ -474,9 +470,59 @@ func checkMultiAssetQuantityHeads(data []byte) error {
 					"multiasset quantity must be a CBOR integer",
 				)
 			}
+			return nil
+		})
+	})
+}
+
+// forEachRawMapValue calls fn with the encoded bytes of every value of the
+// CBOR map in data, in wire order and including the values of repeated keys.
+// It stops at the first error fn returns. A malformed map ends the walk
+// without an error: the typed decode that follows reports it.
+func forEachRawMapValue(data []byte, fn func([]byte) error) error {
+	count, headerSize, indefinite := cbor.MapInfo(data)
+	if count < 0 || int(headerSize) > len(data) {
+		return nil
+	}
+	body := data[headerSize:]
+	sd, err := cbor.NewStreamDecoder(body)
+	if err != nil {
+		return err
+	}
+	for i := 0; indefinite || i < count; i++ {
+		value, ok := nextRawMapValue(sd, body, indefinite)
+		if !ok {
+			return nil
+		}
+		if err := fn(value); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// nextRawMapValue skips the next key of a map body and returns its value's
+// encoded bytes; ok is false at an indefinite map's break or on malformed
+// input.
+func nextRawMapValue(
+	sd *cbor.StreamDecoder,
+	body []byte,
+	indefinite bool,
+) ([]byte, bool) {
+	if indefinite {
+		pos := sd.Position()
+		if pos >= len(body) || body[pos] == 0xff {
+			return nil, false
+		}
+	}
+	if _, _, err := sd.Skip(); err != nil {
+		return nil, false
+	}
+	offset, length, err := sd.Skip()
+	if err != nil {
+		return nil, false
+	}
+	return sd.RawBytes(offset, length), true
 }
 
 func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](

@@ -147,6 +147,24 @@ var referenceBignumVerdicts = []multiAssetVerdict{
 		refAssets(refPolicy(1, refAssets(refAssetA+"c24105"))),
 		allFail, allFail,
 	},
+	{
+		// A tag head need not be minimal (d8 02 is tag 2).
+		"bignum quantity five with a two-byte tag head",
+		refAssets(refPolicy(1, refAssets(refAssetA+"d8024105"))),
+		allFail, allFail,
+	},
+	{
+		"negative bignum with a two-byte tag head",
+		refAssets(refPolicy(1, refAssets(refAssetA+"d8034104"))),
+		allFail, allFail,
+	},
+	{
+		// Before 9 the later duplicate wins, but the reference still
+		// decodes the earlier entry's quantity and refuses the bignum.
+		"bignum behind a duplicate asset name",
+		refAssets(refPolicy(1, refAssets(refAssetA+"c24105", refAssetA+"05"))),
+		allFail, allFail,
+	},
 }
 
 // decodeMultiAssetAsEra applies the checks each era's decoder applies to a
