@@ -58,21 +58,27 @@ type Client struct {
 //     does not describe that request is rejected instead of delivered. The
 //     state machine only checks the response's message type.
 type requestSlot struct {
-	mu              sync.Mutex
-	request         protocol.Message
-	rangeSeen       map[lcommon.Blake2b256]struct{}
-	waiter          chan protocol.Message
-	delivery        *requestDelivery
-	busy            bool
-	abandoned       bool
-	maxReplies      int
-	maxBytes        int
-	rangeReplies    int
-	rangeBytes      int
-	rangeTxCount    int
-	maxBlockTxs     int
-	maxVotes        int
-	drainedCh       chan struct{}
+	mu           sync.Mutex
+	request      protocol.Message
+	rangeSeen    map[lcommon.Blake2b256]struct{}
+	waiter       chan protocol.Message
+	delivery     *requestDelivery
+	busy         bool
+	abandoned    bool
+	maxReplies   int
+	maxBytes     int
+	rangeReplies int
+	rangeBytes   int
+	rangeTxCount int
+	maxBlockTxs  int
+	maxVotes     int
+	drainedCh    chan struct{}
+	// finishedRanges holds the delivery of each range whose last reply has
+	// arrived, keyed by its waiter, until that caller leaves. The last reply
+	// frees the slot while earlier replies may still be unread, so the
+	// caller's abandon or release no longer matches the waiter; without this
+	// the delivery goroutine would block forever on the full channel.
+	finishedRanges  map[chan protocol.Message]*requestDelivery
 	beforeDrainWait func() // test hook for an acquirer reaching the drain wait
 }
 
@@ -257,12 +263,25 @@ func (s *requestSlot) deliverRange(
 		s.waiter = nil
 		s.delivery = nil
 		s.freeLocked()
+		if s.finishedRanges == nil {
+			s.finishedRanges = make(map[chan protocol.Message]*requestDelivery)
+		}
+		s.finishedRanges[w] = d
 	}
 	s.mu.Unlock()
 	if w == nil || d == nil {
 		return false, nil
 	}
 	return d.enqueue(msg, terminal), nil
+}
+
+// stopFinishedRangeLocked stops the delivery of w's range if its last reply
+// has arrived. The caller must hold s.mu.
+func (s *requestSlot) stopFinishedRangeLocked(w chan protocol.Message) {
+	if d, ok := s.finishedRanges[w]; ok {
+		d.stop()
+		delete(s.finishedRanges, w)
+	}
 }
 
 func (s *requestSlot) decodeRangeResponse(
@@ -327,7 +346,8 @@ func (s *requestSlot) decodeRangeResponse(
 // only mutated while that channel is still the live waiter (s.waiter == w). If
 // the response already arrived (deliver cleared and freed the slot) and a
 // different request has since acquired the slot, s.waiter now belongs to that
-// newer request, so this is a no-op and the newer waiter is left intact.
+// newer request, so this leaves the newer waiter intact. It only stops the
+// delivery of w's own range, if that range's last reply has arrived.
 func (s *requestSlot) abandon(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
@@ -342,6 +362,8 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 		// response drains it, preserving response correlation.
 		close(s.drainedCh)
 		s.drainedCh = make(chan struct{})
+	} else {
+		s.stopFinishedRangeLocked(w)
 	}
 	s.mu.Unlock()
 }
@@ -354,8 +376,8 @@ func (s *requestSlot) abandon(w chan protocol.Message) {
 // As with abandon, the caller passes the delivery channel it registered in
 // acquire and the slot is only cleared and freed while that channel is still
 // the live waiter (s.waiter == w). If the slot was already freed and reacquired
-// by a newer request, this is a no-op so the newer request's registration is
-// not disturbed.
+// by a newer request, the newer request's registration is not disturbed; only
+// the delivery of w's own finished range, if any, is stopped.
 func (s *requestSlot) release(w chan protocol.Message) {
 	s.mu.Lock()
 	if s.waiter == w {
@@ -363,6 +385,8 @@ func (s *requestSlot) release(w chan protocol.Message) {
 		s.delivery.stop()
 		s.delivery = nil
 		s.freeLocked()
+	} else {
+		s.stopFinishedRangeLocked(w)
 	}
 	s.mu.Unlock()
 }
