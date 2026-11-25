@@ -20,6 +20,7 @@ import (
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 )
 
 // decodeRational decodes a Haskell Rational, written as [numerator,
@@ -62,4 +63,59 @@ func encodeRationalUntagged(r *big.Rat) ([]byte, error) {
 		return nil, errors.New("encoding rational: nil value")
 	}
 	return cbor.Encode([]*big.Int{r.Num(), r.Denom()})
+}
+
+// plainRational is a Haskell Rational field: the ledger writes it untagged
+// before protocol version 9 and under tag 30 from 9, so either form decodes.
+// cbor.Rat requires the tag, as the ledger's bounded ratios do, so an
+// untagged list is decoded as if it carried one.
+type plainRational struct {
+	value *cbor.Rat
+}
+
+func (r *plainRational) UnmarshalCBOR(data []byte) error {
+	if len(data) > 0 && data[0]&cbor.CborTypeMask == cbor.CborTypeArray {
+		data = append([]byte{0xd8, cbor.CborTagRational}, data...)
+	}
+	var value cbor.Rat
+	if _, err := cbor.Decode(data, &value); err != nil {
+		return err
+	}
+	r.value = &value
+	return nil
+}
+
+// poolStakeEntry is one pool's [stake fraction, VRF key hash] in a
+// GetStakeDistribution or GetPoolDistr reply.
+type poolStakeEntry = struct {
+	cbor.StructAsArray
+	StakeFraction *cbor.Rat
+	VrfHash       ledger.Blake2b256
+}
+
+// decodePoolStakeMap decodes the single-element result wrapper around a map
+// of pool stake entries, reading each stake fraction as a plain rational.
+func decodePoolStakeMap(data []byte) (map[ledger.PoolId]poolStakeEntry, error) {
+	var tmp struct {
+		cbor.StructAsArray
+		Results map[ledger.PoolId]struct {
+			cbor.StructAsArray
+			StakeFraction plainRational
+			VrfHash       ledger.Blake2b256
+		}
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return nil, err
+	}
+	if tmp.Results == nil {
+		return nil, nil
+	}
+	results := make(map[ledger.PoolId]poolStakeEntry, len(tmp.Results))
+	for poolID, entry := range tmp.Results {
+		results[poolID] = poolStakeEntry{
+			StakeFraction: entry.StakeFraction.value,
+			VrfHash:       entry.VrfHash,
+		}
+	}
+	return results, nil
 }

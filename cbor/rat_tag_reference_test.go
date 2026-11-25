@@ -21,13 +21,13 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-// TestRatAcceptsOnlyOneTag30 follows cardano-ledger-binary's decodeRational
-// at cardano-ledger 1210d37f (libs/cardano-ledger-binary/src/Cardano/Ledger/
-// Binary/Decoding/Decoder.hs 465-484): allowTag 30 (1347-1354) consumes at
-// most one tag and fails on any other number, and the list decoder that
-// follows refuses a second tag.
+// TestRatAcceptsOnlyOneTag30 pins the bounded-ratio decoding that every
+// ledger rational (UnitInterval, NonNegativeInterval, PositiveInterval)
+// uses: exactly one tag 30 in front of [numerator, denominator], at every
+// protocol version. An untagged list, any other tag, or a second tag is
+// refused.
 func TestRatAcceptsOnlyOneTag30(t *testing.T) {
-	for _, h := range []string{"d81e820102", "820102"} {
+	for _, h := range []string{"d81e820102", "d81e9f0102ff"} {
 		data, _ := hex.DecodeString(h)
 		var r cbor.Rat
 		if _, err := cbor.Decode(data, &r); err != nil {
@@ -35,6 +35,8 @@ func TestRatAcceptsOnlyOneTag30(t *testing.T) {
 		}
 	}
 	for _, h := range []string{
+		"820102",
+		"9f0102ff",
 		"d81f820102",
 		"c2820102",
 		"d81ed81e820102",

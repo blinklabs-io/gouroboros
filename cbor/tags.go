@@ -96,21 +96,23 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
-	// Like cardano-ledger-binary's decodeRational, accept at most one tag,
-	// and only tag 30, before the list.
+	// Exactly one tag 30 comes before the list. Every ledger rational is a
+	// bounded ratio, which requires the tag at every protocol version; an
+	// untagged list, another tag number or a second tag is refused.
 	content := cborData
+	if len(content) == 0 || content[0]&CborTypeMask != CborTypeTag {
+		return errors.New("invalid cbor.Rat: missing tag 30")
+	}
+	if number, found := tagNumber(content); !found ||
+		number != CborTagRational {
+		return errors.New("invalid cbor.Rat: tag other than 30")
+	}
+	content = content[1:]
+	if info := cborData[0] & 0x1f; info >= 24 {
+		content = content[1<<(info-24):]
+	}
 	if len(content) > 0 && content[0]&CborTypeMask == CborTypeTag {
-		if number, found := tagNumber(content); !found ||
-			number != CborTagRational {
-			return errors.New("invalid cbor.Rat: tag other than 30")
-		}
-		content = content[1:]
-		if info := cborData[0] & 0x1f; info >= 24 {
-			content = content[1<<(info-24):]
-		}
-		if len(content) > 0 && content[0]&CborTypeMask == CborTypeTag {
-			return errors.New("invalid cbor.Rat: more than one tag")
-		}
+		return errors.New("invalid cbor.Rat: more than one tag")
 	}
 	// Check the item count before decoding so an oversized array is rejected
 	// without building it. An indefinite-length array declares no count, so
