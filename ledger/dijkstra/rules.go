@@ -660,11 +660,45 @@ func (s *dijkstraGovernanceStateView) CommitteeCredentialMember(
 	if member, tracked := s.committeeCold[dijkstraAccountKeyFor(cold)]; tracked {
 		return member, nil
 	}
-	state, ok := s.committeeCredentialState()
-	if !ok {
-		return nil, nil
+	if state, ok := s.committeeCredentialState(); ok {
+		member, err := state.CommitteeCredentialMember(cold)
+		if err != nil || member != nil {
+			return member, err
+		}
 	}
-	return state.CommitteeCredentialMember(cold)
+	return s.proposedCommitteeMember(cold), nil
+}
+
+// proposedCommitteeMember returns the member an earlier level's
+// UpdateCommittee proposal would add for cold, or nil. GOVCERT treats such
+// a credential as a potential future member, and each level's certificates
+// see the proposals the levels before it left (isPotentialFutureMember in
+// cardano-ledger Conway Rules/GovCert.hs; Dijkstra Rules/SubLedger.hs and
+// Rules/Ledger.hs). Where several proposals add it, the latest expiry is
+// reported; GOVCERT ignores it.
+func (s *dijkstraGovernanceStateView) proposedCommitteeMember(
+	cold common.Credential,
+) *common.CommitteeMember {
+	coldKey := dijkstraAccountKeyFor(cold)
+	var member *common.CommitteeMember
+	for _, proposal := range s.actions {
+		action, ok := proposal.Action.(*common.UpdateCommitteeGovAction)
+		if !ok || action == nil {
+			continue
+		}
+		for credential, expiry := range action.CredEpochs {
+			if credential == nil || dijkstraAccountKeyFor(*credential) != coldKey {
+				continue
+			}
+			if member == nil || expiry > member.ExpiryEpoch {
+				member = &common.CommitteeMember{
+					ColdKey:     credential.Credential,
+					ExpiryEpoch: expiry,
+				}
+			}
+		}
+	}
+	return member
 }
 
 // committeeHotCredentialMembersState resolves ls's optional
