@@ -48,20 +48,9 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 }
 
 func (s *Server) initProtocol() bool {
+	// The server holds agency in Busy, so it never times that state; the
+	// client times the wait for its votes.
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateBusy]; ok {
-		// An unconfigured responder has no valid message that can complete a
-		// pending request. Leave its Busy timeout disabled so the optional
-		// protocol cannot turn that request into a bearer-level error.
-		if s.config != nil && s.config.RequestNextFunc != nil {
-			timeout := DefaultTimeout
-			if s.config.Timeout != 0 {
-				timeout = s.config.Timeout
-			}
-			entry.Timeout = timeout
-		}
-		stateMap[StateBusy] = entry
-	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,

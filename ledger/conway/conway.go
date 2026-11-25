@@ -867,8 +867,8 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 }
 
 func validateConwayTransactionBodyFields(cborData []byte) error {
-	var fields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint64](cborData)
+	if err != nil {
 		return err
 	}
 	// CBOR major type 1 encodes negative integers; coins must be nonnegative.
@@ -933,8 +933,8 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](encoded)
+	if err != nil {
 		return nil, err
 	}
 	if bodyFields == nil {
@@ -960,6 +960,17 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 		bodyFields[20] = encodedProposals
 	}
 	return cbor.Encode(bodyFields)
+}
+
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *ConwayTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
 }
 
 // checkMultiAssetEncoding rejects the multiasset wire forms cardano-ledger

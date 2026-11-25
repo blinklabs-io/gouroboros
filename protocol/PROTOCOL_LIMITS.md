@@ -6,9 +6,13 @@ an option passed to a client or server can replace the timeout where noted.
 An entry with a zero timeout or pending-message limit has no framework limit.
 
 The protocol framework applies a state's `PendingMessageByteLimit` while that
-state is active. A state timeout closes the protocol when its agency does not
-make the expected transition before the timeout expires. These are transport
-and state-machine safeguards, not application-level transaction or block
+state is active. A state timeout closes the protocol when the peer holding
+agency does not send its message before the timeout expires. Only the side
+waiting for that message enforces it, as the reference driver does; the side
+holding agency is never timed, however long it takes to send. The waiting
+side's timer starts once its handler for the previous message has returned,
+so the time its own callbacks take never counts against the peer. These are
+transport and state-machine safeguards, not application-level transaction or block
 validation.
 
 ## Connection read buffer allowance
@@ -129,13 +133,17 @@ interrupt pending socket operations.
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 
-| State | Timeout | Pending bytes |
-| --- | ---: | ---: |
-| Idle | 3673 seconds | 462,000 |
-| CanAwait | 10 seconds | 462,000 |
-| Intersect | 10 seconds | 462,000 |
-| MustReply | random in `[135, 269)` seconds | 462,000 |
-| Done | none | 462,000 |
+| State | Timeout | Message size limit | Pending receive budget |
+| --- | ---: | ---: | ---: |
+| Idle | 3673 seconds | 65,535 | 462,000 |
+| CanAwait | 10 seconds | 65,535 | 462,000 |
+| Intersect | 10 seconds | 65,535 | 462,000 |
+| MustReply | random in `[601, 911)` seconds | 65,535 | 462,000 |
+| Done | none | 65,535 | 462,000 |
+
+The message size limit is the specification's chain-sync size table and the
+reference's `byteLimitsChainSync`. The pending receive budget is the
+specification's 462,000-byte chain-sync ingress queue.
 
 The N2C map has no state timeouts or pending-message byte limits, so no
 message is refused for its size. Every N2C state does carry a pending receive
@@ -178,7 +186,8 @@ The base map (`protocol/blockfetch/blockfetch.go`) is:
 | Done | none | 0 |
 
 Client and server instances copy the map and apply their configured
-`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. A pipelining
+`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. The server holds
+agency in both states, so only the client enforces them. A pipelining
 client raises its Idle pending-message limit to 2,500,000 bytes so a block can
 arrive during the Idle transition.
 
@@ -307,14 +316,17 @@ the exported state-map constants above.
 ## Local mini-protocols
 
 These protocols have no static state-map timeout; the client copies the map and
-applies the configured operation timeout where indicated:
+applies the configured operation timeout where indicated. The specification
+sets no node-to-client timeouts, so Local State Query and Local Tx Monitor
+default to none; their `WithAcquireTimeout` and `WithQueryTimeout` options
+opt in:
 
 | Protocol | State/operation | Default |
 | --- | --- | ---: |
-| Local State Query | Acquiring | 5 seconds |
-| Local State Query | Querying | 180 seconds |
-| Local Tx Monitor | Acquiring | 5 seconds |
-| Local Tx Monitor | Busy queries | 30 seconds |
+| Local State Query | Acquiring | none |
+| Local State Query | Querying | none |
+| Local Tx Monitor | Acquiring | none |
+| Local Tx Monitor | Busy queries | none |
 | Local Tx Submission | Busy submit | 30 seconds |
 
 The local protocols have no additional queue, pipeline, or pending-message
@@ -352,7 +364,9 @@ carrying more addresses than it requested.
 | Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
 | Leios Notify client | Quit | 60 seconds | none |
 | Leios Votes client | Busy | 60 seconds | 1,111 |
-| Leios Votes server with a configured request callback | Busy | 60 seconds | none |
+
+The Leios Votes server holds agency in Busy, so it sets no Busy timeout and
+`WithTimeout` applies only to the client.
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
 context, not by a protocol state timeout. Leios Fetch admits at most 65,535
@@ -393,13 +407,19 @@ Nonpositive Leios Fetch range limits select the defaults.
 
 | State | Timeout | Pending bytes |
 | --- | ---: | ---: |
-| Init, Idle, ObjectIDsBlocking | none | `maxObjectsUnacknowledged × 1,100 + 256` |
-| ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
+| Init, Idle | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlocking | 10 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlockingMustReply | 60 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsNonBlocking, Objects | 10 seconds by default (the reference's shortWait) | `maxObjectsUnacknowledged × 1,100 + 256` |
 | Done | none | none |
 
 The outstanding object window defaults to 50 and can be configured up to
 1,000. The timeout is configurable and bounds non-blocking ID and object
-requests; blocking ID requests wait for an available vote.
+requests. A blocking ID request follows the reference's shortWait and
+longWait: within 10 seconds the server sends IDs or `MsgAwaitReply`, and
+within 60 seconds of that IDs or `MsgServerIdle`. The server waits up to
+`AwaitTimeout` (30 seconds by default, always below 60) for new IDs before
+it sends `MsgServerIdle`.
 
 ## Enforcement scope
 

@@ -226,7 +226,9 @@ func TestLeaderEligibilityElectionValidatorAgreement(t *testing.T) {
 						require.NoError(t, err)
 						counter := uint64(0)
 						input := &ValidateHeaderInput{
-							Slot: header.Body.Slot, BlockNumber: header.Body.BlockNumber, PrevHash: header.Body.PrevHash,
+							Envelope: testEnvelope(),
+							Overlay:  testOverlayD0(),
+							Slot:     header.Body.Slot, BlockNumber: header.Body.BlockNumber, PrevHash: header.Body.PrevHash,
 							IssuerVkey: header.Body.IssuerVkey, VrfKey: header.Body.VrfKey, VrfProof: header.Body.VrfProof, VrfOutput: header.Body.VrfOutput,
 							NonceVrfProof: header.Body.NonceVrfProof, NonceVrfOutput: header.Body.NonceVrfOutput,
 							KesSignature: header.Signature, HeaderBodyCbor: body, OpCertHotVkey: header.Body.OpCertHotVkey,

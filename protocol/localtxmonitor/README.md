@@ -100,8 +100,14 @@ protocol error and is refused before the transition to Acquired.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Acquire Timeout | 5 seconds | Time to acquire mempool snapshot |
-| Query Timeout | 30 seconds | Time to execute query |
+| Acquire Timeout | none | Time to acquire mempool snapshot |
+| Query Timeout | none | Time to execute query |
+
+The specification sets no timeouts for node-to-client protocols, and the
+reference defines no time limits for this one. A node answers a re-acquire
+only once its mempool changes, so a default limit would tear down a working
+connection. `WithAcquireTimeout` and `WithQueryTimeout` set a client-side
+limit.
 
 ## Configuration Options
 
@@ -152,3 +158,6 @@ The `GetSizes` query returns:
 - NextTx iterates through all transactions in snapshot
 - HasTx checks for specific transaction by ID; the ID must be 32 bytes
 - Release snapshot when done to free resources
+- After `Done` the server restarts in Idle, as the reference's inbound
+  governor restarts a responder, so a client can start another run on the
+  same connection
