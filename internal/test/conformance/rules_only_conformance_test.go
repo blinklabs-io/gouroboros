@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -304,26 +305,36 @@ func runVectorRulesOnly(
 	return out, true, nil
 }
 
-// rulesOnlyRulesForVector returns the full Conway rule list for a Conway
-// specification vector, less the fee and transaction-size rules: the vectors
-// carry fees and sizes computed from the reference's own encoding. Other
-// vectors keep the harness's rule list.
+// rulesOnlyRulesForVector returns the production Conway rule list for a
+// Conway specification vector, less the fee and transaction-size rules: the
+// vectors carry fees and sizes computed from the reference's own encoding.
+// The list is conway.UtxoValidationRules itself, so the rules production runs
+// only on phase-2-valid transactions stay gated; the descriptors, which carry
+// the same rules ungated in the same order, only locate the two left out.
+// Other vectors keep the harness's rule list.
 func rulesOnlyRulesForVector(title string) []common.UtxoValidationRuleFunc {
 	if !strings.Contains(title, "ConwayImpSpec") {
 		return conformance.ValidationRulesForVector(title)
 	}
-	var descriptors []common.UtxoValidationRuleDescriptor
-	for _, d := range conway.UtxoValidationRuleDescriptors() {
+	descriptors := conway.UtxoValidationRuleDescriptors()
+	if len(descriptors) != len(conway.UtxoValidationRules) {
+		panic(fmt.Sprintf(
+			"%d Conway rule descriptors for %d rules",
+			len(descriptors), len(conway.UtxoValidationRules),
+		))
+	}
+	var rules []common.UtxoValidationRuleFunc
+	for i, d := range descriptors {
 		switch d.Id {
 		case common.UtxoValidationRuleFeeTooSmall,
 			common.UtxoValidationRuleMaxTxSize:
+			if reflect.ValueOf(conway.UtxoValidationRules[i]).Pointer() !=
+				reflect.ValueOf(d.Validator).Pointer() {
+				panic(fmt.Sprintf("Conway rule %d is not %s", i, d.Id))
+			}
 			continue
 		}
-		descriptors = append(descriptors, d)
-	}
-	rules, err := common.UtxoValidationRulesFromDescriptors(descriptors)
-	if err != nil {
-		panic(err)
+		rules = append(rules, conway.UtxoValidationRules[i])
 	}
 	return rules
 }
@@ -419,4 +430,40 @@ func TestRulesOnlyConformanceVectors(t *testing.T) {
 	if failed > 0 {
 		t.Fatalf("%d vectors did not match their expected outcome", failed)
 	}
+}
+
+// TestRulesOnlyRulesKeepPhase2Gate checks that the replay runs a rule
+// production gates on a phase-2-valid transaction with that gate: a
+// phase-2-invalid transaction whose proposal deposit is wrong is refused by
+// the bare proposal-deposit rule and accepted by the replay's.
+func TestRulesOnlyRulesKeepPhase2Gate(t *testing.T) {
+	tx := &conway.ConwayTransaction{TxIsValid: false}
+	tx.Body.TxProposalProcedures = []conway.ConwayProposalProcedure{
+		{PPDeposit: 1},
+	}
+	pp := &conway.ConwayProtocolParameters{GovActionDeposit: 2}
+	rules := rulesOnlyRulesForVector("ConwayImpSpec")
+	left := 0
+	for i, d := range conway.UtxoValidationRuleDescriptors() {
+		switch d.Id {
+		case common.UtxoValidationRuleFeeTooSmall,
+			common.UtxoValidationRuleMaxTxSize:
+			left++
+			continue
+		case common.UtxoValidationRuleProposalDeposit:
+		default:
+			continue
+		}
+		if d.Validator(tx, 0, nil, pp) == nil {
+			t.Fatal("the bare rule accepted the wrong deposit")
+		}
+		if i-left >= len(rules) {
+			t.Fatalf("%d replay rules, proposal deposit at %d", len(rules), i-left)
+		}
+		if err := rules[i-left](tx, 0, nil, pp); err != nil {
+			t.Fatalf("phase-2-invalid transaction refused: %v", err)
+		}
+		return
+	}
+	t.Fatal("no proposal-deposit rule")
 }
