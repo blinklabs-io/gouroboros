@@ -32,20 +32,23 @@ func configuredMessageIDLimit(cfg *Config) int {
 }
 
 func validateMessageSubmissionCollection(
-	msgType uint,
+	kind msgKind,
 	data []byte,
 	maxCount int,
 ) error {
 	var maxItemDepth int
-	switch msgType {
-	case MessageTypeRequestMessages:
+	switch kind {
+	case kindRequestMessages:
 		maxItemDepth = 0
-	case MessageTypeReplyMessages:
+	case kindReplyMessages:
 		// A DMQ message contains payload and operational-certificate arrays,
 		// whose fields are all scalars or byte strings.
 		maxItemDepth = 2
-	default:
+	case kindReplyMessageIds:
 		maxItemDepth = 1
+	case kindInit, kindRequestMessageIds, kindReplyNoMessageIds, kindDone:
+		// These carry no collection; the caller never asks.
+		maxItemDepth = 0
 	}
 	if err := cborpreflight.ValidateSecondFieldArray(
 		data,
