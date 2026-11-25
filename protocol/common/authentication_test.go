@@ -91,13 +91,6 @@ func TestMessageAuthenticatorRequiresChainAuthorities(t *testing.T) {
 		cfg  MessageAuthenticatorConfig
 	}{
 		{
-			name: "current slot",
-			cfg: MessageAuthenticatorConfig{
-				StakeAuthority:        stake,
-				PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-			},
-		},
-		{
 			name: "operational certificate",
 			cfg: MessageAuthenticatorConfig{
 				StakeAuthority: stake,
@@ -961,7 +954,7 @@ func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, 80*129600)
+	err = auth.verifyKESSignature(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "precedes certificate issuance period")
 }
@@ -987,7 +980,7 @@ func TestVerifyKESSignature_RejectsHugeClaimedPeriod(t *testing.T) {
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, 0)
+	err = auth.verifyKESSignature(msg)
 	assert.ErrorContains(t, err, "exceeds the maximum")
 }
 
@@ -1002,66 +995,11 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	require.NoError(t, err)
 
 	lastValid := buildSignedTestMessage(t, 100, 102)
-	assert.NoError(t, auth.verifyKESSignature(lastValid, 102*129600))
+	assert.NoError(t, auth.verifyKESSignature(lastValid))
 
 	firstInvalid := buildSignedTestMessage(t, 100, 103)
-	err = auth.verifyKESSignature(firstInvalid, 103*129600)
+	err = auth.verifyKESSignature(firstInvalid)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
-
-	// A supplied slot determines the evolution used for signature verification
-	// and must obey the same certificate window even if the payload claims an
-	// earlier, otherwise valid KES period.
-	validClaim := buildSignedTestMessage(t, 100, 101)
-	tooLateSlot := uint64(103) * 129600
-	err = auth.verifyKESSignature(validClaim, tooLateSlot)
-	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
-}
-
-// TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne proves an
-// explicit slot is honored over the slot implied by the message's own
-// claimed period.
-func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		CurrentSlot:           testCurrentSlot,
-		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-		StakeAuthority:        stake,
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, perr)
-	stake.register(poolID, 1000)
-
-	// The real slot for period 100 at the default 129600 slots/period.
-	realSlot := uint64(100) * 129600
-	assert.NoError(t, auth.VerifyMessageWithSlot(msg, realSlot))
-
-	// A slot corresponding to an earlier period than the cert's own
-	// issuance period must fail (KES signature won't verify at that
-	// evolution).
-	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
-}
-
-func TestVerifyMessageUsesAuthoritativeCurrentSlot(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
-		CurrentSlot: func() (uint64, error) {
-			return 101 * 129600, nil
-		},
-		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, err)
-	stake.register(poolID, 1000)
-
-	require.ErrorContains(t, auth.VerifyMessage(msg), "KES signature")
-	require.NoError(t, auth.VerifyMessageWithSlot(msg, 100*129600))
 }
 
 func TestVerifyMessageRejectsOpCertSupersededInChainState(t *testing.T) {

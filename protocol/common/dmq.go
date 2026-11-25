@@ -151,6 +151,23 @@ func checkMessageBodySize(body []byte) error {
 	return nil
 }
 
+// checkMessageBodySize refuses a body outside [MinMessageBodySize,
+// MaxMessageBodySize]. dmq-node checks it while decoding (Codec.hs
+// decodeBody), before any other check, so a node-to-node peer that sends
+// one is disconnected even when the message has also expired.
+func checkMessageBodySize(body []byte) error {
+	if n := len(body); n < MinMessageBodySize || n > MaxMessageBodySize {
+		return fmt.Errorf(
+			"%w: %d bytes, want %d to %d",
+			ErrMessageBodySize,
+			n,
+			MinMessageBodySize,
+			MaxMessageBodySize,
+		)
+	}
+	return nil
+}
+
 // MarshalCBOR encodes the message using the current CIP-0137 shape:
 // [messageId, messagePayload, kesSignature, operationalCertificate,
 // coldVerificationKey].
