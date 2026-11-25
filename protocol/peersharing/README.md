@@ -52,9 +52,9 @@ none.
 |---------|-------|-------------|
 | Busy state (server) | 60s (`BusyTimeout`) | Maximum time the client waits for `SharePeers` after sending `ShareRequest`. Per Ouroboros Network Spec Table 3.15. |
 
-The default is exposed as `peersharing.BusyTimeout`. The client's wait can be
-overridden per connection via `peersharing.WithTimeout`; the server's state
-map always uses `BusyTimeout`. The Idle state has no timeout, as in the
+The default is exposed as `peersharing.BusyTimeout`. The client enforces it,
+since the server holds agency in Busy; it can be overridden per connection via
+`peersharing.WithTimeout`. The Idle state has no timeout, as in the
 specification: a server may wait for the next request indefinitely.
 
 ## Size limits

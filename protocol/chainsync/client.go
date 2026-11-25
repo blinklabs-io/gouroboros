@@ -59,6 +59,10 @@ type Client struct {
 	syncLoopWaitGroup      sync.WaitGroup
 	outstandingRequestNext int
 	requestNextDrained     chan struct{}
+	// stoppedWithoutDone is set, under lifecycleMutex, when a stop reported
+	// ErrStoppedWithoutDone. The server may still reply to the abandoned
+	// requests, so Start must not register a new instance on this connection.
+	stoppedWithoutDone bool
 	// syncLoopStop and syncLoopDone belong to the most recently started sync
 	// loop. Closing syncLoopStop makes that loop exit; the loop closes
 	// syncLoopDone on its way out.
@@ -85,15 +89,11 @@ type Client struct {
 	testQuiesceBeforeLoopStopClose  func()
 	testRollForwardBeforeAnswered   func()
 
-	// waitingForCurrentTipChan will process all the requests for the current tip until the channel
-	// is empty.
-	//
 	// want* only processes one request per message reply received from the server. If the message
 	// request fails, it is the responsibility of the caller to clear the channel.
-	waitingForCurrentTipChan chan chan<- Tip
-	wantCurrentTipChan       chan chan<- Tip
-	wantFirstBlockChan       chan chan<- clientPointResult
-	wantIntersectFoundChan   chan intersectRequest
+	wantCurrentTipChan     chan chan<- Tip
+	wantFirstBlockChan     chan chan<- clientPointResult
+	wantIntersectFoundChan chan intersectRequest
 }
 
 type clientPointResult struct {
@@ -163,7 +163,6 @@ func (c *Client) initProtocol() {
 	// signals to be dropped (with non-blocking sends) or deadlock (with blocking sends
 	// while holding lifecycleMutex).
 	c.readyForNextBlockChan = make(chan bool, c.config.PipelineLimit)
-	c.waitingForCurrentTipChan = make(chan chan<- Tip, 20)
 	c.wantCurrentTipChan = make(chan chan<- Tip, 1)
 	c.wantFirstBlockChan = make(chan chan<- clientPointResult, 1)
 	c.wantIntersectFoundChan = make(chan intersectRequest, 1)
@@ -271,6 +270,10 @@ func (c *Client) endOperation() {
 	}
 }
 
+// Start starts the client, or restarts it after Stop or StopAfterDrain with a
+// new protocol instance on the same connection. After a Stop that gave up on
+// the connection (see Stop), Start does nothing: the server may still answer
+// the abandoned requests, and the connection is being closed.
 func (c *Client) Start() {
 	for {
 		c.lifecycleMutex.Lock()
@@ -301,6 +304,10 @@ func (c *Client) Start() {
 			continue
 
 		case clientStateStopped, clientStateNew:
+			if c.stoppedWithoutDone {
+				c.lifecycleMutex.Unlock()
+				return
+			}
 			// We will be the goroutine that performs initialization/start.
 			// Save previous state before transitioning to prevent other goroutines from also starting.
 			prevState := c.lifecycleState
@@ -338,7 +345,9 @@ func (c *Client) Start() {
 			// This recreates internal channels that may have been closed on Stop().
 			if c.Protocol == nil || prevState == clientStateStopped {
 				c.initProtocol()
-				// Requests sent on the stopped instance are never answered.
+				// The stopped instance delivered MsgDone, so the server
+				// owes it nothing: a stop that could not deliver it leaves
+				// the client stopped (stoppedWithoutDone).
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
 			}
@@ -383,6 +392,16 @@ func (c *Client) Start() {
 // After waiting for any busy operation, it allows up to 250ms for delivery.
 // Delivery errors are returned after shutdown; an already shutting-down
 // protocol is treated as successfully stopped.
+//
+// MsgDone is legal only once every request has been answered. If a reply is
+// still owed when the 250ms run out, as at the chain tip after
+// MsgAwaitReply, the server may still send it, so Stop gives up on the
+// connection: it reports ErrStoppedWithoutDone on the protocol's error
+// channel, stops the muxer, which closes the connection, and leaves the
+// client so that Start does not start it again. The return value is then
+// the delivery error, such as context.DeadlineExceeded, not
+// ErrStoppedWithoutDone. Use StopAfterDrain to stop and later restart on the
+// same connection.
 func (c *Client) Stop() error {
 	c.lifecycleMutex.Lock()
 	switch c.lifecycleState {
@@ -481,6 +500,35 @@ func (c *Client) stopRunning(
 	)
 }
 
+// abandonIfOwed handles a MsgDone that was not delivered in time. MsgDone is
+// legal only in StIdle, so if a request is unanswered or the state is not
+// StIdle, it is still queued behind the server's reply and never will be
+// sent: the server keeps that request's state and may yet reply, which a
+// protocol instance started on this connection would receive in StIdle. The
+// connection is then closed, as the reference does when a mini-protocol does
+// not terminate in time. A MsgDone that was sendable but slow to write may
+// still reach the peer, which then owes nothing, so it is left alone.
+func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
+	c.lifecycleMutex.Lock()
+	owed := c.outstandingRequestNext > 0 || !proto.IsInTerminalOrIdleState()
+	if owed {
+		// The connection closes on its own goroutine, so Start refuses to
+		// restart in the meantime.
+		c.stoppedWithoutDone = true
+	}
+	c.lifecycleMutex.Unlock()
+	if !owed {
+		return
+	}
+	// Report the error before stopping, while SendError still reaches the
+	// error channel. SendError drops it if nothing receives, so the muxer is
+	// stopped as well: no reply can then reach this connection.
+	proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
+	if c.protoOptions.Muxer != nil {
+		c.protoOptions.Muxer.Stop()
+	}
+}
+
 func (c *Client) finishStop(
 	ctx context.Context,
 	proto *protocol.Protocol,
@@ -509,6 +557,9 @@ func (c *Client) finishStop(
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
+		}
+		if sendErr != nil {
+			c.abandonIfOwed(proto, sendErr)
 		}
 	}
 	if busyLocked {
@@ -580,17 +631,27 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			return
 		}
 
-		currentTipChan, cancelCurrentTip := c.wantCurrentTip()
+		// Wait for the answer to this MsgFindIntersect itself, not the first
+		// tip any handler delivers: a roll answering an earlier
+		// MsgRequestNext can bring a tip first, and an answer left
+		// unclaimed would go to the next call waiting for an intersect
+		// answer.
+		resultChan, cancelResult := c.wantIntersectFound(nil)
 		msg := NewMsgFindIntersect([]pcommon.Point{})
 		if err := proto.SendMessage(msg); err != nil {
-			cancelCurrentTip()
+			cancelResult()
 			requestErrorChan <- err
 			return
 		}
 		select {
 		case <-doneChan:
-		case tip := <-currentTipChan:
-			requestResultChan <- tip
+		case result := <-resultChan:
+			if result.error != nil &&
+				!errors.Is(result.error, ErrIntersectNotFound) {
+				requestErrorChan <- result.error
+				return
+			}
+			requestResultChan <- result.tip
 		}
 	}()
 	defer func() {
@@ -598,45 +659,25 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		<-requestWorkerDone
 	}()
 
-	waitingResultChan := make(chan Tip, 1)
-	waitingForCurrentTipChan := c.waitingForCurrentTipChan
-
-	for {
-		select {
-		case <-doneChan:
-			done.Store(true)
-			return nil, protocol.ErrProtocolShuttingDown
-		case waitingForCurrentTipChan <- waitingResultChan:
-			// The request is being handled by another request, wait for the result.
-			waitingForCurrentTipChan = nil
-		case tip := <-waitingResultChan:
-			proto.Logger().
-				Debug(
-					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-				)
-			// The result from the other request is ready.
-			done.Store(true)
-			return &tip, nil
-		case tip := <-requestResultChan:
-			proto.Logger().
-				Debug(
-					fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "client",
-					"connection_id", c.callbackContext.ConnectionId.String(),
-				)
-			// If waitingForCurrentTipChan is full, the for loop that empties it might finish the
-			// loop before the select statement that writes to it is triggered. For that reason we
-			// require requestResultChan here.
-			return &tip, nil
-		case err := <-requestErrorChan:
-			return nil, err
-		}
+	// Only the answer to this call's own MsgFindIntersect is returned. A tip
+	// another handler delivers, such as a roll answering an earlier
+	// MsgRequestNext, may be older than the one the server answers with.
+	select {
+	case <-doneChan:
+		done.Store(true)
+		return nil, protocol.ErrProtocolShuttingDown
+	case tip := <-requestResultChan:
+		proto.Logger().
+			Debug(
+				fmt.Sprintf("received tip results {Slot: %d, Hash: %x, BlockNumber: %d}", tip.Point.Slot, tip.Point.Hash, tip.BlockNumber),
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+			)
+		return &tip, nil
+	case err := <-requestErrorChan:
+		return nil, err
 	}
 }
 
@@ -1397,21 +1438,10 @@ func (c *Client) syncLoop(
 }
 
 func (c *Client) sendCurrentTip(tip Tip) {
-	// Sends to the requester.
 	select {
 	case ch := <-c.wantCurrentTipChan:
 		ch <- tip
 	default:
-	}
-
-	// Sends to all passive listeners that are in the queue.
-	for {
-		select {
-		case ch := <-c.waitingForCurrentTipChan:
-			ch <- tip
-		default:
-			return
-		}
 	}
 }
 

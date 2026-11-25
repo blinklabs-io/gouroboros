@@ -15,10 +15,13 @@
 package common_test
 
 import (
+	"bytes"
 	"encoding/hex"
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNonceUnmarshalCBOR(t *testing.T) {
@@ -60,155 +63,125 @@ func TestNonceUnmarshalCBOR(t *testing.T) {
 	}
 }
 
-func TestCalculateRollingNonce(t *testing.T) {
-	testDefs := []struct {
-		prevBlockNonce string
-		blockVrf       string
-		expectedNonce  string
+// Expected values come from the actual cardano-ledger nonce functions.
+// See testdata/nonce_reference.hs for the pinned reference and generator.
+func TestNonceReferenceVectors(t *testing.T) {
+	previous := common.Nonce{Type: common.NonceTypeNonce}
+	copy(previous.Value[:], bytes.Repeat([]byte{1}, 32))
+	zeroHash := common.Nonce{Type: common.NonceTypeNonce}
+	output := bytes.Repeat([]byte{2}, 64)
+	for _, test := range []struct {
+		name         string
+		derive       func([]byte) (common.Nonce, error)
+		contribution string
+		evolving     string
+		zeroHash     string
 	}{
 		{
-			// Shelley genesis hash (mainnet)
-			prevBlockNonce: "1a3be38bcbb7911969283716ad7aa550250226b76a61fc51cc9a9a35d9276d81",
-			blockVrf:       "36ec5378d1f5041a59eb8d96e61de96f0950fb41b49ff511f7bc7fd109d4383e1d24be7034e6749c6612700dd5ceb0c66577b88a19ae286b1321d15bce1ab736",
-			expectedNonce:  "02ed02f807639ecfe0dcacdf9a2e2f61b59841ba73aa5739f7c71b3d7f6c6b84",
+			"TPraos", common.NonceFromTPraosVRF,
+			"bfed46301bf63819ba4dae77ae6077d7a9b3950210f30768acd2d110797f4adb",
+			"5d2650064135dfe6a5037da1a336225eff2254875d8bfb6cb628dd04d7b236f4",
+			"2e7e9716e0ce3050dc615d2e807db4e6c2efa9cfd9ff9d60713b53f396e48398",
 		},
 		{
-			blockVrf:      "e0bf34a6b73481302f22987cde4c12807cbc2c3fea3f7fcb77261385a50e8ccdda3226db3efff73e9fb15eecf841bbc85ce37550de0435ebcdcb205e0ed08467",
-			expectedNonce: "451a58bea49fe97972574b28aac0a7a8d1a4743c9eaa0758f2938bf6e9dc0eb3",
+			"Praos", common.NonceFromPraosVRF,
+			"0e67af6e4bf9ed97bf8d37652dab254ac88fe309c13271a222a91f0a7652a274",
+			"4946e15256ad9ae4a721f4cb7024029d0104facac38afb9503c6b63f71cf65c4",
+			"1334aea5f7f1cfb71e0510c37b8b100c6c1816670d19200624fd30340445dfe8",
 		},
-		{
-			blockVrf:      "7107ef8c16058b09f4489715297e55d145a45fc0df75dfb419cab079cd28992854a034ad9dc4c764544fb70badd30a9611a942a03523c6f3d8967cf680c4ca6b",
-			expectedNonce: "8473942f09ed0e80a19637b8723c9db9e94fa2ca3e08bf88d43a3e57cb4c08bf",
-		},
-		{
-			blockVrf:      "6f561aad83884ee0d7b19fd3d757c6af096bfd085465d1290b13a9dfc817dfcdfb0b59ca06300206c64d1ba75fd222a88ea03c54fbbd5d320b4fbcf1c228ba4e",
-			expectedNonce: "cc0dbcf07b3959087bda7ae6db6f8fe13115c04d9a993ce6ff464d5e9972a346",
-		},
-		{
-			blockVrf:      "3d3ba80724db0a028783afa56a85d684ee778ae45b9aa9af3120f5e1847be1983bd4868caf97fcfd82d5a3b0b7c1a6d53491d75440a75198014eb4e707785cad",
-			expectedNonce: "a36083e599d6bbe528f001b6a5ca546fd09eb1b199df767aa28340f1d54ebf53",
-		},
-		{
-			blockVrf:      "0b07976bc04321c2e7ba0f1acb3c61bd92b5fc780a855632e30e6746ab4ac4081490d816928762debd3e512d22ad512a558612adc569718df1784261f5c26aff",
-			expectedNonce: "fd3de76ac460069d7ad18247985c6d31c1f682cb939a5c1eba06da21bb4cdcd2",
-		},
-		{
-			blockVrf:      "5e9e001fb1e2ddb0dc7ff40af917ecf4ba9892491d4bcbf2c81db2efc57627d40d7aac509c9bcf5070d4966faaeb84fd76bb285af2e51af21a8c024089f598c1",
-			expectedNonce: "eabfd5e887b8ae77312078ca5cf3547ba919b6e974821899d1f23a1620628fe6",
-		},
-		{
-			blockVrf:      "182e83f8c67ad2e6bddead128e7108499ebcbc272b50c42783ef08f035aa688fecc7d15be15a90dbfe7fe5d7cd9926987b6ec12b05f2eadfe0eb6cad5130aca4",
-			expectedNonce: "6eaf0c2dfefb1ae1643009aff2fa6ca6540298cc99a5fe0f1f5adc315af22f68",
-		},
-		{
-			blockVrf:      "275e7404b2385a9d606d67d0e29f5516fb84c1c14aaaf91afa9a9b3dcdfe09075efdadbaf158cfa1e9f250cc7c691ed2db4a29288d2426bd74a371a2a4b91b57",
-			expectedNonce: "671f523bffa0b1b274b6072d03c8d390c344b3be713ef0c6539e0fdd7c10aa5c",
-		},
-		{
-			blockVrf:      "0f35c7217792f8b0cbb721ae4ae5c9ae7f2869df49a3db256aacc10d23997a09e0273261b44ebbcecd6bf916f2c1cd79cf25b0c2851645d75dd0747a8f6f92f5",
-			expectedNonce: "8ca847433c9141756194ab92f4d2b8fc20fee8c254a6479001029219d0cb480b",
-		},
-		{
-			blockVrf:      "14c28bf9b10421e9f90ffc9ab05df0dc8c8a07ffac1c51725fba7e2b7972d0769baea248f93ed0f2067d11d719c2858c62fc1d8d59927b41d4c0fbc68d805b32",
-			expectedNonce: "3a9e52c2b8856789c5a96a156cc0651e04e05e6fa4a6ef57a3bf7f5a2528905f",
-		},
-		{
-			blockVrf:      "e4ce96fee9deb9378a107db48587438cddf8e20a69e21e5e4fbd35ef0c56530df77eba666cb152812111ba66bbd333ed44f627c727115f8f4f15b31726049a19",
-			expectedNonce: "a65bace2ee782f130f5844ade5c30d0bffc6469976ee4981bc18d4834cdc3b97",
-		},
-		{
-			blockVrf:      "b38f315e3ce369ea2551bf4f44e723dd15c7d67ba4b3763997909f65e46267d6540b9b00a7a65ae3d1f3a3316e57a821aeaac33e4e42ded415205073134cd185",
-			expectedNonce: "536e9d4ca1ed80192aac30c8a06c2e2483c5fe3f74b54901c4a9c9578a5ad9ff",
-		},
-		{
-			blockVrf:      "4bcbf774af9c8ff24d4d96099001ec06a24802c88fea81680ea2411392d32dbd9b9828a690a462954b894708d511124a2db34ec4179841e07a897169f0f1ac0e",
-			expectedNonce: "dda742491a73a7cdf6c039daeb35dc4061c8cf712ab5c6e0a7cda26968899999",
-		},
-		{
-			blockVrf:      "65247ace6355f978a12235265410c44f3ded02849ec8f8e6db2ac705c3f57d322ea073c13cf698e15d7e1d7f2bc95e7b3533be0dee26f58864f1664df0c1ebba",
-			expectedNonce: "0d87ed8521753af0712d9c7158254a62bb779c185861356b4dc8fd842e8de64a",
-		},
-	}
-	var rollingNonce []byte
-	for _, testDef := range testDefs {
-		// Populate initial nonce
-		if testDef.prevBlockNonce != "" {
-			tmpNonce, err := hex.DecodeString(testDef.prevBlockNonce)
-			if err != nil {
-				t.Fatalf("unexpected error: %s", err)
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			contribution, err := test.derive(output)
+			require.NoError(t, err)
+			require.Equal(t, uint(common.NonceTypeNonce), contribution.Type)
+			require.Equal(t, test.contribution,
+				hex.EncodeToString(contribution.Value[:]))
+			for _, combination := range []struct {
+				previous common.Nonce
+				want     string
+			}{
+				{previous, test.evolving},
+				{zeroHash, test.zeroHash},
+			} {
+				got, err := common.CombineNonces(
+					combination.previous, contribution,
+				)
+				require.NoError(t, err)
+				require.Equal(t, uint(common.NonceTypeNonce), got.Type)
+				require.Equal(t, combination.want,
+					hex.EncodeToString(got.Value[:]))
+				legacy, err := common.CalculateRollingNonce(
+					combination.previous.Value[:], contribution.Value[:],
+				)
+				require.NoError(t, err)
+				require.Equal(
+					t,
+					combination.want,
+					hex.EncodeToString(legacy[:]),
+				)
 			}
-			rollingNonce = tmpNonce
-		}
-		blockVrfBytes, err := hex.DecodeString(testDef.blockVrf)
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err)
-		}
-		nonce, err := common.CalculateRollingNonce(rollingNonce, blockVrfBytes)
-		if err != nil {
-			t.Fatalf("unexpected error: %s", err)
-		}
-		nonceHex := hex.EncodeToString(nonce.Bytes())
-		if nonceHex != testDef.expectedNonce {
-			t.Fatalf(
-				"did not get expected nonce value: got %s, wanted %s",
-				nonceHex,
-				testDef.expectedNonce,
-			)
-		}
-		rollingNonce = nonce.Bytes()
+			for _, length := range []int{0, 31, 32, 63, 65} {
+				_, err := test.derive(make([]byte, length))
+				require.Error(t, err, "length %d", length)
+			}
+		})
 	}
-}
-
-func TestCalculateRollingNonceInvalidPrevBlockNonceLength(t *testing.T) {
-	validVrf := make([]byte, 64)
-	// Too short
-	_, err := common.CalculateRollingNonce(make([]byte, 16), validVrf)
-	if err == nil {
-		t.Fatal("expected error for invalid prevBlockNonce length, got nil")
-	}
-	// Too long
-	_, err = common.CalculateRollingNonce(make([]byte, 64), validVrf)
-	if err == nil {
-		t.Fatal("expected error for invalid prevBlockNonce length, got nil")
-	}
-}
-
-func TestCalculateRollingNonceInvalidBlockVrfLength(t *testing.T) {
-	validNonce := make([]byte, 32)
-	// Wrong length (not 32 or 64)
-	_, err := common.CalculateRollingNonce(validNonce, make([]byte, 48))
-	if err == nil {
-		t.Fatal("expected error for invalid blockVrf length, got nil")
-	}
-	_, err = common.CalculateRollingNonce(validNonce, make([]byte, 0))
-	if err == nil {
-		t.Fatal("expected error for empty blockVrf, got nil")
-	}
-}
-
-func TestCalculateRollingNonceNeutral(t *testing.T) {
-	// A neutral (all-zero) prevBlockNonce should follow the NeutralNonce
-	// identity path: NeutralNonce ⭒ Nonce(x) = Nonce(x), returning
-	// blake2b_256(blockVrf) directly without concatenation.
-	neutralNonce := make([]byte, 32) // all zeros
-	blockVrf, err := hex.DecodeString(
-		"36ec5378d1f5041a59eb8d96e61de96f0950fb41b49ff511f7bc7fd109d4383e1d24be7034e6749c6612700dd5ceb0c66577b88a19ae286b1321d15bce1ab736",
+	tp, err := common.NonceFromTPraosVRF(output)
+	require.NoError(t, err)
+	pr, err := common.NonceFromPraosVRF(output)
+	require.NoError(t, err)
+	rolling, err := common.CombineNonces(previous, tp)
+	require.NoError(t, err)
+	rolling, err = common.CombineNonces(rolling, pr)
+	require.NoError(t, err)
+	require.Equal(t,
+		"d8d64a5a8294637cb5ae8d8fb780f8384ad422f049dec0eda4b10fde78c51b1a",
+		hex.EncodeToString(rolling.Value[:]),
 	)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
+}
+
+func TestCombineNoncesNeutral(t *testing.T) {
+	neutral := common.Nonce{Type: common.NonceTypeNeutral}
+	zeroHash := common.Nonce{Type: common.NonceTypeNonce}
+	tp, err := common.NonceFromTPraosVRF(bytes.Repeat([]byte{2}, 64))
+	require.NoError(t, err)
+	pr, err := common.NonceFromPraosVRF(bytes.Repeat([]byte{2}, 64))
+	require.NoError(t, err)
+	for _, nonce := range []common.Nonce{neutral, zeroHash, tp, pr} {
+		left, err := common.CombineNonces(neutral, nonce)
+		require.NoError(t, err)
+		require.Equal(t, nonce, left)
+		right, err := common.CombineNonces(nonce, neutral)
+		require.NoError(t, err)
+		require.Equal(t, nonce, right)
 	}
-	result, err := common.CalculateRollingNonce(neutralNonce, blockVrf)
-	if err != nil {
-		t.Fatalf("unexpected error: %s", err)
+	invalid := common.Nonce{Type: 2}
+	for _, nonce := range []common.Nonce{neutral, zeroHash, tp, pr} {
+		_, err := common.CombineNonces(invalid, nonce)
+		require.Error(t, err)
+		_, err = common.CombineNonces(nonce, invalid)
+		require.Error(t, err)
 	}
-	// With neutral nonce, result should equal blake2b_256(blockVrf)
-	expected := common.Blake2b256Hash(blockVrf)
-	if result != expected {
-		t.Fatalf(
-			"neutral nonce should produce blake2b_256(blockVrf): got %x, want %x",
-			result,
-			expected,
-		)
+}
+
+func TestCalculateRollingNonceRejectsInvalidInputs(t *testing.T) {
+	for _, length := range []int{0, 16, 31, 33, 64, 65} {
+		t.Run(fmt.Sprintf("previous_%d", length), func(t *testing.T) {
+			_, err := common.CalculateRollingNonce(
+				make([]byte, length), make([]byte, 32),
+			)
+			require.Error(t, err)
+		})
+		t.Run(fmt.Sprintf("contribution_%d", length), func(t *testing.T) {
+			_, err := common.CalculateRollingNonce(
+				make([]byte, 32), make([]byte, length),
+			)
+			require.ErrorContains(
+				t,
+				err,
+				"NonceFromTPraosVRF or NonceFromPraosVRF",
+			)
+		})
 	}
 }
 
@@ -281,5 +254,65 @@ func TestCalculateEpochNonceInvalidExtraEntropyLength(t *testing.T) {
 	_, err = common.CalculateEpochNonce(stable, prevHash, make([]byte, 64))
 	if err == nil {
 		t.Fatal("expected error for 64-byte extraEntropy, got nil")
+	}
+}
+
+// Expected values follow the reference tick, ηc ⭒ ηh ⭒ ηe
+// (cardano-ledger Cardano.Protocol.TPraos.Rules.Tickn tickTransition), with
+// NeutralNonce as the identity of ⭒ (Cardano.Ledger.BaseTypes). The hashes
+// are blake2b-256 of the concatenated operands, computed with b2sum -l 256,
+// not with the reference itself.
+func TestEpochNonceFromNonces(t *testing.T) {
+	nonce := func(b byte) common.Nonce {
+		n := common.Nonce{Type: common.NonceTypeNonce}
+		copy(n.Value[:], bytes.Repeat([]byte{b}, 32))
+		return n
+	}
+	hashed := func(h string) common.Nonce {
+		n := common.Nonce{Type: common.NonceTypeNonce}
+		raw, err := hex.DecodeString(h)
+		require.NoError(t, err)
+		copy(n.Value[:], raw)
+		return n
+	}
+	neutral := common.Nonce{Type: common.NonceTypeNeutral}
+	candidate, lab, entropy := nonce(1), nonce(2), nonce(3)
+	for _, test := range []struct {
+		name                    string
+		candidate, lab, entropy common.Nonce
+		want                    common.Nonce
+	}{
+		{"neutral lab", candidate, neutral, neutral, candidate},
+		{
+			"neutral lab with extra entropy", candidate, neutral, entropy,
+			hashed("725d60bce59829bc8127bb1551be4b065b3105277343bf405a0c8ab43b69ed7b"),
+		},
+		{
+			"neutral extra entropy", candidate, lab, neutral,
+			hashed("30b600fb1f0cc0b3f0fc28cdcb7389405a6659be81c7d5c5905725aa3a5119ce"),
+		},
+		{
+			"all nonneutral", candidate, lab, entropy,
+			hashed("d1d371ee5b8ba2283151d7817ec46afd6c32b09c4acec3735de7ca2540272031"),
+		},
+		{"neutral candidate", neutral, lab, neutral, lab},
+		{"all neutral", neutral, neutral, neutral, neutral},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := common.EpochNonceFromNonces(
+				test.candidate, test.lab, test.entropy,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+	invalid := common.Nonce{Type: 2}
+	for _, args := range [][3]common.Nonce{
+		{invalid, lab, entropy},
+		{candidate, invalid, entropy},
+		{candidate, lab, invalid},
+	} {
+		_, err := common.EpochNonceFromNonces(args[0], args[1], args[2])
+		require.Error(t, err)
 	}
 }

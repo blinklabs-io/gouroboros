@@ -76,7 +76,10 @@ func VerifyDijkstraCertificate(
 // certificate. The signature is checked over the raw announcing block hash;
 // see VerifyDijkstraCertificateForMessage for the prototype encoding.
 // Committee seat keys are pool keys, so their proofs are checked under the
-// same domain the network's POOL rule used at registration.
+// same domain the network's POOL rule used at registration. committeeSize is
+// the committee-size protocol parameter; the committee in context may have
+// fewer seats when fewer pools are registered, and the signer bitfield is
+// sized by the committee's own seats.
 func VerifyDijkstraCertificateForDomain(
 	signers, signature []byte,
 	committeeSize uint16,
@@ -118,11 +121,14 @@ func VerifyDijkstraCertificateForMessage(
 	if err != nil {
 		return err
 	}
-	if uint64(len(context.Committee)) != uint64(committeeSize) {
+	// The committee is the top committeeSize pools, or every pool when
+	// fewer are registered, so it may have fewer seats than the parameter.
+	seats := uint64(len(context.Committee))
+	if seats > uint64(committeeSize) {
 		return fmt.Errorf(
-			"%w: got %d seats, want %d",
+			"%w: got %d seats, want at most %d",
 			ErrMalformedCommittee,
-			len(context.Committee),
+			seats,
 			committeeSize,
 		)
 	}
@@ -140,10 +146,7 @@ func VerifyDijkstraCertificateForMessage(
 			ErrMalformedCommittee,
 		)
 	}
-	if err := common.ValidateLeiosSignerBitfield(
-		signers,
-		uint64(committeeSize),
-	); err != nil {
+	if err := common.ValidateLeiosSignerBitfield(signers, seats); err != nil {
 		return fmt.Errorf("%w: %w", ErrMalformedCommittee, err)
 	}
 

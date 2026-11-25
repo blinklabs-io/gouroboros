@@ -138,7 +138,7 @@ func testSubsequentStateTimeoutRemainsActive(
 				}},
 			},
 			confirmState: {
-				Agency:  AgencyServer,
+				Agency:  AgencyClient,
 				Timeout: 20 * time.Millisecond,
 			},
 		},
@@ -157,6 +157,146 @@ func testSubsequentStateTimeoutRemainsActive(
 		require.Contains(t, err.Error(), "timeout waiting on transition")
 	case <-time.After(time.Second):
 		t.Fatal("subsequent state timeout was not enforced")
+	}
+}
+
+// TestStateTimeoutAppliesOnlyWhileAwaitingPeer enters a state with a timeout
+// in each role. The reference driver applies a state's time limit only while
+// receiving the peer's message, so the side holding agency is never timed out
+// however long it takes to send; the side waiting for that message is.
+func TestStateTimeoutAppliesOnlyWhileAwaitingPeer(t *testing.T) {
+	const timeout = 20 * time.Millisecond
+	for _, test := range []struct {
+		name        string
+		role        ProtocolRole
+		wantTimeout bool
+	}{
+		{"server holding agency", ProtocolRoleServer, false},
+		{"client awaiting server", ProtocolRoleClient, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conn, peerConn := net.Pipe()
+			defer conn.Close()
+			defer peerConn.Close()
+			m := muxer.New(conn)
+			m.Start()
+			defer m.Stop()
+			errorChan := make(chan error, 1)
+			initialState := NewState(1, "Initial")
+			busyState := NewState(2, "Busy")
+			p := New(ProtocolConfig{
+				ErrorChan: errorChan,
+				Muxer:     m,
+				Role:      test.role,
+				StateMap: StateMap{
+					initialState: {
+						Agency: AgencyClient,
+						Transitions: []StateTransition{{
+							MsgType:  1,
+							NewState: busyState,
+						}},
+					},
+					busyState: {
+						Agency:  AgencyServer,
+						Timeout: timeout,
+					},
+				},
+				InitialState: initialState,
+			})
+			p.Start()
+			defer p.Stop()
+
+			require.NoError(t, p.transitionState(&MessageBase{MessageType: 1}))
+
+			if test.wantTimeout {
+				select {
+				case err := <-errorChan:
+					require.ErrorContains(
+						t,
+						err,
+						"timeout waiting on transition",
+					)
+				case <-time.After(time.Second):
+					t.Fatal("timeout awaiting the peer was not enforced")
+				}
+				return
+			}
+			select {
+			case err := <-errorChan:
+				t.Fatalf("agency holder timed itself out: %v", err)
+			case <-time.After(10 * timeout):
+			}
+		})
+	}
+}
+
+// TestStateTimeoutExcludesInboundHandler receives a message that leaves the
+// peer with agency, as block-fetch MsgBlock does in Streaming, and handles it
+// slowly. The reference times only the wait for the peer's message, so the
+// handler's time must not count against the next state's timeout; the timer
+// starts once the handler returns and then still times the peer.
+func TestStateTimeoutExcludesInboundHandler(t *testing.T) {
+	const (
+		timeout     = 100 * time.Millisecond
+		handlerTime = 500 * time.Millisecond
+	)
+	conn, peerConn := net.Pipe()
+	defer conn.Close()
+	defer peerConn.Close()
+	m := muxer.New(conn)
+	m.Start()
+	defer m.Stop()
+	errorChan := make(chan error, 1)
+	idleState := NewState(1, "Idle")
+	streamingState := NewState(2, "Streaming")
+	handlerReturned := make(chan time.Time, 1)
+	p := New(ProtocolConfig{
+		ErrorChan: errorChan,
+		Muxer:     m,
+		Role:      ProtocolRoleClient,
+		StateMap: StateMap{
+			idleState: {
+				Agency: AgencyClient,
+				Transitions: []StateTransition{{
+					MsgType:  1,
+					NewState: streamingState,
+				}},
+			},
+			streamingState: {
+				Agency:  AgencyServer,
+				Timeout: timeout,
+				Transitions: []StateTransition{{
+					MsgType:  2,
+					NewState: streamingState,
+				}},
+			},
+		},
+		InitialState: idleState,
+		MessageHandlerFunc: func(Message) error {
+			time.Sleep(handlerTime)
+			handlerReturned <- time.Now()
+			return nil
+		},
+	})
+	p.Start()
+	defer p.Stop()
+
+	require.NoError(t, p.transitionState(&MessageBase{MessageType: 1}))
+	p.recvQueueChan <- inboundMessage{message: &MessageBase{MessageType: 2}}
+
+	var returnedAt time.Time
+	select {
+	case err := <-errorChan:
+		t.Fatalf("timed out while handling the peer's message: %v", err)
+	case returnedAt = <-handlerReturned:
+	}
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "timeout waiting on transition")
+		require.GreaterOrEqual(t, time.Since(returnedAt), timeout,
+			"the timer did not start when the handler returned")
+	case <-time.After(time.Second):
+		t.Fatal("the wait for the peer after the handler was not timed")
 	}
 }
 

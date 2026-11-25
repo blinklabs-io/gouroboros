@@ -21,7 +21,9 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -264,6 +266,82 @@ func TestMkSeedTPraos(t *testing.T) {
 		recovered[i] = tpraosSeed[i] ^ seedEtaVal[i]
 	}
 	assert.Equal(t, praos, recovered, "XOR inverse should recover base")
+}
+
+// Expected values follow the reference VRF inputs, which append nothing for a
+// NeutralNonce epoch nonce: Praos mkInputVRF (Cardano.Protocol.Praos.VRF) is
+// blake2b-256(slot_be64 || η0), TPraos mkSeed
+// (Cardano.Protocol.TPraos.BlockHeader) XORs that with the seed constant.
+// The hashes were computed with b2sum -l 256, not with the reference itself.
+func TestVrfInputFromNonce(t *testing.T) {
+	const slot = 12345
+	neutral := common.Nonce{Type: common.NonceTypeNeutral}
+	eta0 := common.Nonce{Type: common.NonceTypeNonce}
+	for i := range eta0.Value {
+		eta0.Value[i] = byte(i)
+	}
+	for _, test := range []struct {
+		name string
+		mk   func(common.Nonce) ([]byte, error)
+		// want for a neutral epoch nonce: blake2b-256(slot_be64), XORed
+		// with the seed constant for TPraos.
+		neutral string
+		// want for eta0: blake2b-256(slot_be64 || eta0), XORed likewise.
+		nonce string
+	}{
+		{
+			"Praos",
+			func(n common.Nonce) ([]byte, error) {
+				return MkInputVrfFromNonce(slot, n)
+			},
+			"8e39b6af2f61349cdb5ef1ddb1dfd7d73f86c669e7ae2aad0c2c9ab6c0ce11a6",
+			"28822b975b7cb607daffde60986defec28effe291de49ddcedd7058099f28939",
+		},
+		{
+			"TPraos nonce seed",
+			func(n common.Nonce) ([]byte, error) {
+				return MkSeedTPraosFromNonce(slot, n, SeedEta())
+			},
+			"0fddccb6c9d3af96bee7a8cad3118694d2b6164ff9f30e0e2c3bc8e6abeee0fa",
+			"",
+		},
+		{
+			"TPraos leader seed",
+			func(n common.Nonce) ([]byte, error) {
+				return MkSeedTPraosFromNonce(slot, n, SeedL())
+			},
+			"9ce4bcc5526f16b64ccc9c7d8b048da05755daae226c97c524cdd0cbe5342bc6",
+			"",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := test.mk(neutral)
+			require.NoError(t, err)
+			require.Equal(t, test.neutral, hex.EncodeToString(got))
+			got, err = test.mk(eta0)
+			require.NoError(t, err)
+			if test.nonce != "" {
+				require.Equal(t, test.nonce, hex.EncodeToString(got))
+			}
+			_, err = test.mk(common.Nonce{Type: 2})
+			require.Error(t, err)
+		})
+	}
+	// A nonneutral epoch nonce gives the byte functions' value.
+	legacy, err := MkInputVrf(slot, eta0.Value[:])
+	require.NoError(t, err)
+	got, err := MkInputVrfFromNonce(slot, eta0)
+	require.NoError(t, err)
+	require.Equal(t, legacy, got)
+	for _, seed := range [][]byte{SeedEta(), SeedL()} {
+		legacy, err := MkSeedTPraos(slot, eta0.Value[:], seed)
+		require.NoError(t, err)
+		got, err := MkSeedTPraosFromNonce(slot, eta0, seed)
+		require.NoError(t, err)
+		require.Equal(t, legacy, got)
+	}
+	_, err = MkSeedTPraosFromNonce(slot, eta0, make([]byte, 31))
+	require.Error(t, err)
 }
 
 func TestProofToHash(t *testing.T) {

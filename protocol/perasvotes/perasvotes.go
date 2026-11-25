@@ -16,6 +16,7 @@
 package perasvotes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -34,8 +35,19 @@ const (
 	DefaultMaxObjectsUnacknowledged uint16 = 50
 	// MaxObjectsUnacknowledged bounds the configurable outstanding ID window.
 	MaxObjectsUnacknowledged uint16 = 1000
-	// DefaultTimeout bounds non-blocking ID and object requests.
-	DefaultTimeout = 5 * time.Second
+	// DefaultTimeout bounds non-blocking ID and object requests. It is the
+	// reference's shortWait for those states.
+	DefaultTimeout = 10 * time.Second
+	// CanAwaitTimeout bounds the wait for the first answer to a blocking ID
+	// request: identifiers or MsgAwaitReply. It is the reference's shortWait.
+	CanAwaitTimeout = 10 * time.Second
+	// MustReplyTimeout bounds the wait, after MsgAwaitReply, for identifiers
+	// or MsgServerIdle. It is the reference's longWait.
+	MustReplyTimeout = 60 * time.Second
+	// DefaultAwaitTimeout is how long a server waits for new identifiers
+	// after MsgAwaitReply before it sends MsgServerIdle. It stays well inside
+	// MustReplyTimeout so a reference client does not time the server out.
+	DefaultAwaitTimeout = 30 * time.Second
 )
 
 var (
@@ -43,7 +55,9 @@ var (
 	StateInit = protocol.NewState(1, "Init")
 	// StateIdle is where the client can request vote IDs or objects.
 	StateIdle = protocol.NewState(2, "Idle")
-	// StateObjectIDsBlocking waits for a non-empty ID reply.
+	// StateObjectIDsBlocking waits for the first answer to a blocking ID
+	// request: a non-empty ID reply, or MsgAwaitReply. It is the reference's
+	// blocking CanAwait phase.
 	StateObjectIDsBlocking = protocol.NewState(3, "ObjectIDsBlocking")
 	// StateObjectIDsNonBlocking waits for an ID reply that may be empty.
 	StateObjectIDsNonBlocking = protocol.NewState(4, "ObjectIDsNonBlocking")
@@ -51,6 +65,12 @@ var (
 	StateObjects = protocol.NewState(5, "Objects")
 	// StateDone is the terminal state.
 	StateDone = protocol.NewState(6, "Done")
+	// StateObjectIDsBlockingMustReply follows MsgAwaitReply: the server
+	// still has agency and must send a non-empty ID reply or MsgServerIdle.
+	StateObjectIDsBlockingMustReply = protocol.NewState(
+		7,
+		"ObjectIDsBlockingMustReply",
+	)
 )
 
 // StateMap follows the ObjectDiffusion state machine in ouroboros-network.
@@ -81,10 +101,29 @@ var StateMap = protocol.StateMap{
 	},
 	StateObjectIDsBlocking: {
 		Agency: protocol.AgencyServer,
-		Transitions: []protocol.StateTransition{{
-			MsgType: MessageTypeReplyObjectIDs, NewState: StateIdle,
-			MatchFunc: matchReplyObjectIDs,
-		}},
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType: MessageTypeReplyObjectIDs, NewState: StateIdle,
+				MatchFunc: matchReplyObjectIDs,
+			},
+			{
+				MsgType:  MessageTypeAwaitReply,
+				NewState: StateObjectIDsBlockingMustReply,
+			},
+		},
+	},
+	StateObjectIDsBlockingMustReply: {
+		Agency: protocol.AgencyServer,
+		Transitions: []protocol.StateTransition{
+			{
+				MsgType: MessageTypeReplyObjectIDs, NewState: StateIdle,
+				MatchFunc: matchReplyObjectIDs,
+			},
+			{
+				MsgType: MessageTypeServerIdle, NewState: StateIdle,
+				MatchFunc: matchServerIdle,
+			},
+		},
 	},
 	StateObjectIDsNonBlocking: {
 		Agency: protocol.AgencyServer,
@@ -193,6 +232,23 @@ func matchReplyObjectIDs(ctx any, msg protocol.Message) bool {
 	return true
 }
 
+// matchServerIdle ends the blocking request without identifiers. Its
+// acknowledgement was applied when the request was sent, so the next request
+// acknowledges nothing from it.
+func matchServerIdle(ctx any, msg protocol.Message) bool {
+	stateCtx, ok := ctx.(*stateContext)
+	if !ok {
+		return false
+	}
+	if _, ok := msg.(*MsgServerIdle); !ok ||
+		!stateCtx.objectIDsRequestPending {
+		return false
+	}
+	stateCtx.requestCount = 0
+	stateCtx.objectIDsRequestPending = false
+	return true
+}
+
 func matchRequestObjects(ctx any, msg protocol.Message) bool {
 	stateCtx, ok := ctx.(*stateContext)
 	if !ok {
@@ -271,9 +327,13 @@ type PerasVotes struct {
 type Config struct {
 	MaxObjectsUnacknowledged uint16
 	Timeout                  time.Duration
-	ObjectIDsFunc            ObjectIDsFunc
-	ObjectsFunc              ObjectsFunc
-	VoteFunc                 VoteFunc
+	// AwaitTimeout bounds a server's wait for new identifiers after it sent
+	// MsgAwaitReply; it must be shorter than MustReplyTimeout.
+	AwaitTimeout       time.Duration
+	ObjectIDsFunc      ObjectIDsFunc
+	AwaitObjectIDsFunc AwaitObjectIDsFunc
+	ObjectsFunc        ObjectsFunc
+	VoteFunc           VoteFunc
 }
 
 // CallbackContext provides protocol and connection lifecycle information.
@@ -285,8 +345,22 @@ type CallbackContext struct {
 }
 
 type (
-	// ObjectIDsFunc supplies IDs in response to a client request.
+	// ObjectIDsFunc supplies IDs in response to a client request, given the
+	// acknowledged and requested counts. For a blocking request it must
+	// answer within CanAwaitTimeout; with no ID available it returns none,
+	// and the server sends MsgAwaitReply and calls AwaitObjectIDsFunc.
 	ObjectIDsFunc func(CallbackContext, uint16, uint16) ([]VoteID, error)
+	// AwaitObjectIDsFunc waits, until ctx ends, for up to the requested
+	// number of IDs after the server sent MsgAwaitReply. The server sends
+	// the IDs it returns, even after ctx has ended, or MsgServerIdle when it
+	// returns none. An error returned before ctx ends fails the connection;
+	// one returned after it does not. When it is nil the server waits
+	// AwaitTimeout and then sends MsgServerIdle.
+	AwaitObjectIDsFunc func(
+		context.Context,
+		CallbackContext,
+		uint16,
+	) ([]VoteID, error)
 	// ObjectsFunc supplies requested vote payloads; unavailable votes may be
 	// omitted.
 	ObjectsFunc func(CallbackContext, []VoteID) ([]VoteObject, error)
@@ -338,6 +412,9 @@ func normalizeConfig(cfg *Config) *Config {
 	if ret.Timeout == 0 {
 		ret.Timeout = DefaultTimeout
 	}
+	if ret.AwaitTimeout == 0 {
+		ret.AwaitTimeout = DefaultAwaitTimeout
+	}
 	if err := ret.validate(); err != nil {
 		panic("invalid PerasVotes configuration: " + err.Error())
 	}
@@ -349,6 +426,7 @@ func NewConfig(options ...PerasVotesOptionFunc) Config {
 	cfg := Config{
 		MaxObjectsUnacknowledged: DefaultMaxObjectsUnacknowledged,
 		Timeout:                  DefaultTimeout,
+		AwaitTimeout:             DefaultAwaitTimeout,
 	}
 	for _, option := range options {
 		option(&cfg)
@@ -370,6 +448,12 @@ func (c *Config) validate() error {
 	if c.Timeout <= 0 {
 		return errors.New("timeout must be positive")
 	}
+	if c.AwaitTimeout <= 0 || c.AwaitTimeout >= MustReplyTimeout {
+		return fmt.Errorf(
+			"await timeout must be positive and below %s",
+			MustReplyTimeout,
+		)
+	}
 	return nil
 }
 
@@ -386,6 +470,18 @@ func WithTimeout(timeout time.Duration) PerasVotesOptionFunc {
 // WithObjectIDsFunc sets the server's ID announcement callback.
 func WithObjectIDsFunc(fn ObjectIDsFunc) PerasVotesOptionFunc {
 	return func(c *Config) { c.ObjectIDsFunc = fn }
+}
+
+// WithAwaitTimeout sets how long the server waits for new IDs after
+// MsgAwaitReply before it sends MsgServerIdle.
+func WithAwaitTimeout(timeout time.Duration) PerasVotesOptionFunc {
+	return func(c *Config) { c.AwaitTimeout = timeout }
+}
+
+// WithAwaitObjectIDsFunc sets the server's wait for new IDs after
+// MsgAwaitReply.
+func WithAwaitObjectIDsFunc(fn AwaitObjectIDsFunc) PerasVotesOptionFunc {
+	return func(c *Config) { c.AwaitObjectIDsFunc = fn }
 }
 
 // WithObjectsFunc sets the server's object lookup callback.
