@@ -346,8 +346,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 			if _, held := m.acceptedIDs[r.id]; held {
 				continue
 			}
-			if last, ok := m.lastSig[r.pool]; ok &&
-				r.at.Sub(last) < m.minSigDelay {
+			if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
 				return fmt.Errorf(
 					"%w: %s since the last",
 					ErrMessageTooFrequent,
@@ -424,7 +423,7 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	// as such whatever else is wrong with it.
 	now := m.now()
 	held, last, seen := m.rateLookup(poolID, string(msg.ID()))
-	if !held && seen && now.Sub(last) < m.minSigDelay {
+	if !held && seen && m.tooSoon(now, last) {
 		return fmt.Errorf(
 			"%w: %s since the last",
 			ErrMessageTooFrequent,
@@ -524,7 +523,7 @@ func (m *MessageAuthenticator) recordRate(r rateRecord) error {
 	if _, held := m.acceptedIDs[r.id]; held {
 		return nil
 	}
-	if last, ok := m.lastSig[r.pool]; ok && r.at.Sub(last) < m.minSigDelay {
+	if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
 		return fmt.Errorf(
 			"%w: %s since the last",
 			ErrMessageTooFrequent,
@@ -533,6 +532,15 @@ func (m *MessageAuthenticator) recordRate(r rateRecord) error {
 	}
 	m.recordRateLocked(r)
 	return nil
+}
+
+// tooSoon reports whether a message of a pool at time at comes less than
+// the minimum delay after the pool's last accepted message, at last. With the
+// limit off nothing is too soon, even a time before last: a batch's time is
+// read before the batch is verified, so another message of the pool can be
+// accepted after it.
+func (m *MessageAuthenticator) tooSoon(at, last time.Time) bool {
+	return m.minSigDelay > 0 && at.Sub(last) < m.minSigDelay
 }
 
 // recordRateLocked stores r and, at most once a minute, forgets accepted IDs
