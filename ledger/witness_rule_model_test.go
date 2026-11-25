@@ -1731,18 +1731,24 @@ func wmIntegrityHash(
 ) common.Blake2b256 {
 	var rd, dat []byte
 	var err error
-	switch w := tx.Witnesses().(type) {
-	case alonzo.AlonzoTransactionWitnessSet:
-		rd, dat = wmAlonzoFamilyIntegrity(t, w.WsRedeemers, w.WsPlutusData)
+	ws := tx.Witnesses()
+	require.NotNil(t, ws)
+	switch w := ws.(type) {
 	case *alonzo.AlonzoTransactionWitnessSet:
+		require.NotNil(t, w)
+		ws = *w
+	case *babbage.BabbageTransactionWitnessSet:
+		require.NotNil(t, w)
+		ws = *w
+	}
+	switch w := ws.(type) {
+	case alonzo.AlonzoTransactionWitnessSet:
 		rd, dat = wmAlonzoFamilyIntegrity(t, w.WsRedeemers, w.WsPlutusData)
 	case babbage.BabbageTransactionWitnessSet:
 		rd, dat = wmAlonzoFamilyIntegrity(t, w.WsRedeemers, w.WsPlutusData)
-	case *babbage.BabbageTransactionWitnessSet:
-		rd, dat = wmAlonzoFamilyIntegrity(t, w.WsRedeemers, w.WsPlutusData)
 	default:
 		rd = []byte{0xa0}
-		if r := tx.Witnesses().Redeemers(); r != nil {
+		if r := ws.Redeemers(); r != nil {
 			n := 0
 			for range r.Iter() {
 				n++
@@ -1752,7 +1758,7 @@ func wmIntegrityHash(
 				require.NoError(t, err)
 			}
 		}
-		if d := tx.Witnesses().PlutusData(); len(d) > 0 {
+		if d := ws.PlutusData(); len(d) > 0 {
 			dat, err = cbor.Encode(wmSet(d))
 			require.NoError(t, err)
 		}
