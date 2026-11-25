@@ -32,18 +32,16 @@ import (
 // these primitives, so each expected byte string is built by hand from the
 // reference rule named in the test, never from this package's output.
 
-// TestRatAsReferenceDecodeRational follows decodeRational (Decoder.hs
-// 465-484) for protocol version 9 and later: tag 30 is consumed when present
-// but not required, the list may be definite or indefinite, it must hold
+// TestRatAsReferenceDecodeRationalWithTag follows decodeRationalWithTag
+// (Decoder.hs 515-517), the bounded-ratio rule Rat implements: exactly one
+// tag 30 is required, the list may be definite or indefinite, it must hold
 // exactly two integers (decodeInteger, so bignums too), and only a zero
 // denominator is refused (decodeRationalWithoutTag, 519-527); the value is
 // n % d, which normalises a negative denominator.
-func TestRatAsReferenceDecodeRational(t *testing.T) {
+func TestRatAsReferenceDecodeRationalWithTag(t *testing.T) {
 	accept := []struct{ hex, want string }{
 		{"d81e820102", "1/2"},
-		{"820102", "1/2"},
 		{"d81e9f0102ff", "1/2"},
-		{"9f0306ff", "1/2"},
 		{"d81e82190fa01a000f4240", "1/250"},
 		{"d81e820120", "-1/1"},
 		{"d81e823863190190", "-1/4"},
@@ -74,6 +72,8 @@ func TestRatAsReferenceDecodeRational(t *testing.T) {
 		"d81e8201f6":     "null denominator",
 		"d81ea10102":     "map instead of list",
 		"d81e8201d81801": "tag 24 around the denominator",
+		"820102":         "untagged list",
+		"9f0306ff":       "untagged indefinite list",
 	}
 	for h, why := range reject {
 		var r cbor.Rat
