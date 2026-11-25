@@ -73,7 +73,7 @@ func TestSendLoopPromotesRacedPipelinedMessageInsteadOfRejecting(t *testing.T) {
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	// Drain whatever sendLoop writes so its segment write never blocks on
 	// an unread net.Pipe; this test only cares about state and errors.
 	go func() {
@@ -198,7 +198,7 @@ func newPipelineRaceProtocol(
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	go func() {
 		buf := make([]byte, 4096)
 		for {

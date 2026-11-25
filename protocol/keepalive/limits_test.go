@@ -79,7 +79,7 @@ func newLimitsServer(t *testing.T) (net.Conn, chan error) {
 	m.Start()
 	t.Cleanup(func() {
 		server.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})

@@ -46,7 +46,7 @@ func TestReceiveLoopDefersDeclaredPeerPipelinedMessagesUntilPeerAgency(
 		_, _ = io.Copy(io.Discard, peerConn)
 	}()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})

@@ -41,7 +41,7 @@ func TestReadLoopBatchStaysWithinReadBufferCap(t *testing.T) {
 	m := muxer.New(localConn)
 	m.Start()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})

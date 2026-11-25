@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -28,8 +29,8 @@ func newSuspendPair(t *testing.T) (*Muxer, *Muxer) {
 	local := New(localConn)
 	remote := New(remoteConn)
 	t.Cleanup(func() {
-		local.Stop()
-		remote.Stop()
+		_ = local.Stop(context.Background())
+		_ = remote.Stop(context.Background())
 		_ = localConn.Close()
 		_ = remoteConn.Close()
 	})

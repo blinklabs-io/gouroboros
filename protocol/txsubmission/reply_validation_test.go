@@ -99,7 +99,7 @@ func newReplyValidationPeerWithConfig(
 		case <-time.After(5 * time.Second):
 			t.Error("TxSubmission server did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:

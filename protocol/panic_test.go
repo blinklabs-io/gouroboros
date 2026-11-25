@@ -60,7 +60,7 @@ func startPanicTestProtocol(
 
 	m := muxer.New(serverConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 
 	errorChan := make(chan error, 1)
 	config.ErrorChan = errorChan

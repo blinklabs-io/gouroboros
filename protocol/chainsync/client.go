@@ -75,8 +75,11 @@ type Client struct {
 	protoOptions     protocol.ProtocolOptions
 	// The test hooks make lifecycle interleavings deterministic without changing
 	// production behavior.
-	testStopInitiated               func()
-	testStopWaitingForComplete      func()
+	testStopInitiated          func()
+	testStopWaitingForComplete func()
+	// testPipelineStopWatcherExit, when set, runs as the pipeline stop
+	// watcher returns.
+	testPipelineStopWatcherExit     func()
 	testStopBusyLockTimeout         time.Duration
 	testStartBeforeProtocolStart    func()
 	testIntersectRequestSent        func()
@@ -226,17 +229,36 @@ func (c *Client) initProtocol() {
 	c.protocolMu.Unlock()
 }
 
+// signalOnly is an already-cancelled context. A Stop given it signals
+// shutdown and returns without waiting.
+var signalOnly = func() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	return ctx
+}()
+
+// startPipelineStopWatcher cancels the pipeline fence once p begins to stop.
+// It runs as one of p's loops, so p's Stop waits for it.
 func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
-	if c.config.Pipeline != nil {
-		fenceCtx := c.awaitReplyCtx
-		fenceCancel := c.awaitReplyCancel
-		go func() {
-			select {
-			case <-p.StopChan():
-				fenceCancel()
-			case <-fenceCtx.Done():
-			}
-		}()
+	if c.config.Pipeline == nil {
+		return
+	}
+	fenceCtx := c.awaitReplyCtx
+	fenceCancel := c.awaitReplyCancel
+	exitHook := c.testPipelineStopWatcherExit
+	started := p.RunLoop("chainsync pipeline stop watcher", func() {
+		select {
+		case <-p.StopChan():
+			fenceCancel()
+		case <-fenceCtx.Done():
+		}
+		if exitHook != nil {
+			exitHook()
+		}
+	})
+	if !started {
+		// p's goroutines are already joined, so it has stopped.
+		fenceCancel()
 	}
 }
 
@@ -541,7 +563,8 @@ func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
 	// stopped as well: no reply can then reach this connection.
 	proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
 	if c.protoOptions.Muxer != nil {
-		c.protoOptions.Muxer.Stop()
+		// Only signal: the connection's shutdown joins the muxer.
+		_ = c.protoOptions.Muxer.Stop(signalOnly)
 	}
 }
 

@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -40,7 +41,7 @@ func TestRegisterProtocolRacingStopDoesNotLeak(t *testing.T) {
 	_, _, _ = m.RegisterProtocol(1, ProtocolRoleInitiator)
 
 	m.registerHook = func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		require.Eventually(t, func() bool {
 			m.protocolReceiversMutex.Lock()
 			defer m.protocolReceiversMutex.Unlock()

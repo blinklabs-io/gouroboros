@@ -126,7 +126,7 @@ func TestLifecycleStopCallers(t *testing.T) {
 			// Stop is called again by the helper's cleanup; it must be a
 			// no-op, and an outside Stop after an inside one must return.
 			requireClosed(t, stopFromOutside(p), "a second Stop did not return")
-			p.config.Muxer.Stop()
+			_ = p.config.Muxer.Stop(context.Background())
 			require.NoError(t, goleak.Find(ignore))
 		})
 	}
@@ -172,7 +172,7 @@ func TestLifecycleStopWaitsForHandler(t *testing.T) {
 	releaseHandler()
 	requireClosed(t, returned, "Stop did not return after the handler")
 	requireClosed(t, p.DoneChan(), "DoneChan did not close")
-	p.config.Muxer.Stop()
+	_ = p.config.Muxer.Stop(context.Background())
 	require.NoError(t, goleak.Find(ignore))
 }
 
@@ -195,7 +195,7 @@ func TestLifecycleHandlerWaitingForStopChan(t *testing.T) {
 	requireClosed(t, stopFromOutside(p), "Stop did not return")
 	requireClosed(t, p.DoneChan(), "DoneChan did not close")
 	requireClosed(t, p.readDoneChan, "readLoop did not exit")
-	p.config.Muxer.Stop()
+	_ = p.config.Muxer.Stop(context.Background())
 	require.NoError(t, goleak.Find(ignore))
 }
 
@@ -264,6 +264,6 @@ func TestLifecycleRestartAfterTerminalMessage(t *testing.T) {
 	}
 	requireClosed(t, p.DoneChan(), "DoneChan did not close")
 	p.CancelRestart()
-	p.config.Muxer.Stop()
+	_ = p.config.Muxer.Stop(context.Background())
 	require.NoError(t, goleak.Find(ignore))
 }

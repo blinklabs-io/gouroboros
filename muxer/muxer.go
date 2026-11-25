@@ -21,6 +21,7 @@ package muxer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -139,6 +140,13 @@ type Muxer struct {
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          atomic.Int64
 	onceStop               sync.Once
+	// cleanupDone is closed by the cleanup goroutine once the read loop,
+	// the forwarders and the senders have returned and errorChan is
+	// closed; Stop waits for it.
+	cleanupDone chan struct{}
+	// callbackCtx is the context returned by CallbackContext. Its value
+	// under callbackOwnerKey is this muxer.
+	callbackCtx context.Context
 	// segmentReadTimeout bounds how long the read loop waits for the next
 	// segment before closing the connection. <= 0 disables the deadline
 	// entirely (no timeout, matching real cardano-node's own behavior on a
@@ -1057,7 +1065,11 @@ func NewWithSegmentReadTimeout(
 		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
 		segmentReadTimeout: segmentReadTimeout,
 		ingress:            newIngressAccount(),
+		cleanupDone:        make(chan struct{}),
 	}
+	m.callbackCtx = context.WithValue(
+		context.Background(), callbackOwnerKey{}, m,
+	)
 	// Start read goroutine
 	m.waitGroup.Add(1)
 	go m.readLoop()
@@ -1075,6 +1087,7 @@ func NewWithSegmentReadTimeout(
 		m.waitGroup.Wait()
 		// Close ErrorChan to signify to consumer that we're shutting down
 		close(m.errorChan)
+		close(m.cleanupDone)
 	}()
 	return m
 }
@@ -1100,13 +1113,57 @@ func (m *Muxer) StartOnce() {
 	}
 }
 
-// Stop shuts down the muxer. It closes the connection, which ends a pending
-// read or write on a standard net.Conn, and returns without waiting. The
-// read loop, the protocol forwarders, which run the Metrics callbacks, and
-// the segment senders have all returned once ErrorChan is closed.
-func (m *Muxer) Stop() {
+// callbackOwnerKey is the context key under which CallbackContext carries
+// its muxer.
+type callbackOwnerKey struct{}
+
+// CallbackContext returns the context a Metrics callback passes to Stop to
+// stop its own muxer. It carries no deadline and is never cancelled.
+func (m *Muxer) CallbackContext() context.Context {
+	if m.callbackCtx == nil {
+		return context.Background()
+	}
+	return m.callbackCtx
+}
+
+// Stop shuts down the muxer and waits for its goroutines. It closes the
+// connection, which ends a pending read or write on a standard net.Conn, and
+// waits until the read loop, the protocol forwarders, which run the Metrics
+// callbacks, and the segment senders have returned and ErrorChan is closed,
+// or until ctx is done, in which case it returns ctx.Err() and shutdown
+// continues. Loops started with StartProtocolLoops belong to their owners,
+// which join them.
+//
+// When ctx is, or derives from, this muxer's CallbackContext, Stop signals
+// shutdown and returns nil without waiting: the caller is a Metrics callback,
+// running on one of the goroutines Stop would wait for. Shutdown completes
+// once the callback returns.
+func (m *Muxer) Stop(ctx context.Context) error {
+	m.stop()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if owner, _ := ctx.Value(callbackOwnerKey{}).(*Muxer); owner == m ||
+		m.cleanupDone == nil {
+		return nil
+	}
+	// A join that has already happened wins over a done ctx.
+	select {
+	case <-m.cleanupDone:
+		return nil
+	default:
+	}
+	select {
+	case <-m.cleanupDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stop closes doneChan once, which starts the shutdown, and returns.
+func (m *Muxer) stop() {
 	m.onceStop.Do(func() {
-		// Close doneChan to signify that we're shutting down
 		close(m.doneChan)
 	})
 }
@@ -1136,8 +1193,9 @@ func (m *Muxer) sendError(err error) {
 	case m.errorChan <- err:
 	default:
 	}
-	// Stop the muxer on any error
-	m.Stop()
+	// Stop the muxer on any error. This runs on the muxer's own
+	// goroutines, so it only signals.
+	m.stop()
 }
 
 // RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,

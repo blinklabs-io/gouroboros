@@ -294,7 +294,7 @@ func newModelHarness(t *testing.T, role protocol.ProtocolRole) (*modelHarness, p
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})

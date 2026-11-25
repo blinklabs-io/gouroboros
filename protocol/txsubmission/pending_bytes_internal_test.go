@@ -86,7 +86,7 @@ func newRawPeerWithConfig(t *testing.T, cfg *Config) *rawPeer {
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:
@@ -492,7 +492,7 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:

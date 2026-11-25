@@ -53,7 +53,7 @@ func newBudgetProtocol(t *testing.T, entry StateMapEntry) *budgetProtocol {
 	// Registered after the connection teardown below, so it runs first and a
 	// failing test cannot leave a handler blocking the protocol's Stop.
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})

@@ -51,8 +51,8 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	txId := func(n byte) TxId {
 		id, _ := fakeTx(n)

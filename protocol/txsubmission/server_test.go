@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -41,8 +42,8 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	clientMuxer := muxer.New(remoteConn)
 	serverMuxer.Start()
 	clientMuxer.Start()
-	t.Cleanup(serverMuxer.Stop)
-	t.Cleanup(clientMuxer.Stop)
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
 	connectionId := connection.ConnectionId{
 		LocalAddr:  &net.UnixAddr{Name: "local", Net: "unix"},
 		RemoteAddr: &net.UnixAddr{Name: "remote", Net: "unix"},
@@ -136,7 +137,7 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 	clientMuxer := muxer.New(remoteConn)
 	serverMuxer.Start()
 	clientMuxer.Start()
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 	t.Cleanup(clientMuxer.Stop)
 	connectionId := connection.ConnectionId{
 		LocalAddr:  &net.UnixAddr{Name: "local", Net: "unix"},

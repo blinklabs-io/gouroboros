@@ -33,7 +33,7 @@ func TestSendKeepAliveDoesNotRearmDuringShutdown(t *testing.T) {
 	m := muxer.New(conn)
 	m.Start()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peer.Close()
 	})
 	client := NewClient(protocol.ProtocolOptions{
@@ -127,7 +127,7 @@ func TestStopLeavesNoTimerArmed(t *testing.T) {
 	m := muxer.New(conn)
 	m.Start()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peer.Close()
 	})
 	client := NewClient(protocol.ProtocolOptions{
