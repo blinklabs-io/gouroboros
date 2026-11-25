@@ -359,17 +359,10 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		return errors.New("message is nil")
 	}
 
-	// dmq-node refuses an out-of-range body when it decodes the message,
-	// before any other check (Codec.hs decodeBody).
-	if n := len(msg.Payload.MessageBody); n < MinMessageBodySize ||
-		n > MaxMessageBodySize {
-		return fmt.Errorf(
-			"%w: %d bytes, want %d to %d",
-			ErrMessageBodySize,
-			n,
-			MinMessageBodySize,
-			MaxMessageBodySize,
-		)
+	// A decoded message was size-checked already; this covers one built
+	// locally, before it is relayed.
+	if err := checkMessageBodySize(msg.Payload.MessageBody); err != nil {
+		return err
 	}
 
 	// Step 1: Verify deterministic message ID before heavier auth checks.

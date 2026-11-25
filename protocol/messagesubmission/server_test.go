@@ -125,7 +125,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg1 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id1,
-			MessageBody: []byte("body1"),
+			MessageBody: paddedTestBody("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},
@@ -133,7 +133,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg2 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id1,
-			MessageBody: []byte("body1"),
+			MessageBody: paddedTestBody("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},
@@ -141,7 +141,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg3 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id2,
-			MessageBody: []byte("body2"),
+			MessageBody: paddedTestBody("body2"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},

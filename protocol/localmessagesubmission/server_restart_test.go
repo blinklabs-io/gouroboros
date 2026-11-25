@@ -15,6 +15,7 @@
 package localmessagesubmission_test
 
 import (
+	"bytes"
 	"testing"
 	"time"
 
@@ -29,7 +30,8 @@ func restartTestSubmission() *localmessagesubmission.MsgSubmitMessage {
 	return localmessagesubmission.NewMsgSubmitMessage(pcommon.DmqMessage{
 		MessageID: []byte("restart-message-id"),
 		Payload: pcommon.DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
+			MessageBody: bytes.Repeat([]byte{0x2e}, pcommon.MinMessageBodySize),
+			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	})
 }

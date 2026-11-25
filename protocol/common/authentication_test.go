@@ -675,7 +675,7 @@ func TestDmqMessageCBORUsesCurrentCIPShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -713,7 +713,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -740,7 +740,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("legacy-id"), decoded.MessageID)
 	assert.Equal(t, []byte("legacy-id"), decoded.Payload.MessageID)
-	assert.Equal(t, []byte("body"), decoded.Payload.MessageBody)
+	assert.Equal(t, paddedBody("body"), decoded.Payload.MessageBody)
 }
 
 // TestVerifyKESSignatureInvalidSize tests KES signature verification with invalid size
@@ -1189,4 +1189,13 @@ func TestOpCertCacheAdmitsOnlyAuthorizedPools(t *testing.T) {
 	require.NoError(t, auth.VerifyMessage(valid))
 	require.Len(t, auth.kesOpCertCache, 1)
 	require.Contains(t, auth.kesOpCertCache, validID)
+}
+
+// paddedBody pads body to the minimum DMQ message body size.
+func paddedBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

@@ -51,7 +51,7 @@ func clientTestMessage(
 	t.Helper()
 	msg := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageBody: []byte(body),
+			MessageBody: paddedTestBody(body),
 			KESPeriod:   1,
 			ExpiresAt:   expiresAt,
 		},

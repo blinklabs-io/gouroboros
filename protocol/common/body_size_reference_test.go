@@ -104,3 +104,46 @@ func TestVerifyMessageBodySizeAsReference(t *testing.T) {
 		}
 	}
 }
+
+// TestDmqMessageDecodeRefusesBodySize checks that a message whose body is
+// outside 90..2000 bytes fails to decode, as in dmq-node a267003c14e9
+// src/DMQ/Protocol/SigSubmission/Codec.hs 193-202, where decodeBody fails
+// before validateSig runs any check. The message here has also expired: the
+// decoding failure still comes first, so a node-to-node receiver closes the
+// connection instead of dropping it as expired.
+func TestDmqMessageDecodeRefusesBodySize(t *testing.T) {
+	for _, tc := range []struct {
+		size   int
+		decode bool
+	}{
+		{0, false},
+		{89, false},
+		{90, true},
+		{2000, true},
+		{2001, false},
+	} {
+		msg := bodySizeMessage(t, tc.size)
+		msg.Payload.ExpiresAt = uint32(time.Now().Add(-time.Hour).Unix())
+		require.NoError(t, msg.SetComputedMessageID())
+		for _, legacy := range []bool{false, true} {
+			var wire []byte
+			var err error
+			if legacy {
+				wire, err = MarshalDmqMessageLegacyCBOR(*msg)
+			} else {
+				wire, err = cbor.Encode(msg)
+			}
+			require.NoError(t, err)
+			var decoded DmqMessage
+			_, err = cbor.Decode(wire, &decoded)
+			if tc.decode {
+				require.NoError(t, err, "body of %d bytes", tc.size)
+			} else {
+				require.ErrorIs(
+					t, err, ErrMessageBodySize,
+					"body of %d bytes, legacy %t", tc.size, legacy,
+				)
+			}
+		}
+	}
+}
