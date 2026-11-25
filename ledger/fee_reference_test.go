@@ -104,6 +104,9 @@ func goldenTxParts(t *testing.T, txCbor []byte) []cbor.RawMessage {
 	var parts []cbor.RawMessage
 	_, err := cbor.Decode(txCbor, &parts)
 	require.NoError(t, err)
+	if len(parts) < 3 {
+		t.Fatalf("transaction has %d components, want at least 3", len(parts))
+	}
 	return parts
 }
 
@@ -717,6 +720,9 @@ func referenceAlonzoUtxoEntrySize(t *testing.T, out cbor.RawMessage) uint64 {
 	var fields []cbor.RawMessage
 	_, err := cbor.Decode(out, &fields)
 	require.NoError(t, err)
+	if len(fields) < 2 {
+		t.Fatalf("output has %d fields, want at least 2", len(fields))
+	}
 	size := uint64(27)
 	if len(fields) == 3 {
 		size += 10
@@ -728,6 +734,9 @@ func referenceAlonzoUtxoEntrySize(t *testing.T, out cbor.RawMessage) uint64 {
 	var value []cbor.RawMessage
 	_, err = cbor.Decode(fields[1], &value)
 	require.NoError(t, err)
+	if len(value) != 2 {
+		t.Fatalf("value has %d elements, want 2", len(value))
+	}
 	var assets map[cbor.ByteString]map[cbor.ByteString]uint64
 	_, err = cbor.Decode(value[1], &assets)
 	require.NoError(t, err)
