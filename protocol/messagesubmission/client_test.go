@@ -81,6 +81,7 @@ func TestHandleRequestMessageIdsRejectsInvalidCountsWithoutMutatingPending(
 
 			err := client.handleRequestMessageIds(
 				NewMsgRequestMessageIds(
+					MessageSubmissionV2MinVersion,
 					tt.isBlocking,
 					tt.ackCount,
 					tt.requestCount,
@@ -118,7 +119,7 @@ func TestHandleRequestMessageIdsAcceptsWindowBoundary(t *testing.T) {
 	)
 	client.pendingMessageIDs = [][]byte{[]byte("id-1"), []byte("id-2")}
 
-	err := client.handleRequestMessageIds(NewMsgRequestMessageIds(false, 1, 2))
+	err := client.handleRequestMessageIds(NewMsgRequestMessageIds(MessageSubmissionV2MinVersion, false, 1, 2))
 
 	require.NoError(t, err)
 	assert.False(t, callbackBlocking)

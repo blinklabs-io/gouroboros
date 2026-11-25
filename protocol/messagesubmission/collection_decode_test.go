@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
@@ -25,21 +26,21 @@ import (
 func TestCollectionLimitsFollowProtocolDirection(t *testing.T) {
 	cfg := NewConfig(WithMaxUnacknowledgedMessageIDs(7))
 	client := &Client{config: &cfg, pendingMessageIDs: [][]byte{{1}, {2}, {3}}}
-	require.Equal(t, 3, client.collectionLimit(MessageTypeRequestMessages))
-	require.Equal(t, 7, client.collectionLimit(MessageTypeReplyMessageIds))
+	require.Equal(t, 3, client.collectionLimit(MessageTypeV1RequestMessages))
+	require.Equal(t, 7, client.collectionLimit(MessageTypeV1ReplyMessageIds))
 
 	server := &Server{config: &cfg}
 	// With nothing outstanding only an empty reply can be admitted.
-	require.Equal(t, 0, server.collectionLimit(MessageTypeReplyMessageIds))
-	require.Equal(t, 0, server.collectionLimit(MessageTypeReplyMessages))
+	require.Equal(t, 0, server.collectionLimit(MessageTypeV1ReplyMessageIds))
+	require.Equal(t, 0, server.collectionLimit(MessageTypeV1ReplyMessages))
 	server.pendingIDRequest = &messageIDRequest{blocking: true, requested: 5}
 	server.pendingMsgRequest = &messageRequest{ids: map[string]struct{}{
 		string(testMessageID(1)): {},
 		string(testMessageID(2)): {},
 	}}
-	require.Equal(t, 5, server.collectionLimit(MessageTypeReplyMessageIds))
-	require.Equal(t, 2, server.collectionLimit(MessageTypeReplyMessages))
-	require.Equal(t, 7, server.collectionLimit(MessageTypeRequestMessages))
+	require.Equal(t, 5, server.collectionLimit(MessageTypeV1ReplyMessageIds))
+	require.Equal(t, 2, server.collectionLimit(MessageTypeV1ReplyMessages))
+	require.Equal(t, 7, server.collectionLimit(MessageTypeV1RequestMessages))
 }
 
 func TestClientReplyCountsCannotExceedPeerRequest(t *testing.T) {
@@ -69,10 +70,11 @@ func TestMessageSubmissionAcceptsConfiguredCollectionLimit(t *testing.T) {
 	for idx := range ids {
 		ids[idx] = []byte{byte(idx)}
 	}
-	wire, err := cbor.Encode(NewMsgRequestMessages(ids))
+	wire, err := cbor.Encode(NewMsgRequestMessages(protocol.ProtocolVersionDMQNtN1, ids))
 	require.NoError(t, err)
 	msg, err := decodeMsgFromCborWithLimit(
-		MessageTypeRequestMessages,
+		protocol.ProtocolVersionDMQNtN1,
+		MessageTypeV1RequestMessages,
 		wire,
 		len(ids),
 	)

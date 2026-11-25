@@ -17,6 +17,7 @@ package testdata
 import (
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -166,7 +167,11 @@ func ShelleyVerifyConfig() (common.VerifyConfig, error) {
 			return &vrfKeyHash, nil
 		},
 		MaxKesEvolutions: 62,
-		LedgerState:      stateBuilder.Build(),
+		// d = 0: the fixture's issuer is answered as a pool above.
+		TPraosOverlay: &common.TPraosOverlaySchedule{
+			Decentralization: new(big.Rat),
+		},
+		LedgerState: stateBuilder.Build(),
 		ProtocolParameters: &shelley.ShelleyProtocolParameters{
 			MaxBlockBodySize:   2_097_154,
 			MaxTxSize:          2_097_154,
