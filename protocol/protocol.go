@@ -577,6 +577,12 @@ func (p *Protocol) stop(restart bool) {
 		p.lifecycleMu.Lock()
 		p.stopped = true
 		started := p.started
+		// The muxer keys ingress settings by protocol ID and role, not by
+		// instance, so once a successor may register for the same role, an
+		// update from this instance would overwrite the successor's.
+		p.ingressMu.Lock()
+		p.registered = false
+		p.ingressMu.Unlock()
 		p.lifecycleMu.Unlock()
 
 		p.restarting.Store(restart)

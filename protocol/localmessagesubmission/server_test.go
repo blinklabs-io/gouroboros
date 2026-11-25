@@ -44,8 +44,8 @@ func newSubmissionTestSession(
 	serverMuxer := muxer.New(serverConn)
 	clientErrors := make(chan error, 1)
 	serverErrors := make(chan error, 1)
-	// Room for every answer a test gets: the callbacks run on the receive
-	// loop before SubmitMessage returns, so a full channel would stall it.
+	// Room for every answer a test gets: the callbacks run before
+	// SubmitMessage returns, so a full channel would stall it.
 	result := make(chan pcommon.RejectReason, 8)
 	clientCfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
@@ -116,7 +116,8 @@ func replayTestMessage() pcommon.DmqMessage {
 	return pcommon.DmqMessage{
 		MessageID: []byte("authenticated-message-id"),
 		Payload: pcommon.DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
+			MessageBody: paddedTestBody(""),
+			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
 }
@@ -595,7 +596,10 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 			})
 
 			requireAnswered(t, client.SubmitMessage(&pcommon.DmqMessage{
-				Payload: pcommon.DmqMessagePayload{ExpiresAt: test.expiresAt},
+				Payload: pcommon.DmqMessagePayload{
+					MessageBody: paddedTestBody(""),
+					ExpiresAt:   test.expiresAt,
+				},
 			}))
 			select {
 			case reason := <-rejectReasons:

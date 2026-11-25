@@ -43,7 +43,7 @@ func serverTestSignedMessages(
 	messages := make([]pcommon.DmqMessage, len(bodies))
 	for i := range bodies {
 		payload := pcommon.DmqMessagePayload{
-			MessageBody: []byte(bodies[i]),
+			MessageBody: paddedTestBody(bodies[i]),
 			KESPeriod:   1,
 			ExpiresAt: uint32(
 				time.Now().Add(10 * time.Minute).Unix(),
@@ -78,6 +78,9 @@ func serverTestSignedMessages(
 	}
 	authenticator, err := pcommon.NewMessageAuthenticator(
 		pcommon.MessageAuthenticatorConfig{
+			// The fixtures sign several messages of one pool at once to
+			// test the opcert counter, so the rate limit is off.
+			MinSigDelay:    -1,
 			StakeAuthority: serverTestStakeAuthority{},
 			CurrentSlot: func() (uint64, error) {
 				return 129600, nil
@@ -125,7 +128,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg1 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id1,
-			MessageBody: []byte("body1"),
+			MessageBody: paddedTestBody("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},
@@ -133,7 +136,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg2 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id1,
-			MessageBody: []byte("body1"),
+			MessageBody: paddedTestBody("body1"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},
@@ -141,7 +144,7 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	msg3 := &pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   id2,
-			MessageBody: []byte("body2"),
+			MessageBody: paddedTestBody("body2"),
 			KESPeriod:   1,
 			ExpiresAt:   exp,
 		},
@@ -199,7 +202,13 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	}
 }
 
-func TestServerRejectedReplyDoesNotCommitAuthenticationState(t *testing.T) {
+// TestServerReplyKeepsValidMessagesBesideAFatalOne checks that a forged
+// message ends the connection without costing the valid message beside it:
+// dmq-node adds the valid messages of a batch to its mempool before it
+// throws for an invalid one (ouroboros-network 4646039f
+// Ouroboros/Network/TxSubmission/Mempool/Simple.hs 183-245), so the valid
+// message's opcert counter is recorded and a later lower one is refused.
+func TestServerReplyKeepsValidMessagesBesideAFatalOne(t *testing.T) {
 	messages, authenticator := serverTestSignedMessages(
 		t,
 		[]string{"higher", "invalid", "lower"},
@@ -208,14 +217,17 @@ func TestServerRejectedReplyDoesNotCommitAuthenticationState(t *testing.T) {
 	messages[1].OperationalCertificate.ColdSignature[0] ^= 0xff
 	server := serverWithPendingMessages(authenticator, messages[:2])
 
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[:2]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:2]))
 	require.Error(t, err)
-	require.NotNil(t, server.pendingMsgRequest)
+	require.Nil(t, server.pendingMsgRequest)
+	require.Contains(t, server.deliveredIDs, string(messages[0].ID()))
+	require.NotContains(t, server.deliveredIDs, string(messages[1].ID()))
 
 	server = serverWithPendingMessages(authenticator, messages[2:])
-	require.NoError(
+	require.ErrorContains(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[2:])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[2:])),
+		"opcert number went backwards",
 	)
 }
 
@@ -229,12 +241,12 @@ func TestServerAcceptedReplyCommitsAuthenticationState(t *testing.T) {
 
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:2])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:2])),
 	)
 	require.Nil(t, server.pendingMsgRequest)
 
 	server = serverWithPendingMessages(authenticator, messages[2:])
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[2:]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[2:]))
 	require.ErrorContains(t, err, "opcert number went backwards")
 }
 
@@ -268,7 +280,7 @@ func TestServerDropsReplyForAlreadyDeliveredMessage(t *testing.T) {
 	request(messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 	require.Equal(t, [][]byte{messages[0].ID()}, delivered)
 
@@ -276,7 +288,7 @@ func TestServerDropsReplyForAlreadyDeliveredMessage(t *testing.T) {
 	request(messages...)
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages)),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages)),
 	)
 	require.Equal(
 		t,
@@ -317,10 +329,10 @@ func TestServerReplayCacheCapacityIsBounded(t *testing.T) {
 	serverTestRequest(server, messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 	serverTestRequest(server, messages[1])
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[1:]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[1:]))
 	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
 	require.Equal(t, 1, delivered)
 	require.Len(t, server.deliveredIDs, 1)
@@ -350,7 +362,7 @@ func TestServerReplayCacheReleasesExpiredIDs(t *testing.T) {
 	serverTestRequest(server, messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 
 	// Once the first message expires its slot is released, so a full cache
@@ -361,7 +373,7 @@ func TestServerReplayCacheReleasesExpiredIDs(t *testing.T) {
 	serverTestRequest(server, messages[1])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[1:])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[1:])),
 	)
 	require.Equal(t, [][]byte{messages[0].ID(), messages[1].ID()}, delivered)
 	require.Equal(
@@ -381,4 +393,14 @@ func TestServerReplayCacheDefaultCoversHonestMempool(t *testing.T) {
 		require.Equal(t, 31*4096, server.config.MaxReplayEntries)
 	}
 	require.Equal(t, 31*4096, NewConfig().MaxReplayEntries)
+}
+
+// paddedTestBody pads body to the minimum DMQ message body size, keeping
+// distinct bodies distinct.
+func paddedTestBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < pcommon.MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

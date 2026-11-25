@@ -52,7 +52,7 @@ func clientTestMessage(
 	t.Helper()
 	msg := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageBody: []byte(body),
+			MessageBody: paddedTestBody(body),
 			KESPeriod:   1,
 			ExpiresAt:   expiresAt,
 		},
@@ -100,7 +100,7 @@ func clientTestSignedMessages(
 	messages := make([]pcommon.DmqMessage, len(bodies))
 	for i := range bodies {
 		payload := pcommon.DmqMessagePayload{
-			MessageBody: []byte(bodies[i]),
+			MessageBody: paddedTestBody(bodies[i]),
 			KESPeriod:   1,
 			ExpiresAt:   expiresAt[i],
 		}
@@ -131,6 +131,9 @@ func clientTestSignedMessages(
 	}
 	authenticator, err := pcommon.NewMessageAuthenticator(
 		pcommon.MessageAuthenticatorConfig{
+			// The fixtures sign several messages of one pool at once to
+			// test the opcert counter, so the rate limit is off.
+			MinSigDelay:    -1,
 			StakeAuthority: clientTestStakeAuthority{},
 			CurrentSlot: func() (uint64, error) {
 				return 129600, nil
@@ -782,4 +785,14 @@ func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {
 	require.ErrorContains(t, err, "TTL validation failed")
 	_, err = client.validateAndReserve(messages[1:])
 	require.NoError(t, err)
+}
+
+// paddedTestBody pads body to the minimum DMQ message body size, keeping
+// distinct bodies distinct.
+func paddedTestBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < pcommon.MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

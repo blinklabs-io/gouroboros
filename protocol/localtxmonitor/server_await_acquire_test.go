@@ -194,6 +194,39 @@ func TestServerAwaitAcquireStopsWithServer(t *testing.T) {
 	}
 }
 
+// TestAwaitMempoolCallbackStopsItsServer checks that AwaitMempoolFunc,
+// which runs in the server's message handler, gets a context marking its
+// server: passing it to that server's Stop returns without waiting for the
+// loop running the callback.
+func TestAwaitMempoolCallbackStopsItsServer(t *testing.T) {
+	mempool := newTestMempool(nil)
+	stopped := make(chan error, 1)
+	cfg := NewConfig(
+		WithGetMempoolFunc(mempool.get),
+		WithAwaitMempoolFunc(func(
+			_ context.Context,
+			cctx CallbackContext,
+			_ uint64,
+			_ []TxAndEraId,
+		) error {
+			stopped <- cctx.Server.Stop(cctx.Context())
+			return nil
+		}),
+	)
+	client, server, _ := startAwaitPair(t, cfg)
+	require.NoError(t, client.Acquire())
+	go func() { _ = client.Acquire() }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop from AwaitMempoolFunc did not return")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.Stop(ctx), "server was not joined")
+}
+
 // TestServerAwaitAcquireWithoutFuncAnswersAtOnce keeps today's behaviour
 // when no AwaitMempoolFunc is configured.
 func TestServerAwaitAcquireWithoutFuncAnswersAtOnce(t *testing.T) {

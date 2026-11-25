@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,4 +55,45 @@ func TestCallbackStopsItsClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, flow.client.Stop(ctx), "client was not joined")
+}
+
+// TestEmptyIDReplyCallbackStopsItsServer checks that ReplyMessageIdsFunc,
+// called for MsgReplyNoMessageIds on the server's message loop, gets a
+// context marking its server: passing it to that server's Stop returns
+// without waiting for the loop running the callback.
+func TestEmptyIDReplyCallbackStopsItsServer(t *testing.T) {
+	peer, m := newReferencePeer(t)
+	errs := make(chan error, 8)
+	stopped := make(chan error, 1)
+	cfg := NewConfig(
+		WithReplyMessageIdsFunc(func(
+			ctx CallbackContext,
+			_ []pcommon.MessageIDAndSize,
+		) {
+			stopped <- ctx.Server.Stop(ctx.Context())
+		}),
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+	)
+	server := NewServer(protocol.ProtocolOptions{
+		Muxer:     m,
+		ErrorChan: errs,
+		Version:   protocol.ProtocolVersionDMQNtN2,
+	}, &cfg)
+	server.ProtocolInstance().EnsureRegistered()
+	m.Start()
+	server.Start()
+
+	require.NoError(t, server.RequestMessageIdsBlocking(0, 3))
+	peer.expect(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	// MsgReplyNoSigIds = [3]
+	peer.send(false, []byte{0x81, 0x03})
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop from the callback did not return")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.Stop(ctx), "server was not joined")
 }

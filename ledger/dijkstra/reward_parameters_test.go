@@ -28,6 +28,9 @@ func TestDijkstraProtocolParametersRewardParameters(t *testing.T) {
 	protocolParams := &DijkstraProtocolParameters{
 		ConwayProtocolParameters: conway.ConwayProtocolParameters{
 			A0:          &cbor.Rat{Rat: big.NewRat(3, 10)},
+			NOpt:        500,
+			Rho:         &cbor.Rat{Rat: big.NewRat(3, 1000)},
+			Tau:         &cbor.Rat{Rat: big.NewRat(1, 5)},
 			MinPoolCost: 340_000_000,
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: 12,
@@ -41,6 +44,9 @@ func TestDijkstraProtocolParametersRewardParameters(t *testing.T) {
 	got := protocolParams.RewardParams()
 	require.Equal(t, protocolParams.ProtocolVersion, got.ProtocolVersion)
 	require.Equal(t, protocolParams.MinPoolCost, got.MinPoolCost)
+	require.Equal(t, uint64(500), got.DesiredPools)
+	require.Equal(t, big.NewRat(3, 1000), got.ExpansionRate)
+	require.Equal(t, big.NewRat(1, 5), got.TreasuryRate)
 	require.Equal(t, big.NewRat(3, 10), got.PoolInfluence)
 	require.Equal(t, big.NewRat(100, 1), got.MaxPledgeLeverage)
 	require.Equal(t, big.NewRat(3, 100), got.MinPoolMargin)
