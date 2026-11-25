@@ -110,17 +110,18 @@ func goldenTxParts(t *testing.T, txCbor []byte) []cbor.RawMessage {
 	return parts
 }
 
-// referenceTxSize is sizeTxF. Shelley to Mary measure the received bytes
-// (sizeShelleyTxF, eras/shelley/impl/src/Cardano/Ledger/Shelley/Tx.hs).
-// Alonzo to Conway re-frame the body, witnesses and auxiliary data as a
-// three-element array and leave IsValid out (toCBORForSizeComputation,
+// referenceTxSize is sizeTxF. Every era from Shelley to Conway serialises
+// the body, witnesses and auxiliary data under a one-byte, three-element
+// array header, whatever framing was received, and Alonzo to Conway leave
+// IsValid out (toCBORForSizeComputation in
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Tx.hs and
 // eras/alonzo/impl/src/Cardano/Ledger/Alonzo/Tx.hs).
 func referenceTxSize(t *testing.T, txCbor []byte) int {
 	t.Helper()
 	parts := goldenTxParts(t, txCbor)
 	switch len(parts) {
 	case 3:
-		return len(txCbor)
+		return 1 + len(parts[0]) + len(parts[1]) + len(parts[2])
 	case 4:
 		return 1 + len(parts[0]) + len(parts[1]) + len(parts[3])
 	}
