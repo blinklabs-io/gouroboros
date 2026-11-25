@@ -217,7 +217,9 @@ type Config struct {
 	// one pipeline across peers: each roll-forward waits for its ordered fence,
 	// limiting this client to one in-flight block and allowing one peer's invalid
 	// block to stop work submitted by other clients. Configure buffer sizes when
-	// creating the pipeline.
+	// creating the pipeline. The client does not read the pipeline's Results;
+	// reading them is optional, and an unread Results channel does not delay
+	// roll-forwards.
 	Pipeline *pipeline.BlockPipeline
 
 	// PipelineBufferSize is reserved for future use.
