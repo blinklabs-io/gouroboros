@@ -116,17 +116,22 @@ type ValidateResult struct {
 // ValidateHeader validates a Byron block header using the Byron inbound
 // validation rules.
 //
+// The first header after origin must have block number 0 and may take any
+// slot (an EBB still needs an epoch-boundary slot).
+//
 // Validation checks for main blocks:
-//  1. Slot does not decrease from the previous block
-//  2. Block number is previous + 1 (or equal if this is EBB)
+//  1. Slot is greater than the previous header's slot, or equal to it when
+//     the previous header is an EBB
+//  2. Block number is the previous header's block number + 1
 //  3. PrevHash matches hash of previous header
 //  4. Protocol magic matches expected
 //  5. Block signature is valid
 //  6. Issuer is a valid genesis delegate
 //
 // For Epoch Boundary Blocks:
-//  1. Slot is at epoch boundary
-//  2. Block number is previous (EBBs share block number with next block)
+//  1. Slot is at an epoch boundary and greater than the previous slot
+//  2. Block number equals the previous header's after a main block, and is
+//     the previous header's + 1 after another EBB
 //  3. PrevHash matches
 //  4. Protocol magic matches
 func (v *HeaderValidator) ValidateHeader(
