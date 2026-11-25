@@ -1519,6 +1519,22 @@ func TestRequestRangeContextCancelsBlockedSend(t *testing.T) {
 			return nil
 		},
 	})
+	// A protocol that has not started queues what it is sent without writing
+	// it, so filling its send queue leaves the request blocked after
+	// reservation rather than already queued.
+	proto := c.ProtocolInstance()
+	for {
+		fillCtx, fillCancel := context.WithTimeout(
+			context.Background(),
+			10*time.Millisecond,
+		)
+		err := proto.SendMessageContext(fillCtx, NewMsgClientDone())
+		fillCancel()
+		if err != nil {
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			break
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	results := make(chan error, 1)
@@ -1527,8 +1543,6 @@ func TestRequestRangeContextCancelsBlockedSend(t *testing.T) {
 		results <- err
 	}()
 
-	// A protocol that has not started has no send queue, so the request is
-	// guaranteed to be blocked after reservation rather than already sent.
 	require.Eventually(t, func() bool {
 		c.queueMutex.Lock()
 		defer c.queueMutex.Unlock()
