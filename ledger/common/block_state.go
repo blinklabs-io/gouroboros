@@ -937,15 +937,55 @@ func (b *BlockLedgerState) GovActionExists(id GovActionId) bool {
 }
 
 // CommitteeMember applies earlier transactions' hot-key authorizations and
-// resignations to the wrapped state's member.
+// resignations to the wrapped state's member. A cold key the wrapped state
+// does not know is a potential future member when an UpdateCommittee proposal
+// an earlier transaction made would add it.
 func (b *BlockLedgerState) CommitteeMember(
 	coldKey Blake2b224,
 ) (*CommitteeMember, error) {
 	member, err := b.base.CommitteeMember(coldKey)
-	if err != nil || member == nil {
-		return member, err
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		member = b.proposedCommitteeMember(func(cred Credential) bool {
+			return cred.Credential == coldKey
+		})
+		if member == nil {
+			return nil, nil
+		}
 	}
 	return b.applyCommitteeAuthorization(member), nil
+}
+
+// proposedCommitteeMember returns the member an UpdateCommittee proposal made
+// earlier in the block would add for a cold credential matching match, or nil.
+// GOVCERT reads the proposals the block's earlier transactions left
+// (isPotentialFutureMember in cardano-ledger Conway/Rules/GovCert.hs), so
+// these count as well as the wrapped state's. Where several proposals add the
+// credential, the latest expiry is reported; GOVCERT ignores it.
+func (b *BlockLedgerState) proposedCommitteeMember(
+	match func(Credential) bool,
+) *CommitteeMember {
+	var member *CommitteeMember
+	for _, proposal := range b.proposals {
+		action, ok := proposal.Action.(*UpdateCommitteeGovAction)
+		if !ok || action == nil {
+			continue
+		}
+		for cred, expiry := range action.CredEpochs {
+			if cred == nil || !match(*cred) {
+				continue
+			}
+			if member == nil || expiry > member.ExpiryEpoch {
+				member = &CommitteeMember{
+					ColdKey:     cred.Credential,
+					ExpiryEpoch: expiry,
+				}
+			}
+		}
+	}
+	return member
 }
 
 // applyCommitteeAuthorization returns member with the hot key an earlier
@@ -1374,8 +1414,16 @@ func (s blockCommitteeCredentials) CommitteeCredentialMember(
 	cold Credential,
 ) (*CommitteeMember, error) {
 	member, err := s.base.CommitteeCredentialMember(cold)
-	if err != nil || member == nil {
-		return member, err
+	if err != nil {
+		return nil, err
+	}
+	if member == nil {
+		member = s.block.proposedCommitteeMember(func(cred Credential) bool {
+			return blockCredKey(cred) == blockCredKey(cold)
+		})
+		if member == nil {
+			return nil, nil
+		}
 	}
 	return s.block.applyCommitteeAuthorization(member), nil
 }

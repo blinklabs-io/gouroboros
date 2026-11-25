@@ -691,14 +691,16 @@ func govActionTypePurpose(
 // per the cardano-ledger pvCanFollow predicate: either the major version
 // increments by exactly one and the minor version resets to zero, or the
 // major version is unchanged and the minor version increments by exactly
-// one.
+// one. The minor version is 32 bits wide and its successor is computed in
+// 32 bits, so it wraps from the maximum to zero.
 func protocolVersionCanFollow(
 	curMajor, curMinor, newMajor, newMinor uint,
 ) bool {
 	if newMajor == curMajor+1 && newMinor == 0 {
 		return true
 	}
-	return newMajor == curMajor && newMinor == curMinor+1
+	return newMajor == curMajor && curMinor <= math.MaxUint32 &&
+		newMinor == uint(uint32(curMinor)+1)
 }
 
 // txGovProposal is a governance action proposed by the transaction under

@@ -105,7 +105,7 @@ protocol error and is refused before the transition to Acquired.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Acquire Timeout | none | Time to acquire mempool snapshot |
+| Acquire Timeout | none | Time to acquire a mempool snapshot from Idle; a re-acquire from Acquired (`MsgAwaitAcquire`) waits for a mempool change and is not timed |
 | Query Timeout | none | Time to execute query |
 
 The specification sets no timeouts for node-to-client protocols, and the
