@@ -260,9 +260,10 @@ func (v *Value) unmarshalCBORWithBudget(
 		} else if tmpTag.Number == CborTagSet {
 			// The library decodes set members as interface values, which
 			// cannot hold a map keyed by an array or a map, so the members
-			// are walked here like any other list.
+			// are walked here like any other list, spending the tree's
+			// budget.
 			var members Value
-			if _, err := members.unmarshalCBOR(
+			if _, err := members.unmarshalCBORWithBudget(
 				tmpTag.Content,
 				false,
 				nil,
@@ -270,6 +271,7 @@ func (v *Value) unmarshalCBORWithBudget(
 				depth+1,
 				duplicateKeyPolicy,
 				decMode,
+				budget,
 			); err != nil {
 				return 0, err
 			}

@@ -259,3 +259,49 @@ func TestValueStrictLimitAppliesAcrossNestedArrays(t *testing.T) {
 	_, err = Decode(data, &ledger)
 	require.NoError(t, err)
 }
+
+// TestValueSetMembersSpendTheTreeBudget decodes tag 258 sets, whose members
+// the walker decodes itself, and checks that their collections count against
+// the whole tree's limits like any other collection.
+func TestValueSetMembersSpendTheTreeBudget(t *testing.T) {
+	t.Parallel()
+	mode, err := (_cbor.DecOptions{
+		MaxNestedLevels: 8, MaxArrayElements: 16, MaxMapPairs: 16,
+	}).DecMode()
+	require.NoError(t, err)
+	setOf := func(count int) []byte {
+		data := []byte{0xd9, 0x01, 0x02, 0x80 + byte(count)}
+		return append(data, make([]byte, count)...)
+	}
+	cases := map[string]struct {
+		data   []byte
+		reject bool
+	}{
+		// 2 outer + 14 members: exactly the array limit.
+		"sets at limit": {
+			data: append(append([]byte{0x82}, setOf(7)...), setOf(7)...),
+		},
+		// Each set is within the limit; the tree holds 2 + 20.
+		"sets over limit": {
+			data:   append(append([]byte{0x82}, setOf(10)...), setOf(10)...),
+			reject: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var value Value
+			_, err := decodeWithMode(
+				tc.data,
+				&value,
+				mode,
+				rejectDuplicateMapKeys,
+			)
+			if tc.reject {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
