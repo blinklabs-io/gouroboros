@@ -92,6 +92,24 @@ var tests = []testDefinition{
 		MessageType: MessageTypeReplyGetSizes,
 		Message:     NewMsgReplyGetSizes(1234, 2345, 3456),
 	},
+	{
+		CborHex:     "810b",
+		MessageType: MessageTypeGetMeasures,
+		Message:     NewMsgGetMeasures(),
+	},
+	{
+		// [12, 2, {"transaction_bytes": [100, 1000]}]
+		CborHex: "830c02a171" +
+			hex.EncodeToString([]byte(MeasureTransactionBytes)) +
+			"8218641903e8",
+		MessageType: MessageTypeReplyGetMeasures,
+		Message: NewMsgReplyGetMeasures(
+			2,
+			map[string]MeasureSizeAndCapacity{
+				MeasureTransactionBytes: {Size: 100, Capacity: 1000},
+			},
+		),
+	},
 }
 
 func TestDecode(t *testing.T) {
