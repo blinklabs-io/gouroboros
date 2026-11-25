@@ -196,6 +196,7 @@ func TestMessageReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			reply := make([]pcommon.DmqMessage, tc.count)
 			for idx := range reply {
 				reply[idx].MessageID = testMessageID(byte(idx + 1))
+				reply[idx].Payload.MessageBody = paddedTestBody("")
 			}
 			require.NoError(t, flow.client.SendMessage(
 				NewMsgReplyMessages(reply),
@@ -350,6 +351,7 @@ func TestClientReplyUsesPeerRequestThroughProtocol(t *testing.T) {
 		reply := make([]pcommon.DmqMessage, 3)
 		for idx := range reply {
 			reply[idx].MessageID = testMessageID(byte(idx + 1))
+			reply[idx].Payload.MessageBody = paddedTestBody("")
 		}
 		require.ErrorContains(
 			t,

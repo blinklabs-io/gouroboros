@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -137,7 +138,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
+			MessageBody: paddedBody("test-body"),
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 		},
@@ -159,7 +160,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 	stake.register(poolID, 1000)
 
 	err = auth.VerifyMessage(msg)
-	assert.Error(t, err)
+	assert.ErrorContains(t, err, "operational certificate verification failed")
 }
 
 // TestVerifyMessageUnauthorizedPool tests that a message from a pool absent
@@ -674,7 +675,7 @@ func TestDmqMessageCBORUsesCurrentCIPShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -712,7 +713,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -739,7 +740,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("legacy-id"), decoded.MessageID)
 	assert.Equal(t, []byte("legacy-id"), decoded.Payload.MessageID)
-	assert.Equal(t, []byte("body"), decoded.Payload.MessageBody)
+	assert.Equal(t, paddedBody("body"), decoded.Payload.MessageBody)
 }
 
 // TestVerifyKESSignatureInvalidSize tests KES signature verification with invalid size
@@ -774,7 +775,7 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		OperationalCertificate: opcert,
 		ColdVerificationKey:    []byte(pub),
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("body"),
+			MessageBody: bytes.Repeat([]byte{0x42}, MinMessageBodySize),
 			KESPeriod:   1,
 			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
@@ -843,7 +844,7 @@ func buildSignedTestMessageOver(
 	))
 
 	payload := DmqMessagePayload{
-		MessageBody: []byte("hello"),
+		MessageBody: bytes.Repeat([]byte("hello"), MinMessageBodySize/5),
 		KESPeriod:   msgPeriod,
 		ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 	}
@@ -1188,4 +1189,13 @@ func TestOpCertCacheAdmitsOnlyAuthorizedPools(t *testing.T) {
 	require.NoError(t, auth.VerifyMessage(valid))
 	require.Len(t, auth.kesOpCertCache, 1)
 	require.Contains(t, auth.kesOpCertCache, validID)
+}
+
+// paddedBody pads body to the minimum DMQ message body size.
+func paddedBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }
