@@ -16,7 +16,10 @@ package cbor
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
+
+	_cbor "github.com/fxamacker/cbor/v2"
 )
 
 // alternativeToTag converts a constructor/alternative number to its CBOR tag number.
@@ -60,16 +63,45 @@ func (ce ConstructorEncoder) Tag() uint {
 }
 
 // MarshalCBOR encodes the constructor as a CBOR tagged value.
+//
+// A slice of fields is written as plutus's encodeData writes a constructor's
+// fields: an indefinite-length list when non-empty and an empty definite
+// list (0x80) otherwise. A nil fields value is an empty list. Fields of any
+// other type, or a type with its own MarshalCBOR, are encoded as given.
 func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	tagNum, wrap := alternativeToTag(ce.tag)
+	fields := plutusFieldList(ce.fields)
 	var content any
 	if wrap {
-		content = []any{ce.tag, ce.fields}
+		content = []any{ce.tag, fields}
 	} else {
-		content = ce.fields
+		content = fields
 	}
 	tmpTag := Tag{Number: tagNum, Content: content}
 	return Encode(&tmpTag)
+}
+
+// plutusFieldList converts a slice of constructor fields to the list
+// encoding plutus uses (Data.hs encodeData with the Serialise list instance).
+func plutusFieldList(fields any) any {
+	if fields == nil {
+		return []any{}
+	}
+	if _, ok := fields.(_cbor.Marshaler); ok {
+		return fields
+	}
+	v := reflect.ValueOf(fields)
+	if v.Kind() != reflect.Slice || v.Type().Elem().Kind() == reflect.Uint8 {
+		return fields
+	}
+	if v.Len() == 0 {
+		return []any{}
+	}
+	items := make(IndefLengthList, v.Len())
+	for i := range items {
+		items[i] = v.Index(i).Interface()
+	}
+	return items
 }
 
 // ConstructorDecoder decodes a CBOR constructor/alternative, keeping fields as
