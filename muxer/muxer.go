@@ -1140,9 +1140,6 @@ func (m *Muxer) CallbackContext() context.Context {
 // once the callback returns.
 func (m *Muxer) Stop(ctx context.Context) error {
 	m.stop()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if owner, _ := ctx.Value(callbackOwnerKey{}).(*Muxer); owner == m ||
 		m.cleanupDone == nil {
 		return nil

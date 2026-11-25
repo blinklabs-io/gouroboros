@@ -224,14 +224,6 @@ func (c *Client) initProtocol() {
 	c.protocolMu.Unlock()
 }
 
-// signalOnly is an already-cancelled context. A Stop given it signals
-// shutdown and returns without waiting.
-var signalOnly = func() context.Context {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	return ctx
-}()
-
 // startPipelineStopWatcher cancels the pipeline fence once p begins to stop.
 // It runs as one of p's loops, so p's Stop waits for it.
 func (c *Client) startPipelineStopWatcher(p *protocol.Protocol) {
@@ -541,7 +533,11 @@ func (c *Client) stopRunning(
 // connection is then closed, as the reference does when a mini-protocol does
 // not terminate in time. A MsgDone that was sendable but slow to write may
 // still reach the peer, which then owes nothing, so it is left alone.
-func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
+func (c *Client) abandonIfOwed(
+	ctx context.Context,
+	proto *protocol.Protocol,
+	sendErr error,
+) {
 	c.lifecycleMutex.Lock()
 	owed := c.outstandingRequestNext > 0 || !proto.IsInTerminalOrIdleState()
 	if owed {
@@ -558,8 +554,11 @@ func (c *Client) abandonIfOwed(proto *protocol.Protocol, sendErr error) {
 	// stopped as well: no reply can then reach this connection.
 	proto.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
 	if c.protoOptions.Muxer != nil {
-		// Only signal: the connection's shutdown joins the muxer.
-		_ = c.protoOptions.Muxer.Stop(signalOnly)
+		// Only signal, with a done context: the connection's shutdown
+		// joins the muxer.
+		signal, cancel := context.WithCancel(ctx)
+		cancel()
+		_ = c.protoOptions.Muxer.Stop(signal)
 	}
 }
 
@@ -593,7 +592,7 @@ func (c *Client) finishStop(
 			sendErr = nil
 		}
 		if sendErr != nil {
-			c.abandonIfOwed(proto, sendErr)
+			c.abandonIfOwed(ctx, proto, sendErr)
 		}
 	}
 	if busyLocked {
