@@ -80,12 +80,11 @@ func kesPeriodMessage(
 // src/DMQ/Protocol/SigSubmission/Validate.hs: the claimed period must lie in
 // [ocertKESPeriod, ocertKESPeriod + maxKESEvo) (lines 156-161) and the
 // signature is verified at sigKESPeriod - ocertKESPeriod (lines 207-212). The
-// node's current slot plays no part there. dmq-node ships no signed vectors
-// for this rule, so the cases are derived from that code and signed here.
-//
-// Two rows are gOuroboros's own, stricter checks: it also refuses a message
-// whose opcert has not started, or has ended, at the node's current KES
-// period. The reference accepts both.
+// node's current slot plays no part there, so a message is accepted even
+// when the node's own KES period lies outside the opcert's window. CIP-0137
+// (CIPs db48da14bff1, CIP-0137/README.md 397-402) requires no check against
+// the current period either. dmq-node ships no signed vectors for this rule,
+// so the cases are derived from that code and signed here.
 func TestVerifyMessageKESPeriodAsReference(t *testing.T) {
 	const (
 		maxEvo = 3
@@ -107,10 +106,8 @@ func TestVerifyMessageKESPeriodAsReference(t *testing.T) {
 		{"signed at an evolution matching neither", 101, 0, 102, false},
 		{"claimed period before the opcert", 99, 0, 100, false},
 		{"claimed period after the opcert", 103, 3, 102, false},
-		// gOuroboros only: the opcert has ended at the current period.
-		{"opcert ended at the current period", 102, 2, 103, false},
-		// gOuroboros only: the opcert has not started at the current period.
-		{"opcert not started at the current period", 100, 0, 99, false},
+		{"opcert ended at the current period", 102, 2, 103, true},
+		{"opcert not started at the current period", 100, 0, 99, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -107,7 +107,6 @@ type MessageAuthenticator struct {
 	// stakeAuthority backs pool authorization. Immutable after construction,
 	// so it needs no lock.
 	stakeAuthority        StakeAuthority
-	currentSlot           func() (uint64, error)
 	poolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
 
 	// KES period tracking from opcerts, keyed by pool ID. Only
@@ -125,8 +124,6 @@ type MessageAuthenticator struct {
 	mu             sync.Mutex
 	kesOpCertCache map[PoolKeyHash]uint64
 
-	// Slots per KES period used for KES verification. Default is Cardano standard.
-	slotsPerKesPeriod uint64
 	// Maximum evolution distance allowed from an operational certificate.
 	maxKESEvolutions uint64
 }
@@ -137,15 +134,19 @@ type MessageAuthenticatorConfig struct {
 	// StakeAuthority is a configuration error rather than a silent skip of
 	// the check.
 	StakeAuthority StakeAuthority
-	// CurrentSlot returns the authoritative current chain slot used for live
-	// KES verification. Required; it must not derive the slot from a message.
+	// CurrentSlot is not used. A message's KES signature is checked at the
+	// period the message claims, inside its operational certificate's window,
+	// and the node's own slot plays no part, as in dmq-node.
+	//
+	// Deprecated: ignored; leave it nil.
 	CurrentSlot func() (uint64, error)
 	// PoolOpCertIssueNumber returns the latest operational-certificate issue
 	// number known from authoritative chain state. A pool absent from that
 	// state should return (0, false, nil). Required.
 	PoolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
-	// SlotsPerKESPeriod is the Shelley genesis slotsPerKESPeriod parameter.
-	// Defaults to 129600 (Cardano mainnet) when zero.
+	// SlotsPerKESPeriod is not used: no slot is converted to a KES period.
+	//
+	// Deprecated: ignored; leave it zero.
 	SlotsPerKESPeriod uint64
 	// MaxKESEvolutions is the Shelley genesis maxKESEvolutions parameter.
 	// Defaults to 62 (Cardano mainnet) when zero.
@@ -166,12 +167,6 @@ func NewMessageAuthenticator(
 			ErrAuthenticatorMisconfigured,
 		)
 	}
-	if cfg.CurrentSlot == nil {
-		return nil, fmt.Errorf(
-			"%w: CurrentSlot is required",
-			ErrAuthenticatorMisconfigured,
-		)
-	}
 	if cfg.PoolOpCertIssueNumber == nil {
 		return nil, fmt.Errorf(
 			"%w: PoolOpCertIssueNumber is required",
@@ -182,11 +177,6 @@ func NewMessageAuthenticator(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	slotsPerKesPeriod := cfg.SlotsPerKESPeriod
-	if slotsPerKesPeriod == 0 {
-		// Default Cardano slots per KES period (standard mainnet value)
-		slotsPerKesPeriod = 129600
-	}
 	maxKESEvolutions := cfg.MaxKESEvolutions
 	if maxKESEvolutions == 0 {
 		maxKESEvolutions = DefaultMaxKESEvolutions
@@ -194,10 +184,8 @@ func NewMessageAuthenticator(
 	return &MessageAuthenticator{
 		logger:                logger,
 		stakeAuthority:        cfg.StakeAuthority,
-		currentSlot:           cfg.CurrentSlot,
 		poolOpCertIssueNumber: cfg.PoolOpCertIssueNumber,
 		kesOpCertCache:        make(map[PoolKeyHash]uint64),
-		slotsPerKesPeriod:     slotsPerKesPeriod,
 		maxKESEvolutions:      maxKESEvolutions,
 	}, nil
 }
@@ -213,19 +201,16 @@ func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 	return &MessageAuthenticator{
 		logger:            logger,
 		kesOpCertCache:    make(map[PoolKeyHash]uint64),
-		slotsPerKesPeriod: 129600,
 		maxKESEvolutions:  DefaultMaxKESEvolutions,
 		disableValidation: true,
 	}
 }
 
-// VerifyMessage performs complete message authentication as per CIP-0137 at
-// the authoritative current chain slot. It verifies: message ID, pool-ID
-// derivation and stake-distribution authorization, operational certificate,
-// KES signature, and KES period rotation. Returns error if verification fails
-// (which is a protocol violation and should result in peer disconnection).
-// Use VerifyMessageWithSlot when the caller already holds a trusted slot from
-// the state being processed.
+// VerifyMessage performs complete message authentication as per CIP-0137.
+// It verifies: message ID, pool-ID derivation and stake-distribution
+// authorization, operational certificate, KES signature, and KES period
+// rotation. Returns error if verification fails (which is a protocol
+// violation and should result in peer disconnection).
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
@@ -233,15 +218,10 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if msg == nil {
 		return errors.New("message is nil")
 	}
-	slot, err := m.currentSlot()
-	if err != nil {
-		return fmt.Errorf("look up current slot: %w", err)
-	}
-	return m.verifyMessageInternal(msg, slot)
+	return m.verifyMessageInternal(msg)
 }
 
-// PrepareMessages verifies a batch at one authoritative current slot and
-// returns a function that atomically commits its operational-certificate
+// PrepareMessages verifies a batch and returns a function that atomically commits its operational-certificate
 // observations. Verification does not mutate the authenticator until the
 // returned function succeeds.
 func (m *MessageAuthenticator) PrepareMessages(
@@ -250,11 +230,6 @@ func (m *MessageAuthenticator) PrepareMessages(
 	if m.disableValidation || len(messages) == 0 {
 		return func() error { return nil }, nil
 	}
-	slot, err := m.currentSlot()
-	if err != nil {
-		return nil, fmt.Errorf("look up current slot: %w", err)
-	}
-
 	m.mu.Lock()
 	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
 	for poolID, issueNumber := range m.kesOpCertCache {
@@ -264,10 +239,8 @@ func (m *MessageAuthenticator) PrepareMessages(
 	batchAuthenticator := &MessageAuthenticator{
 		logger:                m.logger,
 		stakeAuthority:        m.stakeAuthority,
-		currentSlot:           m.currentSlot,
 		poolOpCertIssueNumber: m.poolOpCertIssueNumber,
 		kesOpCertCache:        cacheSnapshot,
-		slotsPerKesPeriod:     m.slotsPerKesPeriod,
 		maxKESEvolutions:      m.maxKESEvolutions,
 	}
 	// lowestIssue keeps each touched pool's lowest counter in the batch. At
@@ -277,7 +250,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 	// concurrent commit recorded a higher one.
 	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
-		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
+		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
 			return nil, fmt.Errorf(
 				"message %d authentication failed: %w",
 				i,
@@ -327,18 +300,18 @@ func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
 	return commit()
 }
 
-// VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
-// callers should supply the slot (e.g., from the block header) so KES period/current period
-// checks are accurate.
+// VerifyMessageWithSlot verifies a message as VerifyMessage does. The slot
+// is not used.
+//
+// Deprecated: use VerifyMessage; no check depends on the slot.
 func (m *MessageAuthenticator) VerifyMessageWithSlot(
 	msg *DmqMessage,
-	slot uint64,
+	_ uint64,
 ) error {
-	return m.verifyMessageInternal(msg, slot)
+	return m.verifyMessageInternal(msg)
 }
 
-// verifyMessageInternal contains the core verification logic. The slot must
-// come from trusted chain state, never from the message.
+// verifyMessageInternal contains the core verification logic.
 //
 // Stake authorization runs before either signature check. Deriving a pool ID
 // from ColdVerificationKey needs no signature -- anyone can self-sign an
@@ -347,10 +320,7 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 // that those keys belong to a real, staked pool. Checking authorization
 // first turns away a message from an unregistered identity before paying
 // for an ed25519 verify and the KES verify, rather than after.
-func (m *MessageAuthenticator) verifyMessageInternal(
-	msg *DmqMessage,
-	slot uint64,
-) error {
+func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
 	}
@@ -406,7 +376,7 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 	}
 
 	// Step 5: Verify KES signature over message payload.
-	if err := m.verifyKESSignature(msg, slot); err != nil {
+	if err := m.verifyKESSignature(msg); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
@@ -495,12 +465,10 @@ func opCertSignableBytes(
 // encoded). The signature is checked at the evolution from the certificate's
 // issuance period (msg.OperationalCertificate.KESPeriod) to the message's
 // claimed signing period (msg.Payload.KESPeriod), which must lie in the
-// certificate's window. The trusted slot only bounds the certificate: its
-// window must also contain the node's current KES period.
-func (m *MessageAuthenticator) verifyKESSignature(
-	msg *DmqMessage,
-	slot uint64,
-) error {
+// certificate's window. As in dmq-node, the node's own slot is not
+// consulted: a certificate that has ended, or not yet started, at the
+// node's current period does not by itself make a message invalid.
+func (m *MessageAuthenticator) verifyKESSignature(msg *DmqMessage) error {
 	if len(msg.KESSignature) != kes.CardanoKesSignatureSize {
 		return fmt.Errorf(
 			"KES signature must be %d bytes, got %d",
@@ -538,24 +506,8 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		return err
 	}
 
-	// The node's own period must also lie in the certificate's window. The
-	// reference does not check this; it refuses only a message whose opcert
-	// has not started or has ended at the node's current slot.
-	currentKesPeriod := slot / m.slotsPerKesPeriod
-	if currentKesPeriod < certPeriod {
-		return fmt.Errorf(
-			"current KES period %d precedes certificate issuance period %d",
-			currentKesPeriod,
-			certPeriod,
-		)
-	}
-	if err := m.checkKESWindow(currentKesPeriod, certPeriod); err != nil {
-		return err
-	}
-
 	m.logger.Debug(
-		"KES verification using slot",
-		"slot", slot,
+		"KES verification",
 		"cert_period", certPeriod,
 		"msg_period", msgPeriod,
 	)
