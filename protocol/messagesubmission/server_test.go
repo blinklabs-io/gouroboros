@@ -202,7 +202,13 @@ func TestServerGetAvailableMessageIDsRemainLocalDuringRequests(t *testing.T) {
 	}
 }
 
-func TestServerRejectedReplyDoesNotCommitAuthenticationState(t *testing.T) {
+// TestServerReplyKeepsValidMessagesBesideAFatalOne checks that a forged
+// message ends the connection without costing the valid message beside it:
+// dmq-node adds the valid messages of a batch to its mempool before it
+// throws for an invalid one (ouroboros-network 4646039f
+// Ouroboros/Network/TxSubmission/Mempool/Simple.hs 183-245), so the valid
+// message's opcert counter is recorded and a later lower one is refused.
+func TestServerReplyKeepsValidMessagesBesideAFatalOne(t *testing.T) {
 	messages, authenticator := serverTestSignedMessages(
 		t,
 		[]string{"higher", "invalid", "lower"},
@@ -213,12 +219,15 @@ func TestServerRejectedReplyDoesNotCommitAuthenticationState(t *testing.T) {
 
 	err := server.handleReplyMessages(NewMsgReplyMessages(messages[:2]))
 	require.Error(t, err)
-	require.NotNil(t, server.pendingMsgRequest)
+	require.Nil(t, server.pendingMsgRequest)
+	require.Contains(t, server.deliveredIDs, string(messages[0].ID()))
+	require.NotContains(t, server.deliveredIDs, string(messages[1].ID()))
 
 	server = serverWithPendingMessages(authenticator, messages[2:])
-	require.NoError(
+	require.ErrorContains(
 		t,
 		server.handleReplyMessages(NewMsgReplyMessages(messages[2:])),
+		"opcert number went backwards",
 	)
 }
 

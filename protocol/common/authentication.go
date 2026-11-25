@@ -91,6 +91,11 @@ var (
 	ErrMessageTooFrequent = errors.New(
 		"protocol/common: message too soon after the pool's last message",
 	)
+	// ErrStakeDistributionUnavailable wraps a StakeAuthority error: the
+	// node cannot tell yet whether the issuing pool holds stake.
+	ErrStakeDistributionUnavailable = errors.New(
+		"protocol/common: stake distribution unavailable",
+	)
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
 	//
@@ -277,14 +282,39 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	return m.VerifyMessages([]DmqMessage{*msg})
 }
 
-// PrepareMessages verifies a batch and returns a function that atomically commits its operational-certificate
-// observations. Verification does not mutate the authenticator until the
-// returned function succeeds.
+// PrepareMessages verifies a batch and returns a function that atomically
+// commits its observations. Verification does not mutate the authenticator
+// until the returned function succeeds. One failing message fails the batch.
 func (m *MessageAuthenticator) PrepareMessages(
 	messages []DmqMessage,
 ) (func() error, error) {
+	errs, commit := m.prepare(messages, true)
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	return commit, nil
+}
+
+// PrepareEach verifies each message of a batch on its own, as dmq-node
+// does: errs[i] is message i's verdict, a refused message leaves the state
+// the later ones are checked against unchanged, and the returned function
+// commits the accepted messages' observations atomically.
+func (m *MessageAuthenticator) PrepareEach(
+	messages []DmqMessage,
+) ([]error, func() error) {
+	return m.prepare(messages, false)
+}
+
+func (m *MessageAuthenticator) prepare(
+	messages []DmqMessage,
+	stopOnError bool,
+) ([]error, func() error) {
+	errs := make([]error, len(messages))
+	noCommit := func() error { return nil }
 	if m.disableValidation || len(messages) == 0 {
-		return func() error { return nil }, nil
+		return errs, noCommit
 	}
 	m.mu.Lock()
 	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
@@ -310,15 +340,19 @@ func (m *MessageAuthenticator) PrepareMessages(
 	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
-			return nil, fmt.Errorf(
-				"message %d authentication failed: %w",
-				i,
-				err,
-			)
+			errs[i] = err
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
-			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
+			errs[i] = fmt.Errorf("compute pool id: %w", err)
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		issue := messages[i].OperationalCertificate.IssueNumber
 		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
@@ -326,7 +360,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 		}
 	}
 
-	return func() error {
+	return errs, func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		for poolID, issueNumber := range lowestIssue {
@@ -368,7 +402,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 			}
 		}
 		return nil
-	}, nil
+	}
 }
 
 // VerifyMessages verifies a batch and commits its authentication state.
@@ -393,13 +427,13 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 
 // verifyMessageInternal contains the core verification logic.
 //
-// Stake authorization runs before either signature check. Deriving a pool ID
-// from ColdVerificationKey needs no signature -- anyone can self-sign an
-// internally consistent opcert/KES chain over freshly generated keys, so the
-// signature checks only prove the sender holds the claimed private keys, not
-// that those keys belong to a real, staked pool. Checking authorization
-// first turns away a message from an unregistered identity before paying
-// for an ed25519 verify and the KES verify, rather than after.
+// After the body size and the rate limit, the checks run in dmq-node's
+// order (Validate.hs 150-212): message ID, the claimed KES period against
+// the opcert's window, the pool's stake, the opcert counter, then the cold
+// and KES signatures. The first failure names the error, and a
+// node-to-node receiver drops a message for some errors (the pool holds no
+// stake) but disconnects for others (a KES period past the window), so the
+// order decides what happens to a message with both.
 func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
@@ -438,17 +472,31 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		return fmt.Errorf("message ID verification failed: %w", err)
 	}
 
-	// Step 2: Stake authorization before either signature check -- see the
-	// doc comment above for why.
+	// Step 2: The claimed KES period lies in the opcert's window.
+	if err := m.checkClaimedKESPeriod(msg); err != nil {
+		return fmt.Errorf("KES signature verification failed: %w", err)
+	}
+
+	// Step 3: Stake authorization, before either signature check.
 	stake, err := m.stakeAuthority.PoolActiveStake(poolID)
 	if err != nil {
-		return fmt.Errorf("look up pool stake: %w", err)
+		return fmt.Errorf(
+			"%w: look up pool stake: %w",
+			ErrStakeDistributionUnavailable,
+			err,
+		)
 	}
 	if stake == 0 {
 		return ErrPoolNotInStakeDistribution
 	}
 
-	// Step 3: Verify operational certificate validity
+	// Step 4: The opcert counter has not gone backwards. Recorded only in
+	// the last step, once every check has passed.
+	if err := m.checkKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+		return fmt.Errorf("KES period rotation verification failed: %w", err)
+	}
+
+	// Step 5: Verify operational certificate validity
 	if err := m.verifyOperationalCertificate(&msg.OperationalCertificate, msg.ColdVerificationKey); err != nil {
 		return fmt.Errorf(
 			"operational certificate verification failed: %w",
@@ -456,12 +504,12 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		)
 	}
 
-	// Step 4: Verify KES signature over message payload.
+	// Step 6: Verify KES signature over message payload.
 	if err := m.verifyKESSignature(msg); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 5: Verify KES period rotation (opcert number doesn't go backwards).
+	// Step 7: Verify KES period rotation (opcert number doesn't go backwards).
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.
@@ -692,6 +740,21 @@ func (m *MessageAuthenticator) verifyKESSignature(msg *DmqMessage) error {
 	return nil
 }
 
+// checkClaimedKESPeriod checks that the message's claimed KES period lies in
+// [opcert KES period, opcert KES period + maxKESEvolutions).
+func (m *MessageAuthenticator) checkClaimedKESPeriod(msg *DmqMessage) error {
+	certPeriod := msg.OperationalCertificate.KESPeriod
+	msgPeriod := msg.Payload.KESPeriod
+	if msgPeriod < certPeriod {
+		return fmt.Errorf(
+			"message KES period %d precedes certificate issuance period %d",
+			msgPeriod,
+			certPeriod,
+		)
+	}
+	return m.checkKESWindow(msgPeriod, certPeriod)
+}
+
 func (m *MessageAuthenticator) checkKESWindow(
 	period uint64,
 	certPeriod uint64,
@@ -778,6 +841,25 @@ func (m *MessageAuthenticator) verifyKESPeriodRotation(
 	// Update cache with latest opcert number
 	m.kesOpCertCache[poolID] = opcert.IssueNumber
 
+	return nil
+}
+
+// checkKESPeriodRotation reports whether opcert's counter is below the one
+// last recorded for the pool, without recording anything.
+func (m *MessageAuthenticator) checkKESPeriodRotation(
+	poolID PoolKeyHash,
+	opcert *OperationalCertificate,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if last, exists := m.kesOpCertCache[poolID]; exists &&
+		opcert.IssueNumber < last {
+		return fmt.Errorf(
+			"opcert number went backwards: previous=%d, current=%d",
+			last,
+			opcert.IssueNumber,
+		)
+	}
 	return nil
 }
 
