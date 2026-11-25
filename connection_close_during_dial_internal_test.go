@@ -60,6 +60,11 @@ func TestCloseBeforeMuxerCreatedClosesConn(t *testing.T) {
 		func(c *Connection) {
 			c.beforeMuxerHook = func() {
 				require.NoError(t, c.Close())
+				select {
+				case <-transport.closed:
+				default:
+					t.Error("Close returned with the conn still open")
+				}
 			}
 		},
 	)

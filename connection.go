@@ -304,8 +304,11 @@ func (c *Connection) Close() error {
 // connection. Pass the context the callback was given (its callback
 // context's Context field). When ctx marks a protocol instance of this
 // connection, CloseContext does not wait for that instance's goroutines,
-// one of which is running the callback; it still waits for every other
-// one. A ctx from another connection's callback, or with no marker, makes
+// one of which is running the callback, nor for those of another instance
+// whose callback is also in CloseContext, which would wait for it in turn;
+// it waits for every other one. Any number of callbacks may close at once:
+// the connection is torn down once and every one of them returns. A ctx
+// from another connection's callback, or with no marker, makes
 // CloseContext the same as Close.
 func (c *Connection) CloseContext(ctx context.Context) error {
 	return c.closeExcept(protocol.CallbackOwner(ctx))
@@ -335,9 +338,15 @@ func (c *Connection) closeExcept(owner any) error {
 	// returns, a caller may safely close a channel supplied with WithErrorChan.
 	<-c.connClosedChan
 	if m != nil {
-		// Shutdown did not wait for loops whose callback is in
-		// CloseContext; wait for them now, except the caller's own.
-		m.WaitProtocolLoopsExcept(owner)
+		if owner == nil {
+			// Shutdown did not wait for loops whose callback is in
+			// CloseContext; Close waits for them too.
+			m.WaitProtocolLoopsExcept(nil)
+		} else {
+			// Not the excused loops: each runs a callback in CloseContext,
+			// and two such callbacks waiting for each other never return.
+			m.WaitProtocolLoops()
+		}
 	}
 	return nil
 }
@@ -456,7 +465,7 @@ func (c *Connection) shutdown() {
 		c.stopProtocols()
 		// Gracefully stop the muxer
 		c.setupMu.Lock()
-		m := c.muxer
+		m, conn := c.muxer, c.conn
 		c.setupMu.Unlock()
 		if m != nil {
 			m.Stop()
@@ -464,6 +473,10 @@ func (c *Connection) shutdown() {
 			// loops leave once their callbacks return.
 			m.CloseProtocolLoops()
 			m.WaitProtocolLoops()
+		} else if conn != nil {
+			// Close came after doneChan and before the muxer; setup's guard
+			// also closes conn, but only once setup resumes.
+			_ = conn.Close()
 		}
 		// Wait for other goroutines to finish
 		c.fenceTracked()

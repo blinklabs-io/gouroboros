@@ -127,10 +127,68 @@ func TestCallbackMayCloseItsConnection(t *testing.T) {
 	})
 	select {
 	case conn := <-returned:
-		_, open := <-conn.ErrorChan()
-		require.False(t, open, "Close returned before teardown finished")
+		select {
+		case _, open := <-conn.ErrorChan():
+			require.False(t, open, "Close returned before teardown finished")
+		default:
+			t.Fatal("Close returned before teardown finished")
+		}
 	case <-time.After(teardownJoinTimeout):
 		t.Fatal("Close from a protocol callback did not return")
+	}
+}
+
+// TestConcurrentCloseContextCallbacksReturn checks that callbacks of two
+// protocol instances closing their connection at the same time both
+// return: neither waits for the other, whose callback is itself closing.
+// A later Close still waits for both. The reference mux tears down once
+// and releases every thread that asked (network-mux Mux.hs:280-287).
+func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	entered := make(chan *Connection, 1)
+	bothEntered := make(chan struct{})
+	returned := make(chan struct{}, 2)
+	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
+		entered <- c
+		<-bothEntered
+		_ = c.CloseContext(ctx.Context)
+		returned <- struct{}{}
+	})
+	var conn *Connection
+	select {
+	case conn = <-entered:
+	case <-time.After(teardownJoinTimeout):
+		t.Fatal("keep-alive callback did not run")
+	}
+	// A second protocol instance's loop, running a callback that closes
+	// the connection with its own context.
+	other := &protocol.Protocol{}
+	otherCtx := other.CallbackContext()
+	conn.setupMu.Lock()
+	m := conn.muxer
+	conn.setupMu.Unlock()
+	require.True(t, m.StartProtocolLoops(other, func() {
+		<-bothEntered
+		_ = conn.CloseContext(otherCtx)
+		returned <- struct{}{}
+	}))
+	close(bothEntered)
+	for range 2 {
+		select {
+		case <-returned:
+		case <-time.After(teardownJoinTimeout):
+			t.Fatal("CloseContext waited for another callback that was closing")
+		}
+	}
+	closed := make(chan struct{})
+	go func() {
+		_ = conn.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(teardownJoinTimeout):
+		t.Fatal("Close did not return after both callbacks returned")
 	}
 }
 
