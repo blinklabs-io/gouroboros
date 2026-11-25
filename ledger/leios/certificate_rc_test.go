@@ -86,8 +86,13 @@ func TestVerifyDijkstraCertificateRcPrototypeCertificate(t *testing.T) {
 	require.Equal(t, []byte{0xc0}, cert.Signers)
 
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: announcing.Hash(),
-		TotalActiveStake:    2 * rcSeatStake,
+		KeyAge: common.DijkstraLeiosKeyAgeContext{
+			Epoch:             1,
+			MarkEpochLength:   432000,
+			MaxKESEvolutions:  62,
+			SlotsPerKESPeriod: 129600,
+		}, AnnouncingBlockHash: announcing.Hash(),
+		TotalActiveStake: 2 * rcSeatStake,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: rcSeatStake, Key: rcKey(t, rcSeat0PublicKey, rcSeat0Proof)},
 			{Stake: rcSeatStake, Key: rcKey(t, rcSeat1PublicKey, rcSeat1Proof)},

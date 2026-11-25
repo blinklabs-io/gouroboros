@@ -29,7 +29,8 @@ import (
 // data item as a map key, and Conway transactions carry such sets: the
 // proposal procedures of cardano-ledger 1210d37f's
 // eras/conway/impl/golden/tx.cbor (field 20) hold committee-update maps
-// keyed by credentials, which are arrays.
+// keyed by credentials, which are arrays. The Dijkstra golden from the same
+// revision carries 33 tag 258 sets.
 func TestValueDecodesSetMembersWithCompositeMapKeys(t *testing.T) {
 	cases := map[string]int{
 		"d9010281a1820102f5":     1,
@@ -56,24 +57,26 @@ func TestValueDecodesSetMembersWithCompositeMapKeys(t *testing.T) {
 			t.Errorf("%s: set of a non-list accepted", h)
 		}
 	}
-	tx, err := os.ReadFile(
-		filepath.Join("testdata", "cardano-ledger", "conway-tx.cbor"),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var v cbor.Value
-	if _, err := cbor.DecodeUntrustedExact(tx, &v); err != nil {
-		t.Fatalf("Conway golden: %v", err)
-	}
-	if out, err := v.MarshalCBOR(); err != nil || !bytes.Equal(out, tx) {
-		t.Error("Conway golden bytes not kept")
-	}
-	var lv cbor.LazyValue
-	if _, err := cbor.Decode(tx, &lv); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := lv.Decode(); err != nil {
-		t.Errorf("LazyValue.Decode: %v", err)
+	for _, name := range []string{"conway-tx.cbor", "dijkstra-tx.cbor"} {
+		tx, err := os.ReadFile(filepath.Join("testdata", "cardano-ledger", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v cbor.Value
+		if _, err := cbor.DecodeUntrustedExact(tx, &v); err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if out, err := v.MarshalCBOR(); err != nil || !bytes.Equal(out, tx) {
+			t.Errorf("%s: bytes not kept", name)
+		}
+		var lv cbor.LazyValue
+		if _, err := cbor.Decode(tx, &lv); err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		if _, err := lv.Decode(); err != nil {
+			t.Errorf("%s: LazyValue.Decode: %v", name, err)
+		}
 	}
 }

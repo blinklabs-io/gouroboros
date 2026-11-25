@@ -19,15 +19,25 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
 // Client implements the LocalTxSubmission client
 type Client struct {
 	*protocol.Protocol
-	config           *Config
-	callbackContext  CallbackContext
-	busyMutex        sync.Mutex
+	config          *Config
+	callbackContext CallbackContext
+	busyMutex       sync.Mutex
+	// stopRequested is closed when Stop is called, before Stop takes
+	// busyMutex, so that a SubmitTx waiting for the server under busyMutex
+	// returns instead of making Stop wait for the server's answer.
+	stopRequested chan struct{}
+	// abandoned records, under busyMutex, that a SubmitTx stopped waiting
+	// for the server's answer. The server then holds agency, so Stop may
+	// not send MsgDone and closes the protocol instead.
+	abandoned        bool
+	muxer            *muxer.Muxer
 	submitResultChan chan error
 	onceStart        sync.Once
 	onceStop         sync.Once
@@ -41,6 +51,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config:           cfg,
+		muxer:            protoOptions.Muxer,
+		stopRequested:    make(chan struct{}),
 		submitResultChan: make(chan error),
 	}
 	c.callbackContext = CallbackContext{
@@ -88,7 +100,12 @@ func (c *Client) Start() {
 	})
 }
 
-// Stop transitions the protocol to the Done state. No more operations will be possible
+// Stop transitions the protocol to the Done state. No more operations will
+// be possible. A SubmitTx waiting for the server's answer returns
+// protocol.ErrProtocolShuttingDown; the server then holds agency, so Stop
+// closes the protocol without sending MsgDone and stops the muxer, which
+// closes the connection: the server still owes that answer, and a client
+// registered later on the same connection would read it as its own.
 func (c *Client) Stop() error {
 	var err error
 	c.onceStop.Do(func() {
@@ -98,8 +115,16 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		close(c.stopRequested)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
+		if c.abandoned {
+			c.Protocol.Stop()
+			if c.muxer != nil {
+				c.muxer.Stop()
+			}
+			return
+		}
 		msg := NewMsgDone()
 		if err = c.SendMessage(msg); err != nil {
 			return
@@ -119,15 +144,35 @@ func (c *Client) SubmitTx(eraId uint16, tx []byte) error {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	select {
+	case <-c.stopRequested:
+		return protocol.ErrProtocolShuttingDown
+	default:
+	}
 	msg := NewMsgSubmitTx(eraId, tx)
 	if err := c.SendMessage(msg); err != nil {
 		return err
 	}
-	err, ok := <-c.submitResultChan
-	if !ok {
+	select {
+	case err, ok := <-c.submitResultChan:
+		if !ok {
+			return protocol.ErrProtocolShuttingDown
+		}
+		return err
+	case <-c.stopRequested:
+		c.abandoned = true
 		return protocol.ErrProtocolShuttingDown
 	}
-	return err
+}
+
+// deliverResult hands an answer to the waiting SubmitTx, or drops it once
+// Stop is called: the caller may have abandoned the wait, and DoneChan
+// closes only after this receive loop returns.
+func (c *Client) deliverResult(err error) {
+	select {
+	case c.submitResultChan <- err:
+	case <-c.stopRequested:
+	}
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
@@ -161,7 +206,7 @@ func (c *Client) handleAcceptTx() error {
 		return protocol.ErrProtocolShuttingDown
 	default:
 	}
-	c.submitResultChan <- nil
+	c.deliverResult(nil)
 	return nil
 }
 
@@ -188,6 +233,6 @@ func (c *Client) handleRejectTx(msg protocol.Message) error {
 		Reason:     rejectErr,
 		ReasonCbor: []byte(msgRejectTx.Reason),
 	}
-	c.submitResultChan <- err
+	c.deliverResult(err)
 	return nil
 }

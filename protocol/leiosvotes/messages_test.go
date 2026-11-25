@@ -33,8 +33,7 @@ type testDefinition struct {
 
 func testVote() Vote {
 	return Vote{
-		SlotNo: 12345,
-		EndorserBlockHash: lcommon.NewBlake2b256(
+		AnnouncingRbHash: lcommon.NewBlake2b256(
 			[]byte{0x01, 0x02, 0x03, 0x04},
 		),
 		VoterId:       42,
@@ -101,11 +100,10 @@ func TestDecode(t *testing.T) {
 				actual := decoded.(*MsgVote)
 				assert.Equal(t, expected.Type(), actual.Type())
 				assert.Equal(t, expected.Cbor(), actual.Cbor())
-				assert.Equal(t, expected.Vote.SlotNo, actual.Vote.SlotNo)
 				assert.Equal(
 					t,
-					expected.Vote.EndorserBlockHash,
-					actual.Vote.EndorserBlockHash,
+					expected.Vote.AnnouncingRbHash,
+					actual.Vote.AnnouncingRbHash,
 				)
 				assert.Equal(t, expected.Vote.VoterId, actual.Vote.VoterId)
 				assert.Equal(
