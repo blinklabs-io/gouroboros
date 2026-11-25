@@ -138,9 +138,9 @@ var multiAssetVerdicts = []multiAssetVerdict{
 	},
 }
 
-// referenceBignumVerdicts are the tag-2 bignum quantities, kept apart
-// because gOuroboros accepts them (see the fix branch
-// fix/ledger-multiasset-bignum-quantity).
+// referenceBignumVerdicts are the tag-2 and tag-3 bignum quantities, in
+// every tag-head width and behind a duplicate asset name. The reference
+// refuses each at every version, since it never reads a quantity as a tag.
 var referenceBignumVerdicts = []multiAssetVerdict{
 	{
 		"bignum quantity five",
