@@ -17,6 +17,7 @@ package cbor_test
 import (
 	"bytes"
 	"encoding/hex"
+	"math"
 	"math/big"
 	"strings"
 	"testing"
@@ -454,7 +455,7 @@ func TestListAndHeaderInfoAsRFC8949(t *testing.T) {
 	}
 	sizes := map[int]uint32{
 		0: 1, 23: 1, 24: 2, 255: 2, 256: 3, 65535: 3, 65536: 5,
-		1 << 31: 5,
+		math.MaxInt32: 5,
 	}
 	for n, want := range sizes {
 		if got := cbor.ArrayHeaderSize(n); got != want {
