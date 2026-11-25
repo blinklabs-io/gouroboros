@@ -299,7 +299,7 @@ func NewMsgBlockTxsOffer(point pcommon.Point) *MsgBlockTxsOffer {
 type MsgVotesOffer struct {
 	protocol.MessageBase
 	Votes          []MsgVotesOfferVote
-	FullVotes      []lcommon.LeiosVote
+	FullVotes      []lcommon.LeiosLegacyVote
 	PrototypeVotes []lcommon.LeiosPrototypeVote
 }
 
@@ -319,7 +319,7 @@ func NewMsgVotesOffer(votes []MsgVotesOfferVote) *MsgVotesOffer {
 
 // NewMsgVotesOfferFull builds a votes offer carrying full pushed votes, as the
 // Leios prototype diffuses them inline over leios-notify.
-func NewMsgVotesOfferFull(votes []lcommon.LeiosVote) *MsgVotesOffer {
+func NewMsgVotesOfferFull(votes []lcommon.LeiosLegacyVote) *MsgVotesOffer {
 	m := &MsgVotesOffer{
 		MessageBase: protocol.MessageBase{
 			MessageType: MessageTypeVotesOffer,
@@ -493,7 +493,7 @@ func (m *MsgVotesOffer) UnmarshalCBOR(data []byte) error {
 			}
 			m.Votes = append(m.Votes, id)
 		case 4:
-			var vote lcommon.LeiosVote
+			var vote lcommon.LeiosLegacyVote
 			if _, err := cbor.Decode(voteRaw, &vote); err != nil {
 				return fmt.Errorf(
 					"%s: votes offer: decode full vote %d: %w",

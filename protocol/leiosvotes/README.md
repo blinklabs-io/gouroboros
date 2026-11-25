@@ -25,15 +25,17 @@ fetch traffic.
 caps this at `MaxRequestNextCount` to keep the receive buffer commitment
 bounded while CIP-0164 remains experimental.
 
-`Vote` carries the stake-based committee vote shape from the current
-CIP-0164 design:
+`Vote` carries the CIP-0164 vote, `[announcing_rb_hash, voter_id,
+vote_signature]`:
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `SlotNo` | `uint64` | Voting round / announcing RB slot |
-| `EndorserBlockHash` | `common.Blake2b256` | EB hash being endorsed |
-| `VoterId` | `uint64` | Index in the epoch committee |
+| `AnnouncingRbHash` | `common.Blake2b256` | Hash of the ranking block header that announced the EB, and the signed message |
+| `VoterId` | `uint16` | Index in the epoch committee |
 | `VoteSignature` | `[]byte` | 48-byte BLS12-381 MinSig signature |
+
+The vote's election slot is the announcing block's slot, which the consumer
+resolves.
 
 ## State Machine
 

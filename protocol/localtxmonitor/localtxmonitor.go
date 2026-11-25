@@ -44,8 +44,9 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeAcquire,
-				NewState: stateAcquiring,
+				MsgType:   MessageTypeAcquire,
+				NewState:  stateAcquiring,
+				MatchFunc: matchAcquire,
 			},
 			{
 				MsgType:  MessageTypeDone,
@@ -66,8 +67,11 @@ var StateMap = protocol.StateMap{
 		Agency: protocol.AgencyClient,
 		Transitions: []protocol.StateTransition{
 			{
-				MsgType:  MessageTypeAcquire,
-				NewState: stateAcquiring,
+				// MsgAwaitAcquire: the same bytes as MsgAcquire, told apart
+				// only by the state it is sent in.
+				MsgType:   MessageTypeAcquire,
+				NewState:  stateAcquiring,
+				MatchFunc: matchAwaitAcquire,
 			},
 			{
 				MsgType:  MessageTypeRelease,
@@ -135,9 +139,32 @@ var queryReplyTypes = map[uint8]uint8{
 }
 
 // stateContext records the query in flight so that Busy accepts only its
-// reply. Each client and server needs its own.
+// reply, and whether Acquiring was entered by MsgAwaitAcquire. Each client
+// and server needs its own.
 type stateContext struct {
-	query atomic.Uint32
+	query    atomic.Uint32
+	awaiting atomic.Bool
+}
+
+// matchAcquire records that Acquiring was entered from Idle.
+func matchAcquire(ctx any, _ protocol.Message) bool {
+	stateCtx, ok := ctx.(*stateContext)
+	if !ok {
+		return false
+	}
+	stateCtx.awaiting.Store(false)
+	return true
+}
+
+// matchAwaitAcquire records that Acquiring was entered from Acquired, where
+// the server answers only once the mempool differs from the held snapshot.
+func matchAwaitAcquire(ctx any, _ protocol.Message) bool {
+	stateCtx, ok := ctx.(*stateContext)
+	if !ok {
+		return false
+	}
+	stateCtx.awaiting.Store(true)
+	return true
 }
 
 // matchQuery records the query before the transition grants the server
@@ -306,9 +333,11 @@ func WithAwaitMempoolFunc(
 	}
 }
 
-// WithAcquireTimeout specifies the timeout for acquire operations when acting
-// as a client. There is none by default: the reference sets none, and a node
-// answers a re-acquire only once its mempool changes.
+// WithAcquireTimeout specifies the timeout for an acquire from Idle when
+// acting as a client. There is none by default: the reference sets none. A
+// re-acquire from Acquired (MsgAwaitAcquire) is never timed: the node answers
+// it only once its mempool differs from the held snapshot, which may take any
+// time. Stop ends such a wait.
 func WithAcquireTimeout(timeout time.Duration) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout

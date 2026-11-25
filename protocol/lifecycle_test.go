@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 )
@@ -122,7 +123,7 @@ func TestLifecycleStopCallers(t *testing.T) {
 				)
 			}
 			requireClosed(t, p.DoneChan(), "DoneChan did not close")
-			requireClosed(t, p.readDoneChan, "readLoop did not exit")
+			requireReadLoopExited(t, p)
 			// Stop is called again by the helper's cleanup; it must be a
 			// no-op, and an outside Stop after an inside one must return.
 			requireClosed(t, stopFromOutside(p), "a second Stop did not return")
@@ -194,7 +195,7 @@ func TestLifecycleHandlerWaitingForStopChan(t *testing.T) {
 	requireClosed(t, entered, "handler did not run")
 	requireClosed(t, stopFromOutside(p), "Stop did not return")
 	requireClosed(t, p.DoneChan(), "DoneChan did not close")
-	requireClosed(t, p.readDoneChan, "readLoop did not exit")
+	requireReadLoopExited(t, p)
 	_ = p.config.Muxer.Stop(context.Background())
 	require.NoError(t, goleak.Find(ignore))
 }
@@ -257,13 +258,83 @@ func TestLifecycleRestartAfterTerminalMessage(t *testing.T) {
 	requireOpen(t, restarted, "the handler ran before MessageReceivedFunc returned")
 	close(releaseReceived)
 	requireClosed(t, restarted, "StopForRestart did not return")
-	select {
-	case <-p.readDoneChan:
-	default:
-		t.Fatal("StopForRestart returned before readLoop exited")
-	}
+	requireReadLoopExited(t, p)
 	requireClosed(t, p.DoneChan(), "DoneChan did not close")
 	p.CancelRestart()
 	_ = p.config.Muxer.Stop(context.Background())
 	require.NoError(t, goleak.Find(ignore))
+}
+
+// TestLifecycleRestartFromReceivedCallback restarts a server from
+// MessageReceivedFunc, on readLoop, with its callback context: StopForRestart
+// returns there, readLoop exits, and the next instance of the role receives
+// the messages readLoop had read and not queued.
+func TestLifecycleRestartFromReceivedCallback(t *testing.T) {
+	ignore := goleak.IgnoreCurrent()
+	returned := make(chan struct{})
+	var once sync.Once
+	var p *Protocol
+	p, _, _ = startPanicTestProtocol(t, ProtocolConfig{
+		StateMap: StateMap{
+			panicTestInitialState: {
+				Agency: AgencyClient,
+				Transitions: []StateTransition{{
+					MsgType:  1,
+					NewState: panicTestInitialState,
+				}},
+			},
+		},
+		MessageReceivedFunc: func(Message) {
+			once.Do(func() {
+				_ = p.StopForRestart(p.CallbackContext())
+				close(returned)
+			})
+		},
+	})
+	// Two messages in one segment, so readLoop holds the second when the
+	// first one's callback restarts the server.
+	segment := muxer.NewSegment(0, []byte{0x81, 0x01, 0x81, 0x01}, false)
+	require.NotNil(t, segment)
+	select {
+	case p.muxerRecvChan <- segment:
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("protocol never accepted the peer's messages")
+	}
+	requireClosed(t, returned, "StopForRestart from MessageReceivedFunc did not return")
+	requireReadLoopExited(t, p)
+	requireClosed(t, p.DoneChan(), "DoneChan did not close")
+
+	handled := make(chan struct{}, 2)
+	nextConfig := p.config
+	nextConfig.MessageReceivedFunc = nil
+	nextConfig.MessageHandlerFunc = func(Message) error {
+		handled <- struct{}{}
+		return nil
+	}
+	next := New(nextConfig)
+	next.Start()
+	for range 2 {
+		requireReceived(t, handled, "the next instance did not get the carried messages")
+	}
+	require.NoError(t, next.Stop(context.Background()))
+	_ = p.config.Muxer.Stop(context.Background())
+	require.NoError(t, goleak.Find(ignore))
+}
+
+func requireReceived(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal(what)
+	}
+}
+
+func requireReadLoopExited(t *testing.T, p *Protocol) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		p.restartMu.Lock()
+		defer p.restartMu.Unlock()
+		return p.readExited
+	}, lifecycleTestTimeout, time.Millisecond, "readLoop did not exit")
 }
