@@ -17,6 +17,7 @@ package cbor
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -376,6 +377,10 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		cd.fields = outerArray[1]
 	default:
 		return fmt.Errorf("unsupported constructor tag: %d", tmpTag.Number)
+	}
+	// Plutus decodes the fields with decodeListOf, so they must be a list.
+	if len(cd.fields) == 0 || cd.fields[0]&CborTypeMask != CborTypeArray {
+		return errors.New("constructor fields are not a CBOR list")
 	}
 	return nil
 }

@@ -136,6 +136,10 @@ type classicPPUPTestWitnessSet struct {
 
 func (w classicPPUPTestWitnessSet) Vkey() []common.VkeyWitness { return w.vkeys }
 
+func (classicPPUPTestWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return nil
+}
+
 type classicPPUPTestState struct {
 	common.LedgerState
 	delegates   []common.Blake2b224
@@ -378,11 +382,16 @@ func TestClassicCostModelUpdateProtocolVersionBoundary(t *testing.T) {
 			newUpdate: func(models map[uint][]int64) common.ProtocolParameterUpdate {
 				return alonzo.AlonzoProtocolParameterUpdate{CostModels: models}
 			},
-			valid: map[uint][]int64{alonzo.PlutusV1Key: make([]int64, 166)},
+			// The legacy decoder takes PlutusV2 in Alonzo as well.
+			valid: map[uint][]int64{
+				alonzo.PlutusV1Key: make([]int64, 166),
+				alonzo.PlutusV2Key: make([]int64, 175),
+			},
 			invalid: []map[uint][]int64{
 				{alonzo.PlutusV1Key: make([]int64, 165)},
-				{1: make([]int64, 175)},
+				{alonzo.PlutusV2Key: make([]int64, 174)},
 				{alonzo.PlutusV1Key: make([]int64, 167)},
+				{2: make([]int64, 187)},
 			},
 		},
 		{

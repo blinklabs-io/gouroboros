@@ -148,6 +148,11 @@ func TestGrowingMapDecodesValidMaps(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "set-tagged null",
+			data: []byte{0xd9, 0x01, 0x02, 0xf6},
+			want: nil,
+		},
+		{
 			name: "self-described undefined",
 			data: []byte{0xd9, 0xd9, 0xf7, 0xf7},
 			want: nil,
