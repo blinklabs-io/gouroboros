@@ -597,7 +597,7 @@ func TestRequestTxIdsAtWindowReachesCallback(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -629,7 +629,7 @@ func TestRequestTxIdsWindowClosesAsIdsGoUnacknowledged(t *testing.T) {
 		},
 	})
 	outboundStart := p.outboundRead.count.Load()
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -680,7 +680,7 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 		},
 	})
 	outboundStart := p.outboundRead.count.Load()
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -692,7 +692,7 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 		outboundStart,
 		NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
 	)
-	p.send(t, NewMsgRequestTxIds(false, MaxUnackedTxIds, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, MaxUnackedTxIds, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -811,7 +811,7 @@ func TestRequestTxIdsRefusesAnOverReturningCallback(t *testing.T) {
 			return windowTxIdAndSizes(MaxUnackedTxIds), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, 1))
+	p.send(t, NewMsgRequestTxIds(true, 0, 1))
 	select {
 	case err := <-p.errorChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
@@ -845,7 +845,7 @@ func TestRequestTxIdsAcceptsACallbackReplyWithinTheRequest(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case err := <-p.errorChan:
 		t.Fatalf("a reply within the request was refused: %v", err)
@@ -914,7 +914,7 @@ func TestServerRequestTxIdsRejectsAnOverLongReplyFromThePeer(t *testing.T) {
 	peer := newReplyValidationPeer(t)
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := peer.server.RequestTxIds(false, 1)
+		_, err := peer.server.RequestTxIds(true, 1)
 		errChan <- err
 	}()
 	peer.waitForRequest(t)

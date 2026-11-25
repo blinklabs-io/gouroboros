@@ -203,10 +203,9 @@ type LocalStateQueryOptionFunc func(*Config)
 
 // NewConfig returns a new LocalStateQuery config object with the provided options
 func NewConfig(options ...LocalStateQueryOptionFunc) Config {
-	c := Config{
-		AcquireTimeout: 5 * time.Second,
-		QueryTimeout:   180 * time.Second,
-	}
+	// No default timeouts: the specification sets none for node-to-client
+	// protocols, and the reference defines no time limits for this one.
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -235,14 +234,16 @@ func WithReleaseFunc(releaseFunc ReleaseFunc) LocalStateQueryOptionFunc {
 	}
 }
 
-// WithAcquireTimeout specifies the timeout for the Acquire operation when acting as a client
+// WithAcquireTimeout specifies the timeout for the Acquire operation when
+// acting as a client. There is none by default, as in the reference.
 func WithAcquireTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout
 	}
 }
 
-// WithQueryTimeout specifies the timeout for the Query operation when acting as a client
+// WithQueryTimeout specifies the timeout for the Query operation when acting
+// as a client. There is none by default, as in the reference.
 func WithQueryTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.QueryTimeout = timeout

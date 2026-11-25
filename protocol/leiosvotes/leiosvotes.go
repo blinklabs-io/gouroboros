@@ -85,6 +85,11 @@ var StateMap = protocol.StateMap{
 	},
 	StateBusy: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
+		// A client sends its next request before the previous batch is
+		// delivered (CIP-0164 protocol pipelining), so a server accepts
+		// VotesRequestNext here and answers it once the batch returns the
+		// state to Idle.
+		PipelinedMessageTypes: []uint8{MessageTypeVotesRequestNext},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeVote,

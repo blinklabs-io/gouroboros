@@ -692,6 +692,20 @@ type ConwayTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *ConwayTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[babbage.BabbageProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type ConwayTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs                ConwayTransactionInputSet                     `cbor:"0,keyasint,omitempty"`
@@ -867,8 +881,8 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 }
 
 func validateConwayTransactionBodyFields(cborData []byte) error {
-	var fields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint64](cborData)
+	if err != nil {
 		return err
 	}
 	// CBOR major type 1 encodes negative integers; coins must be nonnegative.
@@ -933,8 +947,8 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](encoded)
+	if err != nil {
 		return nil, err
 	}
 	if bodyFields == nil {
