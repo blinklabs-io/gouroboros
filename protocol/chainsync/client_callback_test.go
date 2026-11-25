@@ -294,7 +294,7 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 			t, func(*pipeline.BlockItem) error { return nil },
 		)...)
 		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 		callbackCalled := false
 		client := NewClient(
 			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
@@ -320,7 +320,7 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 			t, func(*pipeline.BlockItem) error { return nil },
 		)...)
 		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 		callbackCalled := false
 		client := NewClient(
 			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
@@ -342,7 +342,7 @@ func TestAwaitReplyHandlesPipelineShutdownState(t *testing.T) {
 			t, func(*pipeline.BlockItem) error { return nil },
 		)...)
 		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 		client := NewClient(
 			protocol.ProtocolOptions{ConnectionId: testConnectionId()},
 			&Config{Pipeline: p},
@@ -393,7 +393,7 @@ func TestRollForwardWaitsForPipelineAcceptance(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	client := NewClient(
@@ -452,7 +452,7 @@ func TestRollForwardReturnsOrderedValidationFailure(t *testing.T) {
 	))
 	p := pipeline.NewBlockPipeline(opts...)
 	require.NoError(t, p.Start(context.Background()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	client := NewClient(
 		protocol.ProtocolOptions{
@@ -502,7 +502,7 @@ func TestRollForwardFenceStopsWithClientLifecycle(t *testing.T) {
 			require.NoError(t, p.Start(context.Background()))
 			t.Cleanup(func() {
 				release()
-				require.NoError(t, p.Stop())
+				require.NoError(t, p.Stop(context.Background()))
 			})
 			client := NewClient(
 				protocol.ProtocolOptions{
@@ -570,7 +570,7 @@ func newBlockedApplyPipeline(t *testing.T) *pipeline.BlockPipeline {
 	require.NoError(t, p.Start(context.Background()))
 	t.Cleanup(func() {
 		release()
-		if err := p.Stop(); err != nil {
+		if err := p.Stop(context.Background()); err != nil {
 			t.Errorf("stop pipeline: %v", err)
 		}
 	})
@@ -662,7 +662,7 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 	require.NoError(t, p.Start(context.Background()))
 	t.Cleanup(func() {
 		releaseApplyFunc()
-		if err := p.Stop(); err != nil {
+		if err := p.Stop(context.Background()); err != nil {
 			t.Errorf("stop pipeline: %v", err)
 		}
 	})
@@ -814,7 +814,7 @@ func TestPeerRollForwardRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 			}
 			p := pipeline.NewBlockPipeline(options...)
 			require.NoError(t, p.Start(context.Background()))
-			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 			cfg := Config{
 				Pipeline: p,
 				RollForwardFunc: func(CallbackContext, uint, any, Tip) error {

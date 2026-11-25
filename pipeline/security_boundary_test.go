@@ -270,7 +270,7 @@ func TestBlockTypeMismatchRejectedBeforeTypedDecodeAndValidation(t *testing.T) {
 	))
 	err = p.Fence(t.Context())
 	require.ErrorIs(t, err, ErrBlockTypeMismatch)
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	require.Zero(t, eta0Calls)
 	require.Zero(t, chainContextCalls)
 	require.Zero(t, applyCalls)
@@ -279,7 +279,7 @@ func TestBlockTypeMismatchRejectedBeforeTypedDecodeAndValidation(t *testing.T) {
 func TestTrustedDecodeOnlyPreservesEnvelopeWithoutApplying(t *testing.T) {
 	p := NewBlockPipeline(WithTrustedDecodeOnly())
 	require.NoError(t, p.Start(t.Context()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	const blockType = uint(ledger.BlockTypeConway)
 	require.NoError(t, p.Submit(
@@ -362,7 +362,7 @@ func TestStoppingPipelinePreservesFatalCause(t *testing.T) {
 	require.ErrorIs(t, p.Fence(t.Context()), fatalErr)
 
 	p.stopping.Store(false)
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 }
 
 func TestApplyFailureCancelsWithoutAdvancingAuthoritativeContext(t *testing.T) {
@@ -428,7 +428,7 @@ func TestFatalCauseSurvivesBeforeFenceAcquiresSubmitGate(t *testing.T) {
 		return rejected
 	}
 	require.NoError(t, p.Start(t.Context()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	shelley := getValidShelleyBlock(t)
 	require.NoError(t, p.Submit(
@@ -456,7 +456,7 @@ func TestProcessedCallbackPanicCancelsWithFullErrorChannel(t *testing.T) {
 	)
 	p.testProcessedFunc = func(uint64) { panic("processed callback") }
 	require.NoError(t, p.Start(t.Context()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 	p.errorsChan <- occupied
 
 	require.NoError(t, p.Submit(
@@ -638,7 +638,7 @@ func TestBlockPipelineStopDrainsFatalCommittedPrefix(t *testing.T) {
 	}
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- p.Stop() }()
+	go func() { stopped <- p.Stop(context.Background()) }()
 	releaseHandoffOnce.Do(func() { close(releaseHandoff) })
 	select {
 	case err := <-stopped:

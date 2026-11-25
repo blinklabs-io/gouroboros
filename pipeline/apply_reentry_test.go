@@ -48,7 +48,7 @@ func TestBlockPipelineWaitForDrainFromApplyFuncDuringStop(t *testing.T) {
 	<-entered
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- p.Stop() }()
+	go func() { stopDone <- p.Stop(context.Background()) }()
 	select {
 	case err := <-drained:
 		require.NoError(t, err)
@@ -88,7 +88,7 @@ func TestBlockPipelineWaitForDrainOtherContextWaitsDuringStop(t *testing.T) {
 	))
 	<-applyStarted
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- p.Stop() }()
+	go func() { stopDone <- p.Stop(context.Background()) }()
 	<-p.ctx.Done()
 
 	for _, ctx := range []context.Context{
