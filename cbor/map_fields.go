@@ -42,13 +42,27 @@ type RawMapKey interface {
 // does not decode as K, so memory grows only with entries that decode, never
 // with the pair count the input declares.
 func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
+	return DecodeMapIncremental[K, RawMessage](data, nil)
+}
+
+// DecodeMapIncremental decodes the CBOR map at the start of data into a Go map
+// with DecodeRawMap's rules, decoding each value as V. It calls checkKey, when
+// not nil, with every key as it decodes and stops with its error, so a caller
+// can refuse an unwanted key before any later pair is read. V decodes through
+// its own UnmarshalCBOR when it has one, so an invalid value stops the walk
+// too. K must be a type whose values are always hashable, such as an integer,
+// string, or byte array.
+func DecodeMapIncremental[K comparable, V any](
+	data []byte,
+	checkKey func(K) error,
+) (map[K]V, int, error) {
 	content := SkipTags(data)
 	tagsSize := len(data) - len(content)
 	count, headerSize, indefinite := MapInfo(content)
 	if count < 0 {
 		// Without a map head there is no pair count to size from, so the
 		// full decoder can report null, another type, or a bad head.
-		var fields map[K]RawMessage
+		var fields map[K]V
 		n, err := DecodeLedgerMap(data, &fields)
 		if err != nil {
 			return nil, 0, err
@@ -79,17 +93,17 @@ func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
 		probe := make([]byte, tagsSize+1)
 		copy(probe, data[:tagsSize])
 		probe[tagsSize] = 0xa0
-		var empty map[K]RawMessage
+		var empty map[K]V
 		if _, err := decMode.UnmarshalFirst(probe, &empty); err != nil {
 			return nil, 0, err
 		}
 	}
-	fields := make(map[K]RawMessage, min(count, rawMapPresizePairs))
+	fields := make(map[K]V, min(count, rawMapPresizePairs))
 	pos := tagsSize + int(headerSize)
 	// Declared once: each pointer handed to UnmarshalFirst escapes, so
 	// per-pair variables would cost two heap allocations per pair.
 	var key, zeroKey K
-	var value RawMessage
+	var value, zeroValue V
 	for i := 0; indefinite || i < count; i++ {
 		if indefinite && data[pos] == 0xff {
 			break
@@ -99,9 +113,14 @@ func DecodeRawMap[K RawMapKey](data []byte) (map[K]RawMessage, int, error) {
 			return nil, 0, err
 		}
 		pos = n - len(rest)
-		// RawMessage decodes by appending to its receiver, so it must start
-		// nil to avoid sharing the previous value's backing array.
-		value = nil
+		if checkKey != nil {
+			if err := checkKey(key); err != nil {
+				return nil, 0, err
+			}
+		}
+		// RawMessage decodes by appending to its receiver, so a value must
+		// start zeroed to avoid sharing the previous value's backing array.
+		value = zeroValue
 		if rest, err = decMode.UnmarshalFirst(data[pos:n], &value); err != nil {
 			return nil, 0, err
 		}

@@ -136,7 +136,10 @@ func ValidateProtocolParameterUpdateDomains(
 	data []byte,
 	era ProtocolParameterUpdateEra,
 ) (map[uint64]cbor.RawMessage, error) {
-	fields, _, err := cbor.DecodeRawMap[uint64](data)
+	fields, _, err := cbor.DecodeMapIncremental[uint64, cbor.RawMessage](
+		data,
+		checkProtocolParameterUpdateKey,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -268,6 +271,25 @@ func ValidateNonNegativeInterval(value *cbor.Rat, unit bool) error {
 	}
 	if unit && numerator.Cmp(denominator) > 0 {
 		return errors.New("must be between zero and one inclusive")
+	}
+	return nil
+}
+
+// maxProtocolParameterUpdateKey is the highest field key any classic era
+// accepts. Keys are unique, so a map cannot hold more than this many entries
+// without an unknown or duplicate key, which no era accepts.
+const maxProtocolParameterUpdateKey = 24
+
+// checkProtocolParameterUpdateKey refuses a key above every classic era's
+// range while the map is still being read, so an oversized map costs memory
+// only up to the first such key. Each era's own decoder still rejects the
+// keys it does not define.
+func checkProtocolParameterUpdateKey(key uint64) error {
+	if key > maxProtocolParameterUpdateKey {
+		return ProtocolParameterUpdateDomainError{
+			Field:  protocolParameterUpdateFieldName(key),
+			Reason: "unknown field",
+		}
 	}
 	return nil
 }
