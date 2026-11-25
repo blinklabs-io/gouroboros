@@ -34,12 +34,26 @@ type AdaPots struct {
 
 // RewardParameters contains the protocol parameters needed for reward calculation
 type RewardParameters struct {
-	// Monetary expansion parameters
-	MonetaryExpansion uint64 // rho - monetary expansion rate (0.003 means 0.3%)
-	TreasuryGrowth    uint64 // tau - treasury growth rate (0.2 means 20%)
+	// MonetaryExpansion is rho in millionths (3000 means 0.003). It is used
+	// only when ExpansionRate is nil.
+	MonetaryExpansion uint64
+	// TreasuryGrowth is tau in ten-thousandths (2000 means 0.2). It is used
+	// only when TreasuryRate is nil.
+	TreasuryGrowth uint64
 
-	// Decentralization parameter (0 = fully decentralized, 1 = fully centralized)
+	// Decentralization is d as a whole number: 0 is fully decentralized and
+	// 1 or more is fully centralized. It is used only when
+	// DecentralizationRate is nil.
 	Decentralization uint64
+
+	// DecentralizationRate is the decentralization parameter d in [0, 1].
+	// It overrides Decentralization when set. From d >= 0.8 the reference
+	// fixes eta and every pool's apparent performance at 1.
+	DecentralizationRate *big.Rat
+
+	// DesiredPools is nOpt (the k parameter). The pool reward cap z0 is
+	// 1/DesiredPools; CalculateRewards fails when it is zero.
+	DesiredPools uint64
 
 	// Protocol version for reward calculation rules
 	ProtocolVersion ProtocolParametersProtocolVersion
@@ -61,10 +75,10 @@ type RewardParameters struct {
 	// Pool influence parameter (a0)
 	PoolInfluence *big.Rat
 
-	// Expansion rate (rho)
+	// ExpansionRate is rho exactly; it overrides MonetaryExpansion.
 	ExpansionRate *big.Rat
 
-	// Treasury expansion rate (tau)
+	// TreasuryRate is tau exactly; it overrides TreasuryGrowth.
 	TreasuryRate *big.Rat
 
 	// Active slots coefficient (f) - from CIP-9
@@ -78,6 +92,12 @@ type RewardParameters struct {
 type RewardSnapshot struct {
 	// Total active stake in the system
 	TotalActiveStake uint64
+
+	// TotalStake is the circulation the reward update measures relative
+	// stake against: the maximum lovelace supply less the reserves when the
+	// update starts (circulation in cardano-ledger PulsingReward.hs). Zero
+	// falls back to TotalActiveStake.
+	TotalStake uint64
 
 	// Stake distribution by pool
 	PoolStake map[PoolKeyHash]uint64
@@ -120,8 +140,20 @@ type PoolRetirementInfo struct {
 
 // RewardCalculationResult contains the calculated rewards
 type RewardCalculationResult struct {
-	// Total rewards to be distributed
+	// TotalRewards is the sum of every computed leader and member reward,
+	// including rewards to unregistered credentials that UpdatedPots moves
+	// to the treasury.
 	TotalRewards uint64
+
+	// Undistributed is the part of the reward pot no reward was computed
+	// for (deltaR2 in cardano-ledger); UpdatedPots returns it to the
+	// reserves.
+	Undistributed uint64
+
+	// Unregistered is the total of the computed rewards whose credential is
+	// not registered; UpdatedPots moves it to the treasury and the
+	// credentials are left out of PoolRewards.
+	Unregistered uint64
 
 	// Rewards per pool (operator + delegators)
 	PoolRewards map[PoolKeyHash]PoolRewards
@@ -151,71 +183,139 @@ type PoolRewards struct {
 	TotalRewards uint64
 }
 
-// CalculateAdaPots calculates the ADA pots for the next epoch
+// CalculateAdaPots starts an epoch's reward update from the pots at the
+// epoch boundary, following startStep in cardano-ledger
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/PulsingReward.hs:
+//
+//	deltaR1 = floor(min(1, eta) * rho * reserves)
+//	rewardPot = epochFees + deltaR1
+//	deltaT1 = floor(tau * rewardPot)
+//	R = rewardPot - deltaT1
+//
+// The returned pots have deltaR1 taken from the reserves, deltaT1 added to
+// the treasury and R added to the rewards pot, which CalculateRewards then
+// distributes. epochFees are the fees in the stake snapshot and are moved out
+// of the fee pot by the caller. totalBlocksInEpoch is the number of blocks
+// stake pools made in the epoch the update covers.
 func CalculateAdaPots(
 	currentPots AdaPots,
 	params RewardParameters,
 	epochFees uint64,
 	totalBlocksInEpoch uint32,
 ) (AdaPots, error) {
-	// Calculate eta (pool performance factor)
+	rho, err := unitIntervalParam(
+		"monetary expansion",
+		params.ExpansionRate,
+		params.MonetaryExpansion,
+		1_000_000,
+	)
+	if err != nil {
+		return AdaPots{}, err
+	}
+	tau, err := unitIntervalParam(
+		"treasury growth",
+		params.TreasuryRate,
+		params.TreasuryGrowth,
+		10_000,
+	)
+	if err != nil {
+		return AdaPots{}, err
+	}
 	eta, err := calculateEta(totalBlocksInEpoch, params)
 	if err != nil {
 		return AdaPots{}, err
 	}
 
-	// Calculate monetary expansion (rho * eta * reserves)
-	// rho is in millionths (3000 = 0.3%)
-	monetaryExpansion := new(big.Int).SetUint64(params.MonetaryExpansion)
-	reserves := new(big.Int).SetUint64(currentPots.Reserves)
-	expansion := new(big.Int).Mul(monetaryExpansion, reserves)
-	expansion.Div(
-		expansion,
-		new(big.Int).SetUint64(1000000),
-	) // Convert from millionths
+	deltaR1 := ratFloorInt(
+		new(big.Rat).Mul(
+			new(big.Rat).Mul(eta, rho),
+			ratFromUint64(currentPots.Reserves),
+		),
+	)
+	rewardPot := new(big.Int).Add(
+		new(big.Int).SetUint64(epochFees),
+		deltaR1,
+	)
+	deltaT1 := ratFloorInt(
+		new(big.Rat).Mul(tau, new(big.Rat).SetInt(rewardPot)),
+	)
+	r := new(big.Int).Sub(rewardPot, deltaT1)
 
-	// Apply eta factor
-	etaBig := eta
-	expansion = new(big.Int).Mul(expansion, etaBig.Num())
-	expansion.Div(expansion, etaBig.Denom())
-
-	// Add epoch fees to reward pot
-	rewardPot := new(big.Int).SetUint64(epochFees)
-	rewardPot.Add(rewardPot, expansion)
-
-	// Calculate treasury contribution (tau * (expansion + fees))
-	// tau is in ten-thousandths (2000 = 20%)
-	treasuryGrowth := new(big.Int).SetUint64(params.TreasuryGrowth)
-	treasuryContribution := new(big.Int).Mul(treasuryGrowth, rewardPot)
-	treasuryContribution.Div(
-		treasuryContribution,
-		new(big.Int).SetUint64(10000),
-	) // Convert from ten-thousandths
-
-	// Subtract treasury contribution from reward pot
-	rewardPot.Sub(rewardPot, treasuryContribution)
-
-	// Update pots with safe arithmetic to prevent underflow
-	reservesBig := new(big.Int).SetUint64(currentPots.Reserves)
-	reservesMinusExpansion := new(big.Int).Sub(reservesBig, expansion)
-	var newReserves uint64
-	if reservesMinusExpansion.Sign() < 0 {
-		newReserves = 0 // Prevent underflow, set to 0
-	} else {
-		newReserves = reservesMinusExpansion.Uint64()
+	reserves := new(big.Int).Sub(
+		new(big.Int).SetUint64(currentPots.Reserves),
+		deltaR1,
+	)
+	treasury := new(big.Int).Add(
+		new(big.Int).SetUint64(currentPots.Treasury),
+		deltaT1,
+	)
+	rewards := new(big.Int).Add(
+		new(big.Int).SetUint64(currentPots.Rewards),
+		r,
+	)
+	if !reserves.IsUint64() || !treasury.IsUint64() || !rewards.IsUint64() {
+		return AdaPots{}, errors.New("ada pots overflow uint64")
 	}
-
-	newPots := AdaPots{
-		Reserves: newReserves,
-		Treasury: currentPots.Treasury + treasuryContribution.Uint64(),
-		Rewards:  rewardPot.Uint64(),
-	}
-
-	return newPots, nil
+	return AdaPots{
+		Reserves: reserves.Uint64(),
+		Treasury: treasury.Uint64(),
+		Rewards:  rewards.Uint64(),
+	}, nil
 }
 
-// calculateEta calculates the pool performance factor (η)
-// Following Amaru's approach: eta = min(1, blocks_produced / (epoch_length * active_slot_coeff))
+// unitIntervalParam returns the exact rate when set, and otherwise the
+// legacy fixed-point value divided by scale. The reference rates are unit
+// intervals.
+func unitIntervalParam(
+	name string,
+	exact *big.Rat,
+	fixed uint64,
+	scale int64,
+) (*big.Rat, error) {
+	rate := exact
+	if rate == nil {
+		rate = new(big.Rat).SetFrac(
+			new(big.Int).SetUint64(fixed),
+			big.NewInt(scale),
+		)
+	}
+	if rate.Sign() < 0 || rate.Cmp(big.NewRat(1, 1)) > 0 {
+		return nil, fmt.Errorf(
+			"%s rate %s is outside [0, 1]",
+			name,
+			rate.RatString(),
+		)
+	}
+	return rate, nil
+}
+
+// decentralization returns d in [0, 1].
+func decentralization(params RewardParameters) (*big.Rat, error) {
+	if params.DecentralizationRate != nil {
+		d := params.DecentralizationRate
+		if d.Sign() < 0 || d.Cmp(big.NewRat(1, 1)) > 0 {
+			return nil, fmt.Errorf(
+				"decentralization %s is outside [0, 1]",
+				d.RatString(),
+			)
+		}
+		return d, nil
+	}
+	if params.Decentralization >= 1 {
+		return big.NewRat(1, 1), nil
+	}
+	return new(big.Rat), nil
+}
+
+// decentralizationFixesPerformance reports d >= 0.8, from which the
+// reference sets eta and every pool's apparent performance to 1.
+func decentralizationFixesPerformance(d *big.Rat) bool {
+	return d.Cmp(big.NewRat(4, 5)) >= 0
+}
+
+// calculateEta returns min(1, eta) for the reserve expansion. cardano-ledger
+// startStep sets eta to 1 when d >= 0.8, and otherwise to
+// blocksMade / floor((1 - d) * activeSlotCoeff * slotsPerEpoch).
 func calculateEta(
 	totalBlocksInEpoch uint32,
 	params RewardParameters,
@@ -227,33 +327,31 @@ func calculateEta(
 	if params.ExpectedSlotsPerEpoch == 0 {
 		return nil, errors.New("expected slots per epoch must be positive")
 	}
-
-	// Calculate expected blocks: epoch_length * active_slot_coeff
-	expectedBlocks := new(big.Rat).Mul(
-		new(big.Rat).SetUint64(uint64(params.ExpectedSlotsPerEpoch)),
-		activeSlotsCoeff,
-	)
-
-	// eta = min(1, totalBlocksInEpoch / expectedBlocks)
-	actualBlocks := new(big.Rat).SetUint64(uint64(totalBlocksInEpoch))
-	eta := new(big.Rat).Quo(actualBlocks, expectedBlocks)
-
-	// Cap at 1.0
-	oneRat := new(big.Rat).SetInt64(1)
-	if eta.Cmp(oneRat) > 0 {
-		eta = oneRat
+	d, err := decentralization(params)
+	if err != nil {
+		return nil, err
 	}
-
+	one := big.NewRat(1, 1)
+	if decentralizationFixesPerformance(d) {
+		return one, nil
+	}
+	expectedBlocks := ratFloorInt(
+		new(big.Rat).Mul(
+			new(big.Rat).Mul(new(big.Rat).Sub(one, d), activeSlotsCoeff),
+			new(big.Rat).SetUint64(uint64(params.ExpectedSlotsPerEpoch)),
+		),
+	)
+	if expectedBlocks.Sign() == 0 {
+		return nil, errors.New("expected blocks per epoch is zero")
+	}
+	eta := new(big.Rat).SetFrac(
+		big.NewInt(int64(totalBlocksInEpoch)),
+		expectedBlocks,
+	)
+	if eta.Cmp(one) > 0 {
+		return one, nil
+	}
 	return eta, nil
-}
-
-// TODO(enhancement): Extract to a parameter for consistency with
-// CalculatePoolSaturation
-// poolSaturationThreshold returns (z0), the relative stake at which a pool
-// counts as fully saturated. Constructing a fresh value avoids sharing a
-// mutable big.Rat between concurrent reward calculations.
-func poolSaturationThreshold() *big.Rat {
-	return big.NewRat(1, 20)
 }
 
 // ratFromUint64 converts a lovelace amount to an exact rational
@@ -261,14 +359,19 @@ func ratFromUint64(value uint64) *big.Rat {
 	return new(big.Rat).SetInt(new(big.Int).SetUint64(value))
 }
 
+// ratFloorInt returns floor(value) for a non-negative value and 0 otherwise.
+func ratFloorInt(value *big.Rat) *big.Int {
+	if value.Sign() <= 0 {
+		return new(big.Int)
+	}
+	return new(big.Int).Quo(value.Num(), value.Denom())
+}
+
 // ratFloorUint64 returns floor(value) saturated to the uint64 range. Reward
 // amounts are always floored; a stakeholder is never credited a fraction of a
 // lovelace.
 func ratFloorUint64(value *big.Rat) uint64 {
-	if value.Sign() <= 0 {
-		return 0
-	}
-	floor := new(big.Int).Quo(value.Num(), value.Denom())
+	floor := ratFloorInt(value)
 	if !floor.IsUint64() {
 		return math.MaxUint64
 	}
@@ -331,57 +434,159 @@ func effectivePoolMargin(margin GenesisRat, params RewardParameters) *big.Rat {
 	return result
 }
 
-func minimumRewardRatio(a, b *big.Rat) *big.Rat {
+// effectivePoolCost raises the pool's declared cost to the minimum pool cost
+// from protocol version 12, as mkPoolRewardInfo and rewardOnePoolMember in
+// cardano-ledger Shelley/Rewards.hs do.
+func effectivePoolCost(cost uint64, params RewardParameters) uint64 {
+	if params.ProtocolVersion.Major >= ProtocolVersionDijkstra &&
+		cost < params.MinPoolCost {
+		return params.MinPoolCost
+	}
+	return cost
+}
+
+func minRat(a, b *big.Rat) *big.Rat {
 	if a.Cmp(b) <= 0 {
 		return new(big.Rat).Set(a)
 	}
 	return new(big.Rat).Set(b)
 }
 
-// calculatePoolPerformance calculates the apparent performance of a pool
-// Following Amaru's approach: performance = (pool_blocks / total_blocks) * (total_stake / pool_stake)
-// params is unused as performance calculation only requires block production data from snapshot
-func calculatePoolPerformance(
-	poolID PoolKeyHash,
-	snapshot RewardSnapshot,
-	_ RewardParameters,
+// maxPoolReward is maxPool' in cardano-ledger
+// libs/cardano-ledger-core/src/Cardano/Ledger/State/SnapShots.hs: the most a
+// pool with relative stake sigma and relative pledge pledgeRatio can earn
+// from the reward pot r, before apparent performance is applied.
+func maxPoolReward(
+	a0 *big.Rat,
+	nOpt uint64,
+	r uint64,
+	sigma, pledgeRatio *big.Rat,
+	params RewardParameters,
 ) *big.Rat {
-	// Get blocks produced by this pool
-	poolBlocks := snapshot.PoolBlocks[poolID]
-
-	// If no total blocks, assume optimal performance
-	if snapshot.TotalBlocksInEpoch == 0 {
-		return big.NewRat(1, 1)
+	z0 := new(big.Rat).SetFrac(big.NewInt(1), new(big.Int).SetUint64(nOpt))
+	sigmaCapped := minRat(sigma, z0)
+	if pledgeLeverageActive(params) {
+		sigmaCapped = minRat(
+			sigmaCapped,
+			new(big.Rat).Mul(params.MaxPledgeLeverage, pledgeRatio),
+		)
 	}
-
-	// If no blocks produced, performance = 0
-	if poolBlocks == 0 {
-		return new(big.Rat)
-	}
-
-	// Zero-stake pools have zero performance
-	poolStake := snapshot.PoolStake[poolID]
-	if poolStake == 0 {
-		return new(big.Rat)
-	}
-
-	// Calculate blocks ratio: pool_blocks / total_blocks
-	blocksRatio := new(big.Rat).SetFrac64(
-		int64(poolBlocks),
-		int64(snapshot.TotalBlocksInEpoch),
+	pledgeCapped := minRat(pledgeRatio, z0)
+	one := big.NewRat(1, 1)
+	factor1 := new(big.Rat).Quo(ratFromUint64(r), new(big.Rat).Add(one, a0))
+	factor4 := new(big.Rat).Quo(new(big.Rat).Sub(z0, sigmaCapped), z0)
+	factor3 := new(big.Rat).Quo(
+		new(big.Rat).Sub(
+			sigmaCapped,
+			new(big.Rat).Mul(pledgeCapped, factor4),
+		),
+		z0,
 	)
-
-	// Calculate stake ratio: total_stake / pool_stake
-	stakeRatio := new(big.Rat).SetFrac(
-		new(big.Int).SetUint64(snapshot.TotalActiveStake),
-		new(big.Int).SetUint64(poolStake),
+	factor2 := new(big.Rat).Add(
+		sigmaCapped,
+		new(big.Rat).Mul(new(big.Rat).Mul(pledgeCapped, a0), factor3),
 	)
-
-	// Performance = blocks_ratio * stake_ratio
-	return new(big.Rat).Mul(blocksRatio, stakeRatio)
+	return new(big.Rat).Mul(factor1, factor2)
 }
 
-// CalculateRewards calculates stake pool and delegator rewards
+// apparentPerformance is mkApparentPerformance in cardano-ledger
+// Shelley/Rewards.hs: the pool's share of the blocks made over its share of
+// the active stake, or 1 when d >= 0.8.
+func apparentPerformance(
+	d *big.Rat,
+	sigmaActive *big.Rat,
+	poolBlocks, totalBlocks uint32,
+) *big.Rat {
+	if sigmaActive.Sign() == 0 {
+		return new(big.Rat)
+	}
+	if decentralizationFixesPerformance(d) {
+		return big.NewRat(1, 1)
+	}
+	beta := new(big.Rat).SetFrac64(
+		int64(poolBlocks),
+		int64(max(1, totalBlocks)),
+	)
+	return beta.Quo(beta, sigmaActive)
+}
+
+// leaderReward is calcStakePoolOperatorReward in cardano-ledger
+// Shelley/Rewards.hs.
+func leaderReward(
+	poolReward, cost uint64,
+	margin, ownerShare, sigma *big.Rat,
+) uint64 {
+	if poolReward <= cost {
+		return poolReward
+	}
+	one := big.NewRat(1, 1)
+	share := new(big.Rat).Quo(
+		new(big.Rat).Mul(new(big.Rat).Sub(one, margin), ownerShare),
+		sigma,
+	)
+	share.Add(share, margin)
+	return cost + ratFloorUint64(
+		new(big.Rat).Mul(ratFromUint64(poolReward-cost), share),
+	)
+}
+
+// memberReward is calcStakePoolMemberReward in cardano-ledger
+// Shelley/Rewards.hs.
+func memberReward(
+	poolReward, cost uint64,
+	margin, memberShare, sigma *big.Rat,
+) uint64 {
+	if poolReward <= cost {
+		return 0
+	}
+	one := big.NewRat(1, 1)
+	reward := new(big.Rat).Mul(
+		ratFromUint64(poolReward-cost),
+		new(big.Rat).Sub(one, margin),
+	)
+	reward.Mul(reward, memberShare)
+	return ratFloorUint64(reward.Quo(reward, sigma))
+}
+
+// poolOwnerStake sums the stake each distinct owner delegates to the pool:
+// the self-delegated owners' stake that the pledge is checked against.
+func poolOwnerStake(
+	owners []AddrKeyHash,
+	delegatorStake map[AddrKeyHash]uint64,
+) (uint64, map[AddrKeyHash]bool) {
+	seen := make(map[AddrKeyHash]bool, len(owners))
+	total := uint64(0)
+	for _, owner := range owners {
+		if seen[owner] {
+			continue
+		}
+		seen[owner] = true
+		total += delegatorStake[owner]
+	}
+	return total, seen
+}
+
+// CalculateRewards distributes the reward pot pots.Rewards (R, from
+// CalculateAdaPots) to the pools that made blocks and their members, as
+// startStep, mkPoolRewardInfo and rewardOnePoolMember in cardano-ledger
+// (Shelley/LedgerState/PulsingReward.hs, Shelley/Rewards.hs) do:
+//
+//   - A pool that made no blocks earns nothing.
+//   - A pool earns floor(apparentPerformance * maxPool'), where maxPool' is
+//     0 when its pledge exceeds its owners' delegated stake.
+//   - The leader takes the cost plus margin and owner share of the rest; each
+//     member that is not an owner takes its stake share of the rest after
+//     margin. Every amount is floored.
+//   - Before protocol version 7 a reward is computed only for a registered
+//     credential. From version 7 rewards are computed for every credential,
+//     and those to unregistered credentials go to the treasury when applied.
+//
+// Relative stake is measured against snapshot.TotalStake. The part of R no
+// reward was computed for (deltaR2) returns to the reserves: UpdatedPots has
+// it added to the reserves, unregistered rewards added to the treasury, and
+// the rewards pot emptied. Registration is read from
+// snapshot.StakeRegistrations by credential hash; the caller applies the
+// result, aggregating a credential's rewards from several pools.
 func CalculateRewards(
 	pots AdaPots,
 	snapshot RewardSnapshot,
@@ -390,366 +595,191 @@ func CalculateRewards(
 	if err := validateDijkstraRewardParameters(params); err != nil {
 		return nil, err
 	}
-	if snapshot.TotalActiveStake == 0 || pots.Rewards == 0 {
-		return &RewardCalculationResult{
-			TotalRewards: 0,
-			PoolRewards:  make(map[PoolKeyHash]PoolRewards),
-			UpdatedPots:  pots,
-		}, nil
+	if params.DesiredPools == 0 {
+		return nil, errors.New("desired number of pools (nOpt) is zero")
 	}
-
-	result := &RewardCalculationResult{
-		TotalRewards: pots.Rewards,
-		PoolRewards:  make(map[PoolKeyHash]PoolRewards),
-		UpdatedPots:  pots, // Preserve original pots until successful distribution
+	d, err := decentralization(params)
+	if err != nil {
+		return nil, err
 	}
-
-	// Calculate rewards for each pool
-	poolShares := make(map[PoolKeyHash]*big.Rat)
-	totalShare := new(big.Rat)
-	leverageEligiblePools := make([]PoolKeyHash, 0, len(snapshot.PoolStake))
-
-	// First pass: calculate raw shares for all pools
-	for _, poolID := range sortedPoolIDs(snapshot.PoolStake) {
-		poolStake := snapshot.PoolStake[poolID]
-		poolParams, exists := snapshot.PoolParams[poolID]
-		if !exists {
-			continue // Skip pools without parameters
-		}
-		if poolParams == nil {
-			return nil, fmt.Errorf(
-				"pool parameters not found for pool %s",
-				poolID,
-			)
-		}
-		if err := ValidatePoolMargin(poolParams.Margin); err != nil {
-			return nil, fmt.Errorf(
-				"invalid margin for pool %s: %w",
-				poolID,
-				err,
-			)
-		}
-
-		share := calculatePoolShare(
-			poolStake,
-			poolParams,
-			snapshot,
-			params,
-			poolID,
-		)
-		poolShares[poolID] = share
-		totalShare.Add(totalShare, share)
-		if pledgeLeverageActive(params) && poolStake > 0 &&
-			poolParams.Pledge > 0 {
-			leverageEligiblePools = append(leverageEligiblePools, poolID)
-		}
-	}
-
-	// Guard against malformed snapshot with no valid pools
-	if len(poolShares) == 0 {
-		return nil, errors.New("no valid pools found in reward snapshot")
-	}
-
-	// Guard against zero total share (all pools have zero share)
-	if totalShare.Sign() == 0 {
-		if pledgeLeverageActive(params) && len(leverageEligiblePools) == 0 {
-			result.TotalRewards = 0
-			return result, nil
-		}
-		// Assign equal shares to avoid division by zero. With pledge leverage
-		// active, only pools with positive pledged stake remain eligible.
-		poolIDs := sortedPoolIDs(poolShares)
-		if pledgeLeverageActive(params) {
-			poolIDs = leverageEligiblePools
-		}
-		equalShare := big.NewRat(1, int64(len(poolIDs)))
-		for poolID := range poolShares {
-			poolShares[poolID] = new(big.Rat)
-		}
-		for _, poolID := range poolIDs {
-			poolShares[poolID] = new(big.Rat).Set(equalShare)
-		}
-		totalShare = big.NewRat(1, 1)
-	}
-
-	// Second pass: split the reward pot across pools in proportion to their
-	// shares. The amounts sum to the pot exactly and do not depend on map
-	// iteration order.
-	poolRewardAmounts := apportionRewardPot(
-		pots.Rewards,
-		poolShares,
-		totalShare,
-	)
-
-	// Now distribute rewards for each pool
-	for _, poolID := range sortedPoolIDs(poolRewardAmounts) {
-		totalPoolRewards := poolRewardAmounts[poolID]
-		poolParams := snapshot.PoolParams[poolID]
-		if poolParams == nil {
-			return nil, fmt.Errorf(
-				"pool parameters not found for pool %s",
-				poolID,
-			)
-		}
-		delegatorStake := snapshot.DelegatorStake[poolID]
-		if delegatorStake == nil {
-			delegatorStake = make(map[AddrKeyHash]uint64)
-		}
-
-		poolRewards := distributePoolRewards(
-			poolID,
-			totalPoolRewards,
-			delegatorStake,
-			poolParams,
-			snapshot,
-			params,
-		)
-
-		result.PoolRewards[poolID] = *poolRewards
-	}
-
-	// Set rewards pot to 0 after successful distribution
-	result.UpdatedPots.Rewards = 0
-
-	return result, nil
-}
-
-// apportionRewardPot splits pot across pools in proportion to their shares.
-// Each pool takes the floor of its exact share; the lovelace left unassigned
-// by flooring are handed out one each by descending fractional remainder,
-// breaking ties on pool ID. The result therefore sums to pot exactly and is
-// identical for every node computing it from the same snapshot.
-func apportionRewardPot(
-	pot uint64,
-	poolShares map[PoolKeyHash]*big.Rat,
-	totalShare *big.Rat,
-) map[PoolKeyHash]uint64 {
-	poolIDs := sortedPoolIDs(poolShares)
-	amounts := make(map[PoolKeyHash]uint64, len(poolIDs))
-	remainders := make(map[PoolKeyHash]*big.Rat, len(poolIDs))
-
-	potRat := ratFromUint64(pot)
-	potInt := new(big.Int).SetUint64(pot)
-	assigned := new(big.Int)
-	for _, poolID := range poolIDs {
-		// exact = pot * share / totalShare
-		exact := new(big.Rat).Quo(poolShares[poolID], totalShare)
-		exact.Mul(exact, potRat)
-		if exact.Sign() < 0 {
-			exact = new(big.Rat)
-		}
-		floor := new(big.Int).Quo(exact.Num(), exact.Denom())
-		remaining := new(big.Int).Sub(potInt, assigned)
-		if remaining.Sign() <= 0 {
-			floor.SetInt64(0)
-		} else if floor.Cmp(remaining) > 0 {
-			floor.Set(remaining)
-		}
-		amounts[poolID] = floor.Uint64()
-		assigned.Add(assigned, floor)
-		remainders[poolID] = exact.Sub(exact, new(big.Rat).SetInt(floor))
-	}
-
-	// Each fractional remainder is below 1, so at most len(poolIDs)-1 lovelace
-	// are left to hand out.
-	leftover := new(big.Int).Sub(new(big.Int).SetUint64(pot), assigned)
-	if leftover.Sign() <= 0 {
-		return amounts
-	}
-	// poolIDs is a fresh slice and its ID order is no longer needed, so
-	// reorder it in place by descending remainder.
-	slices.SortFunc(poolIDs, func(a, b PoolKeyHash) int {
-		if cmp := remainders[b].Cmp(remainders[a]); cmp != 0 {
-			return cmp
-		}
-		return bytes.Compare(a[:], b[:])
-	})
-	for i := range min(leftover.Int64(), int64(len(poolIDs))) {
-		amounts[poolIDs[i]]++
-	}
-	return amounts
-}
-
-// calculatePoolShare calculates the reward share for a single pool
-func calculatePoolShare(
-	poolStake uint64,
-	poolParams *PoolRegistrationCertificate,
-	snapshot RewardSnapshot,
-	params RewardParameters,
-	poolID PoolKeyHash,
-) *big.Rat {
-	if snapshot.TotalActiveStake == 0 {
-		return new(big.Rat)
-	}
-
-	// Calculate pool performance using actual block production data
-	performance := calculatePoolPerformance(poolID, snapshot, params)
-
-	// Calculate stake ratio (pool stake / total active stake)
-	stakeRatio := new(big.Rat).SetFrac(
-		new(big.Int).SetUint64(poolStake),
-		new(big.Int).SetUint64(snapshot.TotalActiveStake),
-	)
-	if pledgeLeverageActive(params) {
-		pledgeRatio := new(big.Rat).SetFrac(
-			new(big.Int).SetUint64(poolParams.Pledge),
-			new(big.Int).SetUint64(snapshot.TotalActiveStake),
-		)
-		leverageCap := new(big.Rat).Mul(
-			pledgeRatio,
-			params.MaxPledgeLeverage,
-		)
-		stakeRatio = minimumRewardRatio(
-			minimumRewardRatio(stakeRatio, poolSaturationThreshold()),
-			leverageCap,
-		)
-	}
-
-	// Calculate saturation (capped at 1)
-	one := big.NewRat(1, 1)
-	saturation := new(big.Rat).Quo(stakeRatio, poolSaturationThreshold())
-	if saturation.Cmp(one) > 0 {
-		saturation.Set(one)
-	}
-
-	// Calculate pool reward share using leader stake influence formula
-	// R_pool = (stake_ratio * performance * (1 - margin)) / (1 + a0 * saturation)
 	a0 := params.PoolInfluence
 	switch {
 	case a0 == nil:
-		a0 = big.NewRat(1, 1) // Default a0 = 1
+		a0 = big.NewRat(1, 1)
 	case a0.Sign() < 0:
-		a0 = new(big.Rat) // Defensive clamp against pathological values
-	}
-
-	// Calculate numerator: stake_ratio * performance * (1 - margin)
-	numerator := new(big.Rat).Mul(stakeRatio, performance)
-	numerator.Mul(
-		numerator,
-		new(big.Rat).Sub(one, marginRat(poolParams.Margin)),
-	)
-
-	// Calculate denominator: 1 + a0 * saturation
-	denominator := new(big.Rat).Mul(a0, saturation)
-	denominator.Add(denominator, one)
-	if denominator.Sign() <= 0 {
-		return new(big.Rat) // Prevent division by zero or negative denominator
-	}
-
-	return numerator.Quo(numerator, denominator)
-}
-
-// distributePoolRewards distributes rewards within a pool between operator and delegators
-// poolID is unused as reward distribution logic only requires stake data and pool parameters
-func distributePoolRewards(
-	_ PoolKeyHash,
-	totalPoolRewards uint64,
-	delegatorStake map[AddrKeyHash]uint64,
-	poolParams *PoolRegistrationCertificate,
-	snapshot RewardSnapshot,
-	params RewardParameters,
-) *PoolRewards {
-	poolCost := poolParams.Cost
-	margin := effectivePoolMargin(poolParams.Margin, params)
-
-	// Calculate total pool stake (delegators + owners)
-	totalPoolStake := uint64(0)
-	for _, stake := range delegatorStake {
-		totalPoolStake += stake
-	}
-
-	// Check if poolCost already uses up all the available rewards
-	if totalPoolRewards <= poolCost {
-		return &PoolRewards{
-			OperatorRewardAccount: rewardCredential(
-				poolParams.RewardAccountCredential(),
-			),
-			OperatorRewards:  totalPoolRewards,
-			DelegatorRewards: make(map[RewardCredential]uint64),
-			TotalRewards:     totalPoolRewards,
-		}
-	}
-
-	// Calculate operator (leader) reward
-	operatorRewards := poolCost
-
-	// Find owner stake (owners are also delegators in the snapshot)
-	ownerStake := uint64(0)
-	for _, owner := range poolParams.PoolOwners {
-		if stake, exists := delegatorStake[owner]; exists {
-			ownerStake += stake
-		}
-	}
-
-	if totalPoolStake > 0 {
-		variableRewardsAvailable := totalPoolRewards - poolCost
-		available := ratFromUint64(variableRewardsAvailable)
-
-		// operator_share = margin + (1 - margin) * owner_stake / total_pool_stake
-		ownerStakeRatio := new(big.Rat).SetFrac(
-			new(big.Int).SetUint64(ownerStake),
-			new(big.Int).SetUint64(totalPoolStake),
+		return nil, fmt.Errorf(
+			"pool influence %s is negative",
+			a0.RatString(),
 		)
-		operatorShare := new(big.Rat).Sub(big.NewRat(1, 1), margin)
-		operatorShare.Mul(operatorShare, ownerStakeRatio)
-		operatorShare.Add(operatorShare, margin)
-
-		variableRewards := new(big.Rat).Mul(available, operatorShare)
-		if variableRewards.Cmp(available) >= 0 {
-			operatorRewards = totalPoolRewards
-		} else if variableRewards.Sign() > 0 {
-			operatorRewards += ratFloorUint64(variableRewards)
-		}
-	} else {
-		// If no stake, operator gets all rewards above cost
-		operatorRewards = totalPoolRewards
+	}
+	totalStake := snapshot.TotalStake
+	if totalStake == 0 {
+		totalStake = snapshot.TotalActiveStake
+	}
+	totalStakeRat := ratFromUint64(totalStake)
+	forgoPrefilter := params.ProtocolVersion.Major > 6
+	registered := func(hash AddrKeyHash) bool {
+		return snapshot.StakeRegistrations[hash]
 	}
 
-	// Remaining rewards go to all stakeholders (owners and delegators)
-	stakeholderRewardsTotal := uint64(0)
-	if operatorRewards < totalPoolRewards {
-		stakeholderRewardsTotal = totalPoolRewards - operatorRewards
-	} else {
-		// Keep the split conservative even if a malformed programmatic value
-		// reaches this internal helper without passing CalculateRewards.
-		operatorRewards = totalPoolRewards
+	result := &RewardCalculationResult{
+		PoolRewards: make(map[PoolKeyHash]PoolRewards),
+		UpdatedPots: pots,
 	}
-
-	// Distribute stakeholder rewards proportionally to stake
-	delegatorRewards := make(map[RewardCredential]uint64)
-
-	assigned := uint64(0)
-	if totalPoolStake > 0 && stakeholderRewardsTotal > 0 {
-		pot := new(big.Int).SetUint64(stakeholderRewardsTotal)
-		total := new(big.Int).SetUint64(totalPoolStake)
-		for stakeKey, stake := range delegatorStake {
-			// Only reward registered stake keys
-			if snapshot.StakeRegistrations[stakeKey] {
-				// reward = floor(stake * stakeholder_pot / total_pool_stake)
-				reward := new(big.Int).Mul(
-					new(big.Int).SetUint64(stake),
-					pot,
+	distributed := new(big.Int)
+	unregistered := new(big.Int)
+	if totalStake > 0 && snapshot.TotalActiveStake > 0 && pots.Rewards > 0 {
+		for _, poolID := range sortedPoolIDs(snapshot.PoolParams) {
+			poolParams := snapshot.PoolParams[poolID]
+			if poolParams == nil {
+				return nil, fmt.Errorf(
+					"pool parameters not found for pool %s",
+					poolID,
 				)
-				reward.Div(reward, total)
-				delegatorRewards[keyRewardCredential(stakeKey)] = reward.Uint64()
-				assigned += reward.Uint64()
 			}
+			if err := ValidatePoolMargin(poolParams.Margin); err != nil {
+				return nil, fmt.Errorf(
+					"invalid margin for pool %s: %w",
+					poolID,
+					err,
+				)
+			}
+			blocks := snapshot.PoolBlocks[poolID]
+			if blocks == 0 {
+				continue
+			}
+			delegators := snapshot.DelegatorStake[poolID]
+			ownerStake, owners := poolOwnerStake(
+				poolParams.PoolOwners,
+				delegators,
+			)
+			poolStake := ratFromUint64(snapshot.PoolStake[poolID])
+			sigma := new(big.Rat).Quo(poolStake, totalStakeRat)
+			sigmaActive := new(big.Rat).Quo(
+				poolStake,
+				ratFromUint64(snapshot.TotalActiveStake),
+			)
+			maxP := new(big.Rat)
+			if poolParams.Pledge <= ownerStake {
+				maxP = ratFromUint64(ratFloorUint64(maxPoolReward(
+					a0,
+					params.DesiredPools,
+					pots.Rewards,
+					sigma,
+					new(big.Rat).Quo(
+						ratFromUint64(poolParams.Pledge),
+						totalStakeRat,
+					),
+					params,
+				)))
+			}
+			poolReward := ratFloorUint64(new(big.Rat).Mul(
+				apparentPerformance(
+					d,
+					sigmaActive,
+					blocks,
+					snapshot.TotalBlocksInEpoch,
+				),
+				maxP,
+			))
+			cost := effectivePoolCost(poolParams.Cost, params)
+			margin := effectivePoolMargin(poolParams.Margin, params)
+
+			account := poolParams.RewardAccountCredential()
+			pr := PoolRewards{
+				OperatorRewardAccount: rewardCredential(account),
+				DelegatorRewards:      make(map[RewardCredential]uint64),
+				TotalRewards:          poolReward,
+			}
+			credit := func(hash AddrKeyHash, amount uint64) bool {
+				if amount == 0 {
+					return false
+				}
+				if !registered(hash) {
+					if !forgoPrefilter {
+						return false
+					}
+					unregistered.Add(
+						unregistered,
+						new(big.Int).SetUint64(amount),
+					)
+					distributed.Add(
+						distributed,
+						new(big.Int).SetUint64(amount),
+					)
+					return false
+				}
+				distributed.Add(distributed, new(big.Int).SetUint64(amount))
+				return true
+			}
+
+			leader := leaderReward(
+				poolReward,
+				cost,
+				margin,
+				new(big.Rat).Quo(ratFromUint64(ownerStake), totalStakeRat),
+				sigma,
+			)
+			if credit(AddrKeyHash(account.Credential), leader) {
+				pr.OperatorRewards = leader
+			}
+			members := make([]AddrKeyHash, 0, len(delegators))
+			for member := range delegators {
+				if !owners[member] {
+					members = append(members, member)
+				}
+			}
+			slices.SortFunc(members, func(a, b AddrKeyHash) int {
+				return bytes.Compare(a[:], b[:])
+			})
+			for _, member := range members {
+				reward := memberReward(
+					poolReward,
+					cost,
+					margin,
+					new(big.Rat).Quo(
+						ratFromUint64(delegators[member]),
+						totalStakeRat,
+					),
+					sigma,
+				)
+				if credit(member, reward) {
+					pr.DelegatorRewards[keyRewardCredential(member)] = reward
+				}
+			}
+			result.PoolRewards[poolID] = pr
 		}
 	}
 
-	// Handle rounding remainder by assigning to operator
-	if stakeholderRewardsTotal > assigned {
-		operatorRewards += stakeholderRewardsTotal - assigned
+	pot := new(big.Int).SetUint64(pots.Rewards)
+	if distributed.Cmp(pot) > 0 {
+		return nil, fmt.Errorf(
+			"rewards %s exceed the reward pot %d: delegator stake exceeds pool stake",
+			distributed,
+			pots.Rewards,
+		)
 	}
-
-	return &PoolRewards{
-		OperatorRewardAccount: rewardCredential(
-			poolParams.RewardAccountCredential(),
-		),
-		OperatorRewards:  operatorRewards,
-		DelegatorRewards: delegatorRewards,
-		TotalRewards:     totalPoolRewards,
+	undistributed := new(big.Int).Sub(pot, distributed)
+	reserves := new(big.Int).Add(
+		new(big.Int).SetUint64(pots.Reserves),
+		undistributed,
+	)
+	treasury := new(big.Int).Add(
+		new(big.Int).SetUint64(pots.Treasury),
+		unregistered,
+	)
+	if !reserves.IsUint64() || !treasury.IsUint64() {
+		return nil, errors.New("ada pots overflow uint64")
 	}
+	result.TotalRewards = distributed.Uint64()
+	result.Undistributed = undistributed.Uint64()
+	result.Unregistered = unregistered.Uint64()
+	result.UpdatedPots = AdaPots{
+		Reserves: reserves.Uint64(),
+		Treasury: treasury.Uint64(),
+		Rewards:  0,
+	}
+	return result, nil
 }
 
 func rewardCredential(credential Credential) RewardCredential {
