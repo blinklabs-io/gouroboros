@@ -188,3 +188,27 @@ func checkByronEnvelopeTable(t *testing.T, prevAsBlock bool) {
 		}
 	}
 }
+
+// TestByronFirstHeaderIgnoresPrevFields checks that a first header is
+// judged without the Prev fields: the reference has no previous header after
+// Origin, and the PrevIsOrigin contract says they are ignored.
+func TestByronFirstHeaderIgnoresPrevFields(t *testing.T) {
+	v := NewHeaderValidator(ByronConfig{
+		ProtocolMagic: 7,
+		SlotsPerEpoch: envelopeSlotsPerEpoch,
+	})
+	for _, isEBB := range []bool{false, true} {
+		result := v.ValidateHeader(&ValidateHeaderInput{
+			Slot:            0,
+			BlockNumber:     0,
+			PrevHash:        make([]byte, 32),
+			PrevSlot:        20,
+			PrevBlockNumber: 5,
+			PrevIsOrigin:    true,
+			IsEBB:           isEBB,
+			EnvelopeOnly:    true,
+			ProtocolMagic:   7,
+		})
+		assert.True(t, result.Valid, "EBB %t: %v", isEBB, result.Errors)
+	}
+}

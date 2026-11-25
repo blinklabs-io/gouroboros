@@ -117,7 +117,8 @@ type ValidateResult struct {
 // validation rules.
 //
 // The first header after origin must have block number 0 and may take any
-// slot (an EBB still needs an epoch-boundary slot).
+// slot (an EBB still needs an epoch-boundary slot). Its predecessor is the
+// genesis, so the Prev fields and PrevHash are not checked.
 //
 // Validation checks for main blocks:
 //  1. Slot is greater than the previous header's slot, or equal to it when
@@ -326,8 +327,13 @@ func (v *HeaderValidator) validateBlockNumber(
 	return nil
 }
 
-// validatePrevHash checks previous hash linkage
+// validatePrevHash checks previous hash linkage. The first header has no
+// previous header to link to; its predecessor is the genesis file's hash,
+// which this validator does not hold.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
+	if input.PrevIsOrigin {
+		return nil
+	}
 	if input.PrevBlockNumber != 0 && len(input.PrevHeaderHash) == 0 {
 		return errors.New(
 			"previous header hash is required for non-genesis blocks",
