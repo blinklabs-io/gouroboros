@@ -44,16 +44,18 @@ func TestTxSizeShelleyFamilyIgnoresOuterArrayFraming(t *testing.T) {
 	eras := []struct {
 		name   string
 		decode txDecoder
+		// Auxiliary scripts arrived in Allegra.
+		auxiliaryScripts bool
 	}{
 		{"Shelley", func(b []byte) (common.Transaction, error) {
 			return shelley.NewShelleyTransactionFromCbor(b)
-		}},
+		}, false},
 		{"Allegra", func(b []byte) (common.Transaction, error) {
 			return allegra.NewAllegraTransactionFromCbor(b)
-		}},
+		}, true},
 		{"Mary", func(b []byte) (common.Transaction, error) {
 			return mary.NewMaryTransactionFromCbor(b)
-		}},
+		}, true},
 	}
 	framings := []struct {
 		name   string
@@ -66,11 +68,17 @@ func TestTxSizeShelleyFamilyIgnoresOuterArrayFraming(t *testing.T) {
 		{name: "indefinite", header: []byte{0x9f}, end: []byte{0xff}},
 	}
 	auxiliaries := []struct {
-		name string
-		data []byte
+		name             string
+		data             []byte
+		auxiliaryScripts bool
 	}{
 		{name: "null", data: []byte{0xf6}},
 		{name: "metadata", data: []byte{0xa1, 0x00, 0x00}},
+		{
+			name:             "metadata and scripts",
+			data:             []byte{0x82, 0xa1, 0x00, 0x00, 0x80},
+			auxiliaryScripts: true,
+		},
 	}
 	witnessSet := []byte{0xa0}
 
@@ -78,6 +86,9 @@ func TestTxSizeShelleyFamilyIgnoresOuterArrayFraming(t *testing.T) {
 		t.Run(era.name, func(t *testing.T) {
 			t.Parallel()
 			for _, aux := range auxiliaries {
+				if aux.auxiliaryScripts && !era.auxiliaryScripts {
+					continue
+				}
 				t.Run(aux.name, func(t *testing.T) {
 					t.Parallel()
 					want := 1 + len(minimalShelleyFamilyTxBody) +
