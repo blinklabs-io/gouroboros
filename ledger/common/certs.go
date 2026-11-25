@@ -1741,6 +1741,13 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	c.poolOwnersTagged = len(fields) > ownersIndex &&
 		len(fields[ownersIndex]) > 0 &&
 		fields[ownersIndex][0]&cbor.CborTypeMask == cbor.CborTypeTag
+	// From Conway the owner set may carry one tag 258 and no other tag;
+	// before Conway any tag is refused through poolOwnersTagged.
+	if c.poolOwnersTagged && !isSingleSetTag(fields[ownersIndex]) {
+		return errors.New(
+			"pool owner set carries a tag other than a single tag 258",
+		)
+	}
 	switch len(fields) {
 	case 10:
 		if err := validatePoolMarginCBOR(fields[5], false); err != nil {

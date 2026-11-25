@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -53,6 +54,23 @@ func containsTagHead(data []byte) bool {
 	for _, b := range data {
 		if b >= 0xc0 && b <= 0xdb {
 			return true
+		}
+	}
+	return false
+}
+
+// isSingleSetTag reports whether data starts with exactly one tag 258, in
+// any argument width, followed by an item that is not a tag.
+func isSingleSetTag(data []byte) bool {
+	for _, head := range [][]byte{
+		{0xd9, 0x01, 0x02},
+		{0xda, 0x00, 0x00, 0x01, 0x02},
+		{0xdb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02},
+	} {
+		if bytes.HasPrefix(data, head) {
+			rest := data[len(head):]
+			return len(rest) == 0 ||
+				rest[0]&cbor.CborTypeMask != cbor.CborTypeTag
 		}
 	}
 	return false

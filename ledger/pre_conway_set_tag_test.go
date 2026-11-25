@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 )
@@ -304,6 +305,45 @@ func TestPreConwaySetFieldsRefuseOtherTags(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			if _, err := cbor.Decode(c.data, c.dest()); err == nil {
 				t.Errorf("tagged field accepted: %x", c.data)
+			}
+		})
+	}
+}
+
+// TestPoolOwnersRefuseOtherTags covers the pool owner set from Conway on:
+// decodeSet from version 9 permits a tag 258 and fails on any other tag
+// number (allowTag), so only an untagged or tag 258 owner set decodes.
+func TestPoolOwnersRefuseOtherTags(t *testing.T) {
+	cert := func(head []byte) []byte {
+		owners := append(append([]byte{}, head...), arr(bstr(28, 4))...)
+		return arr(
+			[]byte{0x03}, bstr(28, 1), bstr(32, 2), []byte{0x00},
+			[]byte{0x00}, []byte{0xd8, 0x1e, 0x82, 0x00, 0x01},
+			append(hdr(0x40, 29), append([]byte{0xe0}, bytes.Repeat(
+				[]byte{3}, 28)...)...),
+			owners, arr(), []byte{0xf6},
+		)
+	}
+	for _, tc := range []struct {
+		name string
+		head []byte
+		ok   bool
+	}{
+		{"untagged", nil, true},
+		{"tag 258", []byte{0xd9, 0x01, 0x02}, true},
+		{"tag 259", []byte{0xd9, 0x01, 0x03}, false},
+		{"tag 30", []byte{0xd8, 0x1e}, false},
+		{"tag 258 twice", []byte{0xd9, 0x01, 0x02, 0xd9, 0x01, 0x02}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := cmap(alonzoBodyFields(field{0x04, arr(cert(tc.head))})...)
+			var body conway.ConwayTransactionBody
+			_, err := cbor.Decode(data, &body)
+			if tc.ok && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatalf("accepted: %x", data)
 			}
 		})
 	}
