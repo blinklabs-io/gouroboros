@@ -375,6 +375,17 @@ func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
 	)
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
+func (b *AlonzoTransactionBody) Id() common.Blake2b256 {
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
+}
+
 func coalesceUntaggedTransactionInputs(
 	set cbor.SetType[shelley.ShelleyTransactionInput],
 ) cbor.SetType[shelley.ShelleyTransactionInput] {

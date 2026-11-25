@@ -112,38 +112,43 @@ func MustReplyTimeoutFunc() time.Duration {
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.
 var StateMapNtN = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IdleTimeout,
-		Transitions:             idleTransitions,
+		Agency:                   protocol.AgencyClient,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IdleTimeout,
+		Transitions:              idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 CanAwaitTimeout,
-		Transitions:             canAwaitTransitions,
-		AllowPipelinedSend:      true,
-		PipelinedMessageTypes:   []uint8{MessageTypeRequestNext},
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  CanAwaitTimeout,
+		Transitions:              canAwaitTransitions,
+		AllowPipelinedSend:       true,
+		PipelinedMessageTypes:    []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IntersectTimeout,
-		Transitions:             intersectTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IntersectTimeout,
+		Transitions:              intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		TimeoutFunc:             MustReplyTimeoutFunc,
-		Transitions:             mustReplyTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		TimeoutFunc:              MustReplyTimeoutFunc,
+		Transitions:              mustReplyTransitions,
 		// A client pipelines RequestNext against its own view of CanAwait,
 		// which lags the server's: the server may already have sent
 		// AwaitReply when the request arrives.
 		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Agency:                   protocol.AgencyNone,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
 	},
 }
 
@@ -212,7 +217,9 @@ type Config struct {
 	// one pipeline across peers: each roll-forward waits for its ordered fence,
 	// limiting this client to one in-flight block and allowing one peer's invalid
 	// block to stop work submitted by other clients. Configure buffer sizes when
-	// creating the pipeline.
+	// creating the pipeline. The client does not read the pipeline's Results;
+	// reading them is optional, and an unread Results channel does not delay
+	// roll-forwards.
 	Pipeline *pipeline.BlockPipeline
 
 	// PipelineBufferSize is reserved for future use.
@@ -234,6 +241,13 @@ const (
 	DefaultPipelineDrainTimeout = 30 * time.Second
 )
 
+// SmallMaxPendingMessageBytes is the node-to-node size limit of every
+// chain-sync state, which bounds each message received in it. The
+// specification's chain-sync size table and the reference's
+// byteLimitsChainSync both give 65535 bytes. MaxPendingMessageBytes, the
+// ingress queue, is a separate and larger limit.
+const SmallMaxPendingMessageBytes = 65535
+
 // PendingReceiveBytesNtC is the most received, not yet handled, node-to-client
 // ChainSync message bytes a connection holds. The reference node-to-client
 // policy has no limit, so this is an implementation bound, not a
@@ -244,12 +258,16 @@ const (
 const PendingReceiveBytesNtC = 8 * 1024 * 1024
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.8).
+//
+// The server waits in MustReply until it has a new block, so a short MustReply
+// bound disconnects honest peers during a streak of empty slots, and a random
+// pick keeps every peer from timing out at once.
 const (
 	IdleTimeout         = 3673 * time.Second  // Timeout for client to send next request
 	CanAwaitTimeout     = 10 * time.Second    // Timeout for server to provide next block or await
 	IntersectTimeout    = 10 * time.Second    // Timeout for server to respond to intersect request
-	MustReplyTimeoutMin = 135 * time.Second   // Minimum random timeout for MustReply state
-	MustReplyTimeoutMax = 269 * time.Second   // Maximum random timeout for MustReply state
+	MustReplyTimeoutMin = 601 * time.Second   // Minimum random timeout for MustReply state
+	MustReplyTimeoutMax = 911 * time.Second   // Maximum random timeout for MustReply state
 	MustReplyTimeout    = MustReplyTimeoutMax // Fixed timeout for backward compatibility
 )
 

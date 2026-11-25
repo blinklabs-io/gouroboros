@@ -17,6 +17,7 @@ package consensus
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/hex"
 	"math/big"
 	"testing"
 
@@ -912,6 +913,8 @@ func TestBuildHeaderTPraosRoundTripsWithHeaderValidator(t *testing.T) {
 	)
 
 	input := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
+		Overlay:              testOverlayD0(),
 		Slot:                 header.Body.Slot,
 		BlockNumber:          header.Body.BlockNumber,
 		PrevHash:             header.Body.PrevHash,
@@ -1148,6 +1151,29 @@ func TestComputeVRFInput(t *testing.T) {
 	if bytes.Equal(input1, input3) {
 		t.Error("different slots should produce different VRF inputs")
 	}
+}
+
+func TestComputeVRFInputFromNonce(t *testing.T) {
+	// A NeutralNonce epoch nonce adds no bytes to the reference's Praos
+	// input (Cardano.Protocol.Praos.VRF mkInputVRF): blake2b-256 of the
+	// 8-byte big-endian slot, computed with b2sum -l 256.
+	got, err := ComputeVRFInputFromNonce(
+		12345, common.Nonce{Type: common.NonceTypeNeutral},
+	)
+	require.NoError(t, err)
+	require.Equal(t,
+		"8e39b6af2f61349cdb5ef1ddb1dfd7d73f86c669e7ae2aad0c2c9ab6c0ce11a6",
+		hex.EncodeToString(got),
+	)
+	epochNonce := common.Nonce{Type: common.NonceTypeNonce}
+	for i := range epochNonce.Value {
+		epochNonce.Value[i] = byte(i)
+	}
+	got, err = ComputeVRFInputFromNonce(12345, epochNonce)
+	require.NoError(t, err)
+	require.Equal(t, ComputeVRFInput(12345, epochNonce.Value[:]), got)
+	_, err = ComputeVRFInputFromNonce(12345, common.Nonce{Type: 2})
+	require.Error(t, err)
 }
 
 func TestHeaderBodySerialization(t *testing.T) {

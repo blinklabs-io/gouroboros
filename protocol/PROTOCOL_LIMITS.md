@@ -129,13 +129,17 @@ interrupt pending socket operations.
 
 The N2N map (`protocol/chainsync/chainsync.go`) has the following limits:
 
-| State | Timeout | Pending bytes |
-| --- | ---: | ---: |
-| Idle | 3673 seconds | 462,000 |
-| CanAwait | 10 seconds | 462,000 |
-| Intersect | 10 seconds | 462,000 |
-| MustReply | random in `[135, 269)` seconds | 462,000 |
-| Done | none | 462,000 |
+| State | Timeout | Message size limit | Pending receive budget |
+| --- | ---: | ---: | ---: |
+| Idle | 3673 seconds | 65,535 | 462,000 |
+| CanAwait | 10 seconds | 65,535 | 462,000 |
+| Intersect | 10 seconds | 65,535 | 462,000 |
+| MustReply | random in `[601, 911)` seconds | 65,535 | 462,000 |
+| Done | none | 65,535 | 462,000 |
+
+The message size limit is the specification's chain-sync size table and the
+reference's `byteLimitsChainSync`. The pending receive budget is the
+specification's 462,000-byte chain-sync ingress queue.
 
 The N2C map has no state timeouts or pending-message byte limits, so no
 message is refused for its size. Every N2C state does carry a pending receive
@@ -394,13 +398,19 @@ Nonpositive Leios Fetch range limits select the defaults.
 
 | State | Timeout | Pending bytes |
 | --- | ---: | ---: |
-| Init, Idle, ObjectIDsBlocking | none | `maxObjectsUnacknowledged × 1,100 + 256` |
-| ObjectIDsNonBlocking, Objects | 5 seconds by default | `maxObjectsUnacknowledged × 1,100 + 256` |
+| Init, Idle | none | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlocking | 10 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsBlockingMustReply | 60 seconds | `maxObjectsUnacknowledged × 1,100 + 256` |
+| ObjectIDsNonBlocking, Objects | 10 seconds by default (the reference's shortWait) | `maxObjectsUnacknowledged × 1,100 + 256` |
 | Done | none | none |
 
 The outstanding object window defaults to 50 and can be configured up to
 1,000. The timeout is configurable and bounds non-blocking ID and object
-requests; blocking ID requests wait for an available vote.
+requests. A blocking ID request follows the reference's shortWait and
+longWait: within 10 seconds the server sends IDs or `MsgAwaitReply`, and
+within 60 seconds of that IDs or `MsgServerIdle`. The server waits up to
+`AwaitTimeout` (30 seconds by default, always below 60) for new IDs before
+it sends `MsgServerIdle`.
 
 ## Enforcement scope
 
