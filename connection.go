@@ -328,17 +328,19 @@ func (c *Connection) closeExcept(owner any) error {
 		}
 		return nil
 	}
+	excused := false
 	if m != nil && owner != nil {
 		// A callback closing its own connection must not be waited for by
-		// the shutdown it is waiting for.
-		m.ExcuseProtocolLoops(owner)
+		// the shutdown it is waiting for. An owner with no loop on this
+		// muxer, such as another connection's callback, excuses nothing.
+		excused = m.ExcuseProtocolLoops(owner)
 	}
 	c.requestClose()
 	// Wait until all connection-owned goroutines have stopped. After this
 	// returns, a caller may safely close a channel supplied with WithErrorChan.
 	<-c.connClosedChan
 	if m != nil {
-		if owner == nil {
+		if !excused {
 			// Shutdown did not wait for loops whose callback is in
 			// CloseContext; Close waits for them too.
 			m.WaitProtocolLoopsExcept(nil)
