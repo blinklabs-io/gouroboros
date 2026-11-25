@@ -258,7 +258,12 @@ func (m *MessageAuthenticator) PrepareMessages(
 		slotsPerKesPeriod:     m.slotsPerKesPeriod,
 		maxKESEvolutions:      m.maxKESEvolutions,
 	}
-	touchedPools := make(map[PoolKeyHash]struct{})
+	// lowestIssue keeps each touched pool's lowest counter in the batch. At
+	// commit every message must still be no lower than the pool's recorded
+	// counter, as if it were validated then; checking only the batch's
+	// final counter would let an earlier, lower one through after a
+	// concurrent commit recorded a higher one.
+	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
 			return nil, fmt.Errorf(
@@ -271,14 +276,16 @@ func (m *MessageAuthenticator) PrepareMessages(
 		if err != nil {
 			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
 		}
-		touchedPools[poolID] = struct{}{}
+		issue := messages[i].OperationalCertificate.IssueNumber
+		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
+			lowestIssue[poolID] = issue
+		}
 	}
 
 	return func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		for poolID := range touchedPools {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+		for poolID, issueNumber := range lowestIssue {
 			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
 				issueNumber < currentIssue {
 				return fmt.Errorf(
@@ -288,7 +295,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 				)
 			}
 		}
-		for poolID := range touchedPools {
+		for poolID := range lowestIssue {
 			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
 			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
 				issueNumber > currentIssue {
