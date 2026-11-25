@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -34,8 +35,9 @@ type objectsResult struct {
 	err     error
 }
 
-// ErrCalledFromVoteFunc is returned by a client method called from VoteFunc
-// with the Context of the CallbackContext the client passed it.
+// ErrCalledFromVoteFunc is returned by a client method called, while VoteFunc
+// runs, with the Context of the CallbackContext the client passed that
+// VoteFunc call.
 var ErrCalledFromVoteFunc = errors.New(
 	"peras votes client called from its own VoteFunc during Sync",
 )
@@ -214,7 +216,9 @@ func (c *Client) requestObjects(
 // exchange: RequestObjectIDs, RequestObjects or Done called from VoteFunc
 // with the Context of its CallbackContext returns ErrCalledFromVoteFunc at
 // once, and with any other context waits for Sync to end or for that
-// context. To end the sync from VoteFunc, return an error.
+// context. To end the sync from VoteFunc, return an error. Once VoteFunc
+// has returned, its context marks nothing, and a call with it is an
+// ordinary call.
 func (c *Client) Sync(ctx context.Context) error {
 	if c.config.VoteFunc == nil {
 		return errors.New("peras vote function must be configured for sync")
@@ -253,9 +257,7 @@ func (c *Client) Sync(ctx context.Context) error {
 				_ = c.Protocol.Stop(ctx)
 				return err
 			}
-			cbCtx := c.callbackContext.withOwner(c.Protocol)
-			cbCtx.ctx = context.WithValue(cbCtx.ctx, voteFuncOwnerKey{}, c)
-			if err := c.config.VoteFunc(cbCtx, id, object); err != nil {
+			if err := c.callVoteFunc(id, object); err != nil {
 				_ = c.Protocol.Stop(ctx)
 				return fmt.Errorf("process Peras vote %v: %w", id, err)
 			}
@@ -278,8 +280,25 @@ func (c *Client) Done(ctx context.Context) error {
 }
 
 // voteFuncOwnerKey marks the context the client passes VoteFunc, with the
-// client as its value.
+// *voteFuncCall as its value.
 type voteFuncOwnerKey struct{}
+
+// voteFuncCall identifies one VoteFunc call. active is cleared when the
+// call returns, so a context VoteFunc keeps marks nothing afterwards.
+type voteFuncCall struct {
+	client *Client
+	active atomic.Bool
+}
+
+// callVoteFunc runs VoteFunc with a context that marks this call.
+func (c *Client) callVoteFunc(id VoteID, object VoteObject) error {
+	call := &voteFuncCall{client: c}
+	call.active.Store(true)
+	defer call.active.Store(false)
+	cbCtx := c.callbackContext.withOwner(c.Protocol)
+	cbCtx.ctx = context.WithValue(cbCtx.ctx, voteFuncOwnerKey{}, call)
+	return c.config.VoteFunc(cbCtx, id, object)
+}
 
 // lockOp takes the request exchange. VoteFunc runs inside Sync, which holds
 // the exchange until VoteFunc returns, so a call that carries this client's
@@ -287,7 +306,8 @@ type voteFuncOwnerKey struct{}
 // reference inbound side issues each request from its one protocol thread,
 // so it has no such re-entrant request either.
 func (c *Client) lockOp(ctx context.Context) error {
-	if owner, _ := ctx.Value(voteFuncOwnerKey{}).(*Client); owner == c {
+	if call, _ := ctx.Value(voteFuncOwnerKey{}).(*voteFuncCall); call != nil &&
+		call.client == c && call.active.Load() {
 		return ErrCalledFromVoteFunc
 	}
 	select {

@@ -185,45 +185,110 @@ func TestVoteFuncCallingItsClientReturnsAtOnce(t *testing.T) {
 	}
 }
 
-// TestCallbackContextOfAnotherClientWaits: only this client's own callback
-// context skips the wait. Another client's callback context is an ordinary
-// context here, so Done waits for Sync until that context ends.
+// TestCallbackContextOfAnotherClientWaits: only this client's own VoteFunc
+// context fails at once. The context another client passes its running
+// VoteFunc is an ordinary context here, so Done, RequestObjectIDs and
+// RequestObjects each wait for Sync until that context ends.
 func TestCallbackContextOfAnotherClientWaits(t *testing.T) {
-	entered := make(chan struct{})
-	release := make(chan struct{})
-	defer close(release)
+	calls := map[string]func(*Client, context.Context) error{
+		"Done": func(c *Client, ctx context.Context) error {
+			return c.Done(ctx)
+		},
+		"RequestObjectIDs": func(c *Client, ctx context.Context) error {
+			_, err := c.RequestObjectIDs(ctx, false, 0, 1)
+			return err
+		},
+		"RequestObjects": func(c *Client, ctx context.Context) error {
+			_, err := c.RequestObjects(ctx, []VoteID{{RoundNo: 1}})
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			entered := make(chan struct{})
+			release := make(chan struct{})
+			defer close(release)
+			serverCfg := NewConfig(
+				WithObjectIDsFunc(
+					func(CallbackContext, uint16, uint16) ([]VoteID, error) {
+						close(entered)
+						<-release
+						return nil, nil
+					},
+				),
+			)
+			clientCfg := NewConfig(
+				WithVoteFunc(func(CallbackContext, VoteID, VoteObject) error {
+					return nil
+				}),
+			)
+			client, _, _ := startPair(t, &serverCfg, &clientCfg)
+			other := NewClient(protocol.ProtocolOptions{}, &clientCfg)
+			syncCtx, cancelSync := context.WithCancel(context.Background())
+			defer cancelSync()
+			go func() { _ = client.Sync(syncCtx) }()
+			<-entered
+
+			// The context other's VoteFunc gets while it runs.
+			otherCall := &voteFuncCall{client: other}
+			otherCall.active.Store(true)
+			callCtx, cancelCall := context.WithCancel(context.WithValue(
+				other.callbackContext.withOwner(other.Protocol).Context(),
+				voteFuncOwnerKey{},
+				otherCall,
+			))
+			result := make(chan error, 1)
+			go func() { result <- call(client, callCtx) }()
+			select {
+			case err := <-result:
+				t.Fatalf("%s returned while Sync held the exchange: %v", name, err)
+			case <-time.After(50 * time.Millisecond):
+			}
+			cancelCall()
+			select {
+			case err := <-result:
+				require.ErrorIs(t, err, context.Canceled)
+				require.NotErrorIs(t, err, ErrCalledFromVoteFunc)
+			case <-time.After(failAfter):
+				t.Fatalf("%s did not end with its context", name)
+			}
+		})
+	}
+}
+
+// TestVoteFuncContextKeptPastSync: the marker in the context VoteFunc gets
+// refuses calls only while that VoteFunc call runs. A call made with the
+// context after VoteFunc and Sync have returned is an ordinary call, not
+// one from VoteFunc.
+func TestVoteFuncContextKeptPastSync(t *testing.T) {
+	id := VoteID{RoundNo: 4, SeatIndex: 7}
+	object := testVoteObject(t, id)
 	serverCfg := NewConfig(
 		WithObjectIDsFunc(
 			func(CallbackContext, uint16, uint16) ([]VoteID, error) {
-				close(entered)
-				<-release
-				return nil, nil
+				return []VoteID{id}, nil
+			},
+		),
+		WithObjectsFunc(
+			func(CallbackContext, []VoteID) ([]VoteObject, error) {
+				return []VoteObject{object}, nil
 			},
 		),
 	)
+	errStop := errors.New("stop sync")
+	kept := make(chan context.Context, 1)
 	clientCfg := NewConfig(
-		WithVoteFunc(func(CallbackContext, VoteID, VoteObject) error {
-			return nil
+		WithVoteFunc(func(cbCtx CallbackContext, _ VoteID, _ VoteObject) error {
+			kept <- cbCtx.Context()
+			return errStop
 		}),
 	)
 	client, _, _ := startPair(t, &serverCfg, &clientCfg)
-	other := NewClient(protocol.ProtocolOptions{}, &clientCfg)
-	syncCtx, cancelSync := context.WithCancel(context.Background())
-	defer cancelSync()
-	go func() { _ = client.Sync(syncCtx) }()
-	<-entered
-
-	doneCtx, cancelDone := context.WithCancel(
-		other.callbackContext.Context(),
-	)
-	result := make(chan error, 1)
-	go func() { result <- client.Done(doneCtx) }()
-	cancelDone()
-	select {
-	case err := <-result:
-		require.ErrorIs(t, err, context.Canceled)
-		require.NotErrorIs(t, err, ErrCalledFromVoteFunc)
-	case <-time.After(failAfter):
-		t.Fatal("Done did not end with its context")
-	}
+	require.ErrorIs(t, client.Sync(context.Background()), errStop)
+	ctx := <-kept
+	require.NotErrorIs(t, client.Done(ctx), ErrCalledFromVoteFunc)
+	_, err := client.RequestObjectIDs(ctx, false, 0, 1)
+	require.NotErrorIs(t, err, ErrCalledFromVoteFunc)
+	_, err = client.RequestObjects(ctx, []VoteID{id})
+	require.NotErrorIs(t, err, ErrCalledFromVoteFunc)
 }
