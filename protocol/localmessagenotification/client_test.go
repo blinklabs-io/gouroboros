@@ -437,7 +437,9 @@ func TestClientDefaultReplayBoundHoldsHonestMempool(t *testing.T) {
 
 	require.NoError(t, client.messageHandler(
 		NewMsgReplyMessagesNonBlocking(
-			[]pcommon.DmqMessage{clientTestMessage(t, "fresh", 1900)},
+			// 1899 is the furthest expiry the 1800 s bound admits at
+			// now = 100; the bound itself is excluded.
+			[]pcommon.DmqMessage{clientTestMessage(t, "fresh", 1899)},
 			false,
 		),
 	))
