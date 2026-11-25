@@ -72,9 +72,12 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 // this method and so uses the default mode's totals whatever mode the outer
 // decode used.
 //
-// The content of an alternative (constructor) tag is not counted: it is kept
+// The content of an alternative (constructor) tag reached directly by this
+// walk, at the top level or inside arrays and maps, is not counted: it is kept
 // as raw bytes in a ConstructorDecoder rather than decoded into the tree, and
-// its fields are limited by whatever mode later decodes them.
+// its fields are limited by whatever mode later decodes them. Beneath any other
+// tag, the tag's decoder materializes the whole content, so collections there
+// are counted, including those inside constructor tags.
 func (v *Value) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty CBOR data")
