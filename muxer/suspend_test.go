@@ -137,3 +137,59 @@ func TestUnregisterAfterSuspendDropsIngress(t *testing.T) {
 		t.Fatal("sentinel never routed")
 	}
 }
+
+// TestSuspendProtocolPendingCarryWaitsForCarry requires TakeCarriedIngress,
+// after SuspendProtocolPendingCarry, to wait until the carry is handed over
+// and then return it, and to stop waiting when the role is unregistered.
+func TestSuspendProtocolPendingCarryWaitsForCarry(t *testing.T) {
+	t.Parallel()
+	local, _ := newSuspendPair(t)
+	const protocolId, otherId = 7, 9
+
+	_, _, _ = local.RegisterProtocol(protocolId, ProtocolRoleResponder)
+	finish := local.SuspendProtocolPendingCarry(
+		protocolId,
+		ProtocolRoleResponder,
+	)
+	require.NotNil(t, finish)
+	_, recv, _ := local.RegisterProtocol(protocolId, ProtocolRoleResponder)
+	require.NotNil(t, recv)
+	taken := make(chan []byte, 1)
+	go func() {
+		taken <- local.TakeCarriedIngress(protocolId, ProtocolRoleResponder)
+	}()
+	select {
+	case <-taken:
+		t.Fatal("TakeCarriedIngress returned before the carry was handed over")
+	case <-time.After(50 * time.Millisecond):
+	}
+	finish([]byte("carry"))
+	select {
+	case carry := <-taken:
+		require.Equal(t, []byte("carry"), carry)
+	case <-time.After(5 * time.Second):
+		t.Fatal("TakeCarriedIngress did not return the carry")
+	}
+
+	_, _, _ = local.RegisterProtocol(otherId, ProtocolRoleResponder)
+	require.NotNil(t, local.SuspendProtocolPendingCarry(
+		otherId,
+		ProtocolRoleResponder,
+	))
+	go func() {
+		taken <- local.TakeCarriedIngress(otherId, ProtocolRoleResponder)
+	}()
+	// TakeCarriedIngress may look the role up before or after it is
+	// unregistered; either way it returns.
+	local.UnregisterProtocol(otherId, ProtocolRoleResponder)
+	select {
+	case carry := <-taken:
+		require.Nil(t, carry)
+	case <-time.After(5 * time.Second):
+		t.Fatal("TakeCarriedIngress kept waiting after the role was unregistered")
+	}
+	require.Nil(t, local.SuspendProtocolPendingCarry(
+		11,
+		ProtocolRoleResponder,
+	))
+}

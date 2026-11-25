@@ -198,6 +198,10 @@ type Client struct {
 	// ErrStoppedWithoutDone. The server may still answer the abandoned
 	// ranges, so Start must not register a new instance on this connection.
 	stoppedWithoutDone bool
+	// stopUnlockedHook, when set, runs in Stop's running branch once
+	// lifecycleMutex is released, before the join. Production code never
+	// sets it.
+	stopUnlockedHook func()
 
 	// goroutines holds the goroutines started for the current Protocol. It
 	// is replaced with the Protocol, under protocolMu.
@@ -383,20 +387,17 @@ func (c *Client) releaseBusy(token uint64) {
 	}
 }
 
-func (c *Client) releaseCurrentBusy() {
-	var doneChan chan struct{}
+// heldBusyToken returns the token of the busy lock held now, or 0 when it
+// is free. Stop releases that token, not whatever is held once it has
+// waited: by then a Start may have installed a new protocol instance whose
+// caller holds the lock.
+func (c *Client) heldBusyToken() uint64 {
 	c.busyStateMutex.Lock()
-	if c.busyLocked {
-		c.busyLocked = false
-		doneChan = c.busyDoneChan
-		c.busyDoneChan = nil
+	defer c.busyStateMutex.Unlock()
+	if !c.busyLocked {
+		return 0
 	}
-	c.busyStateMutex.Unlock()
-
-	if doneChan != nil {
-		close(doneChan)
-		c.busyMutex.Unlock()
-	}
+	return c.busyToken
 }
 
 func (c *Client) releaseBusyOnProtocolDone(
@@ -613,6 +614,7 @@ func (c *Client) stop(ctx context.Context) error {
 		c.pipelineCancel()
 		proto, group := c.Protocol, c.goroutines
 		started := c.protoStarted
+		busyToken := c.heldBusyToken()
 		// The callbacks below must not run under lifecycleMutex: one that
 		// calls Stop or Start would wait for it forever. Once it is released
 		// a concurrent Start may install a new protocol, so only proto's
@@ -631,7 +633,7 @@ func (c *Client) stop(ctx context.Context) error {
 			return err
 		}
 		c.failOutstandingAfterDelivery(proto, protocol.ErrProtocolShuttingDown)
-		c.releaseCurrentBusy()
+		c.releaseBusy(busyToken)
 		return nil
 	}
 	defer c.lifecycleMutex.Unlock()
@@ -664,21 +666,27 @@ func (c *Client) stop(ctx context.Context) error {
 	// The callback marker makes this Stop only signal; the wait follows
 	// once lifecycleMutex is released.
 	proto, group := c.Protocol, c.goroutines
+	busyToken := c.heldBusyToken()
 	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 
 	// Release lock while waiting for protocol shutdown to avoid deadlock.
 	c.lifecycleMutex.Unlock()
+	if c.stopUnlockedHook != nil {
+		c.stopUnlockedHook()
+	}
 	var joinErr error
 	if !inCallback {
 		joinErr = c.joinProtocol(ctx, proto, group)
 	}
 	if !inCallback && joinErr == nil {
-		// Every queued request is resolved with a terminal error. Each
+		// Every request of proto is resolved with a terminal error. Each
 		// request owns its own buffered channels, so a handler that is still
 		// running cannot send on a closed channel and no waiter is stranded.
-		c.failOutstanding(protocol.ErrProtocolShuttingDown)
-		c.releaseCurrentBusy()
+		// With lifecycleMutex released, a Start may have installed a new
+		// instance and queued requests on it, so only proto's are failed.
+		c.failOutstandingAfterDelivery(proto, protocol.ErrProtocolShuttingDown)
+		c.releaseBusy(busyToken)
 	}
 
 	c.lifecycleMutex.Lock()
@@ -1412,23 +1420,6 @@ func (c *Client) headForResponse(
 	return req, nil
 }
 
-// drainLocked empties the queue and clears the in-flight byte accounting,
-// returning the entries the caller must resolve. The caller must hold
-// queueMutex.
-func (c *Client) drainLocked() []*rangeRequest {
-	pending := c.queue
-	c.queue = nil
-	if len(pending) > 0 {
-		c.inFlightBytes = 0
-		close(c.bytesFreed)
-		c.bytesFreed = make(chan struct{})
-		for _, req := range pending {
-			c.updateIngressAllowanceLocked(req.protocol)
-		}
-	}
-	return pending
-}
-
 // resolve delivers a request's terminal outcome. It must be called without
 // queueMutex held, because it can invoke a user callback.
 func (c *Client) resolve(req *rangeRequest, err error) error {
@@ -1472,22 +1463,11 @@ func (c *Client) resolve(req *rangeRequest, err error) error {
 	return callbackErr
 }
 
-// failOutstanding takes every request out of the queue and resolves it with
-// the given error, except a request whose send is still in progress, which
-// its sender resolves if the send succeeds (see rangeRequest.sending).
-func (c *Client) failOutstanding(err error) {
-	c.queueMutex.Lock()
-	pending := resolvableLocked(c.drainLocked(), err)
-	c.queueMutex.Unlock()
-	proto := c.ProtocolInstance()
-	for _, req := range pending {
-		c.logShutdownCallbackError(proto, c.resolve(req, err))
-	}
-}
-
-// failOutstandingForProtocol is failOutstanding for the requests owned by
-// proto only. A delayed shutdown watcher from an earlier client start must not
-// resolve requests queued after the client has restarted with a new protocol
+// failOutstandingForProtocol takes proto's requests out of the queue and
+// resolves them with err, except a request whose send is still in progress,
+// which its sender resolves if the send succeeds (see rangeRequest.sending).
+// A delayed shutdown watcher from an earlier client start must not resolve
+// requests queued after the client has restarted with a new protocol
 // instance.
 func (c *Client) failOutstandingForProtocol(
 	proto *protocol.Protocol,

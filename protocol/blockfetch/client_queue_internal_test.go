@@ -1160,7 +1160,10 @@ func newInMemoryPeer(
 		case <-time.After(time.Second):
 			t.Error("protocol did not stop")
 		}
-		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		c.failOutstandingForProtocol(
+			c.ProtocolInstance(),
+			protocol.ErrProtocolShuttingDown,
+		)
 		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
@@ -1502,7 +1505,10 @@ func TestInFlightWaitDoesNotBlockOtherCallers(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("parked RequestRange did not return after cancellation")
 	}
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	c.failOutstandingForProtocol(
+		c.ProtocolInstance(),
+		protocol.ErrProtocolShuttingDown,
+	)
 	select {
 	case err := <-legacyDone:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -1656,7 +1662,10 @@ func TestNonPipelinedShutdownCallsBatchDone(t *testing.T) {
 	req.pipelined = false
 	req.started = true
 
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	c.failOutstandingForProtocol(
+		c.ProtocolInstance(),
+		protocol.ErrProtocolShuttingDown,
+	)
 
 	select {
 	case id := <-completions:
@@ -2010,9 +2019,6 @@ func TestPeerBlockRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 // must never run for that request.
 func TestRequestRangeRefusedAtShutdownGetsNoRangeDone(t *testing.T) {
 	drains := map[string]func(*Client, *protocol.Protocol){
-		"failOutstanding": func(c *Client, _ *protocol.Protocol) {
-			c.failOutstanding(protocol.ErrProtocolShuttingDown)
-		},
 		"failOutstandingForProtocol": func(
 			c *Client,
 			proto *protocol.Protocol,
@@ -2051,7 +2057,10 @@ func TestRequestRangeRefusedAtShutdownGetsNoRangeDone(t *testing.T) {
 			require.Zero(t, id)
 
 			// A drain after the refusal must not find the request either.
-			c.failOutstanding(protocol.ErrProtocolShuttingDown)
+			c.failOutstandingForProtocol(
+				c.ProtocolInstance(),
+				protocol.ErrProtocolShuttingDown,
+			)
 			callbacksMu.Lock()
 			defer callbacksMu.Unlock()
 			require.Empty(t, callbacks)
@@ -2081,7 +2090,10 @@ func TestRequestRangeDrainedBeforeSendIsResolvedOnce(t *testing.T) {
 		},
 	})
 	c.beforeRangeSend = func() {
-		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		c.failOutstandingForProtocol(
+			c.ProtocolInstance(),
+			protocol.ErrProtocolShuttingDown,
+		)
 	}
 
 	id, err := c.RequestRange(
@@ -2098,7 +2110,10 @@ func TestRequestRangeDrainedBeforeSendIsResolvedOnce(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("a request drained before its send was never resolved")
 	}
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	c.failOutstandingForProtocol(
+		c.ProtocolInstance(),
+		protocol.ErrProtocolShuttingDown,
+	)
 	select {
 	case got := <-completions:
 		t.Fatalf("request %d resolved twice: %v", got.id, got.err)

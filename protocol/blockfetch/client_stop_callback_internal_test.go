@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -348,4 +349,48 @@ func TestStopWaitsForDeadlineWatcher(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A Start can install a new protocol instance while a running Stop waits for
+// the old one with lifecycleMutex released. That Stop then resolves only the
+// old instance's ranges and releases only the busy lock taken before it:
+// a range queued on the new instance, and the new instance's busy lock,
+// are left alone.
+func TestStopLeavesRestartedInstanceRequests(t *testing.T) {
+	p := newIdlePeer(t, &Config{
+		RequestPipelining:   true,
+		SkipBlockValidation: true,
+		RangeDoneFunc:       func(CallbackContext, error) error { return nil },
+	})
+	c := p.client
+	var (
+		newReq   *rangeRequest
+		newToken uint64
+		oldProto = c.ProtocolInstance()
+	)
+	c.stopUnlockedHook = func() {
+		c.stopUnlockedHook = nil
+		c.Start()
+		require.NotSame(t, oldProto, c.ProtocolInstance(),
+			"Start did not install a new protocol instance")
+		newReq = c.appendTestRequest(1)
+		newToken, _ = c.acquireBusy()
+	}
+	require.NoError(t, c.Stop(context.Background()))
+	require.NotNil(t, newReq, "the hook did not run")
+	select {
+	case err := <-newReq.doneChan:
+		t.Fatalf("Stop of the old instance resolved the new instance's range: %v", err)
+	default:
+	}
+	c.queueMutex.Lock()
+	queued := slices.Contains(c.queue, newReq)
+	c.queueMutex.Unlock()
+	require.True(t, queued, "Stop of the old instance removed the new instance's range")
+	c.busyStateMutex.Lock()
+	held := c.busyLocked && c.busyToken == newToken
+	c.busyStateMutex.Unlock()
+	require.True(t, held, "Stop of the old instance released the new instance's busy lock")
+	c.releaseBusy(newToken)
+	require.NoError(t, c.Stop(context.Background()))
 }
