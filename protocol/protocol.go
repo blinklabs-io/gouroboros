@@ -76,10 +76,9 @@ const DefaultRecvQueueSize = 55
 
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
-	config       ProtocolConfig
-	doneChan     chan struct{}
-	stopChan     chan struct{}
-	readDoneChan chan struct{}
+	config   ProtocolConfig
+	doneChan chan struct{}
+	stopChan chan struct{}
 	// loopsMu guards the count of running loops: the four engine loops and
 	// every RunLoop goroutine. loopsDoneChan closes once shutdown has begun
 	// and the count is zero; Stop and StopForRestart wait on it. No loop
@@ -170,8 +169,13 @@ type Protocol struct {
 	// from the muxer but not processed. It is set before the protocol starts.
 	handoverIngress []byte
 	// carriedIngress is the same kind of data this instance leaves for its
-	// successor. readLoop writes it before it closes readDoneChan.
+	// successor. readLoop writes it before it sets readExited.
 	carriedIngress []byte
+	// restartMu guards readExited and finishCarry, which settle whether
+	// StopForRestart or readLoop's exit hands carriedIngress to the muxer.
+	restartMu   sync.Mutex
+	readExited  bool
+	finishCarry func([]byte)
 }
 
 type inboundMessage struct {
@@ -325,7 +329,6 @@ func New(config ProtocolConfig) *Protocol {
 		currentState: config.InitialState,
 		doneChan:     make(chan struct{}),
 		stopChan:     make(chan struct{}),
-		readDoneChan: make(chan struct{}),
 		recvDoneChan: make(chan struct{}),
 		sendDoneChan: make(chan struct{}),
 		// The send queue exists from the start, so a message sent before
@@ -525,7 +528,10 @@ func (p *Protocol) Stop(ctx context.Context) error {
 // role registered with its queued ingress, and passes the data this instance
 // had read but not processed to the next instance of the role, so the
 // client's first message of the new run is delivered to it. It waits for
-// this instance's goroutines as Stop does, and with the same ctx rules.
+// this instance's goroutines as Stop does, and with the same ctx rules, so
+// a callback of this instance, MessageReceivedFunc included, may call it
+// with its CallbackContext. The read loop hands its unread data over as it
+// exits, and the next instance's registration waits for it.
 func (p *Protocol) StopForRestart(ctx context.Context) error {
 	p.stop(true)
 	return p.join(ctx)
@@ -588,25 +594,44 @@ func (p *Protocol) stop(restart bool) {
 		if p.config.Muxer == nil {
 			return
 		}
-		if restart {
-			// The data read loop leaves behind is only complete once it
-			// has stopped reading. It stops on stopChan, which is closed.
-			if started {
-				<-p.readDoneChan
-			}
-			if p.config.Muxer.SuspendProtocol(
-				p.config.ProtocolId,
-				muxerProtocolRole,
-				p.carriedIngress,
-			) {
-				return
-			}
+		if restart && p.suspendForRestart(started, muxerProtocolRole) {
+			return
 		}
 		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
 			muxerProtocolRole,
 		)
 	})
+}
+
+// suspendForRestart suspends the role in the muxer for the next instance,
+// and reports false if the role is not registered. The data readLoop leaves
+// behind is only complete once it has stopped reading, but readLoop may be
+// the caller, from MessageReceivedFunc, so a running readLoop is not waited
+// for: the role is suspended with its carry pending, and readLoop hands the
+// carry over as it exits.
+func (p *Protocol) suspendForRestart(
+	started bool,
+	role muxer.ProtocolRole,
+) bool {
+	p.restartMu.Lock()
+	defer p.restartMu.Unlock()
+	if !started || p.readExited {
+		return p.config.Muxer.SuspendProtocol(
+			p.config.ProtocolId,
+			role,
+			p.carriedIngress,
+		)
+	}
+	finish := p.config.Muxer.SuspendProtocolPendingCarry(
+		p.config.ProtocolId,
+		role,
+	)
+	if finish == nil {
+		return false
+	}
+	p.finishCarry = finish
+	return true
 }
 
 func (p *Protocol) closeDone() {
@@ -2027,12 +2052,6 @@ func consumeReadBuffer(
 
 func (p *Protocol) readLoop() {
 	defer p.recoverLoop("read loop")
-	defer func() {
-		// Absent on a Protocol not built by New, which nothing restarts.
-		if p.readDoneChan != nil {
-			close(p.readDoneChan)
-		}
-	}()
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
 	// carryOnExit is set when this loop stops reading because the role is
@@ -2042,6 +2061,13 @@ func (p *Protocol) readLoop() {
 	defer func() {
 		if (carryOnExit || p.restarting.Load()) && readBuffer.Len() > 0 {
 			p.carriedIngress = bytes.Clone(readBuffer.Bytes())
+		}
+		p.restartMu.Lock()
+		p.readExited = true
+		finish := p.finishCarry
+		p.restartMu.Unlock()
+		if finish != nil {
+			finish(p.carriedIngress)
 		}
 	}()
 	scanner := messageScanner{}

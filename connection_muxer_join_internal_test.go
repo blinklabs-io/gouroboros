@@ -121,3 +121,92 @@ func TestCloseWaitsForMuxerMetricsCallback(t *testing.T) {
 		t.Fatal("Close did not return after the metrics callback returned")
 	}
 }
+
+// closingMetrics closes its connection from the first IngressQueueDepth
+// call, with the muxer's CallbackContext.
+type closingMetrics struct {
+	once     sync.Once
+	conn     func() *Connection
+	returned chan error
+}
+
+func (c *closingMetrics) IngressQueueDepth(uint16, muxer.ProtocolRole, int) {
+	c.once.Do(func() {
+		conn := c.conn()
+		c.returned <- conn.Close(conn.muxer.CallbackContext())
+	})
+}
+
+func (*closingMetrics) IngressDeliveryBlocked(
+	uint16, muxer.ProtocolRole, time.Duration,
+) {
+}
+
+func (*closingMetrics) IngressBackpressure(
+	uint16, muxer.ProtocolRole, time.Duration,
+) {
+}
+
+// TestMetricsCallbackClosesConnection checks that a muxer Metrics callback
+// may close its own connection with the muxer's CallbackContext: Close
+// returns without waiting for the shutdown, which waits for the callback,
+// and the shutdown then finishes.
+func TestMetricsCallbackClosesConnection(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	var conn *Connection
+	var connMu sync.Mutex
+	metrics := &closingMetrics{
+		conn: func() *Connection {
+			connMu.Lock()
+			defer connMu.Unlock()
+			return conn
+		},
+		returned: make(chan error, 1),
+	}
+	mockConn := ouroboros_mock.NewConnection(
+		ouroboros_mock.ProtocolRoleServer,
+		[]ouroboros_mock.ConversationEntry{
+			ouroboros_mock.ConversationEntryHandshakeRequestOutput,
+			ouroboros_mock.ConversationEntryHandshakeNtNResponseInput,
+			ouroboros_mock.ConversationEntryOutput{
+				ProtocolId: keepalive.ProtocolId,
+				Messages: []protocol.Message{
+					keepalive.NewMsgKeepAlive(7),
+				},
+			},
+		},
+	)
+	t.Cleanup(func() { _ = mockConn.Close() })
+	newConn, err := NewConnection(
+		WithConnection(mockConn),
+		WithNodeToNode(true),
+		WithServer(true),
+		WithNetworkMagic(ouroboros_mock.MockNetworkMagic),
+		WithKeepAliveConfig(keepalive.NewConfig()),
+		func(c *Connection) {
+			c.beforeProtocolErrorForwarderHook = func() {
+				connMu.Lock()
+				conn = c
+				connMu.Unlock()
+				c.muxer.SetMetrics(metrics)
+			}
+		},
+	)
+	require.NoError(t, err)
+	select {
+	case err := <-metrics.returned:
+		require.NoError(t, err)
+	case <-time.After(teardownJoinTimeout):
+		t.Fatal("Close from a muxer Metrics callback did not return")
+	}
+	closed := make(chan struct{})
+	go func() {
+		_ = newConn.Close(context.Background())
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(teardownJoinTimeout):
+		t.Fatal("the shutdown requested by the Metrics callback did not finish")
+	}
+}
