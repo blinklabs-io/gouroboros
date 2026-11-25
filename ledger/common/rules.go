@@ -261,7 +261,7 @@ func (c *cachedLedgerState) transactionScopedMemoEntry(
 	c.memoMu.Lock()
 	defer c.memoMu.Unlock()
 	for _, entry := range c.memo {
-		if entry.tx == tx && entry.key == key {
+		if entry != nil && entry.tx == tx && entry.key == key {
 			return entry, false
 		}
 	}
