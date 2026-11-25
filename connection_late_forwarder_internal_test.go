@@ -57,6 +57,7 @@ func TestNoForwarderStartedAfterShutdown(t *testing.T) {
 		require.Error(t, err)
 		_ = mockConn.Close()
 		require.NoError(t, goleak.Find(ignore))
+		require.NotNil(t, conn)
 		require.Len(
 			t,
 			conn.protoErrorChan,
