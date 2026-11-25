@@ -276,14 +276,59 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	return m.VerifyMessages([]DmqMessage{*msg})
 }
 
-// PrepareMessages verifies a batch and returns a function that atomically commits its operational-certificate
-// observations. Verification does not mutate the authenticator until the
-// returned function succeeds.
+// PrepareMessages verifies a batch and returns a function that atomically
+// commits its observations. Verification does not mutate the authenticator
+// until the returned function succeeds. One failing message fails the batch.
 func (m *MessageAuthenticator) PrepareMessages(
 	messages []DmqMessage,
 ) (func() error, error) {
+	return m.prepareAll(messages, true)
+}
+
+// PrepareAdmitted verifies a batch another node has already admitted, such
+// as a local node's notifications, as PrepareMessages does but without the
+// per-pool rate limit: the admitting node applied it at the times it
+// accepted each message, which the receiver cannot see, so two messages of
+// one pool accepted a minute apart may arrive together. Nothing is recorded
+// for the rate limit.
+func (m *MessageAuthenticator) PrepareAdmitted(
+	messages []DmqMessage,
+) (func() error, error) {
+	return m.prepareAll(messages, false)
+}
+
+// PrepareEach verifies each message of a batch on its own: errs[i] is
+// message i's verdict, a refused message leaves the state the later ones are
+// checked against unchanged, and the returned function commits the accepted
+// messages' observations atomically.
+func (m *MessageAuthenticator) PrepareEach(
+	messages []DmqMessage,
+) ([]error, func() error) {
+	return m.prepare(messages, false, true)
+}
+
+func (m *MessageAuthenticator) prepareAll(
+	messages []DmqMessage,
+	rateLimit bool,
+) (func() error, error) {
+	errs, commit := m.prepare(messages, true, rateLimit)
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	return commit, nil
+}
+
+func (m *MessageAuthenticator) prepare(
+	messages []DmqMessage,
+	stopOnError bool,
+	rateLimit bool,
+) ([]error, func() error) {
+	errs := make([]error, len(messages))
+	noCommit := func() error { return nil }
 	if m.disableValidation || len(messages) == 0 {
-		return func() error { return nil }, nil
+		return errs, noCommit
 	}
 	m.mu.Lock()
 	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
@@ -292,9 +337,13 @@ func (m *MessageAuthenticator) PrepareMessages(
 	}
 	m.mu.Unlock()
 	batchNow := m.now()
+	minSigDelay := m.minSigDelay
+	if !rateLimit {
+		minSigDelay = 0
+	}
 	batchAuthenticator := &MessageAuthenticator{
 		parent:           m,
-		minSigDelay:      m.minSigDelay,
+		minSigDelay:      minSigDelay,
 		now:              func() time.Time { return batchNow },
 		logger:           m.logger,
 		stakeAuthority:   m.stakeAuthority,
@@ -309,15 +358,19 @@ func (m *MessageAuthenticator) PrepareMessages(
 	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
-			return nil, fmt.Errorf(
-				"message %d authentication failed: %w",
-				i,
-				err,
-			)
+			errs[i] = err
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
-			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
+			errs[i] = fmt.Errorf("compute pool id: %w", err)
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		issue := messages[i].OperationalCertificate.IssueNumber
 		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
@@ -325,7 +378,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 		}
 	}
 
-	return func() error {
+	return errs, func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		for poolID, issueNumber := range lowestIssue {
@@ -341,8 +394,12 @@ func (m *MessageAuthenticator) PrepareMessages(
 		// A message accepted meanwhile by another commit is a duplicate:
 		// valid, and already recorded, so it is neither refused nor
 		// recorded again.
+		records := batchAuthenticator.batchAccepted
+		if !rateLimit {
+			records = nil
+		}
 		var fresh []rateRecord
-		for _, r := range batchAuthenticator.batchAccepted {
+		for _, r := range records {
 			if _, held := m.acceptedIDs[r.id]; held {
 				continue
 			}
@@ -366,7 +423,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 			}
 		}
 		return nil
-	}, nil
+	}
 }
 
 // VerifyMessages verifies a batch and commits its authentication state.

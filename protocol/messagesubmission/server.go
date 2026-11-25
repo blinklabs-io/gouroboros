@@ -506,15 +506,25 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			return err
 		}
 	}
+	// A too-frequent message is refused on its own, as dmq-node does: the
+	// rest of the reply is accepted, and the connection ends once they have
+	// been delivered (SigTooFrequent is fatal from a node-to-node peer).
+	// Any other failure still refuses the whole reply.
+	var tooFrequent error
+	accepted := fresh
 	commitAuthentication := func() error { return nil }
 	if len(fresh) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
-			fresh,
-		)
-		if err != nil {
+		var errs []error
+		errs, commitAuthentication = s.config.Authenticator.PrepareEach(fresh)
+		accepted = make([]pcommon.DmqMessage, 0, len(fresh))
+		for i, err := range errs {
+			if err == nil {
+				accepted = append(accepted, fresh[i])
+				continue
+			}
 			s.ProtocolInstance().Logger().
 				Warn("message authentication failed",
 					"component", "network",
@@ -523,7 +533,12 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 					"connection_id", s.callbackContext.ConnectionId.String(),
 					"error", err,
 				)
-			return err
+			if !errors.Is(err, pcommon.ErrMessageTooFrequent) {
+				return fmt.Errorf("message %d authentication failed: %w", i, err)
+			}
+			if tooFrequent == nil {
+				tooFrequent = fmt.Errorf("message %d authentication failed: %w", i, err)
+			}
 		}
 	}
 	s.lock.Lock()
@@ -537,17 +552,17 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		s.lock.Unlock()
 		return err
 	}
-	for i := range fresh {
-		s.deliveredIDs[string(fresh[i].ID())] = fresh[i].Payload.ExpiresAt
+	for i := range accepted {
+		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt
 	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, fresh)
+		s.config.ReplyMessagesFunc(s.callbackContext, accepted)
 	}
 
-	return nil
+	return tooFrequent
 }
 
 // handleDone restarts the server in its initial state after the client's

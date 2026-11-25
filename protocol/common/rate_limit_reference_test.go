@@ -235,3 +235,17 @@ func TestVerifyMessageRateLimitOff(t *testing.T) {
 	require.NoError(t, verifyOne(auth, pool.message(t, 2, false)))
 	require.NoError(t, commit())
 }
+
+// TestPrepareAdmittedSkipsRateLimit checks that a batch another node already
+// admitted is neither refused by the rate limit nor recorded for it.
+func TestPrepareAdmittedSkipsRateLimit(t *testing.T) {
+	auth, stake, _ := newRateAuthenticator(t)
+	pool := newRatePool(t, stake)
+	commit, err := auth.PrepareAdmitted([]DmqMessage{
+		pool.message(t, 1, false),
+		pool.message(t, 2, false),
+	})
+	require.NoError(t, err)
+	require.NoError(t, commit())
+	require.NoError(t, verifyOne(auth, pool.message(t, 3, false)))
+}
