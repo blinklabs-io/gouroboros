@@ -793,8 +793,7 @@ func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
 					continue
 				}
 				raw, err := cbor.Encode(lcommon.LeiosVote{
-					SlotNo:  1,
-					VoterId: uint64(idx),
+					VoterId: uint16(idx),
 					VoteSignature: make(
 						[]byte,
 						lcommon.LeiosBlsSignatureSize,
@@ -1277,7 +1276,6 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 	eb1 := testEB(t, 0x01, 1)
 	eb2 := testEB(t, 0x02, 1)
 	vote, err := cbor.Encode(lcommon.LeiosVote{
-		SlotNo:        9,
 		VoterId:       9,
 		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
 	})
@@ -1373,7 +1371,6 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 // reply is delivered.
 func TestVotesRequestWithRepeatedIdsAcceptsMatchingReply(t *testing.T) {
 	vote, err := cbor.Encode(lcommon.LeiosVote{
-		SlotNo:        5,
 		VoterId:       1,
 		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
 	})

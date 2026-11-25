@@ -469,6 +469,16 @@ func validateDijkstraBlockCertificatesWith(
 			err,
 		)
 	}
+	keyAge, err := state.DijkstraLeiosKeyAgeContext(dijkstraBlock.Header())
+	if err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"failed to resolve Dijkstra Leios voting key age",
+			nil,
+			err,
+		)
+	}
+	context.KeyAge = keyAge
 	if err := leios.VerifyDijkstraCertificateForMessage(
 		dijkstraBlock.BlockBody.LeiosCertificate.Signers,
 		dijkstraBlock.BlockBody.LeiosCertificate.AggregatedSignature,

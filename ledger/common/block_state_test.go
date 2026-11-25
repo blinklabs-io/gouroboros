@@ -647,3 +647,115 @@ func TestBlockLedgerStateAtSlotDecidesWithPoolRegistered(t *testing.T) {
 		})
 	}
 }
+
+// GOVCERT accepts a hot-key authorization or a resignation from a cold
+// credential that a pending UpdateCommittee proposal would add
+// (isPotentialFutureMember, cardano-ledger Conway/Rules/GovCert.hs 190-205),
+// and LEDGER builds that proposal set from the state the block's earlier
+// transactions left (Conway/Rules/Ledger.hs 390-416). A proposal made earlier
+// in the block therefore counts.
+func TestBlockLedgerStateTreatsInBlockCommitteeProposalAsPotentialMember(
+	t *testing.T,
+) {
+	cold := blockTestCredential(0x71)
+	hot := blockTestCredential(0x72)
+	scriptCold := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: cold.Credential,
+	}
+	state := common.NewBlockLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	committee, ok := common.CommitteeCredentialStateFor(state)
+	require.True(t, ok)
+	got, err := committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	newMember := cold
+	propose := blockTestTx(t, 0xb1, true).WithProposalProcedures(
+		conway.ConwayProposalProcedure{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &common.UpdateCommitteeGovAction{
+					CredEpochs: map[*common.Credential]uint64{&newMember: 90},
+				},
+			},
+		},
+	)
+	applyBlockTestTxs(t, state, propose)
+
+	got, err = committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, cold.Credential, got.ColdKey)
+	require.Equal(t, uint64(90), got.ExpiryEpoch)
+	require.False(t, got.Resigned)
+	require.Nil(t, got.HotKey)
+	legacy, err := state.CommitteeMember(cold.Credential)
+	require.NoError(t, err)
+	require.NotNil(t, legacy)
+	// The proposal names a key-hash credential, not the script-hash one
+	// with the same bytes.
+	got, err = committee.CommitteeCredentialMember(scriptCold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	authorize := blockTestTx(t, 0xb2, true).WithCertificates(
+		&common.AuthCommitteeHotCertificate{
+			ColdCredential: cold,
+			HotCredential:  hot,
+		},
+	)
+	require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+		authorize, 0, state, &conway.ConwayProtocolParameters{},
+	))
+	applyBlockTestTxs(t, state, authorize)
+	got, err = committee.CommitteeHotCredentialMember(hot)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, cold.Credential, got.ColdKey)
+
+	resign := blockTestTx(t, 0xb3, true).WithCertificates(
+		&common.ResignCommitteeColdCertificate{ColdCredential: cold},
+	)
+	require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+		resign, 0, state, &conway.ConwayProtocolParameters{},
+	))
+	applyBlockTestTxs(t, state, resign)
+	got, err = committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.True(t, got.Resigned)
+}
+
+// A phase-2-invalid transaction records no proposal, so its UpdateCommittee
+// action makes no one a potential member.
+func TestBlockLedgerStateIgnoresInvalidCommitteeProposal(t *testing.T) {
+	cold := blockTestCredential(0x73)
+	state := common.NewBlockLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	newMember := cold
+	applyBlockTestTxs(t, state, blockTestTx(t, 0xb4, false).WithProposalProcedures(
+		conway.ConwayProposalProcedure{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &common.UpdateCommitteeGovAction{
+					CredEpochs: map[*common.Credential]uint64{&newMember: 90},
+				},
+			},
+		},
+	))
+	committee, ok := common.CommitteeCredentialStateFor(state)
+	require.True(t, ok)
+	got, err := committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Error(t, conway.UtxoValidateCommitteeCertificates(
+		blockTestTx(t, 0xb5, true).WithCertificates(
+			&common.AuthCommitteeHotCertificate{
+				ColdCredential: cold,
+				HotCredential:  blockTestCredential(0x74),
+			},
+		), 0, state, &conway.ConwayProtocolParameters{},
+	))
+}
