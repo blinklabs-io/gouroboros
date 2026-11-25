@@ -202,7 +202,9 @@ func TestRequestTxIdsNonBlockingClampedToZeroFromV16(t *testing.T) {
 // specification forbids an empty reply to a blocking request
 // (miniprotocols.tex, tx-submission "MsgRequestTxIds"; the reference codec
 // refuses to decode one). Without that refusal a full window would clamp a
-// blocking request to zero and answer it with an empty reply.
+// blocking request to zero and answer it with an empty reply. A blocking
+// request that acknowledges the whole window and asks for IDs is the steady
+// state of the protocol and is served.
 func TestRequestTxIdsBlockingIsNotClampedToZero(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -210,11 +212,14 @@ func TestRequestTxIdsBlockingIsNotClampedToZero(t *testing.T) {
 		version uint16
 		ack     uint16
 		req     uint16
+		served  bool
 	}{
-		{"v16 full window, nothing acknowledged", 16, 0, 3},
-		{"v16 ids left after the acknowledgement", 16, 4, 3},
-		{"v16 asks for nothing", 16, MaxUnackedTxIds, 0},
-		{"v15 ids left after the acknowledgement", 15, 4, 3},
+		{"v16 full window, nothing acknowledged", 16, 0, 3, false},
+		{"v16 ids left after the acknowledgement", 16, 4, 3, false},
+		{"v16 asks for nothing", 16, MaxUnackedTxIds, 0, false},
+		{"v15 ids left after the acknowledgement", 15, 4, 3, false},
+		{"v16 window acknowledged", 16, MaxUnackedTxIds, 3, true},
+		{"v15 window acknowledged", 15, MaxUnackedTxIds, 3, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -238,7 +243,24 @@ func TestRequestTxIdsBlockingIsNotClampedToZero(t *testing.T) {
 				outboundStart,
 				NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
 			)
+			outboundStart = p.outboundRead.count.Load()
 			p.send(t, NewMsgRequestTxIds(true, test.ack, test.req))
+			if test.served {
+				select {
+				case req := <-calls:
+					require.Equal(t, test.req, req)
+				case err := <-p.errorChan:
+					t.Fatalf("a legal blocking request was refused: %v", err)
+				case <-time.After(pendingBytesWindow):
+					t.Fatal("a legal blocking request was not served")
+				}
+				p.waitForOutboundMessage(
+					t,
+					outboundStart,
+					NewMsgReplyTxIds(windowTxIdAndSizes(int(test.req))),
+				)
+				return
+			}
 			select {
 			case err := <-p.errorChan:
 				require.ErrorIs(
