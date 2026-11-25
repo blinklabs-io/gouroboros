@@ -58,7 +58,7 @@ type nonceRefState struct {
 
 func nonceRefHash(parts ...[]byte) []byte {
 	h := common.Blake2b256Hash(bytes.Join(parts, nil))
-	return h.Bytes()
+	return h[:]
 }
 
 // nonceRefOp is the reference operator: two nonces hash their
