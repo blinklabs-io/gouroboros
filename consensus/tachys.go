@@ -228,10 +228,11 @@ func IsTachysSlotLeader(
 			"slot %d exceeds maximum int64 value for VRF input", slot,
 		)
 	}
-	vrfInput, err := vrf.MkInputVrf(
-		int64(slot), //nolint:gosec // checked above
-		epochNonce,
-	)
+	nonce, err := epochNonceFromBytes(epochNonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VRF input: %w", err)
+	}
+	vrfInput, err := vrf.MkInputVrfFromNonce(slot, nonce)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VRF input: %w", err)
 	}

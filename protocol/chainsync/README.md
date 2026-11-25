@@ -110,7 +110,7 @@ NtC mode has no timeouts per Ouroboros spec Table 3.9.
 | Idle | 3673 seconds | Client must send next request |
 | CanAwait | 10 seconds | Server must provide block or await |
 | Intersect | 10 seconds | Server must respond to intersect |
-| MustReply | random(135-269 seconds) | Server must provide block |
+| MustReply | random(601-911 seconds) | Server must provide block |
 
 ## Limits
 

@@ -127,6 +127,10 @@ type PipelineStats struct {
 	ValidationErrors uint64
 	// ApplyErrors is the total number of apply errors.
 	ApplyErrors uint64
+	// ResultsDropped is the number of committed blocks whose result was
+	// discarded because the Results reader fell too far behind. The blocks
+	// themselves were committed by ApplyFunc.
+	ResultsDropped uint64
 
 	// DecodeTimings summarizes the durations of successful decodes.
 	DecodeTimings StageTimings

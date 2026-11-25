@@ -30,6 +30,11 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protocolMu      sync.RWMutex
+	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 
 	// Message queue management
 	lock               sync.Mutex
@@ -68,6 +73,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		done:               make(chan struct{}),
 		connectionDoneChan: protoOptions.ConnectionDoneChan,
 		now:                time.Now,
+		protoOptions:       protoOptions,
 	}
 	if protoOptions.Muxer != nil {
 		s.muxerDoneChan = protoOptions.Muxer.DoneChan()
@@ -76,23 +82,49 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	// Start background goroutine to clean up expired acknowledged IDs after Protocol is set
+	s.startExpirationCleaner()
+	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        protocolStateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	// Start background goroutine to clean up expired acknowledged IDs after Protocol is set
-	s.startExpirationCleaner()
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgClientDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Start starts the protocol instance of the current run.
+func (s *Server) Start() {
+	s.ProtocolInstance().Start()
 }
 
 // AddMessage adds a message to the notification queue
@@ -147,7 +179,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 	close(s.messageAdded)
 	s.messageAdded = make(chan struct{})
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("message added to queue",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -177,7 +209,9 @@ func cloneDmqMessage(msg pcommon.DmqMessage) pcommon.DmqMessage {
 
 // WaitForMessage blocks until a message is queued or timeout occurs. It
 // returns at once if a message is already queued. A timeout of zero waits
-// indefinitely.
+// indefinitely. The client ending a run does not end the wait: the server
+// restarts and keeps its queue. Stop, or the connection closing, ends it
+// with protocol.ErrProtocolShuttingDown.
 func (s *Server) WaitForMessage(timeout time.Duration) error {
 	s.lock.Lock()
 	if len(s.messageQueue) > 0 {
@@ -186,14 +220,17 @@ func (s *Server) WaitForMessage(timeout time.Duration) error {
 	}
 	added := s.messageAdded
 	s.lock.Unlock()
-	return s.waitForMessageAdded(added, timeout)
+	return s.waitForMessageAdded(added, timeout, nil)
 }
 
 // waitForMessageAdded waits until added is closed by AddMessage, the
-// timeout passes, or the server shuts down.
+// timeout passes, the server shuts down, or runStop is closed. A blocking
+// request passes its run's stop channel; WaitForMessage passes nil, since
+// a restart closes that channel and the wait belongs to the server.
 func (s *Server) waitForMessageAdded(
 	added <-chan struct{},
 	timeout time.Duration,
+	runStop <-chan struct{},
 ) error {
 	var timerChan <-chan time.Time
 	if timeout > 0 {
@@ -208,7 +245,7 @@ func (s *Server) waitForMessageAdded(
 		return errors.New("timeout waiting for message")
 	case <-s.done:
 		return protocol.ErrProtocolShuttingDown
-	case <-s.StopChan():
+	case <-runStop:
 		return protocol.ErrProtocolShuttingDown
 	case <-s.connectionDoneChan:
 		return protocol.ErrProtocolShuttingDown
@@ -237,7 +274,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 func (s *Server) handleRequestMessages(msg protocol.Message) error {
 	msgRequest := msg.(*MsgRequestMessages)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("request messages",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -259,25 +296,26 @@ func (s *Server) handleNonBlockingRequest() error {
 
 	// After clearing the queue, hasMore should always be false
 	replyMsg := NewMsgReplyMessagesNonBlocking(messages, false)
-	return s.SendMessage(replyMsg)
+	return s.ProtocolInstance().SendMessage(replyMsg)
 }
 
 func (s *Server) handleBlockingRequest() error {
 	// For blocking requests, wait until at least one message is available
+	runStop := s.ProtocolInstance().StopChan()
 	for {
 		s.lock.Lock()
 		messages := s.drainValidMessagesLocked(time.Now())
 		if len(messages) > 0 {
 			s.lock.Unlock()
 			replyMsg := NewMsgReplyMessagesBlocking(messages)
-			return s.SendMessage(replyMsg)
+			return s.ProtocolInstance().SendMessage(replyMsg)
 		}
 		// Take the channel before releasing the lock, so a message added
 		// between the drain and the wait still wakes this request.
 		added := s.messageAdded
 		s.lock.Unlock()
 
-		if err := s.waitForMessageAdded(added, 0); err != nil {
+		if err := s.waitForMessageAdded(added, 0, runStop); err != nil {
 			return err
 		}
 	}
@@ -296,24 +334,42 @@ func (s *Server) drainValidMessagesLocked(now time.Time) []pcommon.DmqMessage {
 	return messages
 }
 
+// handleClientDone restarts the server in its initial state. dmq-node runs
+// its node-to-client servers under the inbound governor, which restarts a
+// responder that ended cleanly, so the client may start a new run on the
+// connection. The queue, the acknowledged IDs and the expiration cleaner
+// belong to the connection and outlast the run; only Stop ends them.
+//
 //nolint:unparam
 func (s *Server) handleClientDone() error {
-	s.Protocol.Logger().
+	old := s.ProtocolInstance()
+	old.Logger().
 		Debug("received client done message",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	s.stop()
+	old.StopForRestart()
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return nil
+	}
+	s.Start()
 	return nil
 }
 
 // Stop terminates the server and releases background resources. It is safe to
-// call before Start when protocol registration or construction fails.
+// call before Start when protocol registration or construction fails. A
+// restart that is in progress when Stop is called does not start a new
+// protocol instance.
 func (s *Server) Stop() error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
 	s.stop()
-	s.Protocol.Stop()
+	p.Stop()
 	return nil
 }
 
@@ -334,15 +390,14 @@ func (s *Server) startExpirationCleaner() {
 			select {
 			case <-s.expirationTicker.C:
 				s.cleanupExpiredAcknowledgedIDs()
+			// The protocol instance's stop and done channels are not
+			// watched: a restart closes them, and the cleaner serves every
+			// run. Stop ends it through expirationStopChan.
 			case <-s.expirationStopChan:
-				return
-			case <-s.StopChan():
 				return
 			case <-s.connectionDoneChan:
 				return
 			case <-s.muxerDoneChan:
-				return
-			case <-s.DoneChan():
 				return
 			}
 		}
@@ -378,7 +433,7 @@ func (s *Server) cleanupExpiredAcknowledgedIDs() {
 	}
 
 	if expiredCount > 0 {
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Debug("cleaned up expired acknowledged IDs",
 				"component", "network",
 				"protocol", ProtocolName,

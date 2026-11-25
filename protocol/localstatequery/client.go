@@ -60,11 +60,13 @@ type Client struct {
 	enableGetChainBlockNo         bool
 	enableGetChainPoint           bool
 	enableGetRewardInfoPoolsBlock bool
+	enableAcquireImmutableTip     bool
 	enableGetLedgerPeerSnapshot   bool
 	enableLedgerPeerKind          bool
 	version                       uint16
 	busyMutex                     sync.Mutex
 	acquired                      bool
+	implicitAcquired              bool
 	queryResultChan               chan []byte
 	acquireResultChan             chan error
 	currentEra                    int
@@ -122,6 +124,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 11 {
 		c.enableGetRewardInfoPoolsBlock = true
 	}
+	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 16 {
+		c.enableAcquireImmutableTip = true
+	}
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 19 {
 		c.enableGetLedgerPeerSnapshot = true
 	}
@@ -169,7 +174,7 @@ func (c *Client) Acquire(point *pcommon.Point) error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	acquireTarget := AcquireSpecificPoint{
 		Point: *point,
 	}
@@ -186,11 +191,15 @@ func (c *Client) AcquireVolatileTip() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	acquireTarget := AcquireVolatileTip{}
 	return c.acquire(acquireTarget)
 }
 
+// AcquireImmutableTip acquires the ledger state at the tip of the immutable
+// chain, which the node never rolls back. It returns
+// ErrAcquireImmutableTipUnsupportedVersion, without sending anything, on a
+// node-to-client protocol version before 16.
 func (c *Client) AcquireImmutableTip() error {
 	c.Protocol.Logger().
 		Debug(
@@ -201,12 +210,13 @@ func (c *Client) AcquireImmutableTip() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	acquireTarget := AcquireImmutableTip{}
 	return c.acquire(acquireTarget)
 }
 
-// Release releases the previously acquired chain point
+// Release releases the previously acquired chain point. It returns
+// ErrNotAcquired, without sending anything, when no state is acquired.
 func (c *Client) Release() error {
 	c.Protocol.Logger().
 		Debug("calling Release()",
@@ -216,7 +226,7 @@ func (c *Client) Release() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	return c.release()
 }
 
@@ -230,7 +240,7 @@ func (c *Client) GetCurrentEra() (int, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	return c.getCurrentEra()
 }
 
@@ -244,7 +254,7 @@ func (c *Client) GetSystemStart() (*SystemStartResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	query := buildQuery(
 		QueryTypeSystemStart,
 	)
@@ -265,7 +275,7 @@ func (c *Client) GetChainBlockNo() (int64, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	query := buildQuery(
 		QueryTypeChainBlockNo,
 	)
@@ -302,7 +312,7 @@ func (c *Client) GetChainPoint() (*pcommon.Point, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	query := buildQuery(
 		QueryTypeChainPoint,
 	)
@@ -323,7 +333,7 @@ func (c *Client) GetEraHistory() ([]EraHistoryResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	query := buildHardForkQuery(QueryTypeHardForkEraHistory)
 	var result eraHistoryReply
 	if err := c.runQuery(query, &result); err != nil {
@@ -342,7 +352,7 @@ func (c *Client) GetEpochNo() (int, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return 0, err
@@ -375,7 +385,7 @@ func (c *Client) GetNonMyopicMemberRewards(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	stakesSet, err := encodeNonMyopicMemberRewardsSet(keys)
 	if err != nil {
 		return nil, err
@@ -406,7 +416,7 @@ func (c *Client) GetCurrentProtocolParams() (lcommon.ProtocolParameters, error) 
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -517,7 +527,7 @@ func (c *Client) GetProposedProtocolParamsUpdates() (*ProposedProtocolParamsUpda
 		)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -546,7 +556,7 @@ func (c *Client) GetStakeDistribution() (*StakeDistributionResult, error) {
 		return nil, unsupportedQueryError("GetStakeDistribution", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -574,7 +584,7 @@ func (c *Client) GetUTxOByAddress(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -601,7 +611,7 @@ func (c *Client) GetUTxOWhole() (*UTxOsResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -628,7 +638,7 @@ func (c *Client) DebugEpochState() (*DebugEpochStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -651,7 +661,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(creds, "credentials"); err != nil {
 		return nil, err
 	}
@@ -684,7 +694,7 @@ func (c *Client) GetStakeDelegDeposits(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(creds, "credentials"); err != nil {
 		return nil, err
 	}
@@ -713,7 +723,7 @@ func (c *Client) GetGenesisConfig() (*GenesisConfigResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -744,7 +754,7 @@ func (c *Client) DebugNewEpochState() (*DebugNewEpochStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -786,7 +796,7 @@ func (c *Client) DebugChainDepState() (*DebugChainDepStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -845,7 +855,7 @@ func (c *Client) GetRewardProvenance() (*RewardProvenanceResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -872,7 +882,7 @@ func (c *Client) GetUTxOByTxIn(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -898,7 +908,7 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -923,7 +933,7 @@ func (c *Client) GetAccountState() (*AccountStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -956,7 +966,7 @@ func (c *Client) GetStakePoolParams(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -986,7 +996,7 @@ func (c *Client) GetRewardInfoPools() (*RewardInfoPoolsResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1011,7 +1021,7 @@ func (c *Client) GetPoolState(poolIds []any) (*PoolStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
 		return nil, err
 	}
@@ -1065,7 +1075,7 @@ func (c *Client) GetStakePoolState(
 		return nil, unsupportedQueryError("GetStakePoolState", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	poolSet, err := encodeStakePoolIdSet(poolIds)
 	if err != nil {
 		return nil, err
@@ -1105,7 +1115,7 @@ func (c *Client) GetLeiosCommittee() (*LeiosCommitteeResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1132,7 +1142,7 @@ func (c *Client) GetStakeSnapshots(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
 		return nil, err
 	}
@@ -1168,7 +1178,7 @@ func (c *Client) GetPoolDistr(poolIds []any) (*PoolDistrResult, error) {
 		return nil, unsupportedQueryError("GetPoolDistr", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
 		return nil, err
 	}
@@ -1226,7 +1236,7 @@ func (c *Client) GetPoolDistr2(
 		return nil, unsupportedQueryError("GetPoolDistr2", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
 		return nil, err
 	}
@@ -1273,7 +1283,7 @@ func (c *Client) GetConstitution() (*ConstitutionResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1323,7 +1333,7 @@ func (c *Client) GetGovState() (*GovStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1373,7 +1383,7 @@ func (c *Client) GetDRepState(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
 		return nil, err
 	}
@@ -1427,7 +1437,7 @@ func (c *Client) GetDRepStakeDistr(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(dreps, "DReps"); err != nil {
 		return nil, err
 	}
@@ -1495,7 +1505,7 @@ func (c *Client) GetCommitteeMembersState(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(coldCreds, "cold credentials"); err != nil {
 		return nil, err
 	}
@@ -1581,7 +1591,7 @@ func (c *Client) GetFilteredVoteDelegatees(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(credentials, "credentials"); err != nil {
 		return nil, err
 	}
@@ -1640,7 +1650,7 @@ func (c *Client) GetSPOStakeDistr(
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if err := validateLocalStateQuerySet(poolIds, "pool IDs"); err != nil {
 		return nil, err
 	}
@@ -1693,7 +1703,7 @@ func (c *Client) GetProposals() (*ProposalsResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1741,7 +1751,7 @@ func (c *Client) GetRatifyState() (*RatifyStateResult, error) {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1787,7 +1797,7 @@ func (c *Client) GetStakePoolDefaultVote(
 		return 0, unsupportedQueryError("QueryStakePoolDefaultVote", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return 0, err
@@ -1825,7 +1835,7 @@ func (c *Client) GetStakeDistribution2() (*StakeDistribution2Result, error) {
 		return nil, unsupportedQueryError("GetStakeDistribution2", c.version)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1861,7 +1871,7 @@ func (c *Client) GetMaxMajorProtocolVersion() (uint64, error) {
 		)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return 0, err
@@ -1898,7 +1908,7 @@ func (c *Client) GetDRepDelegations(
 		return nil, err
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	currentEra, err := c.getCurrentEra()
 	if err != nil {
 		return nil, err
@@ -1957,7 +1967,7 @@ func (c *Client) GetLedgerPeerSnapshot(
 		return nil, fmt.Errorf("invalid LedgerPeerKind: %d", peerKind)
 	}
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
+	defer c.endCall()
 	if !c.enableGetLedgerPeerSnapshot {
 		return nil, ErrLedgerPeerSnapshotUnsupportedVersion
 	}
@@ -2097,6 +2107,10 @@ func (c *Client) handleResult(msg protocol.Message) error {
 }
 
 func (c *Client) acquire(acquireTarget AcquireTarget) error {
+	if _, ok := acquireTarget.(AcquireImmutableTip); ok &&
+		!c.enableAcquireImmutableTip {
+		return ErrAcquireImmutableTipUnsupportedVersion
+	}
 	var msg protocol.Message
 	if c.acquired {
 		switch t := acquireTarget.(type) {
@@ -2132,6 +2146,11 @@ func (c *Client) acquire(acquireTarget AcquireTarget) error {
 }
 
 func (c *Client) release() error {
+	// MsgRelease is legal only in Acquired; from Idle it is a protocol error
+	// that closes the connection.
+	if !c.acquired {
+		return ErrNotAcquired
+	}
 	msg := NewMsgRelease()
 	if err := c.SendMessage(msg); err != nil {
 		return err
@@ -2141,6 +2160,35 @@ func (c *Client) release() error {
 	return nil
 }
 
+// endCall ends a public call: it releases a state the call's queries
+// acquired for themselves, then lets the next call in. The release has to
+// happen inside busyMutex so that no other call can query that state first.
+func (c *Client) endCall() {
+	defer c.busyMutex.Unlock()
+	if !c.implicitAcquired {
+		return
+	}
+	c.implicitAcquired = false
+	// A failed acquire inside the call has already returned to Idle,
+	// where MsgRelease is a protocol error.
+	if !c.acquired {
+		return
+	}
+	if err := c.release(); err != nil {
+		// SendMessage fails only once the protocol is shutting down, and then
+		// every later call fails too, so there is no stale state to answer
+		// from and the call's own result stands.
+		c.Protocol.Logger().
+			Debug("releasing implicitly acquired state failed",
+				"component", "network",
+				"protocol", ProtocolName,
+				"role", "client",
+				"connection_id", c.callbackContext.ConnectionId.String(),
+				"error", err,
+			)
+	}
+}
+
 func (c *Client) runQuery(query any, result any) error {
 	return c.runQueryMaxItems(query, result, 0)
 }
@@ -2148,6 +2196,12 @@ func (c *Client) runQuery(query any, result any) error {
 // runQueryMaxItems runs a query whose reply is an array of at most maxItems
 // items and rejects a longer one before decoding into result. A maxItems of
 // zero leaves the reply unbounded.
+//
+// With nothing acquired, it acquires the volatile tip for the rest of the
+// public call, and endCall releases it. Holding it for the whole call, not
+// one query, keeps a call that asks for the era and then an era-specific
+// query on one ledger state; holding it past the call would answer every
+// later call from this one's snapshot.
 func (c *Client) runQueryMaxItems(
 	query any,
 	result any,
@@ -2158,6 +2212,7 @@ func (c *Client) runQueryMaxItems(
 		if err := c.acquire(AcquireVolatileTip{}); err != nil {
 			return err
 		}
+		c.implicitAcquired = true
 	}
 	if err := c.SendMessage(msg); err != nil {
 		return err
