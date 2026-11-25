@@ -66,7 +66,7 @@ func startSubmissionPair(
 	server.Start()
 	t.Cleanup(func() {
 		_ = client.Stop()
-		server.Protocol.Stop()
+		server.Stop()
 		clientMuxer.Stop()
 		serverMuxer.Stop()
 		_ = clientConn.Close()

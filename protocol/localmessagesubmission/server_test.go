@@ -75,7 +75,7 @@ func newSubmissionTestSession(
 	server.Start()
 	t.Cleanup(func() {
 		_ = client.Stop()
-		server.Protocol.Stop()
+		server.Stop()
 		clientMuxer.Stop()
 		serverMuxer.Stop()
 		_ = clientConn.Close()
@@ -586,7 +586,7 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 			server.Start()
 			t.Cleanup(func() {
 				_ = client.Stop()
-				server.Protocol.Stop()
+				server.Stop()
 				clientMuxer.Stop()
 				serverMuxer.Stop()
 				_ = clientConn.Close()
