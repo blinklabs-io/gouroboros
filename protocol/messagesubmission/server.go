@@ -533,7 +533,7 @@ func (s *Server) handleReplyNoMessageIds() error {
 
 	if s.config.ReplyMessageIdsFunc != nil {
 		s.config.ReplyMessageIdsFunc(
-			s.callbackContext,
+			s.callbackContext.withOwner(s.Protocol),
 			[]pcommon.MessageIDAndSize{},
 		)
 	}
