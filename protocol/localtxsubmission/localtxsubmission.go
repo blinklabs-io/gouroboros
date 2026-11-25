@@ -132,9 +132,9 @@ type LocalTxSubmissionOptionFunc func(*Config)
 
 // NewConfig returns a new LocalTxSubmission config object with the provided options
 func NewConfig(options ...LocalTxSubmissionOptionFunc) Config {
-	c := Config{
-		Timeout: 30 * time.Second,
-	}
+	// No default timeout: the specification sets none, and a node holds
+	// MsgSubmitTx until its mempool has room for the transaction.
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -149,7 +149,9 @@ func WithSubmitTxFunc(submitTxFunc SubmitTxFunc) LocalTxSubmissionOptionFunc {
 	}
 }
 
-// WithTimeout specifies the timeout for a TX submit operation when acting as a client
+// WithTimeout specifies the timeout for a TX submit operation when acting as a
+// client. There is none by default: a node may hold a submission while its
+// mempool is full, and the timeout tears down the whole connection.
 func WithTimeout(timeout time.Duration) LocalTxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout

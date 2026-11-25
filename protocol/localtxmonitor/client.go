@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
@@ -27,9 +28,17 @@ import (
 // Client implements the LocalTxMonitor client
 type Client struct {
 	*protocol.Protocol
-	config             *Config
-	callbackContext    CallbackContext
-	busyMutex          sync.Mutex
+	config          *Config
+	callbackContext CallbackContext
+	busyMutex       sync.Mutex
+	// stopRequested is closed when Stop is called, before Stop takes
+	// busyMutex, so that a call waiting for the server under busyMutex
+	// returns instead of making Stop wait for the server's answer.
+	stopRequested chan struct{}
+	// abandoned records, under busyMutex, that a call stopped waiting for
+	// the server's answer. The server then holds agency, so Stop may not
+	// send MsgDone and closes the protocol instead.
+	abandoned          bool
 	acquired           bool
 	acquiredSlot       uint64
 	acquireResultChan  chan bool
@@ -50,6 +59,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config:             cfg,
+		stopRequested:      make(chan struct{}),
 		acquireResultChan:  make(chan bool),
 		hasTxResultChan:    make(chan bool),
 		nextTxResultChan:   make(chan []byte),
@@ -61,10 +71,19 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	stateCtx := &stateContext{}
 	// Update state map with timeout
 	stateMap := StateMap.Copy()
 	if entry, ok := stateMap[stateAcquiring]; ok {
-		entry.Timeout = c.config.AcquireTimeout
+		// MsgAwaitAcquire waits for the mempool to change, which may take
+		// any time, so only an acquire from Idle is timed.
+		acquireTimeout := c.config.AcquireTimeout
+		entry.TimeoutFunc = func() time.Duration {
+			if stateCtx.awaiting.Load() {
+				return 0
+			}
+			return acquireTimeout
+		}
 		stateMap[stateAcquiring] = entry
 	}
 	if entry, ok := stateMap[stateBusy]; ok {
@@ -82,7 +101,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Role:                protocol.ProtocolRoleClient,
 		MessageHandlerFunc:  c.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
-		StateContext:        &stateContext{},
+		StateContext:        stateCtx,
 		StateMap:            stateMap,
 		InitialState:        stateIdle,
 	}
@@ -102,7 +121,10 @@ func (c *Client) Start() {
 	})
 }
 
-// Stop transitions the protocol to the Done state. No more operations will be possible
+// Stop transitions the protocol to the Done state. No more operations will
+// be possible. A call waiting for the server's answer returns
+// protocol.ErrProtocolShuttingDown; the server then holds agency, so Stop
+// closes the protocol without sending MsgDone.
 //
 // Stop sends the message that ends the client's run and waits up to 250ms
 // for it to be written, then stops the protocol. It signals shutdown at
@@ -120,8 +142,12 @@ func (c *Client) Stop(ctx context.Context) error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
+		close(c.stopRequested)
 		c.busyMutex.Lock()
 		defer c.busyMutex.Unlock()
+		if c.abandoned {
+			return
+		}
 		msg := NewMsgDone()
 		if err = stopping.SendDone(ctx, c.Protocol, msg); err != nil {
 			return
@@ -144,6 +170,9 @@ func (c *Client) Acquire() error {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	return c.acquire()
 }
 
@@ -158,6 +187,9 @@ func (c *Client) Release() error {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	return c.release()
 }
 
@@ -184,6 +216,9 @@ func (c *Client) HasTxForEra(eraId uint8, txId []byte) (bool, error) {
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return false, protocol.ErrProtocolShuttingDown
+	}
 	if !c.acquired {
 		if err := c.acquire(); err != nil {
 			return false, err
@@ -196,6 +231,9 @@ func (c *Client) HasTxForEra(eraId uint8, txId []byte) (bool, error) {
 	select {
 	case result := <-c.hasTxResultChan:
 		return result, nil
+	case <-c.stopRequested:
+		c.abandoned = true
+		return false, protocol.ErrProtocolShuttingDown
 	case <-c.DoneChan():
 		return false, protocol.ErrProtocolShuttingDown
 	}
@@ -212,6 +250,9 @@ func (c *Client) NextTx() ([]byte, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return nil, protocol.ErrProtocolShuttingDown
+	}
 	if !c.acquired {
 		if err := c.acquire(); err != nil {
 			return nil, err
@@ -224,6 +265,9 @@ func (c *Client) NextTx() ([]byte, error) {
 	select {
 	case tx := <-c.nextTxResultChan:
 		return tx, nil
+	case <-c.stopRequested:
+		c.abandoned = true
+		return nil, protocol.ErrProtocolShuttingDown
 	case <-c.DoneChan():
 		return nil, protocol.ErrProtocolShuttingDown
 	}
@@ -240,6 +284,9 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 		)
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return 0, 0, 0, protocol.ErrProtocolShuttingDown
+	}
 	if !c.acquired {
 		if err := c.acquire(); err != nil {
 			return 0, 0, 0, err
@@ -252,6 +299,9 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	select {
 	case result := <-c.getSizesResultChan:
 		return result.Capacity, result.Size, result.NumberOfTxs, nil
+	case <-c.stopRequested:
+		c.abandoned = true
+		return 0, 0, 0, protocol.ErrProtocolShuttingDown
 	case <-c.DoneChan():
 		return 0, 0, 0, protocol.ErrProtocolShuttingDown
 	}
@@ -292,6 +342,9 @@ func (c *Client) GetMeasures() (MempoolMeasures, error) {
 	select {
 	case result := <-c.getMeasuresChan:
 		return result, nil
+	case <-c.stopRequested:
+		c.abandoned = true
+		return MempoolMeasures{}, protocol.ErrProtocolShuttingDown
 	case <-c.DoneChan():
 		return MempoolMeasures{}, protocol.ErrProtocolShuttingDown
 	}
@@ -386,11 +439,23 @@ func (c *Client) handleReplyGetMeasures(msg protocol.Message) {
 }
 
 // deliverResult hands a reply to the waiting caller, or gives up once the
-// protocol shuts down so the receive loop is never left blocked.
+// protocol shuts down so the receive loop is never left blocked. It also
+// gives up once Stop is called: the caller may have abandoned the wait, and
+// DoneChan closes only after this receive loop returns.
 func deliverResult[T any](c *Client, resultChan chan<- T, result T) {
 	select {
 	case resultChan <- result:
+	case <-c.stopRequested:
 	case <-c.DoneChan():
+	}
+}
+
+func (c *Client) stopping() bool {
+	select {
+	case <-c.stopRequested:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -403,6 +468,9 @@ func (c *Client) acquire() error {
 	select {
 	case <-c.acquireResultChan:
 		return nil
+	case <-c.stopRequested:
+		c.abandoned = true
+		return protocol.ErrProtocolShuttingDown
 	case <-c.DoneChan():
 		return protocol.ErrProtocolShuttingDown
 	}

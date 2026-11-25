@@ -62,19 +62,72 @@ func ValidateLeiosSignerBitfieldSize(signers []byte) error {
 	return nil
 }
 
+// LeiosVoteId names a vote by its election slot and voter. A seat votes once
+// per election slot, whichever announcement it votes for, so the pair names
+// at most one vote the reference keeps.
 type LeiosVoteId struct {
 	cbor.StructAsArray
 	SlotNo  uint64
 	VoterId uint64
 }
 
+// LeiosVote is a CIP-0164 vote, [announcing_rb_hash, voter_id,
+// vote_signature]: the voter's seat index in the epoch's committee and its
+// BLS signature over the announcing ranking block's hash. The election slot
+// is the announcing block's, which the consumer resolves. VoterId is 16 bits,
+// as the reference decodes it (ouroboros-consensus Leios.Types
+// decodeLeiosVote), since a committee has at most 65536 seats.
 type LeiosVote struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	AnnouncingRbHash Blake2b256
+	VoterId          uint16
+	VoteSignature    []byte
+}
+
+// LeiosLegacyVote is the vote shape of earlier CIP-0164 drafts,
+// [slot, eb_hash, voter_id, signature], still accepted in LeiosNotify vote
+// offers from peers that send it.
+type LeiosLegacyVote struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
 	SlotNo            uint64
 	EndorserBlockHash Blake2b256
 	VoterId           uint64
 	VoteSignature     []byte
+}
+
+func (v LeiosLegacyVote) MarshalCBOR() ([]byte, error) {
+	if raw := v.Cbor(); len(raw) > 0 {
+		return raw, nil
+	}
+	return cbor.Encode([]any{
+		v.SlotNo,
+		v.EndorserBlockHash,
+		v.VoterId,
+		v.VoteSignature,
+	})
+}
+
+func (v *LeiosLegacyVote) UnmarshalCBOR(cborData []byte) error {
+	type tLeiosLegacyVote LeiosLegacyVote
+	var tmp tLeiosLegacyVote
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := LeiosLegacyVote(tmp).Validate(); err != nil {
+		return err
+	}
+	*v = LeiosLegacyVote(tmp)
+	v.SetCbor(cborData)
+	return nil
+}
+
+func (v LeiosLegacyVote) Validate() error {
+	return ValidateLeiosSignature(
+		"LeiosLegacyVote: VoteSignature",
+		v.VoteSignature,
+	)
 }
 
 // LeiosPrototypeVote is the current prototype vote wire shape. Its signature
@@ -114,8 +167,7 @@ func (v LeiosVote) MarshalCBOR() ([]byte, error) {
 		return raw, nil
 	}
 	return cbor.Encode([]any{
-		v.SlotNo,
-		v.EndorserBlockHash,
+		v.AnnouncingRbHash,
 		v.VoterId,
 		v.VoteSignature,
 	})

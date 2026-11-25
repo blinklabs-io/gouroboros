@@ -215,7 +215,8 @@ func WithShareRequestFunc(
 	}
 }
 
-// WithTimeout specifies the timeout for the handshake operation
+// WithTimeout sets how long the client waits in the Busy state for a
+// SharePeers reply before reporting a timeout. The server is not affected.
 func WithTimeout(timeout time.Duration) PeerSharingOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout
