@@ -269,9 +269,16 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 		s.lock.Unlock()
 		return errors.New("a request is already in flight")
 	}
+	// V2 asks for a body at most once while its ID is unacknowledged. V1 is
+	// tx-submission, whose reference outbound refuses a repeat only within
+	// one request, so a V1 server may ask again for a body the peer omitted.
+	alreadyRequested := s.requestedIDs
+	if !isMessageSubmissionV2(s.protoVersion) {
+		alreadyRequested = nil
+	}
 	request, err := requestedMessagesAreOutstanding(
 		s.pendingMessageIDs,
-		s.requestedIDs,
+		alreadyRequested,
 		messageIDs,
 	)
 	if err != nil {

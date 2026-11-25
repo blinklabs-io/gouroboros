@@ -153,6 +153,14 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV1ReplyMessageIds,
@@ -164,6 +172,13 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV1ReplyMessages,
@@ -234,6 +249,14 @@ var (
 			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV2ReplyMessageIds,
@@ -245,6 +268,13 @@ var (
 			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV2ReplyMessages,

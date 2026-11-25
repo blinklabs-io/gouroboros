@@ -261,3 +261,25 @@ func TestServerRestartForgetsRequestedIDs(t *testing.T) {
 	require.Empty(t, server.pendingMessageIDs)
 	require.Empty(t, server.requestedIDs)
 }
+
+// A V1 Server may ask again for a message the peer omitted, as dmq-node's V1
+// outbound (ouroboros-network TxSubmission/Outbound.hs) refuses a repeat
+// only within one request, never across requests.
+func TestV1InboundMayRepeatMessageRequest(t *testing.T) {
+	h := newServerHarness(t, protocol.ProtocolVersionDMQNtN1)
+	id := referenceID(0xb3)
+
+	h.peer.send(true, []byte{0x81, 0x06})
+	require.NoError(t, h.server.RequestMessageIdsBlocking(0, 3))
+	h.peer.expect(false, []byte{0x84, 0x00, 0xf5, 0x00, 0x03})
+	h.peer.send(true, cat([]byte{0x82, 0x01, 0x9f}, idAndSize(id), []byte{0xff}))
+	require.Equal(t, 1, await(t, h.idReplies, h.errs, "the id reply"))
+
+	for i := range 2 {
+		require.NoError(t, h.server.RequestMessages([][]byte{id}), "request %d", i)
+		h.peer.expect(false, cat([]byte{0x82, 0x02, 0x9f}, byteString32(id), []byte{0xff}))
+		h.peer.send(true, []byte{0x82, 0x03, 0x9f, 0xff})
+		require.Equal(t, 0, await(t, h.bodies, h.errs, "the body reply"))
+	}
+	require.Empty(t, h.errs)
+}

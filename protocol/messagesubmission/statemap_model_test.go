@@ -16,6 +16,7 @@ package messagesubmission
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -25,6 +26,11 @@ import (
 // modelViolation is the outcome of a message the receiver refuses: a
 // protocol error, which tears the connection down.
 const modelViolation = "Violation"
+
+// modelHeld is the outcome of a request the outbound side receives while it
+// still owes a reply: it holds the request and handles it after replying,
+// because the reference requester pipelines it.
+const modelHeld = "Held"
 
 // modelKind is a kind of message a peer can send. The two request kinds
 // differ only in the blocking flag, which selects the next state.
@@ -97,6 +103,20 @@ type modelVersion struct {
 	stateMap    protocol.StateMap
 	agency      map[protocol.State]modelSide
 	transitions map[protocol.State]map[modelKind]protocol.State
+	// pipelined is, per state in which the outbound side owes a reply, the
+	// requests it holds for later. dmq-node's inbound sends
+	// SendMsgRequestSigIdsPipelined after SendMsgRequestSigsPipelined, and
+	// after collecting one reply with others still owed may send
+	// SendMsgRequestSigsPipelined again (DMQ/SigSubmissionV2/Inbound.hs
+	// pipelinedDispatch); it runs the V1 inbound as
+	// txSubmissionServerPeerPipelined (DMQ/NodeToNode.hs), which does the
+	// same. So a request for ids or for messages can arrive while a
+	// non-blocking reply for ids or the messages are owed. A blocking
+	// request is never pipelined, so StMessageIdsBlocking holds nothing.
+	// Admission is by message type, so both request-for-ids kinds are held;
+	// a blocking one is then refused when handled, as it would be in StIdle
+	// with ids outstanding.
+	pipelined map[protocol.State][]modelKind
 }
 
 var modelVersions = []modelVersion{
@@ -129,6 +149,18 @@ var modelVersions = []modelVersion{
 			protocolStateMessageIdsNonBlk: {modelReplyIds: protocolStateIdle},
 			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
+		pipelined: map[protocol.State][]modelKind{
+			protocolStateMessageIdsNonBlk: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
+			protocolStateMessages: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
+		},
 	},
 	{
 		// V2 has no StInit, and the inbound side, the initiator, ends the
@@ -159,6 +191,18 @@ var modelVersions = []modelVersion{
 			protocolStateMessageIdsNonBlk: {modelReplyIds: protocolStateIdle},
 			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
+		pipelined: map[protocol.State][]modelKind{
+			protocolStateMessageIdsNonBlk: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
+			protocolStateMessages: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
+		},
 	},
 }
 
@@ -186,6 +230,10 @@ func (v modelVersion) modelReceive(
 		peer = v.initiator
 	}
 	if v.agency[state] != peer {
+		if v.agency[state] == sideOutbound &&
+			slices.Contains(v.pipelined[state], kind) {
+			return modelHeld
+		}
 		return modelViolation
 	}
 	next, ok := v.transitions[state][kind]
@@ -234,10 +282,14 @@ func stateMapReceive(
 	if role == protocol.ProtocolRoleServer {
 		peerAgency = protocol.AgencyClient
 	}
+	msg := modelMessage(v.version, kind)
 	if entry.Agency != peerAgency {
+		if entry.Agency != protocol.AgencyNone &&
+			slices.Contains(entry.PipelinedMessageTypes, msg.Type()) {
+			return modelHeld
+		}
 		return modelViolation
 	}
-	msg := modelMessage(v.version, kind)
 	for _, transition := range entry.Transitions {
 		if transition.MsgType != msg.Type() {
 			continue
@@ -295,8 +347,16 @@ func TestStateMapMatchesModel(t *testing.T) {
 			}[side]
 			require.Equal(t, want, v.stateMap[state].Agency,
 				"%s agency in %s", v.name, state)
-			require.Empty(t, v.stateMap[state].PipelinedMessageTypes,
-				"%s pipelines nothing in %s", v.name, state)
+			var wantPipelined []uint8
+			for _, kind := range v.pipelined[state] {
+				msgType := modelMessage(v.version, kind).Type()
+				if !slices.Contains(wantPipelined, msgType) {
+					wantPipelined = append(wantPipelined, msgType)
+				}
+			}
+			require.ElementsMatch(t, wantPipelined,
+				v.stateMap[state].PipelinedMessageTypes,
+				"%s pipelined types in %s", v.name, state)
 		}
 		for _, role := range roles {
 			for state := range v.agency {
