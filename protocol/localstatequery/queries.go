@@ -79,6 +79,7 @@ const (
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
+	QueryTypeShelleyFuturePParams          = 33
 
 	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node
 	// 10.7+): [34] up to v22, [34, peer_kind] from v23.
@@ -278,6 +279,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleySPOStakeDistr:           &ShelleySPOStakeDistrQuery{},
 		QueryTypeShelleyGetProposals:            &ShelleyGetProposalsQuery{},
 		QueryTypeShelleyGetRatifyState:          &ShelleyGetRatifyStateQuery{},
+		QueryTypeShelleyFuturePParams:           &ShelleyFuturePParamsQuery{},
 		QueryTypeShelleyGetLedgerPeerSnapshot:   &ShelleyGetLedgerPeerSnapshotQuery{},
 		QueryTypeShelleyStakePoolDefaultVote:    &ShelleyStakePoolDefaultVoteQuery{},
 		QueryTypeShelleyStakeDistribution2:      &ShelleyStakeDistribution2Query{},
@@ -1905,6 +1907,13 @@ type ShelleyGetProposalsQuery struct {
 }
 
 type ShelleyGetRatifyStateQuery struct {
+	simpleQueryBase
+}
+
+// ShelleyFuturePParamsQuery is GetFuturePParams (Shelley sub-query 33), which
+// asks for the protocol parameters that take effect at the next epoch
+// boundary, if any are known. The reference answers it from Conway.
+type ShelleyFuturePParamsQuery struct {
 	simpleQueryBase
 }
 
