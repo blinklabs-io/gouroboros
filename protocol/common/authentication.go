@@ -98,8 +98,9 @@ var (
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
 	//
-	// Deprecated: verification always uses a trusted slot and never converts
-	// a claimed KES period to a slot, so this error is no longer returned.
+	// Deprecated: verification checks the claimed KES period against the
+	// operational certificate's window and never converts it to a slot, so
+	// this error is no longer returned.
 	ErrKESPeriodOverflow = errors.New(
 		"protocol/common: message KES period would overflow when converted to a slot",
 	)
@@ -139,8 +140,8 @@ type MessageAuthenticator struct {
 	// lastSig and acceptedIDs back the per-pool rate limit, guarded by mu.
 	// lastSig holds the time of each pool's last accepted message;
 	// acceptedIDs the IDs of accepted, unexpired messages, which verify
-	// again without the rate limit, as dmq-node never re-validates a
-	// message already in its mempool. Both are written only once every
+	// again without the rate limit or the opcert counter check, as dmq-node
+	// never re-validates a message already in its mempool. Both are written only once every
 	// check has passed, so their keys are staked pools and the messages
 	// those pools signed: at most one per pool per minSigDelay, kept until
 	// expiry.
@@ -206,8 +207,7 @@ type MessageAuthenticatorConfig struct {
 }
 
 // NewMessageAuthenticator constructs a MessageAuthenticator. It returns
-// ErrAuthenticatorMisconfigured when any authoritative chain-state lookup is
-// missing.
+// ErrAuthenticatorMisconfigured when StakeAuthority is nil.
 func NewMessageAuthenticator(
 	cfg MessageAuthenticatorConfig,
 ) (*MessageAuthenticator, error) {
