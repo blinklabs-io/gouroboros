@@ -126,11 +126,6 @@ func TestGoldenTransactionsStreamAsReference(t *testing.T) {
 				!bytes.Equal(out, data) {
 				t.Error("LazyValue did not keep the transaction bytes")
 			}
-			if era == "conway" || era == "dijkstra" {
-				// A tag 258 set holding a map with array keys does not
-				// decode into Value yet.
-				return
-			}
 			var v cbor.Value
 			if _, err := cbor.DecodeUntrustedExact(data, &v); err != nil {
 				t.Fatal(err)
