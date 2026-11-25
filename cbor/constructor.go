@@ -16,6 +16,7 @@ package cbor
 
 import (
 	"fmt"
+	"math/big"
 	"reflect"
 	"strconv"
 
@@ -64,10 +65,13 @@ func (ce ConstructorEncoder) Tag() uint {
 
 // MarshalCBOR encodes the constructor as a CBOR tagged value.
 //
-// A slice of fields is written as plutus's encodeData writes a constructor's
-// fields: an indefinite-length list when non-empty and an empty definite
-// list (0x80) otherwise. A nil fields value is an empty list. Fields of any
-// other type, or a type with its own MarshalCBOR, are encoded as given.
+// The fields are written as plutus's encodeData writes Data: every list
+// (a Go slice or array other than bytes, or an IndefLengthList, at any
+// depth) as an indefinite-length list when non-empty and an empty definite
+// list (0x80) otherwise, and every byte string longer than 64 bytes, or
+// bignum magnitude longer than 64 bytes, as an indefinite-length byte string
+// of 64-byte chunks. A nil fields value is an empty list. Any other value,
+// including one with its own MarshalCBOR, is encoded as given.
 func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	tagNum, wrap := alternativeToTag(ce.tag)
 	fields := plutusFieldList(ce.fields)
@@ -81,27 +85,102 @@ func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	return Encode(&tmpTag)
 }
 
-// plutusFieldList converts a slice of constructor fields to the list
-// encoding plutus uses (Data.hs encodeData with the Serialise list instance).
+// plutusChunkSize is the longest byte string plutus writes in one piece.
+const plutusChunkSize = 64
+
 func plutusFieldList(fields any) any {
 	if fields == nil {
 		return []any{}
 	}
-	if _, ok := fields.(_cbor.Marshaler); ok {
+	items, ok := plutusListItems(fields)
+	if !ok {
 		return fields
 	}
-	v := reflect.ValueOf(fields)
-	if v.Kind() != reflect.Slice || v.Type().Elem().Kind() == reflect.Uint8 {
-		return fields
+	return plutusList(items)
+}
+
+// plutusListItems returns the items of a value that encodes as a Data
+// list: an IndefLengthList, or a slice or array whose elements are not
+// bytes and which has no MarshalCBOR of its own.
+func plutusListItems(value any) ([]any, bool) {
+	switch list := value.(type) {
+	case IndefLengthList:
+		return list, true
+	case []any:
+		return list, true
+	case _cbor.Marshaler:
+		return nil, false
 	}
-	if v.Len() == 0 {
-		return []any{}
+	v := reflect.ValueOf(value)
+	if (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) ||
+		v.Type().Elem().Kind() == reflect.Uint8 {
+		return nil, false
 	}
-	items := make(IndefLengthList, v.Len())
+	items := make([]any, v.Len())
 	for i := range items {
 		items[i] = v.Index(i).Interface()
 	}
-	return items
+	return items, true
+}
+
+func plutusList(items []any) any {
+	if len(items) == 0 {
+		return []any{}
+	}
+	list := make(IndefLengthList, len(items))
+	for i, item := range items {
+		list[i] = plutusItem(item)
+	}
+	return list
+}
+
+func plutusItem(item any) any {
+	switch value := item.(type) {
+	case []byte:
+		return plutusBytes(value)
+	case ByteString:
+		return plutusBytes(value.Bytes())
+	case *big.Int:
+		return plutusInteger(value)
+	}
+	if items, ok := plutusListItems(item); ok {
+		return plutusList(items)
+	}
+	return item
+}
+
+// plutusBytes writes a byte string longer than plutusChunkSize as an
+// indefinite-length byte string of chunks of at most that size.
+func plutusBytes(data []byte) any {
+	if len(data) <= plutusChunkSize {
+		return data
+	}
+	chunks := make(IndefLengthByteString, 0, (len(data)+plutusChunkSize-1)/plutusChunkSize)
+	for len(data) > plutusChunkSize {
+		chunks = append(chunks, data[:plutusChunkSize])
+		data = data[plutusChunkSize:]
+	}
+	return append(chunks, data)
+}
+
+// plutusInteger writes an integer whose bignum magnitude is longer than
+// plutusChunkSize as tag 2 or 3 around chunked bytes. Shorter integers are
+// written by the encoder as they are.
+func plutusInteger(n *big.Int) any {
+	if n == nil {
+		return n
+	}
+	tagNum := uint64(2) // positive bignum
+	magnitude := n
+	if n.Sign() < 0 {
+		tagNum = 3 // negative bignum
+		magnitude = new(big.Int).Sub(new(big.Int).Neg(n), big.NewInt(1))
+	}
+	data := magnitude.Bytes()
+	if len(data) <= plutusChunkSize {
+		return n
+	}
+	return Tag{Number: tagNum, Content: plutusBytes(data)}
 }
 
 // ConstructorDecoder decodes a CBOR constructor/alternative, keeping fields as

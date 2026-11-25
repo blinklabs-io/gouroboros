@@ -16,6 +16,7 @@ package cbor_test
 
 import (
 	"encoding/hex"
+	"math/big"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -98,6 +99,58 @@ func TestConstructorEncoderFieldListsAsPlutus(t *testing.T) {
 		}
 		if hex.EncodeToString(got) != tc.want {
 			t.Errorf("alt %d %v: got %x, want %s", tc.alt, tc.fields, got, tc.want)
+		}
+	}
+}
+
+// TestConstructorEncoderItemsAsPlutus covers the field values encodeData
+// writes differently from a plain CBOR encoding: every Data list, whether a
+// Go slice, a Go array or an IndefLengthList, at any depth, is an indefinite
+// list when non-empty and 0x80 when empty; a byte string longer than 64
+// bytes is an indefinite byte string of 64-byte chunks (encodeBs, Data.hs
+// 185-198), and so is the magnitude of an integer outside the 64-bit range.
+func TestConstructorEncoderItemsAsPlutus(t *testing.T) {
+	bytes65 := make([]byte, 65)
+	for i := range bytes65 {
+		bytes65[i] = byte(i)
+	}
+	hex65 := hex.EncodeToString(bytes65)
+	chunked65 := "5f5840" + hex65[:128] + "41" + hex65[128:] + "ff"
+	bytes129 := make([]byte, 129)
+	hex129 := hex.EncodeToString(bytes129)
+	chunked129 := "5f5840" + hex129[:128] + "5840" + hex129[128:256] +
+		"41" + hex129[256:] + "ff"
+	big65 := new(big.Int).SetBytes(append([]byte{1}, make([]byte, 64)...))
+	bigMag := hex.EncodeToString(big65.Bytes())
+	negBig65 := new(big.Int).Sub(new(big.Int).Neg(big65), big.NewInt(1))
+	cases := []struct {
+		name   string
+		fields any
+		want   string
+	}{
+		{"go array", [2]uint64{1, 2}, "d8799f0102ff"},
+		{"empty go array", [0]uint64{}, "d87980"},
+		{"empty IndefLengthList", cbor.IndefLengthList{}, "d87980"},
+		{"nested slice", []any{[]any{uint64(1)}}, "d8799f9f01ffff"},
+		{"nested empty slice", []any{[]any{}}, "d8799f80ff"},
+		{"nested go array", []any{[1]uint64{1}}, "d8799f9f01ffff"},
+		{"nested empty IndefLengthList", []any{cbor.IndefLengthList{}}, "d8799f80ff"},
+		{"64-byte field", []any{bytes65[:64]}, "d8799f5840" + hex65[:128] + "ff"},
+		{"65-byte field", []any{bytes65}, "d8799f" + chunked65 + "ff"},
+		{"129-byte field", []any{bytes129}, "d8799f" + chunked129 + "ff"},
+		{"65-byte ByteString", []any{cbor.NewByteString(bytes65)}, "d8799f" + chunked65 + "ff"},
+		{"65-byte field in a nested list", []any{[]any{bytes65}}, "d8799f9f" + chunked65 + "ffff"},
+		{"bignum over 64 bytes", []any{big65}, "d8799fc25f5840" + bigMag[:128] + "4100" + "ff" + "ff"},
+		{"negative bignum over 64 bytes", []any{negBig65}, "d8799fc35f5840" + bigMag[:128] + "4100" + "ff" + "ff"},
+	}
+	for _, tc := range cases {
+		got, err := cbor.NewConstructorEncoder(0, tc.fields).MarshalCBOR()
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if hex.EncodeToString(got) != tc.want {
+			t.Errorf("%s:\n got %x\nwant %s", tc.name, got, tc.want)
 		}
 	}
 }
