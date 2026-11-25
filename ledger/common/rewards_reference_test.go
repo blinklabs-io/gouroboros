@@ -272,3 +272,156 @@ func TestRewardUpdateConservesAda(t *testing.T) {
 		}
 	}
 }
+
+// refFloor, refMaxPool, refLeader and refMember transcribe maxPool',
+// calcStakePoolOperatorReward and calcStakePoolMemberReward from
+// cardano-ledger (SnapShots.hs, Shelley/Rewards.hs) for the cell walk below.
+func refFloor(x *big.Rat) uint64 {
+	if x.Sign() <= 0 {
+		return 0
+	}
+	return new(big.Int).Quo(x.Num(), x.Denom()).Uint64()
+}
+
+func refMaxPool(a0 *big.Rat, nOpt int64, r uint64, sigma, pledge *big.Rat) uint64 {
+	z0 := big.NewRat(1, nOpt)
+	minR := func(a, b *big.Rat) *big.Rat {
+		if a.Cmp(b) <= 0 {
+			return a
+		}
+		return b
+	}
+	s, p := minR(sigma, z0), minR(pledge, z0)
+	one := big.NewRat(1, 1)
+	f1 := new(big.Rat).Quo(new(big.Rat).SetUint64(r), new(big.Rat).Add(one, a0))
+	f4 := new(big.Rat).Quo(new(big.Rat).Sub(z0, s), z0)
+	f3 := new(big.Rat).Quo(new(big.Rat).Sub(s, new(big.Rat).Mul(p, f4)), z0)
+	f2 := new(big.Rat).Add(s, new(big.Rat).Mul(new(big.Rat).Mul(p, a0), f3))
+	return refFloor(new(big.Rat).Mul(f1, f2))
+}
+
+func refLeader(f, c uint64, m, s, sigma *big.Rat) uint64 {
+	if f <= c {
+		return f
+	}
+	one := big.NewRat(1, 1)
+	share := new(big.Rat).Add(m, new(big.Rat).Quo(new(big.Rat).Mul(new(big.Rat).Sub(one, m), s), sigma))
+	return c + refFloor(new(big.Rat).Mul(new(big.Rat).SetUint64(f-c), share))
+}
+
+func refMember(f, c uint64, m, t, sigma *big.Rat) uint64 {
+	if f <= c {
+		return 0
+	}
+	one := big.NewRat(1, 1)
+	x := new(big.Rat).Mul(new(big.Rat).SetUint64(f-c), new(big.Rat).Sub(one, m))
+	x.Mul(x, t)
+	return refFloor(x.Quo(x, sigma))
+}
+
+// TestRewardUpdateCells walks one pool (an owner who is the leader and one
+// member) through every combination of protocol version on each side of the
+// version-7 prefilter change, blocks made (none, fewer than its stake share,
+// its share, more), pledge met or not, and the member registered or not, and
+// checks on each cell:
+//
+//   - a pool without blocks, or with its pledge unmet, earns nothing;
+//   - the pool's reward is floor(apparentPerformance * maxPool');
+//   - the leader and member rewards are the reference's, the member's is not
+//     computed before version 7 when unregistered, and goes to the treasury
+//     from version 7;
+//   - every lovelace of the pot is a reward or returns to the reserves.
+func TestRewardUpdateCells(t *testing.T) {
+	const (
+		owner, member   = 6_000_000, 4_000_000
+		circulation     = 40_000_000
+		pot             = 25_000_000
+		cost            = 340
+		totalBlocks     = 10
+		nOpt            = 2
+		reservesAtStart = 60_000_000
+		treasuryAtStart = 1_000
+	)
+	ownerKey, memberKey := common.AddrKeyHash{0x01}, common.AddrKeyHash{0x02}
+	poolID := common.PoolKeyHash{0x0A}
+	a0, margin := big.NewRat(1, 2), big.NewRat(1, 10)
+	for _, pv := range []uint{6, 8} {
+		for _, blocks := range []uint32{0, 3, 10} {
+			for _, pledge := range []uint64{owner, owner + 1} {
+				for _, memberRegistered := range []bool{true, false} {
+					name := fmt.Sprintf("pv%d/blocks%d/pledge%d/memberReg=%v", pv, blocks, pledge, memberRegistered)
+					t.Run(name, func(t *testing.T) {
+						snapshot := common.RewardSnapshot{
+							TotalStake:       circulation,
+							TotalActiveStake: 2 * (owner + member),
+							PoolStake:        map[common.PoolKeyHash]uint64{poolID: owner + member},
+							DelegatorStake: map[common.PoolKeyHash]map[common.AddrKeyHash]uint64{
+								poolID: {ownerKey: owner, memberKey: member},
+							},
+							PoolParams: map[common.PoolKeyHash]*common.PoolRegistrationCertificate{
+								poolID: {
+									Pledge:        pledge,
+									Cost:          cost,
+									Margin:        common.NewGenesisRat(1, 10),
+									PoolOwners:    []common.AddrKeyHash{ownerKey},
+									RewardAccount: ownerKey,
+								},
+							},
+							StakeRegistrations: map[common.AddrKeyHash]bool{
+								ownerKey:  true,
+								memberKey: memberRegistered,
+							},
+							PoolBlocks:         map[common.PoolKeyHash]uint32{poolID: blocks},
+							TotalBlocksInEpoch: totalBlocks,
+						}
+						params := common.RewardParameters{
+							DesiredPools:    nOpt,
+							PoolInfluence:   a0,
+							ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: pv},
+						}
+						pots := common.AdaPots{Reserves: reservesAtStart, Treasury: treasuryAtStart, Rewards: pot}
+						got, err := common.CalculateRewards(pots, snapshot, params)
+						require.NoError(t, err)
+
+						sigma := big.NewRat(owner+member, circulation)
+						var poolReward, leader, memberReward uint64
+						if blocks > 0 && pledge <= owner {
+							maxP := refMaxPool(a0, nOpt, pot, sigma, big.NewRat(int64(pledge), circulation))
+							// beta / sigmaA: blocks/10 over a half share of the active stake
+							perf := new(big.Rat).Quo(big.NewRat(int64(blocks), totalBlocks), big.NewRat(1, 2))
+							poolReward = refFloor(new(big.Rat).Mul(perf, new(big.Rat).SetUint64(maxP)))
+							leader = refLeader(poolReward, cost, margin, big.NewRat(owner, circulation), sigma)
+							memberReward = refMember(poolReward, cost, margin, big.NewRat(member, circulation), sigma)
+						}
+						var paidMember, unregistered uint64
+						switch {
+						case memberRegistered:
+							paidMember = memberReward
+						case pv >= 7:
+							unregistered = memberReward
+						}
+
+						pr, made := got.PoolRewards[poolID]
+						require.Equal(t, blocks > 0, made)
+						require.Equal(t, poolReward, pr.TotalRewards)
+						require.Equal(t, leader, pr.OperatorRewards)
+						if paidMember > 0 {
+							require.Equal(t, map[common.RewardCredential]uint64{
+								{CredType: common.CredentialTypeAddrKeyHash, Credential: common.CredentialHash(memberKey)}: paidMember,
+							}, pr.DelegatorRewards)
+						} else {
+							require.Empty(t, pr.DelegatorRewards)
+						}
+						require.Equal(t, unregistered, got.Unregistered)
+						require.Equal(t, leader+paidMember+unregistered, got.TotalRewards)
+						require.Equal(t, uint64(pot), got.TotalRewards+got.Undistributed)
+						require.Equal(t, common.AdaPots{
+							Reserves: reservesAtStart + got.Undistributed,
+							Treasury: treasuryAtStart + unregistered,
+						}, got.UpdatedPots)
+					})
+				}
+			}
+		}
+	}
+}
