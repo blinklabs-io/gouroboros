@@ -956,6 +956,9 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwaySetTags(cborData, 0, 1, 2); err != nil {
+		return err
+	}
 	*w = ShelleyTransactionWitnessSet(tmp)
 	w.SetCbor(cborData)
 	return nil

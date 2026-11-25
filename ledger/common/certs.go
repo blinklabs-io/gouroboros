@@ -61,11 +61,20 @@ type CertificateWrapper struct {
 }
 
 // ValidatePreConwayCertificateTypes rejects certificate constructors that
-// were introduced with the Conway era.
+// were introduced with the Conway era, and a pool registration whose owner
+// set carries a tag: before protocol version 9 the reference decodes the
+// owners with decodeSet, which does not accept tag 258.
 func ValidatePreConwayCertificateTypes(
 	certificates []CertificateWrapper,
 ) error {
 	for idx, certificate := range certificates {
+		if pool, ok := certificate.Certificate.(*PoolRegistrationCertificate); ok &&
+			pool.poolOwnersTagged {
+			return fmt.Errorf(
+				"pool owner set is tagged before Conway: index %d",
+				idx,
+			)
+		}
 		if CertificateType(certificate.Type) >
 			CertificateTypeMoveInstantaneousRewards {
 			return fmt.Errorf(
@@ -1146,6 +1155,9 @@ type PoolRegistrationCertificate struct {
 	rewardAccountNetworkIdKnown  bool
 	rewardAccountCredentialType  uint
 	rewardAccountCredentialKnown bool
+	// poolOwnersTagged records that the decoded owner set carried a CBOR
+	// tag, which only Conway and later eras accept.
+	poolOwnersTagged bool
 }
 
 // RewardAccountCredential returns the credential carried by the pool's
@@ -1722,6 +1734,13 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return err
 	}
+	ownersIndex := 7
+	if len(fields) == 11 {
+		ownersIndex = 8
+	}
+	c.poolOwnersTagged = len(fields) > ownersIndex &&
+		len(fields[ownersIndex]) > 0 &&
+		fields[ownersIndex][0]&cbor.CborTypeMask == cbor.CborTypeTag
 	switch len(fields) {
 	case 10:
 		if err := validatePoolMarginCBOR(fields[5], false); err != nil {
