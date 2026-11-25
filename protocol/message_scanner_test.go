@@ -16,6 +16,7 @@ package protocol
 
 import (
 	"bytes"
+	"sync"
 	"testing"
 	"time"
 
@@ -953,12 +954,19 @@ func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
 }
 
 // Without a pipelining declaration, a request the client sent before the
-// server answered the previous one was sent without agency, whichever state
-// the read loop observes when it is checked.
+// server answered the previous one was sent without agency. The handler holds
+// the reply back until the refusal is read, so the state stays in the
+// server-agency state the first request moved it to: a refusal is the only
+// outcome, whichever state the read loop snapshotted for the second request.
+// Without the hold, the read loop could snapshot the state after the reply
+// and then admit the second request as a legitimate one, and could refuse it
+// before the handler had run.
 func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
+	t.Parallel()
 	const (
 		requestType = uint8(0)
 		replyType   = uint8(1)
+		timeout     = 5 * time.Second
 	)
 	p, _, _ := newRoundTripTestProtocol(requestType, replyType)
 	errorChan := make(chan error, 1)
@@ -970,8 +978,12 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 		return &MessageBase{MessageType: uint8(messageType)}, nil
 	}
 	handled := make(chan struct{}, 2)
+	releaseReply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseReply) }) }
 	p.config.MessageHandlerFunc = func(Message) error {
 		handled <- struct{}{}
+		<-releaseReply
 		return p.transitionState(&MessageBase{MessageType: replyType})
 	}
 	segment := muxer.NewSegment(
@@ -990,12 +1002,26 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	go p.recvLoop()
 	go p.readLoop()
 	t.Cleanup(p.Stop)
+	// Runs on every exit, before the cleanup that stops the protocol, so a
+	// failed assertion cannot leave the handler blocked.
+	defer release()
 
+	select {
+	case <-handled:
+	case <-time.After(timeout):
+		t.Fatal("first request was not handled")
+	}
 	select {
 	case err := <-errorChan:
 		require.ErrorContains(t, err, "without peer agency")
-	case <-time.After(time.Second):
+	case <-time.After(timeout):
 		t.Fatal("readLoop admitted a request sent without agency")
 	}
-	require.Len(t, handled, 1)
+	release()
+	select {
+	case <-p.recvDoneChan:
+	case <-time.After(timeout):
+		t.Fatal("receive loop kept running after the refusal")
+	}
+	require.Empty(t, handled, "second request must not be handled")
 }
