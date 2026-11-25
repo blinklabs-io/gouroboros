@@ -105,12 +105,17 @@ type modelVersion struct {
 	transitions map[protocol.State]map[modelKind]protocol.State
 	// pipelined is, per state in which the outbound side owes a reply, the
 	// requests it holds for later. dmq-node's inbound sends
-	// SendMsgRequestSigIdsPipelined after SendMsgRequestSigsPipelined
-	// (DMQ/SigSubmissionV2/Inbound.hs), and runs the V1 inbound as
-	// txSubmissionServerPeerPipelined (DMQ/NodeToNode.hs), so a request for
-	// ids can arrive while the bodies are owed. Admission is by message type,
-	// so both request-for-ids kinds are held; a blocking one is then refused
-	// when handled, as it would be in StIdle with ids outstanding.
+	// SendMsgRequestSigIdsPipelined after SendMsgRequestSigsPipelined, and
+	// after collecting one reply with others still owed may send
+	// SendMsgRequestSigsPipelined again (DMQ/SigSubmissionV2/Inbound.hs
+	// pipelinedDispatch); it runs the V1 inbound as
+	// txSubmissionServerPeerPipelined (DMQ/NodeToNode.hs), which does the
+	// same. So a request for ids or for messages can arrive while a
+	// non-blocking reply for ids or the messages are owed. A blocking
+	// request is never pipelined, so StMessageIdsBlocking holds nothing.
+	// Admission is by message type, so both request-for-ids kinds are held;
+	// a blocking one is then refused when handled, as it would be in StIdle
+	// with ids outstanding.
 	pipelined map[protocol.State][]modelKind
 }
 
@@ -145,9 +150,15 @@ var modelVersions = []modelVersion{
 			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
 		pipelined: map[protocol.State][]modelKind{
+			protocolStateMessageIdsNonBlk: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
 			protocolStateMessages: {
 				modelRequestIdsBlocking,
 				modelRequestIdsNonBlocking,
+				modelRequestMessages,
 			},
 		},
 	},
@@ -181,9 +192,15 @@ var modelVersions = []modelVersion{
 			protocolStateMessages:         {modelReplyMessages: protocolStateIdle},
 		},
 		pipelined: map[protocol.State][]modelKind{
+			protocolStateMessageIdsNonBlk: {
+				modelRequestIdsBlocking,
+				modelRequestIdsNonBlocking,
+				modelRequestMessages,
+			},
 			protocolStateMessages: {
 				modelRequestIdsBlocking,
 				modelRequestIdsNonBlocking,
+				modelRequestMessages,
 			},
 		},
 	},

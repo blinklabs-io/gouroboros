@@ -539,3 +539,80 @@ func TestV2OutboundHoldsPipelinedIdRequest(t *testing.T) {
 		await(t, h.idRequests, h.errs, "the pipelined id request"),
 	)
 }
+
+// Both versions hold a request for messages that dmq-node's requester
+// pipelines behind an unanswered non-blocking request for ids, or behind an
+// unanswered request for messages, and answer it after the reply they owe.
+// After collecting one pipelined reply with others still owed, the V2
+// inbound's pipelinedDispatch may send SendMsgRequestSigsPipelined again
+// (DMQ/SigSubmissionV2/Inbound.hs); the V1 inbound,
+// txSubmissionServerPeerPipelined, does the same (TxSubmission/Inbound/V1.hs
+// serverReqTxs, serverReqTxIds, serverIdle).
+func TestOutboundHoldsPipelinedMessageRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		version uint16
+		// The initiator's direction flag for the peer's messages.
+		fromInitiator bool
+		reqIds        byte
+		replyIds      byte
+		reqMsgs       byte
+		replyMsgs     byte
+	}{
+		{"V1", protocol.ProtocolVersionDMQNtN1, false, 0x00, 0x01, 0x02, 0x03},
+		{"V2", protocol.ProtocolVersionDMQNtN2, true, 0x01, 0x02, 0x04, 0x05},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newClientHarness(t, tc.version)
+			a := referenceID(0xc1)
+			b := referenceID(0xc2)
+			if tc.version == protocol.ProtocolVersionDMQNtN1 {
+				require.NoError(t, h.client.Init())
+				h.peer.expect(true, []byte{0x81, 0x06})
+			}
+			// Blocking, ack 0, req 2.
+			h.peer.send(tc.fromInitiator, []byte{0x84, tc.reqIds, 0xf5, 0x00, 0x02})
+			await(t, h.idRequests, h.errs, "the id request")
+			require.NoError(t, h.client.ReplyMessageIds([]pcommon.MessageIDAndSize{
+				{MessageID: a, SizeInBytes: 100},
+				{MessageID: b, SizeInBytes: 100},
+			}))
+			h.peer.expect(!tc.fromInitiator, cat(
+				[]byte{0x82, tc.replyIds, 0x9f},
+				idAndSize(a), idAndSize(b),
+				[]byte{0xff},
+			))
+
+			// Non-blocking, ack 0, req 1, with a request for a's message
+			// pipelined behind it.
+			h.peer.send(tc.fromInitiator, []byte{0x84, tc.reqIds, 0xf4, 0x00, 0x01})
+			h.peer.send(tc.fromInitiator, cat(
+				[]byte{0x82, tc.reqMsgs, 0x9f}, byteString32(a), []byte{0xff},
+			))
+			require.Equal(
+				t,
+				idRequest{blocking: false, ack: 0, req: 1},
+				await(t, h.idRequests, h.errs, "the non-blocking id request"),
+			)
+			require.NoError(t, h.client.ReplyMessageIds(nil))
+			h.peer.expect(!tc.fromInitiator, []byte{0x82, tc.replyIds, 0x9f, 0xff})
+			require.Equal(
+				t,
+				[][]byte{a},
+				await(t, h.bodyReqs, h.errs, "the message request behind ids"),
+			)
+
+			// A request for b's message pipelined behind the one for a's.
+			h.peer.send(tc.fromInitiator, cat(
+				[]byte{0x82, tc.reqMsgs, 0x9f}, byteString32(b), []byte{0xff},
+			))
+			require.NoError(t, h.client.ReplyMessages(nil))
+			h.peer.expect(!tc.fromInitiator, []byte{0x82, tc.replyMsgs, 0x9f, 0xff})
+			require.Equal(
+				t,
+				[][]byte{b},
+				await(t, h.bodyReqs, h.errs, "the message request behind messages"),
+			)
+		})
+	}
+}
