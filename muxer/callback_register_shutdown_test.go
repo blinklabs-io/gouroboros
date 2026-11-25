@@ -128,8 +128,11 @@ func runCallbackDuringStop(
 
 	// Request the stop while the callback is still running, let the cleanup
 	// reach its wait for the muxer's goroutines, and only then let the
-	// callback call into the muxer.
-	_ = m.Stop(context.Background())
+	// callback call into the muxer. A done context makes Stop only signal,
+	// since the callback it would wait for is held until after it returns.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, m.Stop(signalOnly), context.Canceled)
 	require.Eventually(t, func() bool {
 		return connClosed(conn)
 	}, 2*time.Second, time.Millisecond, "cleanup did not start")
@@ -195,7 +198,7 @@ func TestMetricsCallbackMuxerCallsDuringStop(t *testing.T) {
 		"send": func(m *muxer.Muxer) {
 			_ = m.Send(muxer.NewSegment(0x02, []byte("sent"), false))
 		},
-		"stop": func(m *muxer.Muxer) { _ = m.Stop(context.Background()) },
+		"stop": func(m *muxer.Muxer) { _ = m.Stop(m.CallbackContext()) },
 	}
 	for name, call := range calls {
 		for _, onDelivery := range []bool{false, true} {

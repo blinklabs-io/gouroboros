@@ -100,8 +100,13 @@ func TestServerStopDuringRestartStopsServer(t *testing.T) {
 	h.Send(localmessagenotification.NewMsgClientDone())
 	h.WaitHeld()
 	stopped := server.ProtocolInstance()
-	require.NoError(t, server.Stop(context.Background()))
+	// Waiting would wait for the held Done handler, so this Stop only
+	// signals; the join follows the release.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, server.Stop(signalOnly), context.Canceled)
 	h.Release()
+	require.NoError(t, server.Stop(context.Background()))
 
 	restarted := func() bool { return server.ProtocolInstance() != stopped }
 	assert.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
