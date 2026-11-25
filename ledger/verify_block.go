@@ -99,6 +99,42 @@ func eraAtLeast(era common.Era, min common.Era) bool {
 	return ok && currentOrder >= minOrder
 }
 
+// validateConwayHeaderProtocolVersion applies the Conway BBODY rule that a
+// mainnet header's major protocol version is at most one above the version
+// in force. The network comes from the ledger state, so the rule is skipped
+// without one, as it is for parameters of another era.
+func validateConwayHeaderProtocolVersion(
+	block Block,
+	protocolParameters common.ProtocolParameters,
+	ledgerState common.LedgerState,
+) error {
+	conwayBlock, ok := block.(*conway.ConwayBlock)
+	if !ok || conwayBlock.BlockHeader == nil || ledgerState == nil {
+		return nil
+	}
+	pparams, ok := protocolParameters.(*conway.ConwayProtocolParameters)
+	if !ok || pparams == nil {
+		return nil
+	}
+	header := conwayBlock.BlockHeader
+	if err := conway.ValidateHeaderProtocolVersion(
+		header,
+		pparams,
+		ledgerState.NetworkId(),
+	); err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeProtocol,
+			"Conway header protocol version too high",
+			map[string]any{
+				"slot":         header.SlotNumber(),
+				"block_number": header.BlockNumber(),
+			},
+			err,
+		)
+	}
+	return nil
+}
+
 // validateDijkstraBlockBodyHash validates a Dijkstra block's body hash. The
 // block is [header, block_body] and the header's block_body_hash is blake2b256
 // over the block_body CBOR (confirmed against live prototype-2026w27 blocks),
@@ -397,8 +433,12 @@ func validateDijkstraBlockCertificatesWith(
 			nil,
 		)
 	}
-	if err := dijkstraBlock.BlockBody.LeiosCertificate.Validate(
-		uint64(pparams.LeiosCommitteeSize),
+	// The exact bitfield length depends on the seated committee, which can
+	// be smaller than LeiosCommitteeSize, so only its upper bound is checked
+	// before the committee is looked up.
+	if err := validateLeiosCertificateShape(
+		dijkstraBlock.BlockBody.LeiosCertificate,
+		pparams.LeiosCommitteeSize,
 	); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
@@ -448,6 +488,31 @@ func validateDijkstraBlockCertificatesWith(
 			"invalid Dijkstra Leios certificate",
 			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
 			err,
+		)
+	}
+	return nil
+}
+
+// validateLeiosCertificateShape checks what a certificate's shape allows
+// without the committee: the signature size, and a signer bitfield no longer
+// than a committee of committeeSize seats needs.
+func validateLeiosCertificateShape(
+	cert *dijkstra.DijkstraLeiosCertificate,
+	committeeSize uint16,
+) error {
+	if err := common.ValidateLeiosSignature(
+		"DijkstraLeiosCertificate: AggregatedSignature",
+		cert.AggregatedSignature,
+	); err != nil {
+		return err
+	}
+	maxSize := common.LeiosSignerBitfieldSize(uint64(committeeSize))
+	if uint64(len(cert.Signers)) > maxSize {
+		return fmt.Errorf(
+			"leios signer bitfield of %d bytes exceeds %d for committee size %d",
+			len(cert.Signers),
+			maxSize,
+			committeeSize,
 		)
 	}
 	return nil
@@ -775,10 +840,10 @@ func sumBlockExUnits(txs []common.Transaction) (common.ExUnits, error) {
 func verifyNonceVrf(
 	result common.VrfResult,
 	vrfKey []byte,
-	slot int64,
-	eta0 []byte,
+	slot uint64,
+	eta0 common.Nonce,
 ) error {
-	message, err := vrf.MkSeedTPraos(slot, eta0, vrf.SeedEta())
+	message, err := vrf.MkSeedTPraosFromNonce(slot, eta0, vrf.SeedEta())
 	if err != nil {
 		return fmt.Errorf("construct nonce VRF input: %w", err)
 	}
@@ -802,7 +867,7 @@ func verifyBlockTransactions(
 	pp common.ProtocolParameters,
 	rules []common.UtxoValidationRuleFunc,
 ) (int, error) {
-	blockState := common.NewBlockLedgerState(ls)
+	blockState := common.NewBlockLedgerStateAt(ls, slot)
 	for idx, tx := range txs {
 		err := common.VerifyTransaction(tx, slot, blockState, pp, rules)
 		if err != nil {
@@ -1000,11 +1065,14 @@ func verifyBlock(
 			nil,
 		)
 	}
+	// The 32-byte eta0 has no spelling for NeutralNonce.
+	eta0Nonce := common.Nonce{Type: common.NonceTypeNonce}
+	copy(eta0Nonce.Value[:], eta0)
 	var vrfMsg []byte
 	if isTPraos {
-		vrfMsg, err = vrf.MkSeedTPraos(int64(slot), eta0, vrf.SeedL())
+		vrfMsg, err = vrf.MkSeedTPraosFromNonce(slot, eta0Nonce, vrf.SeedL())
 	} else {
-		vrfMsg, err = vrf.MkInputVrf(int64(slot), eta0)
+		vrfMsg, err = vrf.MkInputVrfFromNonce(slot, eta0Nonce)
 	}
 	if err != nil {
 		return false, "", 0, 0, common.NewValidationError(
@@ -1058,8 +1126,8 @@ func verifyBlock(
 		if err := verifyNonceVrf(
 			nonceVrfResult,
 			vrfKey,
-			int64(slot),
-			eta0,
+			slot,
+			eta0Nonce,
 		); err != nil {
 			return false, "", 0, 0, common.NewValidationError(
 				common.ValidationErrorTypeVRF,
@@ -1378,6 +1446,13 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 	); err != nil {
 		return err
 	}
+	if err := validateConwayHeaderProtocolVersion(
+		block,
+		config.ProtocolParameters,
+		config.LedgerState,
+	); err != nil {
+		return err
+	}
 	// A CertRB with inlined EB transactions is checked against the RB
 	// limits as it is on chain, without those transactions. Its EB's
 	// transactions are applied at the announcing RB's slot.
@@ -1621,7 +1696,10 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					nil,
 				)
 			}
-			blockState := common.NewBlockLedgerState(config.LedgerState)
+			blockState := common.NewBlockLedgerStateAt(
+				config.LedgerState,
+				slot,
+			)
 			for idx := range mainBlock.Body.TxPayload {
 				tx := &mainBlock.Body.TxPayload[idx]
 				if err := tx.ValidateAgainstUtxo(

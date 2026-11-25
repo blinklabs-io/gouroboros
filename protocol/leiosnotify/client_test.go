@@ -662,7 +662,21 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 	)
 }
 
-func TestClientIgnoresCanceled(t *testing.T) {
+// A server answers a request with MsgCanceled only after the client has sent
+// MsgQuit. The reference client disconnects a peer that cancels earlier; one
+// that did not would wait forever for the notification the canceled request
+// stood for.
+func TestClientRefusesCanceledBeforeQuit(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
+	require.ErrorIs(
+		t,
+		client.messageHandler(NewMsgCanceled()),
+		ErrUnexpectedCanceled,
+	)
+}
+
+func TestClientAcceptsCanceledAfterQuit(t *testing.T) {
+	client := NewClient(protocol.ProtocolOptions{}, nil)
+	client.quitting.Store(true)
 	require.NoError(t, client.messageHandler(NewMsgCanceled()))
 }

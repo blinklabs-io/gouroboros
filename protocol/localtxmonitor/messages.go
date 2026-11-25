@@ -36,6 +36,10 @@ const (
 	MessageTypeReplyHasTx    = 8
 	MessageTypeGetSizes      = 9
 	MessageTypeReplyGetSizes = 10
+	// MessageTypeGetMeasures and MessageTypeReplyGetMeasures exist from
+	// NodeToClientV_20.
+	MessageTypeGetMeasures      = 11
+	MessageTypeReplyGetMeasures = 12
 )
 
 // NewMsgFromCbor parses a LocalTxMonitor message from CBOR
@@ -62,6 +66,10 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 		ret = &MsgGetSizes{}
 	case MessageTypeReplyGetSizes:
 		ret = &MsgReplyGetSizes{}
+	case MessageTypeGetMeasures:
+		ret = &MsgGetMeasures{}
+	case MessageTypeReplyGetMeasures:
+		ret = &MsgReplyGetMeasures{}
 	default:
 		return nil, fmt.Errorf(
 			"%s: unknown message type: %d",
@@ -402,4 +410,44 @@ func NewMsgReplyGetSizes(
 		},
 	}
 	return m
+}
+
+type MsgGetMeasures struct {
+	protocol.MessageBase
+}
+
+func NewMsgGetMeasures() *MsgGetMeasures {
+	return &MsgGetMeasures{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeGetMeasures,
+		},
+	}
+}
+
+// MeasureSizeAndCapacity is one mempool measure: how much of it the
+// transactions use and how much the mempool can hold.
+type MeasureSizeAndCapacity struct {
+	cbor.StructAsArray
+	Size     uint64
+	Capacity uint64
+}
+
+// MsgReplyGetMeasures is [12, txCount, {* measureName => [size, capacity]}].
+type MsgReplyGetMeasures struct {
+	protocol.MessageBase
+	TxCount  uint32
+	Measures map[string]MeasureSizeAndCapacity
+}
+
+func NewMsgReplyGetMeasures(
+	txCount uint32,
+	measures map[string]MeasureSizeAndCapacity,
+) *MsgReplyGetMeasures {
+	return &MsgReplyGetMeasures{
+		MessageBase: protocol.MessageBase{
+			MessageType: MessageTypeReplyGetMeasures,
+		},
+		TxCount:  txCount,
+		Measures: measures,
+	}
 }

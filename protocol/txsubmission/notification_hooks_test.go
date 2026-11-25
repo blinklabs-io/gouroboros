@@ -27,7 +27,7 @@ import (
 )
 
 // newHookPair connects a client and a server over an in-memory pipe. The
-// client returns an empty reply to every txid request.
+// client answers with the configuration the test passes.
 func newHookPair(
 	t *testing.T,
 	clientCfg *Config,
@@ -91,15 +91,15 @@ func TestInitWithoutCallbackIsAccepted(t *testing.T) {
 		&Config{RequestTxIdsFunc: func(
 			CallbackContext, bool, uint16, uint16,
 		) ([]TxIdAndSize, error) {
-			return nil, nil
+			return []TxIdAndSize{{TxId: TxId{EraId: 1}}}, nil
 		}},
 		&Config{},
 	)
 	client.Init()
 	// A request only succeeds once the server has accepted Init.
-	result, err := server.RequestTxIds(false, 1)
+	result, err := server.RequestTxIds(true, 1)
 	require.NoError(t, err)
-	require.Empty(t, result)
+	require.Len(t, result, 1)
 	select {
 	case err := <-serverErrors:
 		t.Fatalf("server rejected Init: %s", err)

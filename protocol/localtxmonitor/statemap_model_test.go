@@ -45,33 +45,31 @@ const (
 // The states of the local-tx-monitor state machine. The busy state's kind is
 // part of its name, as in the reference's StBusy StBusyKind.
 const (
-	stIdle             = "StIdle"
-	stAcquiring        = "StAcquiring"
-	stAcquired         = "StAcquired"
-	stBusyNextTx       = "StBusyNextTx"
-	stBusyHasTx        = "StBusyHasTx"
-	stBusyGetSizes     = "StBusyGetSizes"
-	stBusyGetMeasures  = "StBusyGetMeasures"
-	stDone             = "StDone"
-	kindAcquire        = "MsgAcquire"
-	kindAcquired       = "MsgAcquired"
-	kindRelease        = "MsgRelease"
-	kindNextTx         = "MsgNextTx"
-	kindReplyNextTx    = "MsgReplyNextTx"
-	kindHasTx          = "MsgHasTx"
-	kindReplyHasTx     = "MsgReplyHasTx"
-	kindGetSizes       = "MsgGetSizes"
-	kindReplyGetSizes  = "MsgReplyGetSizes"
-	kindGetMeasures    = "MsgGetMeasures"
-	kindReplyMeasures  = "MsgReplyGetMeasures"
-	kindDone           = "MsgDone"
-	modelRoleClient    = "client"
-	modelRoleServer    = "server"
-	modelAgencyClient  = "Client"
-	modelAgencyServer  = "Server"
-	modelAgencyNobody  = "Nobody"
-	modelMeasuresQuery = 11
-	modelMeasuresReply = 12
+	stIdle            = "StIdle"
+	stAcquiring       = "StAcquiring"
+	stAcquired        = "StAcquired"
+	stBusyNextTx      = "StBusyNextTx"
+	stBusyHasTx       = "StBusyHasTx"
+	stBusyGetSizes    = "StBusyGetSizes"
+	stBusyGetMeasures = "StBusyGetMeasures"
+	stDone            = "StDone"
+	kindAcquire       = "MsgAcquire"
+	kindAcquired      = "MsgAcquired"
+	kindRelease       = "MsgRelease"
+	kindNextTx        = "MsgNextTx"
+	kindReplyNextTx   = "MsgReplyNextTx"
+	kindHasTx         = "MsgHasTx"
+	kindReplyHasTx    = "MsgReplyHasTx"
+	kindGetSizes      = "MsgGetSizes"
+	kindReplyGetSizes = "MsgReplyGetSizes"
+	kindGetMeasures   = "MsgGetMeasures"
+	kindReplyMeasures = "MsgReplyGetMeasures"
+	kindDone          = "MsgDone"
+	modelRoleClient   = "client"
+	modelRoleServer   = "server"
+	modelAgencyClient = "Client"
+	modelAgencyServer = "Server"
+	modelAgencyNobody = "Nobody"
 )
 
 var modelStates = []string{
@@ -158,28 +156,12 @@ func modelReceive(role, state, kind string) string {
 	return modelJudge(state, kind)
 }
 
-func isMeasuresKind(kind string) bool {
-	return kind == kindGetMeasures || kind == kindReplyMeasures
-}
-
-// gouroborosReceive maps the reference onto gOuroboros where they differ, each
-// a recorded deviation, not a defect:
-//   - protocol.Protocol refuses a message sent while the receiver holds
-//     agency instead of leaving it to wait.
-//   - gOuroboros has no MsgGetMeasures or MsgReplyGetMeasures, so a reader
-//     that would judge one cannot decode it.
-//   - The server does not restart after MsgDone, so what follows it is
-//     never read.
+// gouroborosReceive maps the reference onto gOuroboros where they differ, a
+// recorded deviation, not a defect: protocol.Protocol refuses a message sent
+// while the receiver holds agency instead of leaving it to wait.
 func gouroborosReceive(role, state, kind string) string {
 	outcome := modelReceive(role, state, kind)
-	switch {
-	case outcome == modelWaits:
-		return modelViolation
-	case state == stDone && role == modelRoleServer:
-		return modelHeld
-	case outcome == modelHeld:
-		return modelHeld
-	case isMeasuresKind(kind):
+	if outcome == modelWaits {
 		return modelViolation
 	}
 	return outcome
@@ -189,24 +171,20 @@ func gouroborosReceive(role, state, kind string) string {
 const (
 	errWithoutPeerAgency = "without peer agency"
 	errNotAllowedInState = "not allowed in current protocol state"
-	errUnknownType       = "unknown message type"
 )
 
 func gouroborosViolationError(role, state, kind string) string {
-	switch {
-	case modelReceive(role, state, kind) == modelWaits:
+	if modelReceive(role, state, kind) == modelWaits {
 		return errWithoutPeerAgency
-	case isMeasuresKind(kind):
-		return errUnknownType
-	default:
-		return errNotAllowedInState
 	}
+	return errNotAllowedInState
 }
 
 var modelBusyQuery = map[string]uint8{
-	stBusyNextTx:   MessageTypeNextTx,
-	stBusyHasTx:    MessageTypeHasTx,
-	stBusyGetSizes: MessageTypeGetSizes,
+	stBusyNextTx:      MessageTypeNextTx,
+	stBusyHasTx:       MessageTypeHasTx,
+	stBusyGetSizes:    MessageTypeGetSizes,
+	stBusyGetMeasures: MessageTypeGetMeasures,
 }
 
 func modelBusyOf(query uint8) string {
@@ -256,9 +234,9 @@ func modelKindType(kind string) uint8 {
 	case kindReplyGetSizes:
 		return MessageTypeReplyGetSizes
 	case kindGetMeasures:
-		return modelMeasuresQuery
+		return MessageTypeGetMeasures
 	case kindReplyMeasures:
-		return modelMeasuresReply
+		return MessageTypeReplyGetMeasures
 	default:
 		return MessageTypeDone
 	}
@@ -316,7 +294,7 @@ func modelRows(f func(role, state, kind string)) {
 
 // TestStateMapMatchesModel checks every within-run cell of the receive table
 // against StateMap, including the cells no running client or server can be
-// driven into. StBusy GetMeasures cannot be entered at all.
+// driven into.
 func TestStateMapMatchesModel(t *testing.T) {
 	t.Parallel()
 	require.ElementsMatch(
@@ -328,7 +306,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 	require.Len(t, queryReplyTypes, len(modelBusyQuery),
 		"Busy must have one kind per query gOuroboros knows")
 	modelRows(func(role, state, kind string) {
-		if state == stDone || state == stBusyGetMeasures {
+		if state == stDone {
 			return
 		}
 		t.Run(role+"/in"+state+"/"+kind, func(t *testing.T) {
@@ -362,23 +340,6 @@ func TestDoneCannotBeLeft(t *testing.T) {
 			}
 			require.Equal(t, stateIdle, state)
 			require.Equal(t, uint8(MessageTypeDone), transition.MsgType)
-		}
-	}
-}
-
-// TestBusyGetMeasuresCannotBeEntered checks that gOuroboros has no
-// MsgGetMeasures: the query does not decode, so neither role can reach the
-// reference's StBusy GetMeasures. The reference understands it at every
-// node-to-client version.
-func TestBusyGetMeasuresCannotBeEntered(t *testing.T) {
-	t.Parallel()
-	for _, kind := range []string{kindGetMeasures, kindReplyMeasures} {
-		_, err := NewMsgFromCbor(uint(modelKindType(kind)), modelKindCbor(t, kind))
-		require.ErrorContains(t, err, errUnknownType, kind)
-	}
-	for _, entry := range StateMap {
-		for _, transition := range entry.Transitions {
-			require.NotEqual(t, uint8(modelMeasuresQuery), transition.MsgType)
 		}
 	}
 }
@@ -454,9 +415,7 @@ func (h *modelHarness) sendRaw(t *testing.T, data []byte) {
 
 var modelTxId = bytes.Repeat([]byte{0xab}, 32)
 
-// modelKindCbor is the concrete message each kind stands for. gOuroboros
-// cannot build the GetMeasures pair, so their CBOR is written out from the
-// reference codec: [11] and [12, txCount, {measure => [size, capacity]}].
+// modelKindCbor is the concrete message each kind stands for.
 func modelKindCbor(t *testing.T, kind string) []byte {
 	t.Helper()
 	var msg protocol.Message
@@ -480,9 +439,9 @@ func modelKindCbor(t *testing.T, kind string) []byte {
 	case kindReplyGetSizes:
 		msg = NewMsgReplyGetSizes(1, 2, 3)
 	case kindGetMeasures:
-		return []byte{0x81, 0x0b}
+		msg = NewMsgGetMeasures()
 	case kindReplyMeasures:
-		return []byte{0x83, 0x0c, 0x00, 0xa0}
+		msg = NewMsgReplyGetMeasures(0, nil)
 	default:
 		msg = NewMsgDone()
 	}
@@ -562,6 +521,8 @@ func modelQueryCall(client *Client, state string) <-chan error {
 			_, err = client.NextTx()
 		case stBusyHasTx:
 			_, err = client.HasTxForEra(6, modelTxId)
+		case stBusyGetMeasures:
+			_, err = client.GetMeasures()
 		default:
 			_, _, _, err = client.GetSizes()
 		}
@@ -626,9 +587,10 @@ func driveServer(t *testing.T, h *modelHarness, state string) {
 }
 
 var modelReplyOf = map[string]uint8{
-	stBusyNextTx:   MessageTypeReplyNextTx,
-	stBusyHasTx:    MessageTypeReplyHasTx,
-	stBusyGetSizes: MessageTypeReplyGetSizes,
+	stBusyNextTx:      MessageTypeReplyNextTx,
+	stBusyHasTx:       MessageTypeReplyHasTx,
+	stBusyGetSizes:    MessageTypeReplyGetSizes,
+	stBusyGetMeasures: MessageTypeReplyGetMeasures,
 }
 
 // TestReceiveMatchesModel drives a running client or server into each cell
@@ -638,9 +600,6 @@ var modelReplyOf = map[string]uint8{
 func TestReceiveMatchesModel(t *testing.T) {
 	t.Parallel()
 	modelRows(func(role, state, kind string) {
-		if state == stBusyGetMeasures {
-			return
-		}
 		if role == modelRoleServer && state != stIdle && state != stAcquired && state != stDone {
 			return
 		}
@@ -681,10 +640,11 @@ func TestReceiveMatchesModel(t *testing.T) {
 	})
 }
 
-// TestAwaitAcquireIsAcquireOnTheWire checks that MsgAcquire is [1], which the reference decodes in StAcquired as
-// MsgAwaitAcquire, and that the gOuroboros server answers it at once with a
-// fresh snapshot. The reference server waits instead until the mempool
-// differs from the held snapshot, so this pins a recorded deviation.
+// TestAwaitAcquireIsAcquireOnTheWire checks that MsgAcquire is [1], which the
+// reference decodes in StAcquired as MsgAwaitAcquire, and that a server
+// without an AwaitMempoolFunc answers it at once with a fresh snapshot. The
+// reference server waits until the mempool differs from the held snapshot,
+// as a server with an AwaitMempoolFunc does.
 func TestAwaitAcquireIsAcquireOnTheWire(t *testing.T) {
 	t.Parallel()
 	awaitBytes, err := cbor.Encode(NewMsgAcquire())

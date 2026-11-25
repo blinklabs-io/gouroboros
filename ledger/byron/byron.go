@@ -788,6 +788,14 @@ func (t *ByronTransaction) ValidateAgainstUtxo(
 	if feePolicy == nil {
 		return errors.New("byron transaction validation requires a fee policy")
 	}
+	// The reference decodes both lists as NonEmpty. Without this, a
+	// transaction with no inputs is vacuously redeem-only and pays no fee.
+	if len(t.Body.TxInputs) == 0 {
+		return errors.New("byron transaction has no inputs")
+	}
+	if len(t.Body.TxOutputs) == 0 {
+		return errors.New("byron transaction has no outputs")
+	}
 	if len(t.Body.TxInputs) != len(t.Twit) {
 		return fmt.Errorf(
 			"byron transaction has %d inputs but %d witnesses",

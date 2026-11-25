@@ -31,9 +31,13 @@ type Client struct {
 	notificationChan     chan protocol.Message
 	pipelinedRequestNext int
 	notificationRunning  bool
-	quitting             atomic.Bool
-	onceStart            sync.Once
-	onceStop             sync.Once
+	// sendMutex is held from the check of quitting through the sends it
+	// allows, and by Stop while it sets quitting and sends MsgQuit, so no
+	// request can follow MsgQuit onto the wire.
+	sendMutex sync.Mutex
+	quitting  atomic.Bool
+	onceStart sync.Once
+	onceStop  sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -92,8 +96,8 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		// Once quitting, the notification loop sends no further requests,
-		// which the protocol no longer allows
+		c.sendMutex.Lock()
+		defer c.sendMutex.Unlock()
 		c.quitting.Store(true)
 		err = c.SendMessage(NewMsgQuit())
 	})
@@ -110,11 +114,15 @@ func (c *Client) Sync() error {
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	// After Stop the loop stays parked until the protocol ends, so the
+	// shutdown is checked first.
+	if c.quitting.Load() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	if c.notificationRunning {
 		return errors.New("notification loop is already running")
 	}
-	msg := NewMsgNotificationRequestNext()
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.sendRequests(1); err != nil {
 		return err
 	}
 	// Reset pipelined message counter
@@ -165,20 +173,32 @@ func (c *Client) notificationLoop() {
 		// Request the next notification(s)
 		msgCount := max(c.config.PipelineLimit, 1)
 		c.busyMutex.Unlock()
-		if c.quitting.Load() {
-			return
-		}
-		for range msgCount {
-			msg := NewMsgNotificationRequestNext()
-			if err := c.SendMessage(msg); err != nil {
+		if err := c.sendRequests(msgCount); err != nil {
+			if !errors.Is(err, protocol.ErrProtocolShuttingDown) {
 				c.SendError(err)
-				return
 			}
+			return
 		}
 		c.busyMutex.Lock()
 		c.pipelinedRequestNext = msgCount - 1
 		c.busyMutex.Unlock()
 	}
+}
+
+// sendRequests sends count notification requests, or none once Stop has sent
+// MsgQuit, after which the protocol allows no request.
+func (c *Client) sendRequests(count int) error {
+	c.sendMutex.Lock()
+	defer c.sendMutex.Unlock()
+	if c.quitting.Load() {
+		return protocol.ErrProtocolShuttingDown
+	}
+	for range count {
+		if err := c.SendMessage(NewMsgNotificationRequestNext()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // drainPipelinedMessages consumes remaining pipelined notification messages
@@ -214,7 +234,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		c.handleVotesOffer(msg)
 	case MessageTypeCanceled:
 		// Answers a request that was outstanding when this client quit. It
-		// carries no notification, so there is nothing to deliver.
+		// carries no notification, so there is nothing to deliver. Before
+		// MsgQuit it is refused: the notification loop counts on an answer
+		// to every request, so a canceled one would stall it.
+		if !c.quitting.Load() {
+			err = ErrUnexpectedCanceled
+		}
 	case MessageTypeDone:
 		// The server has acknowledged MsgQuit and the protocol is over
 	default:
