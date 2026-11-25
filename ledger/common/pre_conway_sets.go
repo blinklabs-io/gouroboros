@@ -15,35 +15,19 @@
 package common
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-// setTagHeads are the encodings of a tag 258 head: the minimal two-byte
-// argument and the wider four- and eight-byte ones.
-var setTagHeads = [][]byte{
-	{0xd9, 0x01, 0x02},
-	{0xda, 0x00, 0x00, 0x01, 0x02},
-	{0xdb, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02},
-}
-
-// ValidatePreConwaySetTags rejects a tag 258 on any of the given fields of
-// a CBOR map. Before protocol version 9 cardano-ledger decodes set-shaped
-// transaction fields with decodeSet or decodeList, neither of which accepts
-// a tag, so a Shelley to Babbage body or witness set carrying one does not
-// decode there. The map is only re-read when its bytes contain a tag 258
-// head.
+// ValidatePreConwaySetTags rejects a CBOR tag of any number on any of the
+// given fields of a CBOR map. Before protocol version 9 cardano-ledger
+// decodes set-shaped transaction fields with decodeSet or decodeList,
+// neither of which accepts a tag, so a Shelley to Babbage body or witness
+// set carrying one does not decode there. The map is only re-read when its
+// bytes contain a byte that can head a tag.
 func ValidatePreConwaySetTags(cborData []byte, keys ...uint64) error {
-	found := false
-	for _, head := range setTagHeads {
-		if bytes.Contains(cborData, head) {
-			found = true
-			break
-		}
-	}
-	if !found {
+	if !containsTagHead(cborData) {
 		return nil
 	}
 	fields, _, err := cbor.DecodeRawMap[uint64](cborData)
@@ -61,4 +45,15 @@ func ValidatePreConwaySetTags(cborData []byte, keys ...uint64) error {
 		}
 	}
 	return nil
+}
+
+// containsTagHead reports whether any byte of data is a tag head with a
+// valid argument width, 0xc0 to 0xdb.
+func containsTagHead(data []byte) bool {
+	for _, b := range data {
+		if b >= 0xc0 && b <= 0xdb {
+			return true
+		}
+	}
+	return false
 }

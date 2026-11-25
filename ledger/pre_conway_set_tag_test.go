@@ -210,3 +210,101 @@ func TestPreConwaySetFieldsRefuseTag258(t *testing.T) {
 		})
 	}
 }
+
+// TestPreConwaySetFieldsRefuseOtherTags covers tags other than 258 on the
+// same fields: decodeList and the pre-Conway decodeSet accept no tag of any
+// number, so the field is refused whether or not a tag 258 appears anywhere
+// else in the map.
+func TestPreConwaySetFieldsRefuseOtherTags(t *testing.T) {
+	withTag := func(head []byte, items ...[]byte) []byte {
+		return append(append([]byte{}, head...), arr(items...)...)
+	}
+	vkey := arr(bstr(32, 5), bstr(64, 6))
+	native := arr([]byte{0x00}, bstr(28, 7))
+	boot := arr(bstr(32, 5), bstr(64, 6), bstr(32, 8), bstr(1, 0xa0))
+	redeemer := arr([]byte{0x00}, []byte{0x00}, []byte{0x01},
+		arr([]byte{0x00}, []byte{0x00}))
+	script := bstr(4, 9)
+	witnessFields := []struct {
+		key  byte
+		name string
+		item []byte
+	}{
+		{0, "vkey witnesses", vkey},
+		{1, "native scripts", native},
+		{2, "bootstrap witnesses", boot},
+		{3, "plutus v1 scripts", script},
+		{4, "plutus data", []byte{0x01}},
+		{5, "redeemers", redeemer},
+		{6, "plutus v2 scripts", script},
+	}
+	heads := map[string][]byte{
+		"tag 259": {0xd9, 0x01, 0x03},
+		"tag 1":   {0xc1},
+		"tag 30":  {0xd8, 0x1e},
+	}
+	type tc struct {
+		name string
+		data []byte
+		dest func() any
+	}
+	var cases []tc
+	for headName, head := range heads {
+		for _, w := range witnessFields {
+			data := cmap(field{w.key, withTag(head, w.item)})
+			if w.key <= 2 {
+				cases = append(cases, tc{
+					"shelley " + w.name + "/" + headName, data,
+					func() any { return &shelley.ShelleyTransactionWitnessSet{} },
+				})
+			}
+			if w.key <= 5 {
+				cases = append(cases, tc{
+					"alonzo " + w.name + "/" + headName, data,
+					func() any { return &alonzo.AlonzoTransactionWitnessSet{} },
+				})
+			}
+			cases = append(cases, tc{
+				"babbage " + w.name + "/" + headName, data,
+				func() any { return &babbage.BabbageTransactionWitnessSet{} },
+			})
+		}
+		owners := withTag(head, bstr(28, 4))
+		cert := arr(
+			[]byte{0x03}, bstr(28, 1), bstr(32, 2), []byte{0x00},
+			[]byte{0x00}, []byte{0xd8, 0x1e, 0x82, 0x00, 0x01},
+			append(hdr(0x40, 29), append([]byte{0xe0}, bytes.Repeat(
+				[]byte{3}, 28)...)...),
+			owners, arr(), []byte{0xf6},
+		)
+		cases = append(cases, tc{
+			"shelley pool owners/" + headName,
+			cmap(shelleyBodyFields(field{0x04, arr(cert)})...),
+			func() any { return &shelley.ShelleyTransactionBody{} },
+		}, tc{
+			"babbage pool owners/" + headName,
+			cmap(alonzoBodyFields(field{0x04, arr(cert)})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage collateral/" + headName,
+			cmap(alonzoBodyFields(field{0x0d, withTag(head, txIn(2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage required signers/" + headName,
+			cmap(alonzoBodyFields(
+				field{0x0e, withTag(head, bstr(28, 2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage reference inputs/" + headName,
+			cmap(alonzoBodyFields(field{0x12, withTag(head, txIn(2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		})
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := cbor.Decode(c.data, c.dest()); err == nil {
+				t.Errorf("tagged field accepted: %x", c.data)
+			}
+		})
+	}
+}
