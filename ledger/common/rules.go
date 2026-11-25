@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"math/bits"
 	"reflect"
@@ -1251,8 +1252,11 @@ func protocolVersionCanFollow(
 ) bool {
 	majorIncrement := current.Major < ^uint(0) &&
 		proposed.Major == current.Major+1 && proposed.Minor == 0
+	// The minor version is 32 bits wide and its successor is computed in
+	// 32 bits, so it wraps from the maximum to zero.
 	minorIncrement := proposed.Major == current.Major &&
-		current.Minor < ^uint(0) && proposed.Minor == current.Minor+1
+		current.Minor <= math.MaxUint32 &&
+		proposed.Minor == uint(uint32(current.Minor)+1)
 	return majorIncrement || minorIncrement
 }
 
