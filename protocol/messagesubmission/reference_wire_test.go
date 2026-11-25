@@ -37,6 +37,7 @@ package messagesubmission
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -64,7 +65,7 @@ func newReferencePeer(t *testing.T) (*referencePeer, *muxer.Muxer) {
 	ours, theirs := net.Pipe()
 	m := muxer.New(ours)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = ours.Close()
 		_ = theirs.Close()
 	})
@@ -249,7 +250,7 @@ func newClientHarness(t *testing.T, version uint16) *clientHarness {
 	h.client.Protocol.EnsureRegistered()
 	m.Start()
 	h.client.Start()
-	t.Cleanup(func() { h.client.Protocol.Stop() })
+	t.Cleanup(func() { _ = h.client.Protocol.Stop(context.Background()) })
 	return h
 }
 
@@ -295,7 +296,7 @@ func newServerHarness(t *testing.T, version uint16) *serverHarness {
 	h.server.Protocol.EnsureRegistered()
 	m.Start()
 	h.server.Start()
-	t.Cleanup(h.server.Stop)
+	t.Cleanup(func() { _ = h.server.Stop(context.Background()) })
 	return h
 }
 
@@ -336,9 +337,13 @@ func TestV1OutboundMatchesReferenceInbound(t *testing.T) {
 	// MsgRequestTxIds blocking, ack 1, req 3 = [0, true, 1, 3]
 	h.peer.send(false, []byte{0x84, 0x00, 0xf5, 0x01, 0x03})
 	await(t, h.idRequests, h.errs, "the second id request")
-	require.NoError(t, h.client.Stop())
+	// Stop waits for MsgDone to be written, and the pipe is unbuffered, so
+	// the peer reads it while Stop runs.
+	stopped := make(chan error, 1)
+	go func() { stopped <- h.client.Stop(context.Background()) }()
 	// MsgDone = [4]
 	h.peer.expect(true, []byte{0x81, 0x04})
+	require.NoError(t, <-stopped)
 }
 
 // In V1 the side that wants messages is the responder: it waits for MsgInit

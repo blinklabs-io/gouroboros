@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -142,12 +143,19 @@ func (s *Server) Start() {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 // collectionLimit bounds an inbound collection before it is decoded. A reply
@@ -488,7 +496,7 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 
 	// Invoke callback
 	if s.config.ReplyMessageIdsFunc != nil {
-		s.config.ReplyMessageIdsFunc(s.callbackContext, msgReply.Messages)
+		s.config.ReplyMessageIdsFunc(s.callbackContext.withOwner(s.Protocol), msgReply.Messages)
 	}
 
 	return nil
@@ -526,7 +534,7 @@ func (s *Server) handleReplyNoMessageIds() error {
 
 	if s.config.ReplyMessageIdsFunc != nil {
 		s.config.ReplyMessageIdsFunc(
-			s.callbackContext,
+			s.callbackContext.withOwner(s.Protocol),
 			[]pcommon.MessageIDAndSize{},
 		)
 	}
@@ -622,7 +630,7 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, accepted)
+		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.Protocol), accepted)
 	}
 
 	return fatal
@@ -668,7 +676,7 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return nil

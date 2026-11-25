@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -61,7 +62,7 @@ func TestServerEndsWithAgreedDiffusionMode(t *testing.T) {
 	}()
 
 	clientMuxer := muxer.New(clientPipe)
-	t.Cleanup(clientMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
 	finished := make(chan protocol.VersionData, 1)
 	clientErrors := make(chan error, 1)
 	config := handshake.NewConfig(
@@ -90,7 +91,7 @@ func TestServerEndsWithAgreedDiffusionMode(t *testing.T) {
 		ErrorChan: clientErrors,
 		Mode:      protocol.ProtocolModeNodeToNode,
 	}, &config)
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	client.Start()
 	clientMuxer.StartOnce()
 
@@ -101,7 +102,7 @@ func TestServerEndsWithAgreedDiffusionMode(t *testing.T) {
 		t.Fatal("server handshake did not finish")
 	}
 	require.NoError(t, server.err)
-	t.Cleanup(func() { _ = server.conn.Close() })
+	t.Cleanup(func() { _ = server.conn.Close(context.Background()) })
 	select {
 	case data := <-finished:
 		require.Equal(t, protocol.DiffusionModeInitiatorOnly, data.DiffusionMode())

@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -36,8 +37,8 @@ func TestNtNIngressLimitHoldsTheIngressQueue(t *testing.T) {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	cfg := NewConfig()
 	client := NewClient(protocol.ProtocolOptions{
@@ -51,9 +52,9 @@ func TestNtNIngressLimitHoldsTheIngressQueue(t *testing.T) {
 		Mode:      protocol.ProtocolModeNodeToNode,
 	}, &cfg)
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 
 	require.GreaterOrEqual(t,
 		clientMuxer.IngressLimit(ProtocolIdNtN, muxer.ProtocolRoleInitiator),

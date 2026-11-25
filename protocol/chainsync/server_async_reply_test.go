@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -42,8 +43,8 @@ func TestServerRepliesAfterRequestNextReturnsWithPipelinedClient(t *testing.T) {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	serverErrors := make(chan error, 1)
 	server := NewServer(
@@ -92,9 +93,9 @@ func TestServerRepliesAfterRequestNextReturnsWithPipelinedClient(t *testing.T) {
 	})
 
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 
@@ -199,8 +200,8 @@ func TestServerAdmitsRequestNextPipelinedIntoMustReply(t *testing.T) {
 			}
 			clientMuxer := muxer.New(clientConn)
 			serverMuxer := muxer.New(serverRead)
-			t.Cleanup(clientMuxer.Stop)
-			t.Cleanup(serverMuxer.Stop)
+			t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+			t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 			serverErrors := make(chan error, 2)
 			releaseReply := make(chan struct{})
@@ -255,9 +256,9 @@ func TestServerAdmitsRequestNextPipelinedIntoMustReply(t *testing.T) {
 			})
 
 			server.Start()
-			t.Cleanup(server.Stop)
+			t.Cleanup(func() { _ = server.Stop(context.Background()) })
 			client.Start()
-			t.Cleanup(client.Stop)
+			t.Cleanup(func() { _ = client.Stop(context.Background()) })
 			serverMuxer.Start()
 			clientMuxer.Start()
 

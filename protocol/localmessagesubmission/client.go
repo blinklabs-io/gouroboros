@@ -15,12 +15,14 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 // Client implements the LocalMessageSubmission client
@@ -97,7 +99,14 @@ func (c *Client) Start() {
 }
 
 // Stop transitions the protocol to the Done state
-func (c *Client) Stop() error {
+//
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. The client's callbacks run on the goroutine that called
+// SubmitMessage, not on a protocol goroutine, so Stop always waits until
+// the protocol's goroutines have returned, or until ctx is done, in which
+// case it returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
@@ -108,9 +117,12 @@ func (c *Client) Stop() error {
 		msg := NewMsgDone()
 		c.stopMutex.Lock()
 		c.stopping = true
-		c.stopErr = c.SendMessage(msg)
+		c.stopErr = stopping.SendDone(ctx, c.Protocol, msg)
 		c.stopMutex.Unlock()
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return c.stopErr
 }
 

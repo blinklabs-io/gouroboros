@@ -15,12 +15,14 @@
 package leiosnotify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 type Client struct {
@@ -87,7 +89,14 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) Stop() error {
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
@@ -99,8 +108,11 @@ func (c *Client) Stop() error {
 		c.sendMutex.Lock()
 		defer c.sendMutex.Unlock()
 		c.quitting.Store(true)
-		err = c.SendMessage(NewMsgQuit())
+		err = stopping.SendDone(ctx, c.Protocol, NewMsgQuit())
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return err
 }
 
@@ -133,7 +145,7 @@ func (c *Client) Sync() error {
 }
 
 func (c *Client) startNotificationLoop() {
-	go c.RunLoop("notification loop", c.notificationLoop)
+	c.RunLoop("notification loop", c.notificationLoop)
 }
 
 func (c *Client) notificationLoop() {
@@ -150,7 +162,7 @@ func (c *Client) notificationLoop() {
 				// Channel is closed, which means we're shutting down
 				return
 			}
-			err := c.config.NotificationFunc(c.callbackContext, msg)
+			err := c.config.NotificationFunc(c.callbackContext.withOwner(c.Protocol), msg)
 			if err != nil {
 				if errors.Is(err, ErrStopNotificationProcess) {
 					c.drainPipelinedMessages()

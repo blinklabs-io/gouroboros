@@ -16,6 +16,7 @@ package leiosvotes
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -266,11 +267,11 @@ func TestStopReturnsOriginalErrorOnRepeatedCalls(t *testing.T) {
 		},
 		nil,
 	)
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
-	err := client.Stop()
+	err := client.Stop(context.Background())
 	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
-	err = client.Stop()
+	err = client.Stop(context.Background())
 	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
 }
 
@@ -280,7 +281,7 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 	defer connB.Close()
 
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer func() { _ = m.Stop(context.Background()) }()
 
 	stopErr := make(chan error, 1)
 	var client *Client
@@ -288,7 +289,7 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 		WithPipelineLimit(1),
 		WithRequestNextCount(1),
 		WithVoteFunc(func(ctx CallbackContext, vote Vote) error {
-			stopErr <- client.Stop()
+			stopErr <- client.Stop(ctx.Context())
 			return nil
 		}),
 	)
@@ -301,7 +302,7 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 	)
 	client.Start()
 	m.Start()
-	defer client.Protocol.Stop()
+	defer client.Protocol.Stop(context.Background())
 
 	require.NoError(t, client.Sync())
 
@@ -316,19 +317,20 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 	require.NoError(t, err)
 	writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, voteData, true))
 
-	select {
-	case err := <-stopErr:
-		require.NoError(t, err)
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for Stop from vote callback")
-	}
-
+	// Stop waits for MsgDone to be written, and net.Pipe writes block
+	// until read.
 	secondSegment := requireReadTestSegment(t, connB)
 	assert.Equal(
 		t,
 		[]uint8{MessageTypeDone},
 		decodeTestMessageTypes(t, secondSegment.Payload),
 	)
+	select {
+	case err := <-stopErr:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for Stop from vote callback")
+	}
 
 	require.NoError(
 		t,

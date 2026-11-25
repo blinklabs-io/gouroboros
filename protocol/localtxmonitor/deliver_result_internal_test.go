@@ -15,6 +15,7 @@
 package localtxmonitor
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestDeliverResultReturnsAfterStopWithoutReceiver(t *testing.T) {
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
 	t.Cleanup(func() {
-		m.Stop()
+		m.Stop(context.Background())
 		connA.Close()
 		connB.Close()
 	})

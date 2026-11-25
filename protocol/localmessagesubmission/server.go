@@ -15,6 +15,7 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -172,12 +173,19 @@ func (s *Server) Start() {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -308,7 +316,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 			s.config.replayState.release(msgSubmit.Message.ID(), token)
 		}
 	}()
-	reason := s.config.SubmitMessageFunc(s.callbackContext, &msgSubmit.Message)
+	reason := s.config.SubmitMessageFunc(s.callbackContext.withOwner(s.Protocol), &msgSubmit.Message)
 	if reason != nil {
 		s.ProtocolInstance().Logger().
 			Warn("message rejected by handler",
@@ -333,7 +341,7 @@ func (s *Server) refuse(
 	reason pcommon.RejectReason,
 ) error {
 	if s.config.SubmitRefusedFunc != nil {
-		s.config.SubmitRefusedFunc(s.callbackContext, &msg.Message, reason)
+		s.config.SubmitRefusedFunc(s.callbackContext.withOwner(s.Protocol), &msg.Message, reason)
 	}
 	return s.sendReject(reason)
 }
@@ -368,7 +376,7 @@ func (s *Server) handleDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return nil

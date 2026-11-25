@@ -84,8 +84,8 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
 	var reqCount int
@@ -150,7 +150,7 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 	clientMuxer.Start()
 	t.Cleanup(func() {
 		close(h.stop)
-		_ = h.client.Stop()
+		_ = h.client.Stop(context.Background())
 	})
 	return sd
 }
@@ -262,7 +262,7 @@ func TestStopAfterDrainConnectionCloseDuringDrain(t *testing.T) {
 func TestStopAfterDrainWhenNotRunning(t *testing.T) {
 	t.Parallel()
 	h := newStopDrainHarness(t)
-	require.NoError(t, h.client.Stop())
+	require.NoError(t, h.client.Stop(context.Background()))
 	require.NoError(t, h.client.StopAfterDrain(context.Background()))
 }
 

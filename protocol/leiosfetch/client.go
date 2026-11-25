@@ -24,6 +24,7 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 type Client struct {
@@ -620,7 +621,14 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) Stop() error {
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
@@ -630,8 +638,11 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgDone()
-		err = c.SendMessage(msg)
+		err = stopping.SendDone(ctx, c.Protocol, msg)
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return err
 }
 

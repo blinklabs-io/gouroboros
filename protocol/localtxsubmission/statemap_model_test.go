@@ -16,6 +16,7 @@ package localtxsubmission
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -274,7 +275,7 @@ func newModelHarness(t *testing.T, role string) *modelHarness {
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -383,7 +384,7 @@ func driveClient(t *testing.T, h *modelHarness, state string) <-chan error {
 	t.Helper()
 	client := NewClient(h.opts, nil)
 	client.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 	switch state {
 	case stBusy:
 		result := make(chan error, 1)
@@ -391,7 +392,7 @@ func driveClient(t *testing.T, h *modelHarness, state string) <-chan error {
 		h.requireReceive(t, MessageTypeSubmitTx)
 		return result
 	case stDone:
-		require.NoError(t, client.Stop())
+		require.NoError(t, client.Stop(context.Background()))
 		h.requireReceive(t, MessageTypeDone)
 	}
 	return nil
@@ -407,7 +408,7 @@ func driveServer(t *testing.T, h *modelHarness, state string) {
 	))
 	server := NewServer(h.opts, &cfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	if state == stDone {
 		// The server cannot be observed resting in Done, so MsgDone and the
 		// message under test go back to back; the pipe keeps order.

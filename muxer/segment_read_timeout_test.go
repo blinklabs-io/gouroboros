@@ -15,6 +15,7 @@
 package muxer_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -35,7 +36,7 @@ func TestSegmentReadTimeout_CustomShortTimeoutFires(t *testing.T) {
 	t.Cleanup(func() { _ = clientConn.Close() })
 
 	m := muxer.NewWithSegmentReadTimeout(serverConn, 50*time.Millisecond)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	m.Start()
 
 	select {
@@ -63,7 +64,7 @@ func TestSegmentReadTimeout_DisabledNeverFires(t *testing.T) {
 	t.Cleanup(func() { _ = clientConn.Close() })
 
 	m := muxer.NewWithSegmentReadTimeout(serverConn, 0)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.NotNil(t, recvChan)

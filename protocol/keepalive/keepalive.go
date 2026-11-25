@@ -17,6 +17,7 @@ package keepalive
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -130,10 +131,27 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
-	// Context marks the protocol instance running the callback; pass it
-	// to the connection's CloseContext to close the connection from the
-	// callback.
-	Context context.Context
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // New creates and returns a new KeepAlive protocol instance using the provided protocol options and configuration.
@@ -156,13 +174,20 @@ func (k *KeepAlive) Start() {
 }
 
 // Stop stops both the client and server sides of the keep-alive protocol.
-func (k *KeepAlive) Stop() {
+//
+// Each side's Stop signals shutdown at once and waits for its goroutines
+// unless ctx is the Context of a CallbackContext that side passed to a
+// callback. A ctx that ends first cuts the waits short; Stop then returns
+// ctx.Err() and shutdown still proceeds.
+func (k *KeepAlive) Stop(ctx context.Context) error {
+	var clientErr, serverErr error
 	if k.Client != nil {
-		k.Client.Stop()
+		clientErr = k.Client.Stop(ctx)
 	}
 	if k.Server != nil {
-		k.Server.Stop()
+		serverErr = k.Server.Stop(ctx)
 	}
+	return errors.Join(clientErr, serverErr)
 }
 
 // KeepAliveOptionFunc is a function that modifies a Config.

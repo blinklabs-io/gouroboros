@@ -15,6 +15,7 @@
 package messagesubmission_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func TestServerRequestsAfterRestart(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 3 {
@@ -84,7 +85,7 @@ func TestServerHandlesInitSentDuringRestart(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(messagesubmission.NewMsgInit())

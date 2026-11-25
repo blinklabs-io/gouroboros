@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"log/slog"
 	"net"
 	"sync"
@@ -24,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSendKeepAliveDoesNotRearmDuringShutdown(t *testing.T) {
@@ -31,7 +33,7 @@ func TestSendKeepAliveDoesNotRearmDuringShutdown(t *testing.T) {
 	m := muxer.New(conn)
 	m.Start()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peer.Close()
 	})
 	client := NewClient(protocol.ProtocolOptions{
@@ -62,7 +64,7 @@ func TestSendKeepAliveDoesNotRearmDuringShutdown(t *testing.T) {
 	}
 	stopDone := make(chan struct{})
 	go func() {
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		close(stopDone)
 	}()
 	select {
@@ -107,7 +109,7 @@ func TestIsStoppingTracksShutdownRequest(t *testing.T) {
 	if client.IsStopping() {
 		t.Fatal("new protocol reports shutdown in progress")
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	if !client.IsStopping() {
 		t.Fatal("protocol did not report its shutdown request")
 	}
@@ -116,4 +118,31 @@ func TestIsStoppingTracksShutdownRequest(t *testing.T) {
 	default:
 		t.Fatal("protocol shutdown request did not complete")
 	}
+}
+
+// TestStopLeavesNoTimerArmed checks that a timer callback reaching
+// startTimer while Stop runs cannot arm a timer that outlives Stop.
+func TestStopLeavesNoTimerArmed(t *testing.T) {
+	conn, peer := net.Pipe()
+	m := muxer.New(conn)
+	m.Start()
+	t.Cleanup(func() {
+		_ = m.Stop(context.Background())
+		_ = peer.Close()
+	})
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  conn.LocalAddr(),
+			RemoteAddr: conn.RemoteAddr(),
+		},
+		Muxer: m,
+	}, &Config{Period: time.Hour})
+	// A timer callback already running reaches startTimer here.
+	client.stopHook = client.startTimer
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, client.Stop(ctx))
+	client.timerMutex.Lock()
+	defer client.timerMutex.Unlock()
+	require.Nil(t, client.timer, "Stop left a keep-alive timer armed")
 }

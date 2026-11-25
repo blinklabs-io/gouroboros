@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -68,10 +69,10 @@ func newDirectionFlow(
 	f.client.Start()
 	f.server.Start()
 	t.Cleanup(func() {
-		f.client.Protocol.Stop()
-		f.server.Protocol.Stop()
-		f.clientMuxer.Stop()
-		f.serverMuxer.Stop()
+		f.client.Protocol.Stop(context.Background())
+		f.server.Protocol.Stop(context.Background())
+		_ = f.clientMuxer.Stop(context.Background())
+		_ = f.serverMuxer.Stop(context.Background())
 		_ = f.clientConn.Close()
 		_ = f.serverConn.Close()
 	})

@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -149,7 +150,7 @@ func (c *Client) Start() {
 
 			// If we were stopped, ensure the old instance is fully stopped before re-registering.
 			if oldDone != nil {
-				oldProto.Stop()
+				_ = oldProto.Stop(context.Background())
 				<-oldDone
 			}
 
@@ -198,7 +199,14 @@ func (c *Client) Start() {
 // Note: Unlike other protocols, TxSubmission can only send Done from the TxIdsBlocking
 // state per protocol spec. This method stops the protocol without sending Done.
 // To send Done gracefully, use the callback mechanism with ErrStopServerProcess.
-func (c *Client) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
 
@@ -225,15 +233,21 @@ func (c *Client) Stop() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 
-	// Stop/unregister the underlying protocol instance.
-	c.Protocol.Stop()
+	// Stop/unregister the underlying protocol instance. The callback marker
+	// makes Stop only signal: lifecycleMutex is held, and a callback may
+	// need it to return.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
 		c.startingDone = nil
 	}
-	return nil
+	c.lifecycleMutex.Unlock()
+	err := proto.Stop(ctx)
+	c.lifecycleMutex.Lock()
+	return err
 }
 
 // Init tells the server to begin asking us for transactions
@@ -263,8 +277,10 @@ func (c *Client) Init() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		// Init cannot return this error, so log it and still clean up.
-		c.Protocol.Stop()
+		// Init cannot return this error, so log it and still clean up. The
+		// callback marker makes Stop only signal, as lifecycleMutex is held.
+		proto := c.Protocol
+		_ = proto.Stop(proto.CallbackContext())
 		c.lifecycleState = clientStateStopped
 		return
 	}
@@ -377,7 +393,7 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 
 	// Call the user callback function
 	txIds, err := c.config.RequestTxIdsFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.ProtocolInstance()),
 		msgRequestTxIds.Blocking,
 		msgRequestTxIds.Ack,
 		uint16(reply), // #nosec G115 -- at most the request's own uint16
@@ -469,7 +485,7 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	}
 	// Call the user callback function
 	txs, err := c.config.RequestTxsFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.ProtocolInstance()),
 		append([]TxId(nil), requestedTxIds...),
 	)
 	if err != nil {

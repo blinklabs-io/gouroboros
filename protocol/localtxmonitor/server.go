@@ -129,12 +129,19 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -217,7 +224,7 @@ func (s *Server) awaitMempoolChange() (bool, error) {
 	copy(held, s.mempoolTxs)
 	err := s.config.AwaitMempoolFunc(
 		ctx,
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 		s.acquiredSlot,
 		held,
 	)
@@ -239,7 +246,7 @@ func (s *Server) awaitMempoolChange() (bool, error) {
 // computes them on demand.
 func (s *Server) acquireMempool() (uint64, error) {
 	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 	)
 	if err != nil {
 		return 0, err
@@ -288,7 +295,7 @@ func (s *Server) handleDone() {
 		)
 	s.releaseMempool()
 	s.mempoolNextTxIdx = 0
-	p.StopForRestart()
+	_ = p.StopForRestart(p.CallbackContext())
 	if !s.initProtocol() {
 		p.CancelRestart()
 		return

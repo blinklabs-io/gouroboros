@@ -73,10 +73,10 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 	server.Start()
 	client.Start()
 	t.Cleanup(func() {
-		client.Stop()
-		server.Stop()
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		client.Stop(context.Background())
+		server.Stop(context.Background())
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})
@@ -185,10 +185,10 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 	client.Start()
 	t.Cleanup(func() {
 		close(release)
-		client.Stop()
-		server.Stop()
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		client.Stop(context.Background())
+		server.Stop(context.Background())
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})
@@ -202,7 +202,7 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("server did not receive the object ID request")
 	}
-	client.Stop()
+	client.Stop(context.Background())
 	select {
 	case err := <-requestDone:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

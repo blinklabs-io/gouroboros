@@ -15,6 +15,7 @@
 package leiosfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -98,12 +99,19 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -145,7 +153,7 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockRequest.Point,
 	)
 	if err != nil {
@@ -192,7 +200,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockTxsRequest.Point,
 		msgBlockTxsRequest.Bitmaps,
 	)
@@ -237,7 +245,7 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgVotesRequest.VoteIds,
 	)
 	if err != nil {
@@ -276,7 +284,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockRangeRequest.Start,
 		msgBlockRangeRequest.End,
 	)
@@ -296,7 +304,7 @@ func (s *Server) handleDone() {
 		)
 	// Restart protocol
 	old := s.ProtocolInstance()
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return

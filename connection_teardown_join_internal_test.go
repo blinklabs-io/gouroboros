@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -97,7 +98,7 @@ func TestCloseWaitsForRunningCallback(t *testing.T) {
 	}
 	closed := make(chan struct{})
 	go func() {
-		_ = conn.Close()
+		_ = conn.Close(context.Background())
 		close(closed)
 	}()
 	// Close cannot return while the callback is held; this bounds how long
@@ -116,13 +117,13 @@ func TestCloseWaitsForRunningCallback(t *testing.T) {
 }
 
 // TestCallbackMayCloseItsConnection checks that a callback passing its
-// context to CloseContext on its own connection does not wait for its own
+// context to Close on its own connection does not wait for its own
 // protocol loop.
 func TestCallbackMayCloseItsConnection(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	returned := make(chan *Connection, 1)
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
-		_ = c.CloseContext(ctx.Context)
+		_ = c.Close(ctx.Context())
 		returned <- c
 	})
 	select {
@@ -138,12 +139,12 @@ func TestCallbackMayCloseItsConnection(t *testing.T) {
 	}
 }
 
-// TestConcurrentCloseContextCallbacksReturn checks that callbacks of two
+// TestConcurrentCloseCallbacksReturn checks that callbacks of two
 // protocol instances closing their connection at the same time both
 // return: neither waits for the other, whose callback is itself closing.
 // A later Close still waits for both. The reference mux tears down once
 // and releases every thread that asked (network-mux Mux.hs:280-287).
-func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
+func TestConcurrentCloseCallbacksReturn(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	entered := make(chan *Connection, 1)
 	bothEntered := make(chan struct{})
@@ -151,7 +152,7 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
 		entered <- c
 		<-bothEntered
-		_ = c.CloseContext(ctx.Context)
+		_ = c.Close(ctx.Context())
 		returned <- struct{}{}
 	})
 	var conn *Connection
@@ -169,7 +170,7 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 	conn.setupMu.Unlock()
 	require.True(t, m.StartProtocolLoops(other, func() {
 		<-bothEntered
-		_ = conn.CloseContext(otherCtx)
+		_ = conn.Close(otherCtx)
 		returned <- struct{}{}
 	}))
 	close(bothEntered)
@@ -177,12 +178,12 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 		select {
 		case <-returned:
 		case <-time.After(teardownJoinTimeout):
-			t.Fatal("CloseContext waited for another callback that was closing")
+			t.Fatal("Close waited for another callback that was closing")
 		}
 	}
 	closed := make(chan struct{})
 	go func() {
-		_ = conn.Close()
+		_ = conn.Close(context.Background())
 		close(closed)
 	}()
 	select {
@@ -204,7 +205,7 @@ func TestCloseBeforeDialTearsDown(t *testing.T) {
 		WithHandshakeTimeout(time.Second),
 	)
 	require.NoError(t, err)
-	require.NoError(t, conn.Close())
+	require.NoError(t, conn.Close(context.Background()))
 	require.Error(t, conn.Dial("tcp", listener.Addr().String()))
 	tcpListener, ok := listener.(*net.TCPListener)
 	require.True(t, ok)
@@ -270,7 +271,7 @@ func TestCloseWaitsForCallbackThatClosed(t *testing.T) {
 	releaseCallback := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseCallback)
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
-		_ = c.CloseContext(ctx.Context)
+		_ = c.Close(ctx.Context())
 		closedByCallback <- c
 		<-release
 	})
@@ -282,7 +283,7 @@ func TestCloseWaitsForCallbackThatClosed(t *testing.T) {
 	}
 	closed := make(chan struct{})
 	go func() {
-		_ = conn.Close()
+		_ = conn.Close(context.Background())
 		close(closed)
 	}()
 	select {
@@ -298,11 +299,11 @@ func TestCloseWaitsForCallbackThatClosed(t *testing.T) {
 	}
 }
 
-// TestCloseContextFromAnotherConnectionWaits checks that CloseContext
+// TestCloseFromAnotherConnectionWaits checks that Close
 // compares the callback's owner by identity: a callback of connection B
 // closing connection A with B's context still waits for A's running
 // callback.
-func TestCloseContextFromAnotherConnectionWaits(t *testing.T) {
+func TestCloseFromAnotherConnectionWaits(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	enteredA := make(chan *Connection, 1)
 	release := make(chan struct{})
@@ -323,7 +324,7 @@ func TestCloseContextFromAnotherConnectionWaits(t *testing.T) {
 	enteredB := make(chan *Connection, 1)
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
 		enteredB <- c
-		_ = connA.CloseContext(ctx.Context)
+		_ = connA.Close(ctx.Context())
 		close(closedA)
 	})
 	var connB *Connection
@@ -341,16 +342,16 @@ func TestCloseContextFromAnotherConnectionWaits(t *testing.T) {
 	select {
 	case <-closedA:
 	case <-time.After(teardownJoinTimeout):
-		t.Fatal("CloseContext did not return after A's callback returned")
+		t.Fatal("Close did not return after A's callback returned")
 	}
-	require.NoError(t, connB.Close())
+	require.NoError(t, connB.Close(context.Background()))
 }
 
-// TestForeignCloseContextWaitsForCallbackThatClosed checks that a
-// CloseContext whose context marks no instance of the connection waits like
-// Close, including for a callback that has already closed the connection
+// TestForeignCloseWaitsForCallbackThatClosed checks that a Close whose
+// context marks no instance of the connection waits like a Close from
+// outside a callback, including for a callback that has already closed the connection
 // with its own context and is still running.
-func TestForeignCloseContextWaitsForCallbackThatClosed(t *testing.T) {
+func TestForeignCloseWaitsForCallbackThatClosed(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	closedByCallback := make(chan *Connection, 1)
 	release := make(chan struct{})
@@ -358,7 +359,7 @@ func TestForeignCloseContextWaitsForCallbackThatClosed(t *testing.T) {
 	releaseCallback := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseCallback)
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
-		_ = c.CloseContext(ctx.Context)
+		_ = c.Close(ctx.Context())
 		closedByCallback <- c
 		<-release
 	})
@@ -366,13 +367,13 @@ func TestForeignCloseContextWaitsForCallbackThatClosed(t *testing.T) {
 	select {
 	case connA = <-closedByCallback:
 	case <-time.After(teardownJoinTimeout):
-		t.Fatal("CloseContext from a protocol callback did not return")
+		t.Fatal("Close from a protocol callback did not return")
 	}
 	closedA := make(chan struct{})
 	enteredB := make(chan *Connection, 1)
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
 		enteredB <- c
-		_ = connA.CloseContext(ctx.Context)
+		_ = connA.Close(ctx.Context())
 		close(closedA)
 	})
 	var connB *Connection
@@ -383,14 +384,14 @@ func TestForeignCloseContextWaitsForCallbackThatClosed(t *testing.T) {
 	}
 	select {
 	case <-closedA:
-		t.Fatal("CloseContext with another connection's context returned while A's callback ran")
+		t.Fatal("Close with another connection's context returned while A's callback ran")
 	case <-time.After(500 * time.Millisecond):
 	}
 	releaseCallback()
 	select {
 	case <-closedA:
 	case <-time.After(teardownJoinTimeout):
-		t.Fatal("CloseContext did not return after A's callback returned")
+		t.Fatal("Close did not return after A's callback returned")
 	}
-	require.NoError(t, connB.Close())
+	require.NoError(t, connB.Close(context.Background()))
 }

@@ -15,6 +15,7 @@
 package localtxmonitor
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func TestAwaitAcquireIsNotTimed(t *testing.T) {
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	cfg := NewConfig(WithAcquireTimeout(acquireTimeout))
 	client := NewClient(protocol.ProtocolOptions{
@@ -63,7 +64,7 @@ func TestAwaitAcquireIsNotTimed(t *testing.T) {
 	}, &cfg)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 
 	acquired := make(chan error, 1)
 	go func() { acquired <- client.Acquire() }()
@@ -91,7 +92,7 @@ func TestAcquireFromIdleIsTimed(t *testing.T) {
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	cfg := NewConfig(WithAcquireTimeout(50 * time.Millisecond))
 	client := NewClient(protocol.ProtocolOptions{
@@ -105,7 +106,7 @@ func TestAcquireFromIdleIsTimed(t *testing.T) {
 	}, &cfg)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 
 	go func() { _ = client.Acquire() }()
 	requireQueryTestMessageType(t, connB, MessageTypeAcquire)

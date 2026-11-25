@@ -16,6 +16,7 @@ package localmessagesubmission_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func TestServerAnswersSubmitSentDuringRestart(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(localmessagesubmission.NewMsgDone())
@@ -84,7 +85,7 @@ func TestServerAnswersBackToBackRestarts(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 50 {
