@@ -154,3 +154,42 @@ func TestConstructorEncoderItemsAsPlutus(t *testing.T) {
 		}
 	}
 }
+
+// TestConstructorEncoderMapItemsAsPlutus covers Data maps in the fields:
+// encodeData writes a Map as a definite map whose keys and values are
+// written as any other Data (Data.hs 147-166), so a long byte string in a
+// map is chunked and a list in a map is indefinite. A Go map has no order,
+// so its pairs follow their encoded keys.
+func TestConstructorEncoderMapItemsAsPlutus(t *testing.T) {
+	bytes65 := make([]byte, 65)
+	for i := range bytes65 {
+		bytes65[i] = byte(i)
+	}
+	hex65 := hex.EncodeToString(bytes65)
+	chunked65 := "5f5840" + hex65[:128] + "41" + hex65[128:] + "ff"
+	cases := []struct {
+		name   string
+		fields any
+		want   string
+	}{
+		{"short members", []any{map[any]any{uint64(2): uint64(3), uint64(1): []byte{0x61}}}, "d8799fa2014161" + "0203" + "ff"},
+		{"long byte string value", []any{map[any]any{uint64(1): bytes65}}, "d8799fa101" + chunked65 + "ff"},
+		{"long byte string key", []any{map[any]any{cbor.NewByteString(bytes65): uint64(1)}}, "d8799fa1" + chunked65 + "01ff"},
+		{"list value", []any{map[any]any{uint64(1): []any{uint64(2)}}}, "d8799fa1019f02ffff"},
+		{"empty list value", []any{map[any]any{uint64(1): []any{}}}, "d8799fa10180ff"},
+		{"IndefLengthMap", []any{cbor.IndefLengthMap{uint64(1): uint64(2)}}, "d8799fa10102ff"},
+		{"cbor.Map", []any{cbor.Map{uint64(1): uint64(2)}}, "d8799fa10102ff"},
+		{"empty map", []any{map[any]any{}}, "d8799fa0ff"},
+		{"map in a nested list", []any{[]any{map[any]any{uint64(1): bytes65}}}, "d8799f9fa101" + chunked65 + "ffff"},
+	}
+	for _, tc := range cases {
+		got, err := cbor.NewConstructorEncoder(0, tc.fields).MarshalCBOR()
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if hex.EncodeToString(got) != tc.want {
+			t.Errorf("%s:\n got %x\nwant %s", tc.name, got, tc.want)
+		}
+	}
+}

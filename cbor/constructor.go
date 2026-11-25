@@ -15,9 +15,13 @@
 package cbor
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
+	"sort"
 	"strconv"
 
 	_cbor "github.com/fxamacker/cbor/v2"
@@ -70,8 +74,11 @@ func (ce ConstructorEncoder) Tag() uint {
 // depth) as an indefinite-length list when non-empty and an empty definite
 // list (0x80) otherwise, and every byte string longer than 64 bytes, or
 // bignum magnitude longer than 64 bytes, as an indefinite-length byte string
-// of 64-byte chunks. A nil fields value is an empty list. Any other value,
-// including one with its own MarshalCBOR, is encoded as given.
+// of 64-byte chunks. A map (a Go map, Map or IndefLengthMap) is a definite
+// map whose keys and values are written the same way; a Go map has no order,
+// so its pairs follow their encoded keys. A nil fields value is an empty
+// list. Any other value, including one with its own MarshalCBOR, is encoded
+// as given.
 func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	tagNum, wrap := alternativeToTag(ce.tag)
 	fields := plutusFieldList(ce.fields)
@@ -142,11 +149,68 @@ func plutusItem(item any) any {
 		return plutusBytes(value.Bytes())
 	case *big.Int:
 		return plutusInteger(value)
+	case IndefLengthMap:
+		return plutusMap(value)
 	}
 	if items, ok := plutusListItems(item); ok {
 		return plutusList(items)
 	}
+	if v := reflect.ValueOf(item); v.Kind() == reflect.Map {
+		if _, ok := item.(_cbor.Marshaler); !ok {
+			pairs := make(map[any]any, v.Len())
+			for it := v.MapRange(); it.Next(); {
+				pairs[it.Key().Interface()] = it.Value().Interface()
+			}
+			return plutusMap(pairs)
+		}
+	}
 	return item
+}
+
+// plutusMap is a Data map: a definite map whose keys and values are
+// converted like any other item, its pairs in the order of their encoded
+// keys.
+type plutusMap map[any]any
+
+func (m plutusMap) MarshalCBOR() ([]byte, error) {
+	type pair struct{ key, value []byte }
+	pairs := make([]pair, 0, len(m))
+	for key, value := range m {
+		keyData, err := Encode(plutusItem(key))
+		if err != nil {
+			return nil, err
+		}
+		valueData, err := Encode(plutusItem(value))
+		if err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, pair{keyData, valueData})
+	}
+	sort.Slice(pairs, func(a, b int) bool {
+		return bytes.Compare(pairs[a].key, pairs[b].key) < 0
+	})
+	ret := mapHead(uint64(len(pairs)))
+	for _, p := range pairs {
+		ret = append(ret, p.key...)
+		ret = append(ret, p.value...)
+	}
+	return ret, nil
+}
+
+// mapHead is the shortest head of a definite map of n pairs.
+func mapHead(n uint64) []byte {
+	switch {
+	case n < 24:
+		return []byte{CborTypeMap | byte(n)}
+	case n <= math.MaxUint8:
+		return []byte{CborTypeMap | 24, byte(n)}
+	case n <= math.MaxUint16:
+		return binary.BigEndian.AppendUint16([]byte{CborTypeMap | 25}, uint16(n))
+	case n <= math.MaxUint32:
+		return binary.BigEndian.AppendUint32([]byte{CborTypeMap | 26}, uint32(n))
+	default:
+		return binary.BigEndian.AppendUint64([]byte{CborTypeMap | 27}, n)
+	}
 }
 
 // plutusBytes writes a byte string longer than plutusChunkSize as an
