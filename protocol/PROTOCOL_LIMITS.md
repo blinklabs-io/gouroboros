@@ -365,8 +365,9 @@ The map (`protocol/peersharing/peersharing.go`) is:
 
 `MaxPendingMessageBytes` is 5,760 bytes, the reference implementation's
 `peerSharingProtocolLimits` ingress queue and `byteLimitsPeerSharing` per-state
-limit (4 x 1440, one TCP initial congestion window). The Busy timeout is
-configurable via `WithTimeout`.
+limit (4 x 1440, one TCP initial congestion window). Only the client's copy
+of the map takes `WithTimeout` as its Busy timeout; the server's map always
+uses `BusyTimeout`.
 
 The server clamps a `SharePeers` reply to the smaller of the requested
 `Amount` and `MaxSharedPeers` (230), the largest number of addresses that
