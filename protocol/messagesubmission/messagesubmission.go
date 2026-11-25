@@ -92,9 +92,10 @@ var (
 	// isMessageSubmissionV2.
 	MessageSubmissionV2MinVersion uint16 = 15
 
-	// stateMapV1 is the V1 state map.
-	// Includes StInit; MsgDone can be sent by client from
-	// StMessageIdsBlocking.
+	// stateMapV1 is the V1 state map: tx-submission's (ouroboros-network
+	// TxSubmission2/Type.hs). The Client, which has the messages, is the
+	// initiator and holds agency in StInit and while answering; MsgDone is
+	// its alternative to answering a blocking request.
 	stateMapV1 = protocol.StateMap{
 		protocolStateInit: protocol.StateMapEntry{
 			Agency:                  protocol.AgencyClient,
@@ -102,7 +103,7 @@ var (
 			Timeout:                 InitTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeInit,
+					MsgType:  MessageTypeV1Init,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -113,7 +114,7 @@ var (
 			Timeout:                 IdleTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV1RequestMessageIds,
 					NewState: protocolStateMessageIdsBlock,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -121,7 +122,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV1RequestMessageIds,
 					NewState: protocolStateMessageIdsNonBlk,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -129,7 +130,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessages,
+					MsgType:  MessageTypeV1RequestMessages,
 					NewState: protocolStateMessages,
 				},
 			},
@@ -140,11 +141,11 @@ var (
 			Timeout:                 MessageIdsBlockingTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV1ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 				{
-					MsgType:  MessageTypeDone,
+					MsgType:  MessageTypeV1Done,
 					NewState: protocolStateDone,
 				},
 			},
@@ -153,9 +154,17 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV1ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -164,9 +173,16 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessages,
+					MsgType:  MessageTypeV1ReplyMessages,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -177,17 +193,20 @@ var (
 		},
 	}
 
-	// stateMapV2 is the V2 state map (CIP-0137 V2).
-	// No StInit state; protocol starts directly in StIdle.
-	// MsgDone can only be sent by the server (inbound side) from StIdle.
+	// stateMapV2 is the V2 state map (dmq-node
+	// DMQ/Protocol/SigSubmissionV2/Type.hs). There is no StInit. The side
+	// that wants messages is the initiator and holds agency in StIdle, so
+	// AgencyClient here is the initiator's agency: the Server type runs with
+	// the initiator role in V2 and the Client type with the responder role.
+	// Only the requesting side sends MsgDone, from StIdle.
 	stateMapV2 = protocol.StateMap{
 		protocolStateIdle: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyServer,
+			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 IdleTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV2RequestMessageIds,
 					NewState: protocolStateMessageIdsBlock,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -195,7 +214,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV2RequestMessageIds,
 					NewState: protocolStateMessageIdsNonBlk,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -203,44 +222,63 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessages,
+					MsgType:  MessageTypeV2RequestMessages,
 					NewState: protocolStateMessages,
 				},
 				{
-					MsgType:  MessageTypeDone,
+					MsgType:  MessageTypeV2Done,
 					NewState: protocolStateDone,
 				},
 			},
 		},
 		protocolStateMessageIdsBlock: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsBlockingTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV2ReplyMessageIds,
+					NewState: protocolStateIdle,
+				},
+				{
+					MsgType:  MessageTypeV2ReplyNoMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
 		},
 		protocolStateMessageIdsNonBlk: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV2ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
 		},
 		protocolStateMessages: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessages,
+					MsgType:  MessageTypeV2ReplyMessages,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -251,6 +289,20 @@ var (
 		},
 	}
 )
+
+// roleFor maps a side to its connection role. In V1 the Client (which has the
+// messages) is the initiator, as tx-submission's outbound is. In V2 the
+// Server (which wants them) is the initiator, as dmq-node runs its V2 inbound
+// as the initiator (DMQ/NodeToNode.hs aSigSubmissionV2Client).
+func roleFor(version uint16, side protocol.ProtocolRole) protocol.ProtocolRole {
+	if !isMessageSubmissionV2(version) {
+		return side
+	}
+	if side == protocol.ProtocolRoleClient {
+		return protocol.ProtocolRoleServer
+	}
+	return protocol.ProtocolRoleClient
+}
 
 func isMessageSubmissionV2(version uint16) bool {
 	return version == protocol.ProtocolVersionDMQNtN2 ||

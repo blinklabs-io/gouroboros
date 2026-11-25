@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"sync/atomic"
@@ -422,7 +423,14 @@ func TestLocalMessageSubmissionCallbackClosesConnection(t *testing.T) {
 	cc.conn.Store(server)
 	go func() {
 		_ = client.LocalMessageSubmission().Client.SubmitMessage(
-			&pcommon.DmqMessage{},
+			&pcommon.DmqMessage{
+				Payload: pcommon.DmqMessagePayload{
+					MessageBody: bytes.Repeat(
+						[]byte{0x2e},
+						pcommon.MinMessageBodySize,
+					),
+				},
+			},
 		)
 	}()
 	requireClosedFromCallback(t, cc, client)

@@ -96,10 +96,27 @@ type Rat struct {
 }
 
 func (r *Rat) UnmarshalCBOR(cborData []byte) error {
+	// Exactly one tag 30 comes before the list. Every ledger rational is a
+	// bounded ratio, which requires the tag at every protocol version; an
+	// untagged list, another tag number or a second tag is refused.
+	content := cborData
+	if len(content) == 0 || content[0]&CborTypeMask != CborTypeTag {
+		return errors.New("invalid cbor.Rat: missing tag 30")
+	}
+	if number, found := tagNumber(content); !found ||
+		number != CborTagRational {
+		return errors.New("invalid cbor.Rat: tag other than 30")
+	}
+	content = content[1:]
+	if info := cborData[0] & 0x1f; info >= 24 {
+		content = content[1<<(info-24):]
+	}
+	if len(content) > 0 && content[0]&CborTypeMask == CborTypeTag {
+		return errors.New("invalid cbor.Rat: more than one tag")
+	}
 	// Check the item count before decoding so an oversized array is rejected
 	// without building it. An indefinite-length array declares no count, so
 	// ListLength walks its items without retaining them.
-	content := SkipTags(cborData)
 	count, _, indefinite := ArrayInfo(content)
 	if indefinite {
 		var err error
@@ -118,7 +135,7 @@ func (r *Rat) UnmarshalCBOR(cborData []byte) error {
 	// Decoding them as any would build an item that is an array before its
 	// type is checked.
 	tmpRat := []RawMessage{}
-	if _, err := Decode(cborData, &tmpRat); err != nil {
+	if _, err := Decode(content, &tmpRat); err != nil {
 		return err
 	}
 	if len(tmpRat) != 2 {

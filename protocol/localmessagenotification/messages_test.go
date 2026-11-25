@@ -159,7 +159,7 @@ func TestMsgReplyMessagesNonBlocking(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -251,7 +251,7 @@ func TestMsgReplyMessagesBlocking(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -267,7 +267,7 @@ func TestMsgReplyMessagesBlocking(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id2"),
-				MessageBody: []byte("body2"),
+				MessageBody: paddedTestBody("body2"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -475,13 +475,18 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 			}
 			payload, err := cbor.Encode(NewMsgReplyMessagesBlocking(messages))
 			require.NoError(t, err)
-			segment := muxer.NewSegment(ProtocolID, payload, true)
+			// A full batch of minimum-size messages spans several segments.
 			buf := &bytes.Buffer{}
-			require.NoError(
-				t,
-				binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
-			)
-			buf.Write(segment.Payload)
+			for len(payload) > 0 {
+				n := min(len(payload), muxer.SegmentMaxPayloadLength)
+				segment := muxer.NewSegment(ProtocolID, payload[:n], true)
+				require.NoError(
+					t,
+					binary.Write(buf, binary.BigEndian, segment.SegmentHeader),
+				)
+				buf.Write(segment.Payload)
+				payload = payload[n:]
+			}
 			_, err = connB.Write(buf.Bytes())
 			require.NoError(t, err)
 

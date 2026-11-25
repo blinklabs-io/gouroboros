@@ -257,6 +257,29 @@ func (v *Value) unmarshalCBORWithBudget(
 				return 0, err
 			}
 			v.value = tmpConstr
+		} else if tmpTag.Number == CborTagSet {
+			// The library decodes set members as interface values, which
+			// cannot hold a map keyed by an array or a map, so the members
+			// are walked here like any other list, spending the tree's
+			// budget.
+			var members Value
+			if _, err := members.unmarshalCBORWithBudget(
+				tmpTag.Content,
+				false,
+				nil,
+				nil,
+				depth+1,
+				duplicateKeyPolicy,
+				decMode,
+				budget,
+			); err != nil {
+				return 0, err
+			}
+			items, ok := members.value.([]any)
+			if !ok {
+				return 0, errors.New("CBOR set content is not a list")
+			}
+			v.value = Set(items)
 		} else {
 			// The library decodes this content into a tree of its own, so
 			// its collections are charged before anything is decoded.

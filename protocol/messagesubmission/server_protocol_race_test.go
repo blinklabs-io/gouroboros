@@ -49,10 +49,10 @@ func TestServerMethodsDuringRestart(t *testing.T) {
 	require.NoError(t, server.RequestMessageIdsBlocking(0, 1))
 	require.Equal(
 		t,
-		uint(messagesubmission.MessageTypeRequestMessageIds),
+		uint(messagesubmission.MessageTypeV1RequestMessageIds),
 		h.RecvType("RequestMessageIds"),
 	)
-	h.Send(messagesubmission.NewMsgDone())
+	h.Send(messagesubmission.NewMsgDone(protocol.ProtocolVersionDMQNtN1))
 	h.WaitHeld()
 	read := make(chan struct{})
 	go func() {
