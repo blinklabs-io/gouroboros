@@ -251,11 +251,28 @@ func TestReferenceTxSizeOnLedgerGoldens(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.era, func(t *testing.T) {
 			txCbor := readLedgerGolden(t, tc.era+"-tx.cbor")
+			want := referenceTxSize(t, txCbor)
 			tx, err := tc.decode(txCbor)
 			require.NoError(t, err)
 			size, err := common.TxSize(tx)
 			require.NoError(t, err)
-			assert.Equal(t, referenceTxSize(t, txCbor), size)
+			assert.Equal(t, want, size)
+
+			// Every golden arrives under a definite one-byte header, where
+			// the received length and the reference size coincide. The
+			// reference decoder also accepts an indefinite outer array
+			// (decodeListLikeT) and re-encodes the parts under the
+			// canonical header, so the size does not change.
+			indefinite := []byte{0x9f}
+			for _, part := range goldenTxParts(t, txCbor) {
+				indefinite = append(indefinite, part...)
+			}
+			indefinite = append(indefinite, 0xff)
+			tx, err = tc.decode(indefinite)
+			require.NoError(t, err)
+			size, err = common.TxSize(tx)
+			require.NoError(t, err)
+			assert.Equal(t, want, size, "indefinite outer array")
 		})
 	}
 }
@@ -582,6 +599,38 @@ func TestReferenceMinCoinOnLedgerGoldens(t *testing.T) {
 		for _, out := range tooSmall.Outputs {
 			assert.Nil(t, out.Assets())
 		}
+	})
+	t.Run("mary per output", func(t *testing.T) {
+		// getMinCoinTxOut pp txOut = scaledMinDeposit (txOut ^. valueTxOutL)
+		// (pp ^. ppMinUTxOValueL) (eras/mary/impl/src/Cardano/Ledger/Mary/
+		// TxOut.hs): minUTxOValue for an ada-only value, otherwise
+		// max minUTxOValue (quot minUTxOValue 27 * (27 + size value)). A
+		// Mary output has no datum, so 27 + size value is the
+		// utxoEntrySize computed for Alonzo.
+		minUtxoValue := readGoldenPParams(t, "shelley").MinUTxOValue
+		txCbor := readLedgerGolden(t, "mary-tx.cbor")
+		tx, err := mary.NewMaryTransactionFromCbor(txCbor)
+		require.NoError(t, err)
+		raw := goldenOutputs(t, txCbor)
+		require.Len(t, raw, len(tx.Outputs()))
+		pp := &mary.MaryProtocolParameters{MinUtxoValue: uint(minUtxoValue)}
+		var withAssets []uint64
+		for i, out := range tx.Outputs() {
+			want := minUtxoValue
+			if out.Assets() != nil {
+				want = max(
+					minUtxoValue,
+					minUtxoValue/27*referenceAlonzoUtxoEntrySize(t, raw[i]),
+				)
+				withAssets = append(withAssets, want)
+			}
+			got, err := mary.MinCoinTxOut(out, pp)
+			require.NoError(t, err)
+			assert.Equal(t, want, got, "output %d", i)
+		}
+		// The golden's asset output holds one asset with a 10-byte name:
+		// 12 + 28 + 10 bytes is 7 words, size 13, 37037 * 40.
+		assert.Equal(t, []uint64{1_481_480}, withAssets)
 	})
 	t.Run("alonzo", func(t *testing.T) {
 		// getMinCoinTxOut = utxoEntrySize txOut * coinsPerUTxOWord
