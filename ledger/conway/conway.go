@@ -867,8 +867,8 @@ func conwayTransactionBodyHasField(cborData []byte, wanted int) (bool, error) {
 }
 
 func validateConwayTransactionBodyFields(cborData []byte) error {
-	var fields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint64](cborData)
+	if err != nil {
 		return err
 	}
 	// CBOR major type 1 encodes negative integers; coins must be nonnegative.
@@ -933,8 +933,8 @@ func (b ConwayTransactionBody) MarshalCBOR() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(encoded, &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](encoded)
+	if err != nil {
 		return nil, err
 	}
 	if bodyFields == nil {
