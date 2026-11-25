@@ -499,7 +499,7 @@ type dijkstraGovernanceStateView struct {
 	actions           map[common.GovActionId]common.GovActionState
 	stakeCredentials  map[dijkstraAccountKey]bool
 	drepCredentials   map[dijkstraAccountKey]bool
-	poolRegistrations map[common.PoolKeyHash]struct{}
+	poolRegistrations map[common.PoolKeyHash]*common.PoolRegistrationCertificate
 	committeeCold     map[dijkstraAccountKey]*common.CommitteeMember
 	// committeeColdHot tracks, for a cold credential an earlier level's
 	// certificates touched, the typed hot credential currently authorized
@@ -556,6 +556,15 @@ func (s dijkstraCommitteeVotingView) CommitteeCredentialIsElected(
 	cold common.Credential,
 ) (bool, error) {
 	return s.votingState.CommitteeCredentialIsElected(cold)
+}
+
+// CapabilityParentLedgerState lets first-provider capability lookups, such as
+// the epoch common.PoolRegistered needs for a pool with a pending retirement,
+// reach the wrapped state. The view does not implement UnwrapLedgerState
+// because common.CommitteeCredentialStateFor and its siblings unwrap fully and
+// would then bypass the earlier levels' committee certificates.
+func (s dijkstraCommitteeCredentialView) CapabilityParentLedgerState() common.LedgerState {
+	return s.LedgerState
 }
 
 func dijkstraCommitteeCredentialState(
@@ -624,6 +633,36 @@ func (s *dijkstraGovernanceStateView) DRepRegistration(
 		return nil, nil
 	}
 	return s.LedgerState.DRepRegistration(credential)
+}
+
+// PoolCurrentState reports a pool an earlier level registered. A registration
+// cancels any pending retirement. When the wrapped state returns no
+// registration the level's certificate becomes current; otherwise the current
+// parameters stay, as for a re-registration. common.PoolRegistered decides
+// registration from this method, so it must see earlier levels as
+// IsPoolRegistered does.
+func (s *dijkstraGovernanceStateView) PoolCurrentState(
+	pool common.PoolKeyHash,
+) (*common.PoolRegistrationCertificate, *uint64, error) {
+	var (
+		reg        *common.PoolRegistrationCertificate
+		retirement *uint64
+		err        error
+	)
+	if s.LedgerState != nil {
+		reg, retirement, err = s.LedgerState.PoolCurrentState(pool)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	levelReg, ok := s.poolRegistrations[pool]
+	if !ok {
+		return reg, retirement, nil
+	}
+	if reg == nil {
+		return levelReg, nil, nil
+	}
+	return reg, nil, nil
 }
 
 func (s *dijkstraGovernanceStateView) IsPoolRegistered(
@@ -878,13 +917,15 @@ func validateDijkstraGovernanceLevels(
 		return validate(tx, ls)
 	}
 	state := &dijkstraGovernanceStateView{
-		LedgerState:       ls,
-		actions:           make(map[common.GovActionId]common.GovActionState),
-		stakeCredentials:  make(map[dijkstraAccountKey]bool),
-		drepCredentials:   make(map[dijkstraAccountKey]bool),
-		poolRegistrations: make(map[common.PoolKeyHash]struct{}),
-		committeeCold:     make(map[dijkstraAccountKey]*common.CommitteeMember),
-		committeeColdHot:  make(map[dijkstraAccountKey]*dijkstraAccountKey),
+		LedgerState:      ls,
+		actions:          make(map[common.GovActionId]common.GovActionState),
+		stakeCredentials: make(map[dijkstraAccountKey]bool),
+		drepCredentials:  make(map[dijkstraAccountKey]bool),
+		poolRegistrations: make(
+			map[common.PoolKeyHash]*common.PoolRegistrationCertificate,
+		),
+		committeeCold:    make(map[dijkstraAccountKey]*common.CommitteeMember),
+		committeeColdHot: make(map[dijkstraAccountKey]*dijkstraAccountKey),
 	}
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := validate(level, state); err != nil {
@@ -931,7 +972,7 @@ func validateDijkstraGovernanceLevels(
 			case *common.DeregistrationDrepCertificate:
 				state.drepCredentials[dijkstraAccountKeyFor(cert.DrepCredential)] = false
 			case *common.PoolRegistrationCertificate:
-				state.poolRegistrations[cert.Operator] = struct{}{}
+				state.poolRegistrations[cert.Operator] = cert
 			}
 		}
 		state.applyCommitteeCertificates(level.Certificates())
@@ -1143,7 +1184,7 @@ func UtxoValidatePoolCertificates(
 	if err != nil {
 		return err
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for _, level := range dijkstraTransactionLevels(dijkstraTx) {
 		if err := conway.UtxoValidatePoolCertificates(
 			level, slot, state, params,
@@ -1213,7 +1254,7 @@ func UtxoValidateCertificateDeposits(
 			"dijkstra transaction level effects do not match validation levels",
 		)
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for idx, level := range levels {
 		if err := conway.UtxoValidateCertificateDeposits(
 			level, slot, state, pp,
@@ -1765,7 +1806,7 @@ func UtxoValidateRequiredVKeyWitnesses(
 	// state would make every pool lookup panic.
 	var state *common.BlockLedgerState
 	if ls != nil && !dijkstraLedgerStateIsNil(ls) {
-		state = common.NewBlockLedgerState(ls)
+		state = common.NewBlockLedgerStateAt(ls, slot)
 	}
 	ownersRequired := func(cert *common.PoolRegistrationCertificate) bool {
 		return valid && (state == nil ||
@@ -2375,7 +2416,7 @@ func UtxoValidateValueNotConservedLegacyModeUtxo(
 	if err != nil {
 		return err
 	}
-	state := common.NewBlockLedgerState(ls)
+	state := common.NewBlockLedgerStateAt(ls, slot)
 	for _, level := range effects[:len(effects)-1] {
 		if err := state.ApplyCertificateDepositLevel(level, pp); err != nil {
 			return err
@@ -4851,6 +4892,13 @@ func UtxoValidateWrongNetworkWithdrawal(
 type dijkstraRewardAccountStateView struct {
 	common.LedgerState
 	accounts *dijkstraAccountStateOverlay
+}
+
+// UnwrapLedgerState returns the wrapped state. The view answers only
+// RewardAccountBalance, which no rule resolves by unwrapping, so optional
+// capabilities belong to the wrapped state.
+func (s dijkstraRewardAccountStateView) UnwrapLedgerState() common.LedgerState {
+	return s.LedgerState
 }
 
 func (s dijkstraRewardAccountStateView) RewardAccountBalance(

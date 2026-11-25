@@ -838,7 +838,7 @@ func verifyBlockTransactions(
 	pp common.ProtocolParameters,
 	rules []common.UtxoValidationRuleFunc,
 ) (int, error) {
-	blockState := common.NewBlockLedgerState(ls)
+	blockState := common.NewBlockLedgerStateAt(ls, slot)
 	for idx, tx := range txs {
 		err := common.VerifyTransaction(tx, slot, blockState, pp, rules)
 		if err != nil {
@@ -1667,7 +1667,10 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					nil,
 				)
 			}
-			blockState := common.NewBlockLedgerState(config.LedgerState)
+			blockState := common.NewBlockLedgerStateAt(
+				config.LedgerState,
+				slot,
+			)
 			for idx := range mainBlock.Body.TxPayload {
 				tx := &mainBlock.Body.TxPayload[idx]
 				if err := tx.ValidateAgainstUtxo(
