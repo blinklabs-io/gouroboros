@@ -399,6 +399,9 @@ func pruneZeroAssets[T int64 | uint64 | *big.Int](
 }
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
+	if err := checkMultiAssetQuantityHeads(data); err != nil {
+		return err
+	}
 	var decoded map[Blake2b224]map[cbor.ByteString]T
 	duplicateMapKeys := false
 	if _, err := cbor.Decode(data, &decoded); err != nil {
@@ -444,6 +447,34 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 	m.duplicateMapKeys = duplicateMapKeys
 	if err := validateMultiAssetCompactRepresentationSize(m.data); err != nil {
 		return err
+	}
+	return nil
+}
+
+// checkMultiAssetQuantityHeads rejects an asset quantity that is not a CBOR
+// major type 0 or 1 integer. cardano-ledger decodes output quantities with
+// decodeWord64 and mint quantities with decodeIntegerBounded64
+// (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs), and both refuse a tag-2
+// or tag-3 bignum that the big.Int decoder would accept. A quantity can only
+// be a bignum if one of those tag bytes occurs, so the second decode runs
+// only then.
+func checkMultiAssetQuantityHeads(data []byte) error {
+	if bytes.IndexByte(data, 0xc2) < 0 && bytes.IndexByte(data, 0xc3) < 0 {
+		return nil
+	}
+	// Malformed input leaves raw empty; the typed decode reports it.
+	var raw map[cbor.ByteString]map[cbor.ByteString]cbor.RawMessage
+	_, _ = cbor.DecodeLenient(data, &raw)
+	for _, assets := range raw {
+		for _, quantity := range assets {
+			// 0x20 is major type 1, the negative integers.
+			if len(quantity) == 0 ||
+				quantity[0]&cbor.CborTypeMask > 0x20 {
+				return errors.New(
+					"multiasset quantity must be a CBOR integer",
+				)
+			}
+		}
 	}
 	return nil
 }
