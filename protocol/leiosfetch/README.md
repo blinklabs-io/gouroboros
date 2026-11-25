@@ -155,7 +155,8 @@ CIP-0164 says a server should disconnect when requested data is unavailable.
 `VotesRequest` identifies each requested vote by `(SlotNo, VoterId)`, where
 `VoterId` is the voter's index in the epoch's stake-based committee.
 `Votes` keeps the wire payload as raw CBOR and provides typed helpers for
-validated `common.LeiosVote` values.
+validated `common.LeiosVote` values, the CIP-0164 `[announcing_rb_hash,
+voter_id, vote_signature]` shape.
 
 ## Reply correlation
 
@@ -169,9 +170,10 @@ no selector, so each is bound through its content:
 - `BlockTxs`: the reply must carry one transaction per bit in the requested
   bitmaps. This is checked once, when the reply is decoded.
 - `Votes`: every vote must decode as a `LeiosVote` (so a malformed signature
-  fails the connection) and match a requested `(SlotNo, VoterId)` pair, no more
-  often than that pair was requested. There can be no more votes than
-  requested; a server may return fewer.
+  fails the connection) and name a requested `VoterId`, no more often than
+  that voter was requested. A vote names its announcing block rather than its
+  slot, so matching it to the requested slot is the caller's. There can be no
+  more votes than requested; a server may return fewer.
 - `BlockRange`: every block must be a well-formed endorser block, and each
   transaction must match the reference at the same position: the Blake2b-256
   hash of its CBOR and its encoded size. Messages 13 and 14 carry unwrapped
