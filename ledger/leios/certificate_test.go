@@ -23,6 +23,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testLeiosKeyAge honours every key registered in epoch 0: mainnet's KES
+// parameters give a maximum key age of 21 epochs.
+var testLeiosKeyAge = common.DijkstraLeiosKeyAgeContext{
+	Epoch:             1,
+	MarkEpochLength:   432000,
+	MaxKESEvolutions:  62,
+	SlotsPerKESPeriod: 129600,
+}
+
 func TestVerifyDijkstraCertificate(t *testing.T) {
 	secret := big.NewInt(17)
 	key := makeLeiosTestKey(t, secret)
@@ -30,8 +39,8 @@ func TestVerifyDijkstraCertificate(t *testing.T) {
 	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    100,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 100,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 60, Key: key},
 			{Stake: 40},
@@ -136,8 +145,8 @@ func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
 	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    1,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 1,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 1, Key: legacyKey},
 		},
@@ -182,8 +191,8 @@ func TestVerifyDijkstraCertificateForMessage(t *testing.T) {
 		t, secret, framed, leiosSignatureDST,
 	)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    1,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 1,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 1, Key: key},
 		},
@@ -240,6 +249,7 @@ func TestVerifyDijkstraCertificateCommitteeSmallerThanParameter(t *testing.T) {
 		leiosSignatureDST,
 	)
 	context := common.DijkstraLeiosCertificateContext{
+		KeyAge:              testLeiosKeyAge,
 		AnnouncingBlockHash: hash,
 		TotalActiveStake:    2,
 		Committee: []common.DijkstraLeiosCommitteeMember{

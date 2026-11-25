@@ -334,9 +334,9 @@ the exported state-map constants above.
 
 These protocols have no static state-map timeout; the client copies the map and
 applies the configured operation timeout where indicated. The specification
-sets no node-to-client timeouts, so Local State Query and Local Tx Monitor
-default to none; their `WithAcquireTimeout` and `WithQueryTimeout` options
-opt in:
+sets no node-to-client timeouts, so Local State Query, Local Tx Monitor and
+Local Tx Submission default to none; their `WithAcquireTimeout`,
+`WithQueryTimeout` and `WithTimeout` options opt in:
 
 | Protocol | State/operation | Default |
 | --- | --- | ---: |
@@ -344,7 +344,7 @@ opt in:
 | Local State Query | Querying | none |
 | Local Tx Monitor | Acquiring | none |
 | Local Tx Monitor | Busy queries | none |
-| Local Tx Submission | Busy submit | 30 seconds |
+| Local Tx Submission | Busy submit | none |
 
 The local protocols have no additional queue, pipeline, or pending-message
 byte limits in their state maps. A Local Message Notification client bounds
@@ -365,8 +365,9 @@ The map (`protocol/peersharing/peersharing.go`) is:
 
 `MaxPendingMessageBytes` is 5,760 bytes, the reference implementation's
 `peerSharingProtocolLimits` ingress queue and `byteLimitsPeerSharing` per-state
-limit (4 x 1440, one TCP initial congestion window). The Busy timeout is
-configurable via `WithTimeout`.
+limit (4 x 1440, one TCP initial congestion window). Only the client's copy
+of the map takes `WithTimeout` as its Busy timeout; the server's map always
+uses `BusyTimeout`.
 
 The server clamps a `SharePeers` reply to the smaller of the requested
 `Amount` and `MaxSharedPeers` (230), the largest number of addresses that

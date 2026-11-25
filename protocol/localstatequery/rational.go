@@ -94,24 +94,29 @@ type poolStakeEntry = struct {
 }
 
 // decodePoolStakeMap decodes the single-element result wrapper around a map
-// of pool stake entries, reading each stake fraction as a plain rational.
+// of pool stake entries, reading each stake fraction as a plain rational. The
+// map grows only with entries that decode, as growingMap does.
 func decodePoolStakeMap(data []byte) (map[ledger.PoolId]poolStakeEntry, error) {
 	var tmp struct {
 		cbor.StructAsArray
-		Results map[ledger.PoolId]struct {
-			cbor.StructAsArray
-			StakeFraction plainRational
-			VrfHash       ledger.Blake2b256
-		}
+		Results cbor.RawMessage
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return nil, err
 	}
-	if tmp.Results == nil {
+	var raw map[ledger.PoolId]struct {
+		cbor.StructAsArray
+		StakeFraction plainRational
+		VrfHash       ledger.Blake2b256
+	}
+	if err := decodeGrowingMap(tmp.Results, &raw); err != nil {
+		return nil, err
+	}
+	if raw == nil {
 		return nil, nil
 	}
-	results := make(map[ledger.PoolId]poolStakeEntry, len(tmp.Results))
-	for poolID, entry := range tmp.Results {
+	results := make(map[ledger.PoolId]poolStakeEntry, len(raw))
+	for poolID, entry := range raw {
 		results[poolID] = poolStakeEntry{
 			StakeFraction: entry.StakeFraction.value,
 			VrfHash:       entry.VrfHash,
