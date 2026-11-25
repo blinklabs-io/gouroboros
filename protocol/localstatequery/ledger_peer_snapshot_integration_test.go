@@ -80,7 +80,7 @@ func TestGetLedgerPeerSnapshotIntegration(t *testing.T) {
 		t.Fatalf("ouroboros handshake: %s", err)
 	}
 	defer func() {
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 	}()
 
 	snap, err := oConn.LocalStateQuery().Client.GetLedgerPeerSnapshot(
