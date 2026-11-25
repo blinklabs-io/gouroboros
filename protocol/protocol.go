@@ -692,6 +692,10 @@ func (p *Protocol) CallbackContext() context.Context {
 	if p == nil {
 		return context.Background()
 	}
+	if p.callbackCtx == nil {
+		// A Protocol not made by New has no stored context.
+		return context.WithValue(context.Background(), callbackOwnerKey{}, p)
+	}
 	return p.callbackCtx
 }
 
