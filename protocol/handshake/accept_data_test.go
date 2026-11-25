@@ -15,6 +15,7 @@
 package handshake_test
 
 import (
+	"context"
 	"net"
 	"reflect"
 	"testing"
@@ -215,8 +216,8 @@ func runServerHandshake(
 	defer func() {
 		_ = peerConn.Close()
 		_ = serverConn.Close()
-		s.Stop()
-		m.Stop()
+		_ = s.Stop(context.Background())
+		_ = m.Stop(context.Background())
 	}()
 	m.Start()
 

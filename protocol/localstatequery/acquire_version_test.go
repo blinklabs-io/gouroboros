@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -62,10 +63,10 @@ func newVersionedPair(
 	t.Cleanup(func() {
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
-		serverMuxer.Stop()
-		clientMuxer.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
 	})
 	server.Start()
 	client.Start()

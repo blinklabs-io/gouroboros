@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"context"
 	"slices"
 	"sync"
 	"testing"
@@ -37,7 +38,7 @@ func TestReadLoopDoesNotBlockOnFullProtocolChannel(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// slowRecv is deliberately never read from.
 	_, slowRecv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -82,7 +83,7 @@ func TestIngressOverflowIsAProtocolViolation(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, roomyRecv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	_, tightRecv, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
@@ -194,7 +195,7 @@ func TestMuxerReportsIngressMetrics(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	metrics := &fakeMetrics{}
 	m.SetMetrics(metrics)
@@ -271,7 +272,7 @@ func startBackpressureFlood(t *testing.T) (
 	t.Helper()
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &fakeMetrics{}
 	m.SetMetrics(metrics)
 	_, slowRecv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -381,7 +382,7 @@ func TestIngressBackpressureDisabledWhileWaiting(t *testing.T) {
 func TestIngressBackpressureStopWhileWaiting(t *testing.T) {
 	t.Parallel()
 	m, _, _, _ := startBackpressureFlood(t)
-	m.Stop()
+	_ = m.Stop(context.Background())
 	deadline := time.After(2 * time.Second)
 	for {
 		select {
@@ -404,7 +405,7 @@ func TestIngressBackpressureAdmitsSegmentLargerThanLimit(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 5))

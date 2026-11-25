@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"io"
 	"net"
 	"testing"
@@ -45,7 +46,7 @@ func TestReceiveLoopDefersDeclaredPeerPipelinedMessagesUntilPeerAgency(
 		_, _ = io.Copy(io.Discard, peerConn)
 	}()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})
@@ -82,7 +83,7 @@ func TestReceiveLoopDefersDeclaredPeerPipelinedMessagesUntilPeerAgency(
 		InitialState: stateBusy,
 	})
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	require.Eventually(t, func() bool {
 		return p.getCurrentState() == stateBusy
 	}, time.Second, time.Millisecond)

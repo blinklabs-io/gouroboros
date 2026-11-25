@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -44,8 +45,8 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	// The roll and the answer carry different tips, so the test can tell
 	// which one GetCurrentTip returned.
@@ -99,9 +100,9 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 		Mode:      protocol.ProtocolModeNodeToClient,
 	}, &clientCfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 

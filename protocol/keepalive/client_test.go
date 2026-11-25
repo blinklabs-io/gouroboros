@@ -15,6 +15,7 @@
 package keepalive_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -141,7 +142,7 @@ func TestServerKeepaliveHandling(t *testing.T) {
 	}
 
 	// Close connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -201,7 +202,7 @@ func TestServerKeepaliveHandlingWithWrongResponse(t *testing.T) {
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -253,7 +254,7 @@ func TestServerKeepaliveHandlingWithDifferentCookie(t *testing.T) {
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
 	// Wait for connection shutdown

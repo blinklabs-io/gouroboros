@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
@@ -42,7 +43,7 @@ func TestServerAnswersRequestNextSentDuringRestart(t *testing.T) {
 		},
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(NewMsgDone())

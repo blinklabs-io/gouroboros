@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -350,7 +351,7 @@ func (s *Server) handleClientDone() error {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return nil
@@ -363,14 +364,20 @@ func (s *Server) handleClientDone() error {
 // call before Start when protocol registration or construction fails. A
 // restart that is in progress when Stop is called does not start a new
 // protocol instance.
-func (s *Server) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
 	s.stop()
-	p.Stop()
-	return nil
+	return p.Stop(ctx)
 }
 
 func (s *Server) stop() {

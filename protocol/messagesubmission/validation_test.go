@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -376,7 +377,7 @@ func TestClientRestoresIDRequestAfterEnqueueFailure(t *testing.T) {
 	)
 	request := &messageIDRequest{blocking: true, requested: 1}
 	client.pendingIDRequest = request
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessageIds([]pcommon.MessageIDAndSize{
 		{MessageID: testMessageID(0xa1)},
@@ -397,7 +398,7 @@ func TestClientRestoresMessageRequestAfterEnqueueFailure(t *testing.T) {
 		ids: map[string]struct{}{string(id): {}},
 	}
 	client.pendingMsgRequest = request
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessages([]pcommon.DmqMessage{{MessageID: id}})
 
@@ -421,7 +422,7 @@ func TestClientEnqueueFailureDoesNotOverwriteNewerRequest(t *testing.T) {
 		))
 		nextRequest = client.pendingIDRequest
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessageIds([]pcommon.MessageIDAndSize{
 		{MessageID: testMessageID(0xa1)},
@@ -449,7 +450,7 @@ func TestClientMessageEnqueueFailureDoesNotOverwriteNewerRequest(t *testing.T) {
 		))
 		nextRequest = client.pendingIDRequest
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessages([]pcommon.DmqMessage{{MessageID: id}})
 
@@ -509,8 +510,8 @@ func newStartedMessageSubmissionClient(t *testing.T) *Client {
 	m.Start()
 	client.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		m.Stop()
+		client.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})
@@ -529,8 +530,8 @@ func newStartedMessageSubmissionServer(t *testing.T) *Server {
 	m.Start()
 	server.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop()
-		m.Stop()
+		server.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})

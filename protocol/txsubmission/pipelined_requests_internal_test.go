@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -50,8 +51,8 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	txId := func(n byte) TxId {
 		id, _ := fakeTx(n)
@@ -145,9 +146,9 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 	})
 
 	peer.Start()
-	t.Cleanup(peer.Stop)
+	t.Cleanup(func() { _ = peer.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 	client.Init()

@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -138,7 +139,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	connectionDone := make(chan any)
 	testCleanup := make(chan struct{})
@@ -164,7 +165,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 		Muxer:              m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	defer close(testCleanup)
 	m.Start()
 
@@ -234,7 +235,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	response := NewMsgBlockAnnouncement(
 		testAnnouncementEra,
@@ -262,7 +263,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -295,7 +296,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(leiosNotifyFailWriteConn{Conn: connA})
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
 			return NewMsgBlockAnnouncement(
@@ -316,7 +317,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -344,7 +345,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	requestCalled := make(chan struct{})
 	releaseRequest := make(chan struct{})
@@ -386,7 +387,10 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for request callback")
 	}
-	server.Protocol.Stop()
+	// The request callback is held, so this Stop only signals.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = server.Protocol.Stop(signalOnly)
 	close(releaseRequest)
 
 	select {
@@ -433,7 +437,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	defer connB.Close()
 
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	cfg := NewConfig()
 	server := NewServer(
@@ -444,7 +448,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 		&cfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -718,13 +722,19 @@ func newQuitTestServer(
 		_ = connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connId,
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	t.Cleanup(func() { server.ProtocolInstance().Stop() })
+	t.Cleanup(func() {
+		// A test may still hold a request source here, released by a
+		// cleanup that runs after this one, so this Stop only signals.
+		signalOnly, cancel := context.WithCancel(context.Background())
+		cancel()
+		_ = server.ProtocolInstance().Stop(signalOnly)
+	})
 	m.Start()
 	return server, connB
 }

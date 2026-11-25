@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -79,13 +80,13 @@ func newRawPeerWithConfig(t *testing.T, cfg *Config) *rawPeer {
 	s.Start()
 	t.Cleanup(func() {
 		proto := s.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:
@@ -497,13 +498,13 @@ func newRawRequestingPeerAtVersion(
 	}
 	t.Cleanup(func() {
 		proto := c.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:

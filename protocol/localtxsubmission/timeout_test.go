@@ -15,6 +15,7 @@
 package localtxsubmission
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestClientBusyTimeout(t *testing.T) {
 		h := newModelHarness(t, modelRoleClient)
 		client := NewClient(h.opts, nil)
 		client.Start()
-		t.Cleanup(client.Protocol.Stop)
+		t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 		go func() { _ = client.SubmitTx(6, placeholderTx) }()
 		h.requireReceive(t, MessageTypeSubmitTx)
 		select {
@@ -57,7 +58,7 @@ func TestClientBusyTimeout(t *testing.T) {
 		cfg := NewConfig(WithTimeout(50 * time.Millisecond))
 		client := NewClient(h.opts, &cfg)
 		client.Start()
-		t.Cleanup(client.Protocol.Stop)
+		t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 		go func() { _ = client.SubmitTx(6, placeholderTx) }()
 		h.requireReceive(t, MessageTypeSubmitTx)
 		h.requireViolation(
@@ -76,13 +77,13 @@ func TestStopDoesNotWaitForSubmit(t *testing.T) {
 	h := newModelHarness(t, modelRoleClient)
 	client := NewClient(h.opts, nil)
 	client.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 	submitResult := make(chan error, 1)
 	go func() { submitResult <- client.SubmitTx(6, placeholderTx) }()
 	h.requireReceive(t, MessageTypeSubmitTx)
 
 	stopResult := make(chan error, 1)
-	go func() { stopResult <- client.Stop() }()
+	go func() { stopResult <- client.Stop(context.Background()) }()
 	select {
 	case err := <-stopResult:
 		require.NoError(t, err)
@@ -95,7 +96,7 @@ func TestStopDoesNotWaitForSubmit(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("SubmitTx did not return after Stop")
 	}
-	require.NoError(t, client.Stop())
+	require.NoError(t, client.Stop(context.Background()))
 	select {
 	case data, ok := <-h.payload:
 		if ok {
@@ -114,12 +115,12 @@ func TestStopAfterHeldSubmitClosesConnection(t *testing.T) {
 	h := newModelHarness(t, modelRoleClient)
 	client := NewClient(h.opts, nil)
 	client.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 	submitResult := make(chan error, 1)
 	go func() { submitResult <- client.SubmitTx(6, placeholderTx) }()
 	h.requireReceive(t, MessageTypeSubmitTx)
 
-	require.NoError(t, client.Stop())
+	require.NoError(t, client.Stop(context.Background()))
 	require.ErrorIs(t, <-submitResult, protocol.ErrProtocolShuttingDown)
 	select {
 	case <-h.opts.Muxer.DoneChan():

@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"slices"
@@ -298,7 +299,7 @@ func TestRequestNextAfterStoppedSyncGetsOwnVote(t *testing.T) {
 		_ = connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	cfg := NewConfig(
 		WithPipelineLimit(1),
 		WithRequestNextCount(2),
@@ -311,7 +312,7 @@ func TestRequestNextAfterStoppedSyncGetsOwnVote(t *testing.T) {
 		&cfg,
 	)
 	client.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 	m.Start()
 	require.NoError(t, client.Sync())
 	requireReadTestSegment(t, connB)

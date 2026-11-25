@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -423,7 +424,7 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 				_ = connB.Close()
 			})
 			m := muxer.New(connA)
-			t.Cleanup(m.Stop)
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
 			replies := make(chan int, 1)
 			errs := make(chan error, 4)
 			// The client authenticates every admitted message, so the
@@ -450,7 +451,7 @@ func TestClientReplyLimitIsIndependentOfServerQueueSize(t *testing.T) {
 				ErrorChan: errs,
 			}, &cfg)
 			client.Start()
-			t.Cleanup(func() { client.Protocol.Stop() })
+			t.Cleanup(func() { client.Protocol.Stop(context.Background()) })
 			m.Start()
 
 			require.NoError(t, client.RequestMessagesBlocking())

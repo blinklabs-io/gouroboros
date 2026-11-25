@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"context"
 	"math"
 	"testing"
 	"time"
@@ -118,7 +119,7 @@ func TestIngressBudgetBoundsAggregateAcrossProtocols(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recvA, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	_, recvB, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
@@ -157,7 +158,7 @@ func TestIngressBudgetIsReturnedAsQueuesDrain(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
@@ -191,7 +192,7 @@ func TestIngressBudgetIsReturnedWhenProtocolUnregisters(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
@@ -215,7 +216,7 @@ func TestIngressBudgetBackpressureWaitsInsteadOfFailing(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
@@ -247,7 +248,7 @@ func TestIngressBudgetBackpressureAdmitsWhenOwnQueueEmpty(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recvHolder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	_, recvBP, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
@@ -282,7 +283,7 @@ func TestIngressBudgetBackpressureWakesOnOtherRoleRelease(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, holder, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	_, waiting, _ := m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
@@ -341,7 +342,7 @@ func TestIngressBudgetExtensionAdmitsSolicitedIngress(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))
@@ -391,7 +392,7 @@ func TestIngressBudgetExtensionIsReplacedAndCleared(t *testing.T) {
 	t.Parallel()
 
 	m := muxer.New(newMockConn())
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	m.RegisterProtocol(0x02, muxer.ProtocolRoleResponder)
 	m.SetIngressBudget(100)
@@ -422,7 +423,7 @@ func TestIngressBudgetExtensionsCannotOverflowAcrossRoles(t *testing.T) {
 	t.Parallel()
 
 	m := muxer.New(newMockConn())
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	m.SetIngressBudget(100)
 	for id := uint16(1); id <= 65; id++ {
 		m.RegisterProtocol(id, muxer.ProtocolRoleResponder)
@@ -454,7 +455,7 @@ func TestIngressBudgetChargesRetainedSegmentCost(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	_, recv, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	require.True(t, m.SetIngressLimit(0x01, muxer.ProtocolRoleResponder, 1000))

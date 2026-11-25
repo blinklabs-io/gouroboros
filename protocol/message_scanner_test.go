@@ -16,6 +16,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -285,7 +286,7 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	select {
 	case msg := <-handled:
@@ -369,7 +370,7 @@ func TestInboundAdmissionWaitCannotUseLaterPipelinedRequest(t *testing.T) {
 	transitions := make(chan protocolStateTransition)
 	p.stateTransitionChan = transitions
 	go p.stateLoop(transitions)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	select {
 	case <-p.recvStateChangedChan:
 	case <-time.After(time.Second):
@@ -484,7 +485,7 @@ func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 	stateTransitions := make(chan protocolStateTransition)
 	p.stateTransitionChan = stateTransitions
 	go p.stateLoop(stateTransitions)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	err := p.transitionInboundState(
 		&MessageBase{MessageType: replyType},
@@ -555,7 +556,7 @@ func TestPipelinedRequestTransitionConsumesAdmissionSlot(t *testing.T) {
 			stateTransitions := make(chan protocolStateTransition)
 			p.stateTransitionChan = stateTransitions
 			go p.stateLoop(stateTransitions)
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 			err := p.transitionPipelinedRequestState(
 				&MessageBase{MessageType: requestType},
@@ -699,7 +700,7 @@ func newReadLoopTestProtocol(
 		currentState:             state,
 		pendingPipelinedRequests: pendingPipelinedRequests,
 	}
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	go p.readLoop()
 	return p, errorChan
 }
@@ -833,7 +834,7 @@ func TestInboundAdmissionWaitSurvivesPipelinedRoundTrip(t *testing.T) {
 			transitions := make(chan protocolStateTransition)
 			p.stateTransitionChan = transitions
 			go p.stateLoop(transitions)
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 			select {
 			case <-p.recvStateChangedChan:
 			case <-time.After(time.Second):
@@ -939,7 +940,7 @@ func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	for i := range requests {
 		select {
@@ -989,7 +990,7 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	select {
 	case err := <-errorChan:

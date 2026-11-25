@@ -294,8 +294,8 @@ func connectIngressTestPair(
 	// releases a held consumer that would otherwise block shutdown.
 	t.Cleanup(func() {
 		client.release()
-		_ = client.conn.Close()
-		_ = peer.conn.Close()
+		_ = client.conn.Close(context.Background())
+		_ = peer.conn.Close(context.Background())
 	})
 	return client, peer
 }

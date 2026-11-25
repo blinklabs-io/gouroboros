@@ -81,12 +81,19 @@ func (s *Server) Start() { s.ProtocolInstance().Start() }
 
 // Stop interrupts the server endpoint. A restart that is in progress when
 // Stop is called does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -117,7 +124,7 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 		)
 	}
 	ids, err := s.config.ObjectIDsFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 		msg.AckCount,
 		msg.RequestCount,
 	)
@@ -169,7 +176,7 @@ func (s *Server) awaitObjectIDs(proto *protocol.Protocol, requestCount uint16) {
 		var err error
 		ids, err = s.config.AwaitObjectIDsFunc(
 			ctx,
-			s.callbackContext,
+			s.callbackContext.withOwner(s.Protocol),
 			requestCount,
 		)
 		if err != nil && ctx.Err() == nil {
@@ -207,7 +214,7 @@ func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 			"peras objects function must be configured on the server",
 		)
 	}
-	objects, err := s.config.ObjectsFunc(s.callbackContext, msg.ObjectIDs)
+	objects, err := s.config.ObjectsFunc(s.callbackContext.withOwner(s.Protocol), msg.ObjectIDs)
 	if err != nil {
 		return err
 	}
@@ -257,7 +264,7 @@ func (s *Server) handleDone() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return

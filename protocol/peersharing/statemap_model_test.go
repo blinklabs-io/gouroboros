@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
@@ -300,7 +301,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -468,12 +469,14 @@ func driveToState(t *testing.T, row modelReceiveRow) (*modelHarness, chan peersR
 	h, opts := newModelHarness(t, row.role)
 	if row.role == protocol.ProtocolRoleServer {
 		source := modelPeerSource
+		// Stop waits for the peer source, so the cleanup releases it first.
+		releaseSource := func() {}
 		if row.state == stateBusy {
 			// A server is in Busy while its peer source runs, so a source
 			// that blocks holds it there.
 			entered := make(chan struct{})
 			release := make(chan struct{})
-			t.Cleanup(func() { close(release) })
+			releaseSource = func() { close(release) }
 			source = func(CallbackContext, int) ([]PeerAddress, error) {
 				close(entered)
 				<-release
@@ -487,7 +490,10 @@ func driveToState(t *testing.T, row modelReceiveRow) (*modelHarness, chan peersR
 		cfg := NewConfig(WithShareRequestFunc(source))
 		server := NewServer(opts, &cfg)
 		server.Start()
-		t.Cleanup(server.Stop)
+		t.Cleanup(func() {
+			releaseSource()
+			_ = server.Stop(context.Background())
+		})
 		if row.state == stateDone {
 			// The server cannot be observed resting in Done, so MsgDone and
 			// the message under test go back to back; the pipe keeps order.
@@ -497,7 +503,7 @@ func driveToState(t *testing.T, row modelReceiveRow) (*modelHarness, chan peersR
 	}
 	client := NewClient(opts, nil)
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	switch row.state {
 	case stateBusy:
 		results := make(chan peersResult, 1)
@@ -570,7 +576,7 @@ func TestServerAnswersAmountZeroWithNoPeers(t *testing.T) {
 	cfg := NewConfig(WithShareRequestFunc(modelPeerSource))
 	server := NewServer(opts, &cfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.send(t, NewMsgShareRequest(0))
 	reply, ok := h.receive(t).(*MsgSharePeers)
 	require.True(t, ok)
@@ -585,7 +591,7 @@ func TestClientRequestingZeroRefusesAnyPeer(t *testing.T) {
 	h, opts := newModelHarness(t, protocol.ProtocolRoleClient)
 	client := NewClient(opts, nil)
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	results := make(chan peersResult, 1)
 	go func() {
 		peers, err := client.GetPeers(0)

@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"context"
 	"net"
 	"runtime"
 	"strings"
@@ -55,7 +56,7 @@ func newQuitTestClient(
 		_ = connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errs := make(chan error, 8)
 	client := NewClient(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
@@ -66,7 +67,7 @@ func newQuitTestClient(
 		ErrorChan: errs,
 	}, &cfg)
 	client.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 	m.Start()
 	return client, connB, errs
 }
@@ -130,7 +131,7 @@ func TestStopDuringRefillSendsNoRequestAfterQuit(t *testing.T) {
 	// pipe stops reading until Stop has either returned or parked.
 	require.Equal(t, uint(MessageTypeNotificationRequestNext), reader.next(t))
 	stopErr := make(chan error, 1)
-	go func() { stopErr <- client.Stop() }()
+	go func() { stopErr <- client.Stop(context.Background()) }()
 	require.Eventually(t, func() bool {
 		select {
 		case err := <-stopErr:
@@ -167,7 +168,7 @@ func TestSyncAfterStopIsRefused(t *testing.T) {
 	)
 	client, conn, _ := newQuitTestClient(t, cfg)
 	stopErr := make(chan error, 1)
-	go func() { stopErr <- client.Stop() }()
+	go func() { stopErr <- client.Stop(context.Background()) }()
 	require.IsType(t, &MsgQuit{}, readQuitTestMessage(t, conn))
 	require.NoError(t, <-stopErr)
 	require.ErrorIs(t, client.Sync(), protocol.ErrProtocolShuttingDown)
@@ -187,7 +188,7 @@ func TestSyncAfterStopWhileSyncingIsRefused(t *testing.T) {
 	require.NoError(t, client.Sync())
 	require.Equal(t, uint(MessageTypeNotificationRequestNext), reader.next(t))
 	stopErr := make(chan error, 1)
-	go func() { stopErr <- client.Stop() }()
+	go func() { stopErr <- client.Stop(context.Background()) }()
 	require.Equal(t, uint(MessageTypeQuit), reader.next(t))
 	require.NoError(t, <-stopErr)
 	require.ErrorIs(t, client.Sync(), protocol.ErrProtocolShuttingDown)

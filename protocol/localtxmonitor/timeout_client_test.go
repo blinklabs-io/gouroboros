@@ -15,6 +15,7 @@
 package localtxmonitor_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func newTimeoutConn(
 		ouroboros.WithLocalTxMonitorConfig(cfg),
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = oConn.Close() })
+	t.Cleanup(func() { _ = oConn.Close(context.Background()) })
 	return oConn
 }
 
@@ -117,7 +118,7 @@ func requireStillWaiting(t *testing.T, oConn *ouroboros.Connection, call func() 
 		t.Fatalf("connection failed with no timeout configured: %v", err)
 	case <-time.After(5 * optInTimeout):
 	}
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 	select {
 	case <-callErr:
 	case <-time.After(5 * time.Second):

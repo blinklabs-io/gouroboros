@@ -15,6 +15,7 @@
 package localtxmonitor
 
 import (
+	"context"
 	"errors"
 	"net"
 	"os"
@@ -57,7 +58,7 @@ func TestStopDoesNotWaitForPeer(t *testing.T) {
 			requireQueryTestMessageType(t, conn, wc.msgType)
 
 			stopResult := make(chan error, 1)
-			go func() { stopResult <- client.Stop() }()
+			go func() { stopResult <- client.Stop(context.Background()) }()
 			select {
 			case err := <-stopResult:
 				require.NoError(t, err)
@@ -72,7 +73,7 @@ func TestStopDoesNotWaitForPeer(t *testing.T) {
 			case <-time.After(time.Second):
 				t.Fatal("waiting call did not return after Stop")
 			}
-			require.NoError(t, client.Stop())
+			require.NoError(t, client.Stop(context.Background()))
 
 			require.NoError(
 				t,

@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -413,7 +414,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -612,7 +613,7 @@ func driveClient(t *testing.T, state protocol.State) *clientModel {
 	c.client.Start()
 	t.Cleanup(func() {
 		c.releaseHold()
-		_ = c.client.Stop()
+		_ = c.client.Stop(context.Background())
 	})
 	if state == stateInit {
 		return c
@@ -701,7 +702,7 @@ func driveServer(t *testing.T, state protocol.State) *serverModel {
 	)
 	s.server = NewServer(s.opts, &cfg)
 	s.server.Start()
-	t.Cleanup(s.server.Stop)
+	t.Cleanup(func() { _ = s.server.Stop(context.Background()) })
 	if state == stateInit {
 		return s
 	}

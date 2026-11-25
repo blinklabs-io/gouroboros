@@ -15,6 +15,7 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -65,10 +66,10 @@ func startSubmissionPair(
 	client.Start()
 	server.Start()
 	t.Cleanup(func() {
-		_ = client.Stop()
-		server.Stop()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = client.Stop(context.Background())
+		_ = server.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = serverConn.Close()
 	})
@@ -92,7 +93,7 @@ func testMessage(id string) *pcommon.DmqMessage {
 func TestSubmitAfterStopReturnsShuttingDown(t *testing.T) {
 	client := startSubmissionPair(t)
 	require.NoError(t, client.SubmitMessage(testMessage("before")))
-	require.NoError(t, client.Stop())
+	require.NoError(t, client.Stop(context.Background()))
 	results := make(chan error, 4)
 	for i := range 4 {
 		go func() {

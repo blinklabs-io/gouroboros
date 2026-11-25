@@ -164,7 +164,7 @@ func newPipelineHarness(
 
 func (h *pipelineHarness) close(t *testing.T) {
 	t.Helper()
-	_ = h.oConn.Close()
+	_ = h.oConn.Close(context.Background())
 	// Drain remaining connection errors so the reader goroutine exits
 	deadline := time.After(testTimeout)
 	for {
@@ -367,7 +367,7 @@ func TestRequestRangeRequiresOptIn(t *testing.T) {
 		blockfetch.RangeRequest{},
 	)
 	require.ErrorIs(t, err, blockfetch.ErrRequestPipeliningDisabled)
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 	select {
 	case <-errDrained:
 	case <-time.After(testTimeout):
@@ -408,7 +408,7 @@ func TestRequestRangeRequiresRangeDoneFunc(t *testing.T) {
 		blockfetch.RangeRequest{},
 	)
 	require.ErrorContains(t, err, "requires a RangeDoneFunc")
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 	select {
 	case <-errDrained:
 	case <-time.After(testTimeout):

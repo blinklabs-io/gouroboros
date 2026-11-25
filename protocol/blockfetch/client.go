@@ -441,7 +441,7 @@ func (c *Client) Start() {
 
 			// If we were stopped, ensure the old instance is fully stopped before re-registering.
 			if oldDone != nil {
-				oldProto.Stop()
+				_ = oldProto.Stop(context.Background())
 				<-oldDone
 			}
 
@@ -495,12 +495,15 @@ func (c *Client) startShutdownWatcher(
 	proto *protocol.Protocol,
 ) <-chan struct{} {
 	done := make(chan struct{})
-	go func() {
+	watch := func() {
 		defer close(done)
-		proto.RunLoop("shutdown watcher", func() {
-			c.failOutstandingOnProtocolDone(proto)
-		})
-	}()
+		c.failOutstandingOnProtocolDone(proto)
+	}
+	if !proto.RunLoop("shutdown watcher", watch) {
+		// The connection is already closing and refuses new loops; the
+		// outstanding ranges must still be resolved.
+		go watch()
+	}
 	return done
 }
 
@@ -513,7 +516,7 @@ func (c *Client) startShutdownWatcher(
 // closed, as the reference does when a mini-protocol does not terminate in
 // time. A MsgClientDone that was sendable but slow to write may still reach
 // the peer, which then owes nothing, so it is left alone.
-func (c *Client) abandonIfOwed(sendErr error) {
+func (c *Client) abandonIfOwed(ctx context.Context, sendErr error) {
 	c.queueMutex.Lock()
 	outstanding := len(c.queue)
 	c.queueMutex.Unlock()
@@ -528,7 +531,11 @@ func (c *Client) abandonIfOwed(sendErr error) {
 	// stopped as well: no answer can then reach this connection.
 	c.SendError(fmt.Errorf("%w: %w", ErrStoppedWithoutDone, sendErr))
 	if c.protoOptions.Muxer != nil {
-		c.protoOptions.Muxer.Stop()
+		// Only signal, with a done context: the connection's shutdown
+		// joins the muxer.
+		signal, cancel := context.WithCancel(ctx)
+		cancel()
+		_ = c.protoOptions.Muxer.Stop(signal)
 	}
 }
 
@@ -544,7 +551,15 @@ func (c *Client) abandonIfOwed(sendErr error) {
 // which closes the connection, and leaves the client so that Start does not
 // start it again. The return value is then the delivery error, not
 // ErrStoppedWithoutDone.
-func (c *Client) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting for the protocol, since the goroutine running the callback may be
+// one of its own; the outstanding ranges are then resolved once the
+// protocol is done. Otherwise it waits until the protocol's goroutines have
+// returned and resolves the outstanding ranges, or until ctx is done, in
+// which case it returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
 
@@ -588,40 +603,46 @@ func (c *Client) Stop() error {
 	// Check if protocol is already done before sending ClientDone message
 	if !c.IsDone() {
 		msg := NewMsgClientDone()
-		ctx, cancel := context.WithTimeout(
-			context.Background(),
-			250*time.Millisecond,
-		)
-		sendErr = c.SendMessageContextAndWait(ctx, msg)
+		sendCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+		sendErr = c.SendMessageContextAndWait(sendCtx, msg)
 		cancel()
 		if errors.Is(sendErr, protocol.ErrProtocolShuttingDown) {
 			sendErr = nil
 		}
 		if sendErr != nil {
-			c.abandonIfOwed(sendErr)
+			c.abandonIfOwed(ctx, sendErr)
 		}
 	}
 
 	// Stop/unregister the underlying protocol instance first, then wait for
 	// message handlers to finish before resolving outstanding requests.
-	doneChan := c.DoneChan()
-	c.Protocol.Stop()
+	// The callback marker makes this Stop only signal; the wait follows
+	// once lifecycleMutex is released.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 
 	// Release lock while waiting for protocol shutdown to avoid deadlock.
 	c.lifecycleMutex.Unlock()
-	<-doneChan
-	// Every queued request is resolved with a terminal error. Each request
-	// owns its own buffered channels, so a handler that is still running
-	// cannot send on a closed channel and no waiter is stranded.
-	c.failOutstanding(protocol.ErrProtocolShuttingDown)
-	c.releaseCurrentBusy()
+	joinErr := proto.Stop(ctx)
+	if joinErr == nil && protocol.CallbackOwner(ctx) != proto {
+		// Every queued request is resolved with a terminal error. Each
+		// request owns its own buffered channels, so a handler that is
+		// still running cannot send on a closed channel and no waiter is
+		// stranded. A Stop that does not wait leaves this to the shutdown
+		// watcher.
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		c.releaseCurrentBusy()
+	}
 
 	c.lifecycleMutex.Lock()
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
 		c.startingDone = nil
+	}
+	if joinErr != nil {
+		return joinErr
 	}
 	return sendErr
 }
@@ -1444,7 +1465,7 @@ func (c *Client) failOutstandingOnProtocolDone(proto *protocol.Protocol) {
 // callbackContextFor returns the callback context for a request, carrying its
 // FIFO identity.
 func (c *Client) callbackContextFor(req *rangeRequest) CallbackContext {
-	ctx := c.callbackContext
+	ctx := c.callbackContext.withOwner(req.protocol)
 	ctx.RequestId = req.id
 	return ctx
 }

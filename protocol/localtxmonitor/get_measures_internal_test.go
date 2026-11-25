@@ -15,6 +15,7 @@
 package localtxmonitor
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -60,10 +61,10 @@ func startMeasuresPair(
 	clientMuxer.Start()
 	serverMuxer.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		server.Stop()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = client.Protocol.Stop(context.Background())
+		_ = server.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 		connA.Close()
 		connB.Close()
 	})

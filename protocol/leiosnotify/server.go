@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -126,19 +127,26 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
 	case MessageTypeNotificationRequestNext:
-		go s.RunLoop("leios-notify request", func() {
+		s.RunLoop("leios-notify request", func() {
 			if err := s.handleRequestNext(); err != nil {
 				s.SendError(err)
 			}
@@ -193,7 +201,7 @@ func (s *Server) serveRequestNext(quit *quitSignal) error {
 		// has a notification, or until the client quits. Erroring here would
 		// tear down the whole connection -- including chainsync/blockfetch --
 		// over an unanswered notification request.
-		go s.RunLoop("leios-notify pending request", func() {
+		s.RunLoop("leios-notify pending request", func() {
 			select {
 			case <-quit.ch:
 				if err := s.SendMessageAndWait(NewMsgCanceled()); err != nil {
@@ -204,10 +212,10 @@ func (s *Server) serveRequestNext(quit *quitSignal) error {
 		})
 		return nil
 	}
-	ctx := s.callbackContext
+	ctx := s.callbackContext.withOwner(s.ProtocolInstance())
 	ctx.QuitChan = quit.ch
 	results := make(chan requestNextResult, 1)
-	go s.RunLoop("leios-notify request source", func() {
+	s.RunLoop("leios-notify request source", func() {
 		resp, err := s.config.RequestNextFunc(ctx)
 		results <- requestNextResult{resp: resp, err: err}
 	})
@@ -249,7 +257,7 @@ func (s *Server) releaseLateNotification(
 	results <-chan requestNextResult,
 	reason error,
 ) {
-	go s.RunLoop("leios-notify late notification", func() {
+	s.RunLoop("leios-notify late notification", func() {
 		result := <-results
 		if result.err == nil && result.resp != nil &&
 			s.config.ResponseSentFunc != nil {
@@ -293,7 +301,7 @@ func (s *Server) handleQuit() error {
 	}
 	// Restart protocol
 	old := s.ProtocolInstance()
-	old.StopForRestart()
+	_ = old.StopForRestart(old.CallbackContext())
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return nil

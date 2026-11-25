@@ -426,7 +426,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -654,7 +654,7 @@ func startModelClient(
 	cfg.SkipBlockValidation = true
 	client := blockfetch.NewClient(opts, &cfg)
 	client.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	return client
 }
 
@@ -695,7 +695,7 @@ func driveClient(t *testing.T, row modelReceiveRow) *modelHarness {
 			requireBlock(t, h)
 		}
 	case blockfetch.StateDone:
-		require.NoError(t, client.Stop())
+		require.NoError(t, client.Stop(context.Background()))
 		h.requireReceive(t, blockfetch.MessageTypeClientDone)
 	}
 	return h
@@ -775,7 +775,7 @@ func driveServer(
 	require.NoError(t, err)
 	server := blockfetch.NewServer(opts, &cfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	switch row.state {
 	case blockfetch.StateBusy, blockfetch.StateStreaming:
 		h.sendRaw(t, kindMessage(t, kindRequestRange, blockfetch.StateIdle))
@@ -910,7 +910,7 @@ func TestClientTimesOutInServerAgency(t *testing.T) {
 			require.NoError(t, err)
 			client := blockfetch.NewClient(opts, &cfg)
 			client.Start()
-			t.Cleanup(func() { _ = client.Stop() })
+			t.Cleanup(func() { _ = client.Stop(context.Background()) })
 			requestModelRange(t, h, client)
 			if state == blockfetch.StateStreaming {
 				h.send(t, blockfetch.NewMsgStartBatch())

@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -144,7 +145,7 @@ func TestServerUnsentRequestReleasesItsIDs(t *testing.T) {
 	server.lock.Lock()
 	server.pendingMessageIDs = [][]byte{id}
 	server.lock.Unlock()
-	server.Protocol.Stop()
+	_ = server.Protocol.Stop(context.Background())
 
 	require.Error(t, server.RequestMessages([][]byte{id}))
 	server.lock.Lock()
@@ -239,8 +240,8 @@ func TestServerRestartForgetsRequestedIDs(t *testing.T) {
 	m.Start()
 	server.Start()
 	t.Cleanup(func() {
-		server.Stop()
-		m.Stop()
+		_ = server.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})

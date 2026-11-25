@@ -16,6 +16,7 @@ package leiosfetch
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -99,8 +100,8 @@ func assertUnconfiguredRequestFailsConnection(
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop()
-		m.Stop()
+		server.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -170,7 +171,7 @@ func sendRepeatedRequestTest(
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	errs := make(chan error, 1)
 
 	server := NewServer(protocol.ProtocolOptions{
@@ -194,9 +195,9 @@ func sendRepeatedRequestTest(
 		&peerSharingCfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.Protocol.Stop(context.Background())
 	peerSharingServer.Start()
-	defer peerSharingServer.Protocol.Stop()
+	defer peerSharingServer.Protocol.Stop(context.Background())
 	m.Start()
 
 	var msgType uint

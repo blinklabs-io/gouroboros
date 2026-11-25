@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -113,8 +114,7 @@ func (s *Server) handleKeepAlive(
 		)
 	msg := msgGeneric.(*MsgKeepAlive)
 	if s.config != nil && s.config.KeepAliveFunc != nil {
-		callbackContext := s.callbackContext
-		callbackContext.Context = proto.CallbackContext()
+		callbackContext := s.callbackContext.withOwner(proto)
 		return s.config.KeepAliveFunc(callbackContext, msg.Cookie)
 	}
 
@@ -140,13 +140,12 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config != nil && s.config.DoneFunc != nil {
-		callbackContext := s.callbackContext
-		callbackContext.Context = proto.CallbackContext()
+		callbackContext := s.callbackContext.withOwner(proto)
 		if err := s.config.DoneFunc(callbackContext); err != nil {
 			return err
 		}
 	}
-	proto.StopForRestart()
+	_ = proto.StopForRestart(proto.CallbackContext())
 	if s.restartHook != nil {
 		s.restartHook()
 	}
@@ -165,10 +164,17 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 }
 
 // Stop stops the keep-alive protocol server, including a restart in progress.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.Protocol
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }

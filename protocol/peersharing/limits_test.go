@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"context"
 	"net"
 	"strconv"
 	"testing"
@@ -73,8 +74,8 @@ func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
 	client.Start()
 	m.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		m.Stop()
+		client.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})

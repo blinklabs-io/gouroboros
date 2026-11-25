@@ -535,7 +535,7 @@ func TestRollForwardFenceStopsWithClientLifecycle(t *testing.T) {
 			if protocolStop {
 				proto := client.ProtocolInstance()
 				client.startPipelineStopWatcher(proto)
-				proto.Stop()
+				proto.Stop(context.Background())
 			} else {
 				client.lifecycleMutex.Lock()
 				client.lifecycleState = clientStateStopping
@@ -632,7 +632,7 @@ func TestRollBackwardShutdownSkipsCallback(t *testing.T) {
 			NewMsgRollBackward(pcommon.Point{}, Tip{}),
 		)
 	}()
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	select {
 	case err := <-rollbackDone:
@@ -720,10 +720,10 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 	rollbackDone := make(chan error, 1)
 	t.Cleanup(func() {
 		release()
-		client.Protocol.Stop()
+		client.Protocol.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = clientConn.Close()
-		m.Stop()
+		_ = m.Stop(context.Background())
 		select {
 		case <-client.DoneChan():
 		case <-time.After(time.Second):
@@ -757,7 +757,11 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 	case <-time.After(time.Second):
 		t.Fatal("pipeline apply did not start")
 	}
-	client.Protocol.Stop()
+	// A done context makes Stop only signal: waiting would wait for the
+	// blocked callback.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = client.Protocol.Stop(signalOnly)
 	select {
 	case <-client.DoneChan():
 		t.Fatal("DoneChan closed while the receive loop callback was blocked")

@@ -15,6 +15,7 @@
 package txsubmission_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -52,7 +53,7 @@ func TestServerHandlesInitSentDuringRestart(t *testing.T) {
 		},
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	waitInit := func(what string) {

@@ -102,10 +102,10 @@ func startAwaitPair(t *testing.T, cfg Config) (*Client, *Server, chan error) {
 	clientMuxer.Start()
 	serverMuxer.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		server.Stop()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = client.Protocol.Stop(context.Background())
+		_ = server.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 		connA.Close()
 		connB.Close()
 	})
@@ -185,13 +185,46 @@ func TestServerAwaitAcquireStopsWithServer(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("server never waited for a mempool change")
 	}
-	server.Stop()
+	_ = server.Stop(context.Background())
 	select {
 	case err := <-ended:
 		require.ErrorIs(t, err, context.Canceled)
 	case <-time.After(5 * time.Second):
 		t.Fatal("stopping the server did not end the wait")
 	}
+}
+
+// TestAwaitMempoolCallbackStopsItsServer checks that AwaitMempoolFunc,
+// which runs in the server's message handler, gets a context marking its
+// server: passing it to that server's Stop returns without waiting for the
+// loop running the callback.
+func TestAwaitMempoolCallbackStopsItsServer(t *testing.T) {
+	mempool := newTestMempool(nil)
+	stopped := make(chan error, 1)
+	cfg := NewConfig(
+		WithGetMempoolFunc(mempool.get),
+		WithAwaitMempoolFunc(func(
+			_ context.Context,
+			cctx CallbackContext,
+			_ uint64,
+			_ []TxAndEraId,
+		) error {
+			stopped <- cctx.Server.Stop(cctx.Context())
+			return nil
+		}),
+	)
+	client, server, _ := startAwaitPair(t, cfg)
+	require.NoError(t, client.Acquire())
+	go func() { _ = client.Acquire() }()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop from AwaitMempoolFunc did not return")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.Stop(ctx), "server was not joined")
 }
 
 // TestServerAwaitAcquireWithoutFuncAnswersAtOnce keeps today's behaviour

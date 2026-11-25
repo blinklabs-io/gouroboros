@@ -15,6 +15,7 @@
 package muxer_test
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -101,7 +102,7 @@ func TestReadLoopStopsWhenDeadlineCannotBeSet(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			conn, _ := newDeadlineConn(t, refused)
 			m := muxer.NewWithSegmentReadTimeout(conn, tc.timeout)
-			t.Cleanup(m.Stop)
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
 			m.Start()
 
 			err := requireMuxerError(t, m)
@@ -118,7 +119,7 @@ func TestReadLoopStopsWhenDeadlineCannotBeSet(t *testing.T) {
 func TestReadLoopDeadlineOnClosedConnection(t *testing.T) {
 	conn, _ := newDeadlineConn(t, io.ErrClosedPipe)
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	m.Start()
 
 	var closedErr *muxer.ConnectionClosedError
@@ -134,7 +135,7 @@ func TestReadLoopDeadlineOnClosedConnection(t *testing.T) {
 func TestReadLoopDeadlineLocalCloseIsNotPeerClose(t *testing.T) {
 	conn, _ := newDeadlineConn(t, net.ErrClosed)
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	m.Start()
 
 	err := requireMuxerError(t, m)
@@ -148,7 +149,7 @@ func TestReadLoopDeadlineLocalCloseIsNotPeerClose(t *testing.T) {
 func TestReadLoopDeadlineDisabledClearsDeadline(t *testing.T) {
 	conn, peer := newDeadlineConn(t, nil)
 	m := muxer.NewWithSegmentReadTimeout(conn, 0)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
 	m.Start()
 
