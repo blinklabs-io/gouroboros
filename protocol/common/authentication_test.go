@@ -109,7 +109,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
+			MessageBody: paddedBody("test-body"),
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 		},
@@ -131,7 +131,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 	stake.register(poolID, 1000)
 
 	err = auth.VerifyMessage(msg)
-	assert.Error(t, err)
+	assert.ErrorContains(t, err, "operational certificate verification failed")
 }
 
 // TestVerifyMessageUnauthorizedPool tests that a message from a pool absent

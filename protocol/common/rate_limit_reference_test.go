@@ -208,3 +208,44 @@ func TestVerifyMessageRateLimitAsReference(t *testing.T) {
 		require.NoError(t, verifyOne(auth, pool.message(t, 2, false)))
 	})
 }
+
+// TestVerifyMessageRateLimitOff checks that a negative MinSigDelay turns the
+// limit off everywhere, as a vcMinSigDelay of zero does in dmq-node
+// (Validate.hs 124-145): a batch prepared before another message of its pool
+// was accepted still commits, although its time precedes that message's.
+func TestVerifyMessageRateLimitOff(t *testing.T) {
+	stake := newStubStakeAuthority()
+	clock := &rateClock{t: time.Unix(1_000_000, 0)}
+	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
+		StakeAuthority: stake,
+		CurrentSlot: func() (uint64, error) {
+			return 100 * 129600, nil
+		},
+		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		MinSigDelay:           -1,
+		Now:                   clock.now,
+	})
+	require.NoError(t, err)
+	pool := newRatePool(t, stake)
+	commit, err := auth.PrepareMessages(
+		[]DmqMessage{pool.message(t, 1, false)},
+	)
+	require.NoError(t, err)
+	clock.t = clock.t.Add(time.Second)
+	require.NoError(t, verifyOne(auth, pool.message(t, 2, false)))
+	require.NoError(t, commit())
+}
+
+// TestPrepareAdmittedSkipsRateLimit checks that a batch another node already
+// admitted is neither refused by the rate limit nor recorded for it.
+func TestPrepareAdmittedSkipsRateLimit(t *testing.T) {
+	auth, stake, _ := newRateAuthenticator(t)
+	pool := newRatePool(t, stake)
+	commit, err := auth.PrepareAdmitted([]DmqMessage{
+		pool.message(t, 1, false),
+		pool.message(t, 2, false),
+	})
+	require.NoError(t, err)
+	require.NoError(t, commit())
+	require.NoError(t, verifyOne(auth, pool.message(t, 3, false)))
+}

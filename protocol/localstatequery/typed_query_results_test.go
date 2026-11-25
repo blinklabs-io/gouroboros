@@ -94,6 +94,68 @@ func TestStakeDistributionResultRejectsPoolDistr2Entry(t *testing.T) {
 	require.Error(t, err)
 }
 
+// poolDistrReplyHex is a GetPoolDistr reply holding two pools, each entry a
+// [tag(30) fraction, vrf_hash] pair inside the result wrapper.
+const poolDistrReplyHex = "81a2" +
+	"581c" + poolIdLowHex + "82d81e820102" + "5820" + vrfHashHex +
+	"581c" + poolIdHighHex + "82d81e820103" + "5820" + vrfHashHex
+
+func TestPoolDistrResultRoundTrip(t *testing.T) {
+	wire := mustDecodeHex(t, poolDistrReplyHex)
+	var result PoolDistrResult
+	_, err := cbor.Decode(wire, &result)
+	require.NoError(t, err)
+	require.Len(t, result.Results, 2)
+	for idHex, want := range map[string]*big.Rat{
+		poolIdLowHex:  big.NewRat(1, 2),
+		poolIdHighHex: big.NewRat(1, 3),
+	} {
+		poolId := ledger.PoolId(ledger.NewBlake2b224(mustDecodeHex(t, idHex)))
+		entry, ok := result.Results[poolId]
+		require.True(t, ok, "pool %s", idHex)
+		require.NotNil(t, entry.StakeFraction)
+		require.Equal(t, 0, entry.StakeFraction.Cmp(want), "pool %s", idHex)
+		require.Equal(t, vrfHashHex, hex.EncodeToString(entry.VrfHash[:]))
+	}
+	encoded, err := cbor.Encode(result)
+	require.NoError(t, err)
+	require.Equal(t, poolDistrReplyHex, hex.EncodeToString(encoded))
+}
+
+// rewardInfoPoolsReplyHex is a GetRewardInfoPools reply: the result wrapper
+// around [RewardParams, {pool: RewardInfoPool}].
+//
+//	84 1896 d81e820103 1a3b9aca00 1b000000e8d4a51000 ; nOpt, a0, rPot, total
+//	86 1a000f4240 1a0007a120 1a0003d090 1a1443fd00 d81e82011864 fb3fe8000000000000
+//	   ; stake, pledge, owner stake, cost, margin, performance
+const rewardInfoPoolsReplyHex = "8182" +
+	"841896d81e8201031a3b9aca001b000000e8d4a51000" +
+	"a1581c" + poolIdLowHex +
+	"861a000f42401a0007a1201a0003d0901a1443fd00d81e82011864fb3fe8000000000000"
+
+func TestRewardInfoPoolsResultRoundTrip(t *testing.T) {
+	wire := mustDecodeHex(t, rewardInfoPoolsReplyHex)
+	var result RewardInfoPoolsResult
+	_, err := cbor.Decode(wire, &result)
+	require.NoError(t, err)
+	require.Equal(t, uint16(150), result.Params.NOpt)
+	require.Equal(t, 0, result.Params.A0.Cmp(big.NewRat(1, 3)))
+	require.Equal(t, uint64(1_000_000_000), result.Params.RPot)
+	require.Equal(t, uint64(1_000_000_000_000), result.Params.TotalStake)
+	require.Len(t, result.Pools, 1)
+	pool, ok := result.Pools[ledger.NewBlake2b224(mustDecodeHex(t, poolIdLowHex))]
+	require.True(t, ok)
+	require.Equal(t, uint64(1_000_000), pool.Stake)
+	require.Equal(t, uint64(500_000), pool.OwnerPledge)
+	require.Equal(t, uint64(250_000), pool.OwnerStake)
+	require.Equal(t, uint64(340_000_000), pool.Cost)
+	require.Equal(t, 0, pool.Margin.Cmp(big.NewRat(1, 100)))
+	require.InDelta(t, 0.75, pool.PerformanceEstimate, 0)
+	encoded, err := cbor.Encode(result)
+	require.NoError(t, err)
+	require.Equal(t, rewardInfoPoolsReplyHex, hex.EncodeToString(encoded))
+}
+
 // --- GetStakePools (query 16) -----------------------------------------------
 
 // stakePoolsReplyHex is a GetStakePools reply holding two pools:

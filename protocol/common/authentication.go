@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"time"
 
@@ -288,7 +287,36 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 func (m *MessageAuthenticator) PrepareMessages(
 	messages []DmqMessage,
 ) (func() error, error) {
-	errs, commit := m.prepare(messages, true)
+	return m.prepareAll(messages, true)
+}
+
+// PrepareAdmitted verifies a batch another node has already admitted, such
+// as a local node's notifications, as PrepareMessages does but without the
+// per-pool rate limit: the admitting node applied it at the times it
+// accepted each message, which the receiver cannot see, so two messages of
+// one pool accepted a minute apart may arrive together. Nothing is recorded
+// for the rate limit.
+func (m *MessageAuthenticator) PrepareAdmitted(
+	messages []DmqMessage,
+) (func() error, error) {
+	return m.prepareAll(messages, false)
+}
+
+// PrepareEach verifies each message of a batch on its own: errs[i] is
+// message i's verdict, a refused message leaves the state the later ones are
+// checked against unchanged, and the returned function commits the accepted
+// messages' observations atomically.
+func (m *MessageAuthenticator) PrepareEach(
+	messages []DmqMessage,
+) ([]error, func() error) {
+	return m.prepare(messages, false, true)
+}
+
+func (m *MessageAuthenticator) prepareAll(
+	messages []DmqMessage,
+	rateLimit bool,
+) (func() error, error) {
+	errs, commit := m.prepare(messages, true, rateLimit)
 	for i, err := range errs {
 		if err != nil {
 			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
@@ -297,19 +325,10 @@ func (m *MessageAuthenticator) PrepareMessages(
 	return commit, nil
 }
 
-// PrepareEach verifies each message of a batch on its own, as dmq-node
-// does: errs[i] is message i's verdict, a refused message leaves the state
-// the later ones are checked against unchanged, and the returned function
-// commits the accepted messages' observations atomically.
-func (m *MessageAuthenticator) PrepareEach(
-	messages []DmqMessage,
-) ([]error, func() error) {
-	return m.prepare(messages, false)
-}
-
 func (m *MessageAuthenticator) prepare(
 	messages []DmqMessage,
 	stopOnError bool,
+	rateLimit bool,
 ) ([]error, func() error) {
 	errs := make([]error, len(messages))
 	noCommit := func() error { return nil }
@@ -323,9 +342,13 @@ func (m *MessageAuthenticator) prepare(
 	}
 	m.mu.Unlock()
 	batchNow := m.now()
+	minSigDelay := m.minSigDelay
+	if !rateLimit {
+		minSigDelay = 0
+	}
 	batchAuthenticator := &MessageAuthenticator{
 		parent:           m,
-		minSigDelay:      m.minSigDelay,
+		minSigDelay:      minSigDelay,
 		now:              func() time.Time { return batchNow },
 		logger:           m.logger,
 		stakeAuthority:   m.stakeAuthority,
@@ -376,13 +399,16 @@ func (m *MessageAuthenticator) prepare(
 		// A message accepted meanwhile by another commit is a duplicate:
 		// valid, and already recorded, so it is neither refused nor
 		// recorded again.
+		records := batchAuthenticator.batchAccepted
+		if !rateLimit {
+			records = nil
+		}
 		var fresh []rateRecord
-		for _, r := range batchAuthenticator.batchAccepted {
+		for _, r := range records {
 			if _, held := m.acceptedIDs[r.id]; held {
 				continue
 			}
-			if last, ok := m.lastSig[r.pool]; ok &&
-				r.at.Sub(last) < m.minSigDelay {
+			if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
 				return fmt.Errorf(
 					"%w: %s since the last",
 					ErrMessageTooFrequent,
@@ -459,7 +485,7 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	// as such whatever else is wrong with it.
 	now := m.now()
 	held, last, seen := m.rateLookup(poolID, string(msg.ID()))
-	if !held && seen && now.Sub(last) < m.minSigDelay {
+	if !held && seen && m.tooSoon(now, last) {
 		return fmt.Errorf(
 			"%w: %s since the last",
 			ErrMessageTooFrequent,
@@ -573,7 +599,7 @@ func (m *MessageAuthenticator) recordRate(r rateRecord) error {
 	if _, held := m.acceptedIDs[r.id]; held {
 		return nil
 	}
-	if last, ok := m.lastSig[r.pool]; ok && r.at.Sub(last) < m.minSigDelay {
+	if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
 		return fmt.Errorf(
 			"%w: %s since the last",
 			ErrMessageTooFrequent,
@@ -582,6 +608,15 @@ func (m *MessageAuthenticator) recordRate(r rateRecord) error {
 	}
 	m.recordRateLocked(r)
 	return nil
+}
+
+// tooSoon reports whether a message of a pool at time at comes less than
+// the minimum delay after the pool's last accepted message, at last. With the
+// limit off nothing is too soon, even a time before last: a batch's time is
+// read before the batch is verified, so another message of the pool can be
+// accepted after it.
+func (m *MessageAuthenticator) tooSoon(at, last time.Time) bool {
+	return m.minSigDelay > 0 && at.Sub(last) < m.minSigDelay
 }
 
 // recordRateLocked stores r and, at most once a minute, forgets accepted IDs
@@ -949,52 +984,30 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 		return errors.New("message is nil")
 	}
 
-	nowUnix := now.Unix()
+	// Compare at the clock's full precision: dmq-node's now is a POSIXTime
+	// with sub-second precision, so a message is already expired half a
+	// second after its whole-second expiresAt. Truncating now to seconds
+	// would accept it.
 	expiresAt := msg.Payload.ExpiresAt
-	// Reject `now` past the uint32 domain explicitly: clamping to MaxUint32
-	// would leave a message with expiresAt == MaxUint32 looking valid even
-	// though any uint32 expiresAt is strictly in the past relative to such
-	// a time.
-	if nowUnix > math.MaxUint32 {
+	expiry := time.Unix(int64(expiresAt), 0)
+	if now.After(expiry) {
 		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
+			"%w: now=%s, expiresAt=%d",
 			ErrMessageExpired,
-			nowUnix,
-			expiresAt,
-		)
-	}
-	if nowUnix < 0 {
-		nowUnix = 0
-	}
-	// #nosec G115 -- bounded to [0, MaxUint32] above
-	nowSec := uint32(nowUnix)
-
-	// Check if message has already expired
-	if nowSec > expiresAt {
-		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
-			ErrMessageExpired,
-			nowSec,
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
 		)
 	}
 
-	// Check if expiration is too far in the future (protocol violation).
-	// Compute in uint64 to avoid overflow when adding TTL seconds to current time.
-	maxAllowedTTLSeconds := uint64(v.maxAllowedTTL.Seconds())
-	nowUint64 := uint64(nowSec)
-	maxAllowedExpirationUint64 := min(
-		nowUint64+maxAllowedTTLSeconds,
-		math.MaxUint32,
-	)
-	// #nosec G115 -- overflow prevented by clamping to MaxUint32 above
-	maxAllowedExpiration := uint32(maxAllowedExpirationUint64)
-	if expiresAt > maxAllowedExpiration {
+	// The bound is exclusive, as in dmq-node (expiresAt < now + maxTTL): an
+	// expiry exactly maxTTL ahead is a protocol violation.
+	bound := now.Add(v.maxAllowedTTL)
+	if !expiry.Before(bound) {
 		return fmt.Errorf(
-			"message expiration too far in future: now=%d, expiresAt=%d, max_allowed=%d",
-			nowSec,
+			"message expiration too far in future: now=%s, expiresAt=%d, bound=%s",
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
-			maxAllowedExpiration,
+			bound.UTC().Format(time.RFC3339Nano),
 		)
 	}
 

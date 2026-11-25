@@ -54,7 +54,8 @@ none.
 
 The default is exposed as `peersharing.BusyTimeout`. The client enforces it,
 since the server holds agency in Busy; it can be overridden per connection via
-`peersharing.WithTimeout`.
+`peersharing.WithTimeout`. The Idle state has no timeout, as in the
+specification: a server may wait for the next request indefinitely.
 
 ## Size limits
 
@@ -136,7 +137,7 @@ Protocol-level option helpers (in
 | Option | Effect |
 |---|---|
 | `WithShareRequestFunc(fn)` | Required server-side callback. `fn(ctx, amount)` is invoked when a peer asks for up to `amount` peers; the returned slice (possibly nil) is sent back as `SharePeers`. |
-| `WithTimeout(d)` | Overrides the client's Busy timeout, `BusyTimeout` (default 60s). |
+| `WithTimeout(d)` | Overrides how long the client waits in Busy for `SharePeers` (default `BusyTimeout`, 60s). |
 | `WithLocalDisabled(bool)` | Internal: set by the connection layer when the local node advertised NoPeerSharing. Exposed for tests. |
 | `WithRemoteDisabled(bool)` | Internal: set by the connection layer when the remote peer advertised NoPeerSharing. Exposed for tests. |
 
