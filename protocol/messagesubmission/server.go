@@ -609,9 +609,10 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 // handleDone restarts the server in its initial state after the client's
 // MsgDone. dmq-node runs its node-to-node responders under the inbound
 // governor, which restarts a responder that ended cleanly, so the client may
-// start a new run on the connection. The outstanding IDs and requests belong
-// to the run and are dropped; the outbound queue and the delivered IDs belong
-// to the connection and are kept.
+// start a new run on the connection. The outstanding IDs, the record of
+// which were requested, and the requests belong to the run and are dropped;
+// the outbound queue and the delivered IDs belong to the connection and are
+// kept.
 //
 //nolint:unparam
 func (s *Server) handleDone() error {
@@ -633,6 +634,7 @@ func (s *Server) handleDone() error {
 	// so a request for the next run cannot reach an unstarted instance.
 	s.lock.Lock()
 	s.pendingMessageIDs = [][]byte{}
+	s.requestedIDs = map[string]struct{}{}
 	s.pendingIDRequest = nil
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()

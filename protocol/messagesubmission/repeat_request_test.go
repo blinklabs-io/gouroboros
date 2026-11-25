@@ -15,8 +15,10 @@
 package messagesubmission
 
 import (
+	"net"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
@@ -218,4 +220,44 @@ func TestV2ServerMayRequestReannouncedIDAfterNoIdsReply(t *testing.T) {
 	h.peer.send(false, announce)
 	await(t, h.idReplies, h.errs, "the re-announcement")
 	require.NoError(t, h.server.RequestMessages([][]byte{id}))
+}
+
+// TestServerRestartForgetsRequestedIDs checks that the record of requested
+// IDs goes with the run's outstanding IDs when the server restarts after a
+// V1 client's MsgDone. That MsgDone answers a blocking request whose
+// acknowledgement is never applied, so without the reset a client that
+// announces the same ID in the next run could not have its body requested.
+func TestServerRestartForgetsRequestedIDs(t *testing.T) {
+	id := testMessageID(0xa1)
+	localConn, peerConn := net.Pipe()
+	m := muxer.New(localConn)
+	options := newTestProtoOptions(protocol.ProtocolVersionDMQNtN1)
+	options.Muxer = m
+	options.ErrorChan = make(chan error, 1)
+	server := NewServer(options, nil)
+	server.ProtocolInstance().EnsureRegistered()
+	m.Start()
+	server.Start()
+	t.Cleanup(func() {
+		server.Stop()
+		m.Stop()
+		_ = peerConn.Close()
+		_ = localConn.Close()
+	})
+	server.lock.Lock()
+	server.pendingMessageIDs = [][]byte{id}
+	server.requestedIDs = map[string]struct{}{string(id): {}}
+	server.pendingIDRequest = &messageIDRequest{
+		blocking:  true,
+		ack:       1,
+		requested: 1,
+	}
+	server.lock.Unlock()
+
+	require.NoError(t, server.handleDone())
+
+	server.lock.Lock()
+	defer server.lock.Unlock()
+	require.Empty(t, server.pendingMessageIDs)
+	require.Empty(t, server.requestedIDs)
 }
