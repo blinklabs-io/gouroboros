@@ -816,8 +816,11 @@ func UtxoValidateDelegation(
 		return ls.IsStakeCredentialRegistered(cred)
 	}
 
-	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
-		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) (bool, error) {
+		if inTxPoolRegs[poolKeyHash] {
+			return true, nil
+		}
+		return common.PoolRegistered(ls, slot, poolKeyHash)
 	}
 
 	// Withdrawals are applied before the certificates, and
@@ -890,7 +893,9 @@ func UtxoValidateDelegation(
 			// POOLREAP removes it only after the retirement epoch.
 
 		case *common.StakeDelegationCertificate:
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			if c.StakeCredential != nil && !isStakeRegistered(*c.StakeCredential) {
@@ -1678,8 +1683,15 @@ func validatePoolRetirement(
 	inTxPoolRegs map[common.PoolKeyHash]bool,
 ) error {
 	// StakePoolNotRegisteredOnKeyPOOL: Map.member sppId psStakePools.
-	if !ls.IsPoolRegistered(cert.PoolKeyHash) &&
-		!inTxPoolRegs[cert.PoolKeyHash] {
+	registered := inTxPoolRegs[cert.PoolKeyHash]
+	if !registered {
+		var err error
+		registered, err = common.PoolRegistered(ls, slot, cert.PoolKeyHash)
+		if err != nil {
+			return err
+		}
+	}
+	if !registered {
 		return StakePoolNotRegisteredOnKeyError{
 			PoolKeyHash: cert.PoolKeyHash,
 		}

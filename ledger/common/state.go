@@ -110,14 +110,26 @@ type PoolState interface {
 	// longer pending and must be reported as nil, not as the pool's most
 	// recent retirement.
 	//
-	// PoolRegistrationDepositDue reads the pair together and treats a
-	// retirement epoch the current epoch has reached as evidence that the pool
-	// is no longer registered, so an implementation that returned the latest
-	// retirement unconditionally would charge a second pool deposit on every
-	// parameter update made after a re-registration and reject a canonical
-	// block for failing value conservation.
+	// This method is the authority for whether a pool is registered: every
+	// validation rule that needs it calls PoolRegistered, which reads the
+	// pair together. A pool must be returned with a registration whenever it
+	// is in the ledger's current stake-pool map. Once POOLREAP has removed a
+	// pool, an implementation may return nil or the pool's last registration
+	// with the retirement epoch that removed it; PoolRegistered treats a
+	// retirement epoch the current epoch has reached as not registered.
+	//
+	// An implementation that returned the latest retirement unconditionally
+	// would make a re-registered pool look reaped once that epoch passed: it
+	// would refuse delegations to the pool and charge a second pool deposit
+	// on every parameter update, rejecting a canonical block.
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
-	// IsPoolRegistered checks if a pool is currently registered
+	// IsPoolRegistered reports whether the pool is in the ledger's current
+	// stake-pool map. It must agree with PoolRegistered over
+	// PoolCurrentState at the current slot; in particular it must be false
+	// for a pool whose retirement epoch has been reached. gOuroboros'
+	// validation rules do not rely on it alone, because an implementation
+	// that derives it from a stale PoolCurrentState answer would report a
+	// reaped pool as registered.
 	IsPoolRegistered(PoolKeyHash) bool
 	// IsVrfKeyInUse checks if a VRF key hash is registered by another pool.
 	// Returns (inUse, owningPoolId, error). Used for PV11+ VRF uniqueness validation.
@@ -192,28 +204,58 @@ type TipState interface {
 
 // DijkstraLeiosCertificateContext is the ledger state needed to verify a
 // Dijkstra block's Leios certificate. Committee seats are ordered by their
-// signer-bitfield index. A nil key represents a keyless seat.
+// signer-bitfield index. A nil key represents a keyless seat. KeyAge is
+// required: verification refuses a context whose KeyAge is unset.
 type DijkstraLeiosCertificateContext struct {
 	AnnouncingBlockHash Blake2b256
 	TotalActiveStake    uint64
 	Committee           []DijkstraLeiosCommitteeMember
+	KeyAge              DijkstraLeiosKeyAgeContext
 }
 
 // DijkstraLeiosCommitteeMember is one ordered Leios committee seat.
+// KeyRegisteredIn is the epoch in which Key was registered; a key is honoured
+// only for a bounded number of epochs after it (see
+// DijkstraLeiosKeyAgeContext).
 type DijkstraLeiosCommitteeMember struct {
-	Stake uint64
-	Key   *LeiosKey
+	Stake           uint64
+	Key             *LeiosKey
+	KeyRegisteredIn uint64
+}
+
+// DijkstraLeiosKeyAgeContext is what deciding whether a committee seat's
+// voting key is still honoured needs. A key registered in epoch r is honoured
+// while Epoch < r + maxKeyAge, where maxKeyAge is
+// ceil(MaxKESEvolutions * SlotsPerKESPeriod / MarkEpochLength) + 2 epochs
+// (cardano-ledger Cardano.Ledger.Dijkstra.Rules.Snap.kesMaxKeyAgeEpochs); a
+// seat whose key is not honoured is keyless.
+type DijkstraLeiosKeyAgeContext struct {
+	// Epoch is the epoch whose committee verifies the certificate: the
+	// certifying block's epoch.
+	Epoch uint64
+	// MarkEpochLength is the length, in slots, of the epoch in which the
+	// committee's stake snapshot was taken, the epoch before Epoch.
+	MarkEpochLength uint64
+	// MaxKESEvolutions and SlotsPerKESPeriod are the Shelley genesis
+	// maxKESEvolutions and slotsPerKESPeriod.
+	MaxKESEvolutions  uint64
+	SlotsPerKESPeriod uint64
 }
 
 // DijkstraLeiosCertificateState is an optional capability required when a
 // Dijkstra block carries a Leios certificate. Implementations resolve the
 // announcing ranking block, epoch stake snapshot, and ordered committee for
 // the supplied header. Returned keys must be from the snapshot's registered
-// pool parameters; verification checks each key's proof of possession.
+// pool parameters, each with its registration epoch; verification checks
+// each key's proof of possession and age. DijkstraLeiosKeyAgeContext returns
+// the inputs to the age check for the supplied header.
 type DijkstraLeiosCertificateState interface {
 	DijkstraLeiosCertificateContext(
 		header BlockHeader,
 	) (DijkstraLeiosCertificateContext, error)
+	DijkstraLeiosKeyAgeContext(
+		header BlockHeader,
+	) (DijkstraLeiosKeyAgeContext, error)
 }
 
 // DijkstraLeiosHeaderContext is the chain state needed to check a Dijkstra

@@ -310,7 +310,8 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// implementation's condition in Ouroboros.Network.TxSubmission.Outbound:
 	// ProtocolErrorAckedTooManyTxids when the peer acknowledges more IDs than
 	// it was sent, and ProtocolErrorRequestedTooManyTxids when
-	// unackedNo - ackNo + reqNo exceeds maxUnacked. MaxPendingMessageBytes is
+	// unackedNo - ackNo + reqNo exceeds maxUnacked (before NodeToNodeV_16; the
+	// clamp below replaces it from then on). MaxPendingMessageBytes is
 	// derived from that same window, and a request far outside it can ask for
 	// a reply larger than our own outbound queue limit, so SendMessage would
 	// fail the protocol, dropping the connection over a request we should
@@ -328,7 +329,34 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
-	if len(unacked)-ack+req > MaxUnackedTxIds {
+	// A blocking request must ask for something and leave nothing
+	// unacknowledged (the reference's ProtocolErrorRequestedNothing and
+	// ProtocolErrorRequestBlocking). Refusing it before the clamp below is
+	// what keeps a blocking request from being clamped to zero: its reply
+	// must not be empty.
+	if msgRequestTxIds.Blocking {
+		if req == 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request for no transaction IDs",
+			)
+		}
+		if remaining := len(unacked) - ack; remaining != 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request leaves %d transaction IDs unacknowledged",
+				remaining,
+			)
+		}
+	}
+	// From NodeToNodeV_16 the window is a local setting of each side, so the
+	// peer cannot know ours and a request past it is not an error: the reply
+	// carries only as many IDs as fit (the reference's TxOutboundV_2). Only
+	// the reply size changes; req keeps the requested count, which the
+	// blocking-style rules are stated in.
+	reply := req
+	if c.protoOptions.Version >= txOutboundClampVersion {
+		reply = min(req, MaxUnackedTxIds-(len(unacked)-ack))
+	}
+	if len(unacked)-ack+reply > MaxUnackedTxIds {
 		c.Protocol.Logger().
 			Error("TxSubmission request count exceeded",
 				"req", req,
@@ -338,13 +366,21 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
+	if err := checkRequestTxIdsStyle(
+		msgRequestTxIds.Blocking,
+		ack,
+		req,
+		len(unacked),
+	); err != nil {
+		return err
+	}
 
 	// Call the user callback function
 	txIds, err := c.config.RequestTxIdsFunc(
 		c.callbackContext,
 		msgRequestTxIds.Blocking,
 		msgRequestTxIds.Ack,
-		msgRequestTxIds.Req,
+		uint16(reply), // #nosec G115 -- at most the request's own uint16
 	)
 	if err != nil {
 		if !errors.Is(err, ErrStopServerProcess) {
@@ -361,11 +397,11 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 		}
 		return nil
 	}
-	if len(txIds) > int(msgRequestTxIds.Req) {
+	if len(txIds) > reply {
 		c.Protocol.Logger().
 			Error("TxSubmission reply count exceeded request",
 				"returned", len(txIds),
-				"requested", msgRequestTxIds.Req,
+				"requested", reply,
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
@@ -373,7 +409,7 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	nextUnacked, err := reconcileTxIds(
 		unacked,
 		ack,
-		req,
+		reply,
 		msgRequestTxIds.Blocking,
 		txIds,
 	)

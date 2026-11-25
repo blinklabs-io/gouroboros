@@ -718,55 +718,39 @@ func TestProtocolStateTimeouts(t *testing.T) {
 	})
 
 	t.Run("LocalStateQuery timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification.
 		cfg := localstatequery.NewConfig()
 		timeouts := map[string]time.Duration{
 			"AcquireTimeout": cfg.AcquireTimeout,
 			"QueryTimeout":   cfg.QueryTimeout,
 		}
 		for name, timeout := range timeouts {
-			if timeout <= 0 {
-				t.Errorf("%s must be positive, got %v", name, timeout)
-			}
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
+			if timeout != 0 {
+				t.Errorf("%s should default to none, got %v", name, timeout)
 			}
 		}
 	})
 
 	t.Run("LocalTxMonitor timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification.
 		cfg := localtxmonitor.NewConfig()
 		timeouts := map[string]time.Duration{
 			"AcquireTimeout": cfg.AcquireTimeout,
 			"QueryTimeout":   cfg.QueryTimeout,
 		}
 		for name, timeout := range timeouts {
-			if timeout <= 0 {
-				t.Errorf("%s must be positive, got %v", name, timeout)
-			}
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
+			if timeout != 0 {
+				t.Errorf("%s should default to none, got %v", name, timeout)
 			}
 		}
 	})
 
 	t.Run("LocalTxSubmission timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification,
+		// and a node holds a submission while its mempool is full.
 		cfg := localtxsubmission.NewConfig()
-		if cfg.Timeout <= 0 {
-			t.Errorf("Timeout must be positive, got %v", cfg.Timeout)
-		}
-		if cfg.Timeout < time.Second || cfg.Timeout > time.Hour {
-			t.Errorf(
-				"Timeout should be between 1 second and 1 hour, got %v",
-				cfg.Timeout,
-			)
+		if cfg.Timeout != 0 {
+			t.Errorf("Timeout should default to none, got %v", cfg.Timeout)
 		}
 	})
 

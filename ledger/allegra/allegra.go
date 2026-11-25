@@ -228,6 +228,20 @@ type AllegraTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *AllegraTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[AllegraProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type AllegraTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs                shelley.ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
