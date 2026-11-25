@@ -54,9 +54,21 @@ func newRatePool(t *testing.T, stake *stubStakeAuthority) *ratePool {
 // carries a cold signature that does not verify.
 func (p *ratePool) message(t *testing.T, tag byte, forged bool) DmqMessage {
 	t.Helper()
+	return p.messageWithIssue(t, tag, forged, 1)
+}
+
+// messageWithIssue signs a message as message does, under an opcert with the
+// given issue number.
+func (p *ratePool) messageWithIssue(
+	t *testing.T,
+	tag byte,
+	forged bool,
+	issue uint64,
+) DmqMessage {
+	t.Helper()
 	opcert := OperationalCertificate{
 		KESVerificationKey: p.kesPub,
-		IssueNumber:        1,
+		IssueNumber:        issue,
 		KESPeriod:          100,
 	}
 	opcert.ColdSignature = ed25519.Sign(p.coldPriv, opCertSignableBytes(
@@ -248,4 +260,54 @@ func TestPrepareAdmittedSkipsRateLimit(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, commit())
 	require.NoError(t, verifyOne(auth, pool.message(t, 3, false)))
+}
+
+// TestPrepareEachCommitRefusesOnlyTheFailingMessage checks a batch of one
+// message of pool A and one of pool B committed after another submission
+// of pool A. dmq-node a267003c14e9 validates each message under its
+// mempool's lock (Validate.hs 84-121; ouroboros-network 4646039f
+// Mempool/Simple.hs 183-245), so only A's message is refused, and B's is
+// recorded.
+//
+// A message's ID covers only its payload, so the pools' messages use
+// distinct tags.
+func TestPrepareEachCommitRefusesOnlyTheFailingMessage(t *testing.T) {
+	t.Run("too frequent", func(t *testing.T) {
+		auth, stake, _ := newRateAuthenticator(t)
+		a := newRatePool(t, stake)
+		b := newRatePool(t, stake)
+		commitOther, err := auth.PrepareMessages(
+			[]DmqMessage{a.message(t, 1, false)},
+		)
+		require.NoError(t, err)
+		batch := []DmqMessage{a.message(t, 2, false), b.message(t, 3, false)}
+		errs, commit := auth.PrepareEach(batch)
+		require.Equal(t, []error{nil, nil}, errs)
+		require.NoError(t, commitOther())
+		commitErrs := commit()
+		require.ErrorIs(t, commitErrs[0], ErrMessageTooFrequent)
+		require.NoError(t, commitErrs[1])
+		require.ErrorIs(t, verifyOne(auth, batch[0]), ErrMessageTooFrequent)
+		require.NoError(t, verifyOne(auth, batch[1]))
+		require.ErrorIs(
+			t, verifyOne(auth, b.message(t, 9, false)), ErrMessageTooFrequent,
+			"B's message is recorded for the rate limit",
+		)
+	})
+	t.Run("counter gone backwards", func(t *testing.T) {
+		auth, stake, _ := newRateAuthenticator(t)
+		a := newRatePool(t, stake)
+		b := newRatePool(t, stake)
+		batch := []DmqMessage{a.message(t, 1, false), b.message(t, 3, false)}
+		errs, commit := auth.PrepareEach(batch)
+		require.Equal(t, []error{nil, nil}, errs)
+		require.NoError(t, verifyOne(auth, a.messageWithIssue(t, 2, false, 2)))
+		commitErrs := commit()
+		require.ErrorContains(t, commitErrs[0], "opcert number went backwards")
+		require.NoError(t, commitErrs[1])
+		require.ErrorIs(
+			t, verifyOne(auth, b.message(t, 9, false)), ErrMessageTooFrequent,
+			"B's message is recorded for the rate limit",
+		)
+	})
 }

@@ -303,35 +303,63 @@ func (m *MessageAuthenticator) PrepareAdmitted(
 }
 
 // PrepareEach verifies each message of a batch on its own: errs[i] is
-// message i's verdict, a refused message leaves the state the later ones are
-// checked against unchanged, and the returned function commits the accepted
-// messages' observations atomically.
+// message i's verdict, and a refused message leaves the state the later ones
+// are checked against unchanged. The returned function re-checks each
+// accepted message against the state at commit, records the ones that still
+// pass, and returns their verdicts: commitErrs[i] is non-nil for a message
+// accepted when prepared but refused at commit, such as one whose pool had
+// another message accepted meanwhile. A refusal at commit refuses only that
+// message.
 func (m *MessageAuthenticator) PrepareEach(
 	messages []DmqMessage,
-) ([]error, func() error) {
-	return m.prepare(messages, false, true)
+) (errs []error, commit func() (commitErrs []error)) {
+	errs, judge := m.prepare(messages, false, true)
+	return errs, func() []error { return judge(false) }
 }
 
 func (m *MessageAuthenticator) prepareAll(
 	messages []DmqMessage,
 	rateLimit bool,
 ) (func() error, error) {
-	errs, commit := m.prepare(messages, true, rateLimit)
+	errs, judge := m.prepare(messages, true, rateLimit)
 	for i, err := range errs {
 		if err != nil {
 			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
 		}
 	}
-	return commit, nil
+	return func() error {
+		for _, err := range judge(true) {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
 }
 
+// preparedMessage is what commit re-checks for one message that passed
+// verification: its pool's counter and, unless it was already held or the
+// rate limit is off, its rate-limit record.
+type preparedMessage struct {
+	index int
+	pool  PoolKeyHash
+	issue uint64
+	rate  *rateRecord
+}
+
+// prepare verifies messages against a private copy of the state and returns
+// each message's verdict and a commit function. commit(atomic) re-checks
+// every message that passed, in order, against the state at commit and the
+// earlier messages of the batch, and returns a verdict per message. With
+// atomic set, one refusal records nothing; otherwise the messages that pass
+// are recorded and the rest are not.
 func (m *MessageAuthenticator) prepare(
 	messages []DmqMessage,
 	stopOnError bool,
 	rateLimit bool,
-) ([]error, func() error) {
+) ([]error, func(atomic bool) []error) {
 	errs := make([]error, len(messages))
-	noCommit := func() error { return nil }
+	noCommit := func(bool) []error { return make([]error, len(messages)) }
 	if m.disableValidation || len(messages) == 0 {
 		return errs, noCommit
 	}
@@ -355,15 +383,15 @@ func (m *MessageAuthenticator) prepare(
 		kesOpCertCache:   cacheSnapshot,
 		maxKESEvolutions: m.maxKESEvolutions,
 	}
-	// lowestIssue keeps each touched pool's lowest counter in the batch. At
-	// commit every message must still be no lower than the pool's recorded
-	// counter, as if it were validated then; checking only the batch's
-	// final counter would let an earlier, lower one through after a
-	// concurrent commit recorded a higher one.
-	lowestIssue := make(map[PoolKeyHash]uint64)
+	// Every message is re-checked at commit against the pool's recorded
+	// counter, as if it were validated then; checking only the batch's final
+	// counter would let an earlier, lower one through after a concurrent
+	// commit recorded a higher one.
+	var prepared []preparedMessage
 	for i := range messages {
 		// Looked up before verifying, which records the message.
 		held := batchAuthenticator.holds(&messages[i])
+		records := len(batchAuthenticator.batchAccepted)
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
 			errs[i] = err
 			if stopOnError {
@@ -379,60 +407,90 @@ func (m *MessageAuthenticator) prepare(
 			}
 			continue
 		}
+		// A held message is a duplicate: commit neither re-checks nor
+		// records it.
 		if held {
 			continue
 		}
-		issue := messages[i].OperationalCertificate.IssueNumber
-		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
-			lowestIssue[poolID] = issue
+		p := preparedMessage{
+			index: i,
+			pool:  poolID,
+			issue: messages[i].OperationalCertificate.IssueNumber,
 		}
+		if rateLimit && len(batchAuthenticator.batchAccepted) > records {
+			r := batchAuthenticator.batchAccepted[records]
+			p.rate = &r
+		}
+		prepared = append(prepared, p)
 	}
 
-	return errs, func() error {
+	return errs, func(atomic bool) []error {
+		verdicts := make([]error, len(messages))
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		for poolID, issueNumber := range lowestIssue {
-			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
-				issueNumber < currentIssue {
-				return fmt.Errorf(
-					"opcert number went backwards: previous=%d, current=%d",
-					currentIssue,
-					issueNumber,
-				)
+		// The batch's own acceptances so far, over the recorded state.
+		issues := make(map[PoolKeyHash]uint64)
+		lastAt := make(map[PoolKeyHash]time.Time)
+		ids := make(map[string]struct{})
+		var passed []preparedMessage
+		for _, p := range prepared {
+			current, exists := issues[p.pool]
+			if !exists {
+				current, exists = m.kesOpCertCache[p.pool]
 			}
-		}
-		// A message accepted meanwhile by another commit is a duplicate:
-		// valid, and already recorded, so it is neither refused nor
-		// recorded again.
-		records := batchAuthenticator.batchAccepted
-		if !rateLimit {
-			records = nil
-		}
-		var fresh []rateRecord
-		for _, r := range records {
-			if _, held := m.acceptedIDs[r.id]; held {
+			if exists && p.issue < current {
+				verdicts[p.index] = fmt.Errorf(
+					"opcert number went backwards: previous=%d, current=%d",
+					current,
+					p.issue,
+				)
 				continue
 			}
-			if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
-				return fmt.Errorf(
-					"%w: %s since the last",
-					ErrMessageTooFrequent,
-					r.at.Sub(last),
-				)
+			// A message accepted meanwhile by another commit is a
+			// duplicate: valid, and already recorded, so it is neither
+			// refused nor recorded again.
+			rate := p.rate
+			if rate != nil {
+				_, heldBefore := m.acceptedIDs[rate.id]
+				_, heldInBatch := ids[rate.id]
+				if heldBefore || heldInBatch {
+					rate = nil
+				}
 			}
-			fresh = append(fresh, r)
+			if rate != nil {
+				last, seen := lastAt[p.pool]
+				if !seen {
+					last, seen = m.lastSig[p.pool]
+				}
+				if seen && m.tooSoon(rate.at, last) {
+					verdicts[p.index] = fmt.Errorf(
+						"%w: %s since the last",
+						ErrMessageTooFrequent,
+						rate.at.Sub(last),
+					)
+					continue
+				}
+				lastAt[p.pool] = rate.at
+				ids[rate.id] = struct{}{}
+			}
+			if !exists || p.issue > current {
+				issues[p.pool] = p.issue
+			}
+			p.rate = rate
+			passed = append(passed, p)
 		}
-		for _, r := range fresh {
-			m.recordRateLocked(r)
+		if atomic && len(passed) < len(prepared) {
+			return verdicts
 		}
-		for poolID := range lowestIssue {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
-				issueNumber > currentIssue {
-				m.kesOpCertCache[poolID] = issueNumber
+		for _, p := range passed {
+			if p.rate != nil {
+				m.recordRateLocked(*p.rate)
 			}
 		}
-		return nil
+		for poolID, issueNumber := range issues {
+			m.kesOpCertCache[poolID] = issueNumber
+		}
+		return verdicts
 	}
 }
 

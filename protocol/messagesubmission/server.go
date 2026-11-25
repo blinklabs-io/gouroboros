@@ -573,24 +573,24 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			fatal = err
 		}
 	}
-	accepted := make([]pcommon.DmqMessage, 0, len(checked))
-	commitAuthentication := func() error { return nil }
+	refuse := func(msg pcommon.DmqMessage, err error) {
+		s.logRejectedMessage(msg, err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
+		}
+	}
+	errs := make([]error, len(checked))
+	commitAuthentication := func() []error { return make([]error, len(checked)) }
 	if len(checked) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		var errs []error
 		errs, commitAuthentication = s.config.Authenticator.PrepareEach(
 			checked,
 		)
 		for i, err := range errs {
-			if err == nil {
-				accepted = append(accepted, checked[i])
-				continue
-			}
-			s.logRejectedMessage(checked[i], err)
-			if fatal == nil && !droppedQuietly(err) {
-				fatal = err
+			if err != nil {
+				refuse(checked[i], err)
 			}
 		}
 	}
@@ -601,9 +601,19 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message request changed while validating its reply",
 		)
 	}
-	if err := commitAuthentication(); err != nil {
-		s.lock.Unlock()
-		return err
+	// A message refused at commit, such as one whose pool had another
+	// message accepted meanwhile, is refused alone, as at verification.
+	commitErrs := commitAuthentication()
+	accepted := make([]pcommon.DmqMessage, 0, len(checked))
+	for i := range checked {
+		if errs[i] != nil {
+			continue
+		}
+		if commitErrs[i] != nil {
+			refuse(checked[i], commitErrs[i])
+			continue
+		}
+		accepted = append(accepted, checked[i])
 	}
 	for i := range accepted {
 		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt

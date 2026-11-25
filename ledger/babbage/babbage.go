@@ -616,6 +616,9 @@ func (b *BabbageTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwaySetTags(cborData, 13, 14, 18); err != nil {
+		return err
+	}
 	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
 	tmp.TxReferenceInputs = coalesceUntaggedTransactionInputs(
 		tmp.TxReferenceInputs,
@@ -644,6 +647,7 @@ func (b BabbageTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
+	b.TxCertificates = common.PreConwayCertificates(b.TxCertificates)
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
 		&b,
 		0,
@@ -1286,6 +1290,9 @@ func (w *BabbageTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	type tBabbageTransactionWitnessSet BabbageTransactionWitnessSet
 	var tmp tBabbageTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidatePreConwaySetTags(cborData, 0, 1, 2, 3, 4, 5, 6); err != nil {
 		return err
 	}
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {

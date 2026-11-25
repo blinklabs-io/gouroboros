@@ -67,6 +67,9 @@ func (p *DijkstraProtocolParameters) RewardParams() common.RewardParameters {
 	}
 	return common.RewardParameters{
 		ProtocolVersion:   p.ProtocolVersion,
+		DesiredPools:      uint64(p.NOpt),
+		ExpansionRate:     copyRewardRat(p.Rho),
+		TreasuryRate:      copyRewardRat(p.Tau),
 		MinPoolCost:       p.MinPoolCost,
 		PoolInfluence:     copyRewardRat(p.A0),
 		MaxPledgeLeverage: copyRewardRat(p.MaxPledgeLeverage),

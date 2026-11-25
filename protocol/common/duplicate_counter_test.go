@@ -49,7 +49,7 @@ func TestHeldMessageSkipsCounterCheck(t *testing.T) {
 	require.NoError(t, verifyOne(auth, older), "batch of one")
 	errs, commit := auth.PrepareEach([]DmqMessage{older})
 	require.NoError(t, errs[0], "on its own")
-	require.NoError(t, commit())
+	require.Equal(t, []error{nil}, commit())
 	// The counter recorded for the pool is still the higher one.
 	require.Error(t, verifyOne(auth, pool.message(t, 1, 3)))
 }

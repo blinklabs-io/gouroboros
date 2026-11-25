@@ -1,0 +1,423 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package ledger_test
+
+import (
+	"bytes"
+	"fmt"
+	"testing"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger/allegra"
+	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
+	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/conway"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+)
+
+// Before protocol version 9, cardano-ledger-binary decodes every
+// set-shaped field with decodeSet or decodeList, and neither accepts a tag:
+// decodeSet for versions 2-8 is decodeCollection decodeListLenOrIndef
+// ("set tag 258 is not permitted", Decoder.hs 935-953 at cardano-ledger
+// 1210d37f), and the Shelley and Alonzo witness decoders use decodeList
+// below version 9 (Shelley/TxWits.hs 261-273, Alonzo/TxWits.hs 347-357,
+// 569-580, 660-700, 721-730). Shelley to Babbage transactions decode at
+// versions 2-8, so a tag 258 on any of these fields is refused there. Each
+// case also decodes the same field without the tag, so a refusal is due to
+// the tag alone.
+
+func hdr(major byte, n int) []byte {
+	switch {
+	case n < 24:
+		return []byte{major | byte(n)}
+	case n < 256:
+		return []byte{major | 24, byte(n)}
+	default:
+		return []byte{major | 25, byte(n >> 8), byte(n)}
+	}
+}
+
+func bstr(n int, fill byte) []byte {
+	return append(hdr(0x40, n), bytes.Repeat([]byte{fill}, n)...)
+}
+
+func list(tagged bool, items ...[]byte) []byte {
+	var out []byte
+	if tagged {
+		out = []byte{0xd9, 0x01, 0x02}
+	}
+	out = append(out, hdr(0x80, len(items))...)
+	for _, it := range items {
+		out = append(out, it...)
+	}
+	return out
+}
+
+func arr(items ...[]byte) []byte { return list(false, items...) }
+
+type field struct {
+	key   byte
+	value []byte
+}
+
+func cmap(fields ...field) []byte {
+	out := hdr(0xa0, len(fields))
+	for _, f := range fields {
+		out = append(out, f.key)
+		out = append(out, f.value...)
+	}
+	return out
+}
+
+func txIn(i byte) []byte { return arr(bstr(32, i), []byte{0x00}) }
+
+func poolCert(tagged bool) []byte {
+	return arr(
+		[]byte{0x03},
+		bstr(28, 1),
+		bstr(32, 2),
+		[]byte{0x00},
+		[]byte{0x00},
+		[]byte{0xd8, 0x1e, 0x82, 0x00, 0x01},
+		append(hdr(0x40, 29), append([]byte{0xe0}, bytes.Repeat(
+			[]byte{3}, 28)...)...),
+		list(tagged, bstr(28, 4)),
+		arr(),
+		[]byte{0xf6},
+	)
+}
+
+func shelleyBodyFields(extra ...field) []field {
+	return append([]field{
+		{0x00, arr(txIn(1))},
+		{0x01, arr()},
+		{0x02, []byte{0x00}},
+		{0x03, []byte{0x19, 0x03, 0xe8}},
+	}, extra...)
+}
+
+func alonzoBodyFields(extra ...field) []field {
+	return append([]field{
+		{0x00, arr(txIn(1))},
+		{0x01, arr()},
+		{0x02, []byte{0x00}},
+	}, extra...)
+}
+
+func TestPreConwaySetFieldsRefuseTag258(t *testing.T) {
+	type tc struct {
+		name string
+		make func(tagged bool) []byte
+		dest func() any
+	}
+	certs := func(f func(...field) []field) func(bool) []byte {
+		return func(tagged bool) []byte {
+			return cmap(f(field{0x04, arr(poolCert(tagged))})...)
+		}
+	}
+	bodyField := func(
+		f func(...field) []field, key byte, item []byte,
+	) func(bool) []byte {
+		return func(tagged bool) []byte {
+			return cmap(f(field{key, list(tagged, item)})...)
+		}
+	}
+	vkey := arr(bstr(32, 5), bstr(64, 6))
+	native := arr([]byte{0x00}, bstr(28, 7))
+	boot := arr(bstr(32, 5), bstr(64, 6), bstr(32, 8), bstr(1, 0xa0))
+	redeemer := arr([]byte{0x00}, []byte{0x00}, []byte{0x01},
+		arr([]byte{0x00}, []byte{0x00}))
+	script := bstr(4, 9)
+	witness := func(key byte, item []byte) func(bool) []byte {
+		return func(tagged bool) []byte {
+			return cmap(field{key, list(tagged, item)})
+		}
+	}
+	cases := []tc{
+		{"shelley pool owners", certs(shelleyBodyFields),
+			func() any { return &shelley.ShelleyTransactionBody{} }},
+		{"allegra pool owners", certs(alonzoBodyFields),
+			func() any { return &allegra.AllegraTransactionBody{} }},
+		{"mary pool owners", certs(alonzoBodyFields),
+			func() any { return &mary.MaryTransactionBody{} }},
+		{"alonzo pool owners", certs(alonzoBodyFields),
+			func() any { return &alonzo.AlonzoTransactionBody{} }},
+		{"babbage pool owners", certs(alonzoBodyFields),
+			func() any { return &babbage.BabbageTransactionBody{} }},
+		{"alonzo collateral", bodyField(alonzoBodyFields, 0x0d, txIn(2)),
+			func() any { return &alonzo.AlonzoTransactionBody{} }},
+		{"alonzo required signers",
+			bodyField(alonzoBodyFields, 0x0e, bstr(28, 2)),
+			func() any { return &alonzo.AlonzoTransactionBody{} }},
+		{"babbage collateral", bodyField(alonzoBodyFields, 0x0d, txIn(2)),
+			func() any { return &babbage.BabbageTransactionBody{} }},
+		{"babbage required signers",
+			bodyField(alonzoBodyFields, 0x0e, bstr(28, 2)),
+			func() any { return &babbage.BabbageTransactionBody{} }},
+		{"babbage reference inputs",
+			bodyField(alonzoBodyFields, 0x12, txIn(2)),
+			func() any { return &babbage.BabbageTransactionBody{} }},
+	}
+	witnessFields := []struct {
+		key  byte
+		name string
+		item []byte
+	}{
+		{0, "vkey witnesses", vkey},
+		{1, "native scripts", native},
+		{2, "bootstrap witnesses", boot},
+		{3, "plutus v1 scripts", script},
+		{4, "plutus data", []byte{0x01}},
+		{5, "redeemers", redeemer},
+		{6, "plutus v2 scripts", script},
+	}
+	for _, w := range witnessFields {
+		if w.key <= 2 {
+			cases = append(cases, tc{"shelley " + w.name,
+				witness(w.key, w.item),
+				func() any { return &shelley.ShelleyTransactionWitnessSet{} }})
+		}
+		if w.key <= 5 {
+			cases = append(cases, tc{"alonzo " + w.name,
+				witness(w.key, w.item),
+				func() any { return &alonzo.AlonzoTransactionWitnessSet{} }})
+		}
+		cases = append(cases, tc{"babbage " + w.name,
+			witness(w.key, w.item),
+			func() any { return &babbage.BabbageTransactionWitnessSet{} }})
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := cbor.Decode(c.make(false), c.dest()); err != nil {
+				t.Fatalf("untagged control: %v", err)
+			}
+			data := c.make(true)
+			if _, err := cbor.Decode(data, c.dest()); err == nil {
+				t.Errorf("tag 258 accepted: %s", fmt.Sprintf("%x", data))
+			}
+		})
+	}
+}
+
+// TestPreConwaySetFieldsRefuseOtherTags covers tags other than 258 on the
+// same fields: decodeList and the pre-Conway decodeSet accept no tag of any
+// number, so the field is refused whether or not a tag 258 appears anywhere
+// else in the map.
+func TestPreConwaySetFieldsRefuseOtherTags(t *testing.T) {
+	withTag := func(head []byte, items ...[]byte) []byte {
+		return append(append([]byte{}, head...), arr(items...)...)
+	}
+	vkey := arr(bstr(32, 5), bstr(64, 6))
+	native := arr([]byte{0x00}, bstr(28, 7))
+	boot := arr(bstr(32, 5), bstr(64, 6), bstr(32, 8), bstr(1, 0xa0))
+	redeemer := arr([]byte{0x00}, []byte{0x00}, []byte{0x01},
+		arr([]byte{0x00}, []byte{0x00}))
+	script := bstr(4, 9)
+	witnessFields := []struct {
+		key  byte
+		name string
+		item []byte
+	}{
+		{0, "vkey witnesses", vkey},
+		{1, "native scripts", native},
+		{2, "bootstrap witnesses", boot},
+		{3, "plutus v1 scripts", script},
+		{4, "plutus data", []byte{0x01}},
+		{5, "redeemers", redeemer},
+		{6, "plutus v2 scripts", script},
+	}
+	heads := map[string][]byte{
+		"tag 259": {0xd9, 0x01, 0x03},
+		"tag 1":   {0xc1},
+		"tag 30":  {0xd8, 0x1e},
+	}
+	type tc struct {
+		name string
+		data []byte
+		dest func() any
+	}
+	var cases []tc
+	for headName, head := range heads {
+		for _, w := range witnessFields {
+			data := cmap(field{w.key, withTag(head, w.item)})
+			if w.key <= 2 {
+				cases = append(cases, tc{
+					"shelley " + w.name + "/" + headName, data,
+					func() any { return &shelley.ShelleyTransactionWitnessSet{} },
+				})
+			}
+			if w.key <= 5 {
+				cases = append(cases, tc{
+					"alonzo " + w.name + "/" + headName, data,
+					func() any { return &alonzo.AlonzoTransactionWitnessSet{} },
+				})
+			}
+			cases = append(cases, tc{
+				"babbage " + w.name + "/" + headName, data,
+				func() any { return &babbage.BabbageTransactionWitnessSet{} },
+			})
+		}
+		owners := withTag(head, bstr(28, 4))
+		cert := arr(
+			[]byte{0x03}, bstr(28, 1), bstr(32, 2), []byte{0x00},
+			[]byte{0x00}, []byte{0xd8, 0x1e, 0x82, 0x00, 0x01},
+			append(hdr(0x40, 29), append([]byte{0xe0}, bytes.Repeat(
+				[]byte{3}, 28)...)...),
+			owners, arr(), []byte{0xf6},
+		)
+		cases = append(cases, tc{
+			"shelley pool owners/" + headName,
+			cmap(shelleyBodyFields(field{0x04, arr(cert)})...),
+			func() any { return &shelley.ShelleyTransactionBody{} },
+		}, tc{
+			"babbage pool owners/" + headName,
+			cmap(alonzoBodyFields(field{0x04, arr(cert)})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage collateral/" + headName,
+			cmap(alonzoBodyFields(field{0x0d, withTag(head, txIn(2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage required signers/" + headName,
+			cmap(alonzoBodyFields(
+				field{0x0e, withTag(head, bstr(28, 2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		}, tc{
+			"babbage reference inputs/" + headName,
+			cmap(alonzoBodyFields(field{0x12, withTag(head, txIn(2))})...),
+			func() any { return &babbage.BabbageTransactionBody{} },
+		})
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, err := cbor.Decode(c.data, c.dest()); err == nil {
+				t.Errorf("tagged field accepted: %x", c.data)
+			}
+		})
+	}
+}
+
+// TestPoolOwnersRefuseOtherTags covers the pool owner set from Conway on:
+// decodeSet from version 9 permits a tag 258 and fails on any other tag
+// number (allowTag), so only an untagged or tag 258 owner set decodes.
+func TestPoolOwnersRefuseOtherTags(t *testing.T) {
+	cert := func(head []byte) []byte {
+		owners := append(append([]byte{}, head...), arr(bstr(28, 4))...)
+		return arr(
+			[]byte{0x03}, bstr(28, 1), bstr(32, 2), []byte{0x00},
+			[]byte{0x00}, []byte{0xd8, 0x1e, 0x82, 0x00, 0x01},
+			append(hdr(0x40, 29), append([]byte{0xe0}, bytes.Repeat(
+				[]byte{3}, 28)...)...),
+			owners, arr(), []byte{0xf6},
+		)
+	}
+	for _, tc := range []struct {
+		name string
+		head []byte
+		ok   bool
+	}{
+		{"untagged", nil, true},
+		{"tag 258", []byte{0xd9, 0x01, 0x02}, true},
+		{"tag 259", []byte{0xd9, 0x01, 0x03}, false},
+		{"tag 30", []byte{0xd8, 0x1e}, false},
+		{"tag 258 twice", []byte{0xd9, 0x01, 0x02, 0xd9, 0x01, 0x02}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := cmap(alonzoBodyFields(field{0x04, arr(cert(tc.head))})...)
+			var body conway.ConwayTransactionBody
+			_, err := cbor.Decode(data, &body)
+			if tc.ok && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if !tc.ok && err == nil {
+				t.Fatalf("accepted: %x", data)
+			}
+		})
+	}
+}
+
+// TestBuiltPoolOwnersRoundTripPerEra builds a body holding a pool
+// registration with no cached CBOR, encodes it and decodes the bytes. Before
+// protocol version 9 encodeSet writes no tag (cardano-ledger-binary
+// Encoding/Encoder.hs encodeSet), and the decoder refuses one, so a Shelley
+// to Babbage body writes the owner set untagged; from Conway it is tagged.
+func TestBuiltPoolOwnersRoundTripPerEra(t *testing.T) {
+	type body interface {
+		SetCbor([]byte)
+		MarshalCBOR() ([]byte, error)
+	}
+	tagged := append([]byte{0xd9, 0x01, 0x02}, arr(bstr(28, 4))...)
+	for _, tc := range []struct {
+		name   string
+		fields []field
+		dest   func() body
+		certs  func(body) []common.CertificateWrapper
+		tagged bool
+	}{
+		{"shelley", shelleyBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &shelley.ShelleyTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*shelley.ShelleyTransactionBody).TxCertificates
+			}, false},
+		{"allegra", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &allegra.AllegraTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*allegra.AllegraTransactionBody).TxCertificates
+			}, false},
+		{"mary", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &mary.MaryTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*mary.MaryTransactionBody).TxCertificates
+			}, false},
+		{"alonzo", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &alonzo.AlonzoTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*alonzo.AlonzoTransactionBody).TxCertificates
+			}, false},
+		{"babbage", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &babbage.BabbageTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*babbage.BabbageTransactionBody).TxCertificates
+			}, false},
+		{"conway", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &conway.ConwayTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*conway.ConwayTransactionBody).TxCertificates
+			}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			built := tc.dest()
+			if _, err := cbor.Decode(cmap(tc.fields...), built); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			built.SetCbor(nil)
+			for _, c := range tc.certs(built) {
+				c.Certificate.(*common.PoolRegistrationCertificate).SetCbor(nil)
+			}
+			data, err := built.MarshalCBOR()
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			if got := bytes.Contains(data, tagged); got != tc.tagged {
+				t.Errorf("owner set tagged = %v: %x", got, data)
+			}
+			if _, err := cbor.Decode(data, tc.dest()); err != nil {
+				t.Errorf("own encoding refused: %v", err)
+			}
+		})
+	}
+}
