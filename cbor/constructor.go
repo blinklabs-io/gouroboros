@@ -77,12 +77,23 @@ func (ce ConstructorEncoder) Tag() uint {
 // bignum magnitude longer than 64 bytes, as an indefinite-length byte string
 // of 64-byte chunks. A map (a Go map, Map or IndefLengthMap) is a definite
 // map whose keys and values are written the same way; a Go map has no order,
-// so its pairs follow their encoded keys. A nil fields value is an empty
-// list. Any other value, including one with its own MarshalCBOR, is encoded
-// as given.
+// so its pairs follow their encoded keys. Items are matched by kind: any
+// byte slice or byte array, named or not, is a byte string, and a big.Int
+// value is an integer, unless the type has its own MarshalCBOR. A nil fields
+// value is an empty list. Any other value, including one with its own
+// MarshalCBOR, is encoded as given, and must encode as a list: a plutus
+// constructor's fields are a list, and ConstructorDecoder refuses any other
+// fields.
 func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	tagNum, wrap := alternativeToTag(ce.tag)
-	fields := plutusFieldList(ce.fields)
+	fieldData, err := Encode(plutusFieldList(ce.fields))
+	if err != nil {
+		return nil, err
+	}
+	if len(fieldData) == 0 || fieldData[0]&CborTypeMask != CborTypeArray {
+		return nil, errors.New("constructor fields are not a CBOR list")
+	}
+	fields := RawMessage(fieldData)
 	var content any
 	if wrap {
 		content = []any{ce.tag, fields}
@@ -150,8 +161,13 @@ func plutusItem(item any) any {
 		return plutusBytes(value.Bytes())
 	case *big.Int:
 		return plutusInteger(value)
+	case big.Int:
+		return plutusInteger(&value)
 	case IndefLengthMap:
 		return plutusMap(value)
+	}
+	if data, ok := plutusByteKind(item); ok {
+		return plutusBytes(data)
 	}
 	if items, ok := plutusListItems(item); ok {
 		return plutusList(items)
@@ -166,6 +182,23 @@ func plutusItem(item any) any {
 		}
 	}
 	return item
+}
+
+// plutusByteKind returns the bytes of a byte slice or byte array of any
+// named type without its own MarshalCBOR, which the encoder writes as a byte
+// string.
+func plutusByteKind(item any) ([]byte, bool) {
+	if _, ok := item.(_cbor.Marshaler); ok {
+		return nil, false
+	}
+	v := reflect.ValueOf(item)
+	if (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) ||
+		v.Type().Elem().Kind() != reflect.Uint8 {
+		return nil, false
+	}
+	data := make([]byte, v.Len())
+	reflect.Copy(reflect.ValueOf(data), v)
+	return data, true
 }
 
 // plutusMap is a Data map: a definite map whose keys and values are

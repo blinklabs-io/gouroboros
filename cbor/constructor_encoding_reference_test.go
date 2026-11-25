@@ -193,3 +193,69 @@ func TestConstructorEncoderMapItemsAsPlutus(t *testing.T) {
 		}
 	}
 }
+
+// TestConstructorEncoderItemKindsAsPlutus covers items matched by kind
+// rather than Go type: a named byte slice or byte array is a Data byte
+// string, so encodeBs (Data.hs 185-190) chunks it over 64 bytes, and a
+// big.Int value is a Data integer, so encodeInteger (Data.hs 170-182)
+// chunks its magnitude over 64 bytes.
+func TestConstructorEncoderItemKindsAsPlutus(t *testing.T) {
+	type script []byte
+	bytes65 := make([]byte, 65)
+	for i := range bytes65 {
+		bytes65[i] = byte(i)
+	}
+	hex65 := hex.EncodeToString(bytes65)
+	chunked65 := "5f5840" + hex65[:128] + "41" + hex65[128:] + "ff"
+	var array65 [65]byte
+	copy(array65[:], bytes65)
+	big65 := new(big.Int).SetBytes(append([]byte{1}, make([]byte, 64)...))
+	bigMag := hex.EncodeToString(big65.Bytes())
+	cases := []struct {
+		name   string
+		fields any
+		want   string
+	}{
+		{"named byte slice", []any{script(bytes65)}, "d8799f" + chunked65 + "ff"},
+		{"slice of named byte slices", []script{script(bytes65)}, "d8799f" + chunked65 + "ff"},
+		{"byte array", []any{array65}, "d8799f" + chunked65 + "ff"},
+		{"short named byte slice", []any{script{0x61}}, "d8799f4161ff"},
+		{"big.Int value", []any{*big65}, "d8799fc25f5840" + bigMag[:128] + "4100" + "ff" + "ff"},
+		{"small big.Int value", []any{*big.NewInt(5)}, "d8799f05ff"},
+	}
+	for _, tc := range cases {
+		got, err := cbor.NewConstructorEncoder(0, tc.fields).MarshalCBOR()
+		if err != nil {
+			t.Errorf("%s: %v", tc.name, err)
+			continue
+		}
+		if hex.EncodeToString(got) != tc.want {
+			t.Errorf("%s:\n got %x\nwant %s", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestConstructorEncoderRefusesNonListFields encodes fields that are not a
+// list. plutus's Constr always holds a list, and ConstructorDecoder refuses
+// any other fields, so the encoder refuses them rather than write bytes
+// that do not decode.
+func TestConstructorEncoderRefusesNonListFields(t *testing.T) {
+	for name, fields := range map[string]any{
+		"integer":     uint64(5),
+		"byte string": []byte{1},
+		"map":         map[any]any{uint64(1): uint64(2)},
+		"raw integer": cbor.RawMessage{0x05},
+	} {
+		if got, err := cbor.NewConstructorEncoder(0, fields).MarshalCBOR(); err == nil {
+			t.Errorf("%s: encoded as %x", name, got)
+		}
+	}
+	got, err := cbor.NewConstructorEncoder(0, cbor.RawMessage{0x81, 0x05}).MarshalCBOR()
+	if err != nil || hex.EncodeToString(got) != "d8798105" {
+		t.Errorf("raw list: %x, %v", got, err)
+	}
+	var decoded cbor.ConstructorDecoder
+	if _, err := cbor.Decode(got, &decoded); err != nil {
+		t.Errorf("raw list does not decode: %v", err)
+	}
+}
