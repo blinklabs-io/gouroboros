@@ -16,6 +16,7 @@ package mary
 
 import (
 	"errors"
+	"math"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
@@ -496,21 +497,20 @@ func UtxoValidateOutputTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	minCoin, err := MinCoinTxOut(tx, pp)
-	if err != nil {
-		return err
-	}
-	minCoinBigInt := new(big.Int).SetUint64(minCoin)
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
 		if outputHasPositiveAsset(tmpOutput) {
 			continue
 		}
+		minCoin, err := MinCoinTxOut(tmpOutput, pp)
+		if err != nil {
+			return err
+		}
 		amount := tmpOutput.Amount()
 		if amount == nil {
 			amount = new(big.Int)
 		}
-		if amount.Cmp(minCoinBigInt) < 0 {
+		if amount.Cmp(new(big.Int).SetUint64(minCoin)) < 0 {
 			badOutputs = append(badOutputs, tmpOutput)
 		}
 	}
@@ -599,17 +599,98 @@ func MinFeeTx(
 	return minFee, nil
 }
 
-// MinCoinTxOut calculates the minimum coin for a transaction output based on protocol parameters
+// Mary prices an output by scaling minUTxOValue, the cost of a Shelley-sized
+// entry, by the size of the output's value in 8-byte words. These are
+// heap-word estimates and are not derived from the CBOR encoding.
+//
+// Reference: scaledMinDeposit in
+// eras/mary/impl/src/Cardano/Ledger/Mary/TxOut.hs, and size and
+// representationSize in eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs.
+const (
+	// utxoEntrySizeWithoutVal is 6 + txoutLenNoVal(14) + txinLen(7). The
+	// reference adds a coinSize of 0.
+	utxoEntrySizeWithoutVal = 27
+	// valueRepOverhead is repOverhead: 4 + adaWords(1) + numberMulAssets(1).
+	valueRepOverhead = 6
+	// wordLength is the word size the estimate is expressed in.
+	wordLength = 8
+	// policyIdSize is the ADDRHASH length used by representationSize.
+	policyIdSize = 28
+	// assetTripleSize is the abcRegion cost of one (policy, name, quantity)
+	// triple.
+	assetTripleSize = 12
+)
+
+// valueSize implements size for a Mary value with at least one asset, in
+// 8-byte words. Zero quantities are not counted: the reference drops them
+// when it decodes an output, so a value holding only zero quantities is
+// ada only. It returns false for a value with no non-zero quantity.
+func valueSize(
+	assets *common.MultiAsset[common.MultiAssetTypeOutput],
+) (uint64, bool) {
+	if assets == nil {
+		return 0, false
+	}
+	numAssets := 0
+	numPolicies := 0
+	assetNames := make(map[string]struct{})
+	// Entries of one policy are visited consecutively, so a change of policy
+	// marks the next distinct policy.
+	var lastPolicy common.Blake2b224
+	assets.RangeUnordered(func(
+		policyId common.Blake2b224,
+		name []byte,
+		quantity common.MultiAssetTypeOutput,
+	) bool {
+		if quantity == nil || quantity.Sign() == 0 {
+			return true
+		}
+		if numPolicies == 0 || policyId != lastPolicy {
+			numPolicies++
+			lastPolicy = policyId
+		}
+		numAssets++
+		assetNames[string(name)] = struct{}{}
+		return true
+	})
+	if numAssets == 0 {
+		return 0, false
+	}
+	nameBytes := 0
+	for name := range assetNames {
+		nameBytes += len(name)
+	}
+	repSize := numAssets*assetTripleSize +
+		numPolicies*policyIdSize +
+		nameBytes
+	words := (repSize + wordLength - 1) / wordLength
+	return uint64(words + valueRepOverhead), true // #nosec G115
+}
+
+// MinCoinTxOut calculates the minimum coin for a transaction output.
+//
+// An output without assets needs exactly minUTxOValue. An output with assets
+// needs max(minUTxOValue, (minUTxOValue / 27) * (27 + size of its value)), with
+// the division rounding down.
 func MinCoinTxOut(
-	_ common.Transaction,
+	txOut common.TransactionOutput,
 	pparams common.ProtocolParameters,
 ) (uint64, error) {
 	tmpPparams, ok := pparams.(*MaryProtocolParameters)
 	if !ok {
 		return 0, errors.New("pparams are not expected type")
 	}
-	minCoinTxOut := uint64(tmpPparams.MinUtxoValue)
-	return minCoinTxOut, nil
+	minUtxoValue := uint64(tmpPparams.MinUtxoValue)
+	size, hasAssets := valueSize(txOut.Assets())
+	if !hasAssets {
+		return minUtxoValue, nil
+	}
+	entrySize := utxoEntrySizeWithoutVal + size
+	coinsPerWord := minUtxoValue / utxoEntrySizeWithoutVal
+	if coinsPerWord > math.MaxUint64/entrySize {
+		return 0, errors.New("minimum UTxO value overflow")
+	}
+	return max(minUtxoValue, coinsPerWord*entrySize), nil
 }
 
 func UtxoValidateMetadata(
