@@ -75,6 +75,7 @@ type PipelineMetrics struct {
 	decodeErrors     atomic.Uint64
 	validationErrors atomic.Uint64
 	applyErrors      atomic.Uint64
+	resultsDropped   atomic.Uint64
 
 	// Per-stage durations of successful items (atomic)
 	decodeTimer   stageTimer
@@ -141,6 +142,12 @@ func (m *PipelineMetrics) RecordApply(duration time.Duration, err error) {
 	}
 }
 
+// RecordResultDropped counts a committed result that was discarded because
+// the Results reader fell too far behind to receive it.
+func (m *PipelineMetrics) RecordResultDropped() {
+	m.resultsDropped.Add(1)
+}
+
 // RecordPipelineLatency records end-to-end pipeline latency.
 // It is intentionally a no-op: per-stage durations are tracked by
 // RecordDecode, RecordValidate and RecordApply instead.
@@ -171,6 +178,7 @@ func (m *PipelineMetrics) Stats() PipelineStats {
 		DecodeErrors:      m.decodeErrors.Load(),
 		ValidationErrors:  m.validationErrors.Load(),
 		ApplyErrors:       m.applyErrors.Load(),
+		ResultsDropped:    m.resultsDropped.Load(),
 		DecodeTimings:     m.decodeTimer.snapshot(),
 		ValidateTimings:   m.validateTimer.snapshot(),
 		ApplyTimings:      m.applyTimer.snapshot(),
@@ -193,6 +201,7 @@ func (m *PipelineMetrics) Reset() {
 	m.decodeErrors.Store(0)
 	m.validationErrors.Store(0)
 	m.applyErrors.Store(0)
+	m.resultsDropped.Store(0)
 	m.decodeTimer.reset()
 	m.validateTimer.reset()
 	m.applyTimer.reset()

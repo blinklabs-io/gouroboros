@@ -110,3 +110,6 @@ When a transaction is rejected, the `RejectTx` message includes detailed rejecti
 - Rejection provides detailed validation errors
 - The protocol is stateless; each submission is independent
 - Multiple transactions can be submitted sequentially
+- After `Done` the server restarts in Idle, as the reference's inbound
+  governor restarts a responder, so a client can start another run on the
+  same connection

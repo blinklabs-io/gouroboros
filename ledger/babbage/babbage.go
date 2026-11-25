@@ -555,6 +555,20 @@ type BabbageTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *BabbageTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[BabbageProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type BabbageTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs                shelley.ShelleyTransactionInputSet            `cbor:"0,keyasint,omitempty"`
@@ -665,8 +679,15 @@ func coalesceUntaggedTransactionInputs(
 	return ret
 }
 
+// Id returns the transaction id, the hash of the body's CBOR. A body without
+// stored CBOR is hashed from its current encoding.
 func (b *BabbageTransactionBody) Id() common.Blake2b256 {
-	return b.TransactionBodyBase.Id()
+	if b.Cbor() != nil {
+		// Decoded bodies take this path; it builds no MarshalCBOR method
+		// value, which would copy the whole body.
+		return b.TransactionBodyBase.Id()
+	}
+	return common.TransactionBodyId(&b.TransactionBodyBase, b.MarshalCBOR)
 }
 
 func (b *BabbageTransactionBody) Inputs() []common.TransactionInput {
@@ -842,6 +863,15 @@ func validateDefiniteByteString(data []byte, name string) error {
 func (d *BabbageTransactionOutputDatumOption) UnmarshalCBOR(
 	cborData []byte,
 ) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(cborData); !indefinite && n >= 0 &&
+		n != 2 {
+		return fmt.Errorf(
+			"unsupported datum option shape: expected 2 items, got %d",
+			n,
+		)
+	}
 	dec, err := cbor.NewStreamDecoder(cborData)
 	if err != nil {
 		return err

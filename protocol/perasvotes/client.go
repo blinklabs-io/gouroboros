@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -79,6 +80,14 @@ func clientStateMap(cfg *Config) protocol.StateMap {
 		entry.Timeout = cfg.Timeout
 		stateMap[state] = entry
 	}
+	for state, timeout := range map[protocol.State]time.Duration{
+		StateObjectIDsBlocking:          CanAwaitTimeout,
+		StateObjectIDsBlockingMustReply: MustReplyTimeout,
+	} {
+		entry := stateMap[state]
+		entry.Timeout = timeout
+		stateMap[state] = entry
+	}
 	limit := int(cfg.MaxObjectsUnacknowledged)*1100 + 256
 	for state, entry := range stateMap {
 		if state != StateDone {
@@ -100,8 +109,10 @@ func (c *Client) Start() {
 }
 
 // RequestObjectIDs acknowledges prior IDs and requests up to requestCount new
-// IDs. Blocking requests must request at least one ID and return a non-empty
-// reply; non-blocking requests complete promptly and may return none.
+// IDs. Blocking requests must request at least one ID. A blocking request
+// returns a non-empty reply, or no IDs and no error when the server answered
+// MsgAwaitReply and then MsgServerIdle; the acknowledgement was applied either
+// way. Non-blocking requests complete promptly and may return none.
 func (c *Client) RequestObjectIDs(
 	ctx context.Context,
 	blocking bool,
@@ -207,7 +218,10 @@ func (c *Client) Sync(ctx context.Context) error {
 			return err
 		}
 		if len(ids) == 0 {
-			return errors.New("blocking Peras object ID reply was empty")
+			// MsgServerIdle: the request's acknowledgement was applied, and
+			// the reference expects the client to ask again at once.
+			ackCount = 0
+			continue
 		}
 		objects, err := c.requestObjects(ctx, ids)
 		if err != nil {
@@ -252,6 +266,15 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 			return nil
 		default:
 			return errors.New("unexpected Peras object ID reply")
+		}
+	case MessageTypeAwaitReply:
+		return nil
+	case MessageTypeServerIdle:
+		select {
+		case c.objectIDsChan <- objectIDsResult{}:
+			return nil
+		default:
+			return errors.New("unexpected Peras server idle")
 		}
 	case MessageTypeReplyObjects:
 		select {

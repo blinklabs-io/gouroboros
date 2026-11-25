@@ -89,37 +89,79 @@ func (n *Nonce) MarshalCBOR() ([]byte, error) {
 	return cbor.Encode(tmpData)
 }
 
-// CalculateRollingNonce calculates a rolling nonce (eta_v) value from the
-// previous block's eta_v value and the current block's VRF result.
-// This implements the Ouroboros Praos evolving nonce update using the
-// Haskell Nonce semigroup (⭒) operator:
+// NonceFromTPraosVRF derives a nonce contribution from the raw 64-byte
+// nonce VRF output (bheaderEta) used in Shelley through Alonzo. The separate
+// leader VRF output (bheaderL) must not be used here.
+// It implements Cardano.Ledger.BaseTypes.mkNonceFromOutputVRF: H(output).
+func NonceFromTPraosVRF(output []byte) (Nonce, error) {
+	if len(output) != 64 {
+		return Nonce{}, fmt.Errorf(
+			"invalid TPraos nonce VRF output length: %d, expected 64",
+			len(output),
+		)
+	}
+	return Nonce{Type: NonceTypeNonce, Value: Blake2b256Hash(output)}, nil
+}
+
+// NonceFromPraosVRF derives a nonce contribution from the raw 64-byte unified
+// VRF output used from Babbage onward. It implements
+// Cardano.Protocol.Praos.VRF.vrfNonceValue: H(H("N" || output)), with
+// Blake2b-256 for both hashes.
+func NonceFromPraosVRF(output []byte) (Nonce, error) {
+	if len(output) != 64 {
+		return Nonce{}, fmt.Errorf(
+			"invalid Praos VRF output length: %d, expected 64", len(output),
+		)
+	}
+	var input [65]byte
+	input[0] = 'N'
+	copy(input[1:], output)
+	rangeExtended := Blake2b256Hash(input[:])
+	return Nonce{
+		Type: NonceTypeNonce, Value: Blake2b256Hash(rangeExtended[:]),
+	}, nil
+}
+
+// CombineNonces implements the Cardano nonce combination operator (⭒).
+// A NonceTypeNeutral is the identity on either side. Two NonceTypeNonce
+// values combine as H(a || b), including when either hash is all zeros.
+func CombineNonces(a, b Nonce) (Nonce, error) {
+	for _, nonce := range []Nonce{a, b} {
+		if nonce.Type != NonceTypeNeutral && nonce.Type != NonceTypeNonce {
+			return Nonce{}, fmt.Errorf("unsupported nonce type %d", nonce.Type)
+		}
+	}
+	if a.Type == NonceTypeNeutral {
+		if b.Type == NonceTypeNeutral {
+			return Nonce{Type: NonceTypeNeutral}, nil
+		}
+		return b, nil
+	}
+	if b.Type == NonceTypeNeutral {
+		return a, nil
+	}
+	var input [64]byte
+	copy(input[:32], a.Value[:])
+	copy(input[32:], b.Value[:])
+	return Nonce{Type: NonceTypeNonce, Value: Blake2b256Hash(input[:])}, nil
+}
+
+// CalculateRollingNonce combines two nonneutral 32-byte nonce hashes.
+// blockNonce must already be derived with NonceFromTPraosVRF or
+// NonceFromPraosVRF. Raw 64-byte outputs are rejected because their
+// derivation depends on the consensus family. An all-zero hash is a
+// nonneutral nonce, not the identity.
 //
-//	NeutralNonce ⭒ Nonce(x) = Nonce(x)
-//	Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
-//
-// In the Haskell implementation, the VRF output is coerced directly
-// into a Nonce via "coerce @(OutputVRF (VRF c)) @(Hash Blake2b_256
-// Nonce)". This means the raw VRF output bytes (64 bytes for both
-// TPraos and Praos VRF schemes) are used as-is — they are NOT
-// pre-hashed to 32 bytes. The concatenation is therefore
-// prevBlockNonce (32 bytes) || rawVrfOutput (64 bytes) = 96 bytes,
-// and the result is blake2b_256(96 bytes).
-//
-// NeutralNonce is represented as 32 zero bytes. When prevBlockNonce is
-// all zeros (identity element), the result is blake2b_256(vrfOutput).
-// In practice, NeutralNonce never occurs as the evolving nonce because
-// it is initialized to the Shelley genesis hash.
-//
-// Ref: Ouroboros.Consensus.Protocol.Praos (reupdateChainDepState),
-// Cardano.Ledger.BaseTypes (⭒ operator)
+// Deprecated: use CombineNonces to represent neutrality explicitly.
 func CalculateRollingNonce(
 	prevBlockNonce []byte,
-	blockVrf []byte,
+	blockNonce []byte,
 ) (Blake2b256, error) {
-	if len(blockVrf) != 32 && len(blockVrf) != 64 {
+	if len(blockNonce) != 32 {
 		return Blake2b256{}, fmt.Errorf(
-			"invalid block VRF length: %d, expected 32 or 64",
-			len(blockVrf),
+			"invalid nonce contribution length: %d, expected 32; "+
+				"derive raw outputs with NonceFromTPraosVRF or NonceFromPraosVRF",
+			len(blockNonce),
 		)
 	}
 	if len(prevBlockNonce) != 32 {
@@ -128,25 +170,27 @@ func CalculateRollingNonce(
 			len(prevBlockNonce),
 		)
 	}
-	// NeutralNonce identity: if prevBlockNonce is all zeros,
-	// return blake2b_256(vrfOutput) directly (Nonce semigroup identity)
-	isNeutral := true
-	for _, b := range prevBlockNonce {
-		if b != 0 {
-			isNeutral = false
-			break
-		}
+	a := Nonce{Type: NonceTypeNonce}
+	b := Nonce{Type: NonceTypeNonce}
+	copy(a.Value[:], prevBlockNonce)
+	copy(b.Value[:], blockNonce)
+	nonce, err := CombineNonces(a, b)
+	return Blake2b256(nonce.Value), err
+}
+
+// EpochNonceFromNonces returns the nonce a new epoch starts with,
+// candidate ⭒ lab ⭒ extraEntropy, as the reference's TICKN rule
+// (Cardano.Protocol.TPraos.Rules.Tickn) computes it. lab is the
+// last-epoch-block nonce, which is NonceTypeNeutral for the first two epoch
+// changes after a chain's start. Praos has no extra entropy, so Praos callers
+// pass NonceTypeNeutral for it. A NonceTypeNeutral operand is skipped, as in
+// CombineNonces.
+func EpochNonceFromNonces(candidate, lab, extraEntropy Nonce) (Nonce, error) {
+	nonce, err := CombineNonces(candidate, lab)
+	if err != nil {
+		return Nonce{}, err
 	}
-	if isNeutral {
-		return Blake2b256Hash(blockVrf), nil
-	}
-	// Nonce(a) ⭒ Nonce(b) = Nonce(blake2b_256(a || b))
-	// The raw VRF output bytes are concatenated directly without
-	// pre-hashing, matching the Haskell coerce semantics.
-	buf := make([]byte, 32+len(blockVrf))
-	copy(buf[:32], prevBlockNonce)
-	copy(buf[32:], blockVrf)
-	return Blake2b256Hash(buf), nil
+	return CombineNonces(nonce, extraEntropy)
 }
 
 // CalculateEpochNonce calculates an epoch nonce:
@@ -156,6 +200,11 @@ func CalculateRollingNonce(
 // When extraEntropy is non-empty (must be exactly 32 bytes):
 //
 //	epochNonce = blake2b_256(epochNonce || extraEntropy)
+//
+// A 32-byte input is always an ordinary nonce, so it cannot express a
+// NeutralNonce candidate or last-epoch-block nonce.
+//
+// Deprecated: use EpochNonceFromNonces to represent neutrality explicitly.
 func CalculateEpochNonce(
 	stableBlockNonce []byte,
 	prevEpochFirstBlockHash []byte,

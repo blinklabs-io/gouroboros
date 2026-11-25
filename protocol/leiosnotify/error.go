@@ -24,3 +24,9 @@ var ErrStopNotificationProcess = errors.New("stop notification process")
 // the server obtained after the client had quit, which was therefore never
 // sent. A source that reserved the notification should release it.
 var ErrRequestCanceled = errors.New("notification request canceled")
+
+// ErrUnexpectedCanceled is the protocol error a client reports when the server
+// answers a request with MsgCanceled before the client has sent MsgQuit.
+var ErrUnexpectedCanceled = errors.New(
+	"leios-notify: MsgCanceled received before MsgQuit",
+)

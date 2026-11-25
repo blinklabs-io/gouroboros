@@ -1989,3 +1989,165 @@ func TestPeerBlockRejectsTrustedDecodeOnlyPipeline(t *testing.T) {
 		})
 	}
 }
+
+// TestRequestRangeRefusedAtShutdownGetsNoRangeDone covers a shutdown drain
+// that finds a request after it was queued but before its send failed: the
+// caller gets an error from RequestRange and no request id, so RangeDoneFunc
+// must never run for that request.
+func TestRequestRangeRefusedAtShutdownGetsNoRangeDone(t *testing.T) {
+	drains := map[string]func(*Client, *protocol.Protocol){
+		"failOutstanding": func(c *Client, _ *protocol.Protocol) {
+			c.failOutstanding(protocol.ErrProtocolShuttingDown)
+		},
+		"failOutstandingForProtocol": func(
+			c *Client,
+			proto *protocol.Protocol,
+		) {
+			c.failOutstandingForProtocol(
+				proto,
+				protocol.ErrProtocolShuttingDown,
+			)
+		},
+	}
+	for name, drain := range drains {
+		t.Run(name, func(t *testing.T) {
+			var callbacksMu sync.Mutex
+			var callbacks []uint64
+			c := newStartedQueueTestClient(t, &Config{
+				RequestPipelining: true,
+				RangeDoneFunc: func(ctx CallbackContext, _ error) error {
+					callbacksMu.Lock()
+					defer callbacksMu.Unlock()
+					callbacks = append(callbacks, ctx.RequestId)
+					return nil
+				},
+			})
+			proto := c.ProtocolInstance()
+			c.beforeRangeSend = func() {
+				proto.Stop()
+				<-proto.DoneChan()
+				drain(c, proto)
+			}
+
+			id, err := c.RequestRange(
+				context.Background(),
+				RangeRequest{ExpectedBytes: 1},
+			)
+			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
+			require.Zero(t, id)
+
+			// A drain after the refusal must not find the request either.
+			c.failOutstanding(protocol.ErrProtocolShuttingDown)
+			callbacksMu.Lock()
+			defer callbacksMu.Unlock()
+			require.Empty(t, callbacks)
+			c.queueMutex.Lock()
+			defer c.queueMutex.Unlock()
+			require.Empty(t, c.queue)
+			require.Zero(t, c.inFlightBytes)
+		})
+	}
+}
+
+// TestRequestRangeDrainedBeforeSendIsResolvedOnce covers the other outcome of
+// the same window: the drain finds the request before its send, and the send
+// then succeeds. RequestRange returns the id, so the request must still be
+// resolved, once, with the drain's error.
+func TestRequestRangeDrainedBeforeSendIsResolvedOnce(t *testing.T) {
+	type completion struct {
+		id  uint64
+		err error
+	}
+	completions := make(chan completion, 2)
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc: func(ctx CallbackContext, err error) error {
+			completions <- completion{id: ctx.RequestId, err: err}
+			return nil
+		},
+	})
+	c.beforeRangeSend = func() {
+		c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	}
+
+	id, err := c.RequestRange(
+		context.Background(),
+		RangeRequest{ExpectedBytes: 1},
+	)
+	require.NoError(t, err)
+	require.NotZero(t, id)
+
+	select {
+	case got := <-completions:
+		require.Equal(t, id, got.id)
+		require.ErrorIs(t, got.err, protocol.ErrProtocolShuttingDown)
+	case <-time.After(time.Second):
+		t.Fatal("a request drained before its send was never resolved")
+	}
+	c.failOutstanding(protocol.ErrProtocolShuttingDown)
+	select {
+	case got := <-completions:
+		t.Fatalf("request %d resolved twice: %v", got.id, got.err)
+	default:
+	}
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
+}
+
+// TestRequestRangeRefusedHoldsTokenUntilRemoved covers a send that fails while
+// the protocol still runs. The send token is what keeps queue order equal to
+// wire order, so it must not be free while the refused request is still in
+// the queue: another RequestRange could then queue its request behind the
+// stale entry, and headForResponse would give that range's answers to it.
+func TestRequestRangeRefusedHoldsTokenUntilRemoved(t *testing.T) {
+	c := newStartedQueueTestClient(t, &Config{
+		RequestPipelining: true,
+		RangeDoneFunc:     func(CallbackContext, error) error { return nil },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	type observation struct {
+		tokenFree   bool
+		staleQueued bool
+	}
+	observed := make(chan observation, 1)
+	var hookOnce sync.Once
+	c.beforeRangeSend = func() {
+		hookOnce.Do(func() {
+			// The send below fails on the canceled context. Hold queueMutex
+			// so the failed request cannot be removed, then see whether its
+			// caller hands the token back anyway.
+			cancel()
+			locked := make(chan struct{})
+			go func() {
+				c.queueMutex.Lock()
+				close(locked)
+				var got observation
+				select {
+				case <-c.rangeSendToken:
+					got.tokenFree = true
+					got.staleQueued = len(c.queue) > 0
+					c.rangeSendToken <- struct{}{}
+				case <-time.After(500 * time.Millisecond):
+				}
+				c.queueMutex.Unlock()
+				observed <- got
+			}()
+			<-locked
+		})
+	}
+
+	id, err := c.RequestRange(ctx, RangeRequest{ExpectedBytes: 1})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, id)
+	got := <-observed
+	require.False(t, got.tokenFree,
+		"send token released while the refused request was queued (still queued: %v)",
+		got.staleQueued)
+	c.queueMutex.Lock()
+	defer c.queueMutex.Unlock()
+	require.Empty(t, c.queue)
+	require.Zero(t, c.inFlightBytes)
+}

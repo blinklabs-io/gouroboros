@@ -561,17 +561,31 @@ func TestProtocolStateTimeouts(t *testing.T) {
 				chainsync.IntersectTimeout,
 			)
 		}
-		if chainsync.MustReplyTimeoutMin != 135*time.Second {
+		// The specification's chain-sync timeout table and the reference's
+		// minChainSyncTimeout and maxChainSyncTimeout both give 601s to 911s.
+		if chainsync.MustReplyTimeoutMin != 601*time.Second {
 			t.Errorf(
-				"MustReplyTimeoutMin should be 135s per spec, got %v",
+				"MustReplyTimeoutMin should be 601s per spec, got %v",
 				chainsync.MustReplyTimeoutMin,
 			)
 		}
-		if chainsync.MustReplyTimeoutMax != 269*time.Second {
+		if chainsync.MustReplyTimeoutMax != 911*time.Second {
 			t.Errorf(
-				"MustReplyTimeoutMax should be 269s per spec, got %v",
+				"MustReplyTimeoutMax should be 911s per spec, got %v",
 				chainsync.MustReplyTimeoutMax,
 			)
+		}
+		for range 1000 {
+			got := chainsync.MustReplyTimeoutFunc()
+			if got < chainsync.MustReplyTimeoutMin ||
+				got >= chainsync.MustReplyTimeoutMax {
+				t.Fatalf(
+					"MustReplyTimeoutFunc returned %v, outside [%v, %v)",
+					got,
+					chainsync.MustReplyTimeoutMin,
+					chainsync.MustReplyTimeoutMax,
+				)
+			}
 		}
 	})
 
@@ -704,41 +718,29 @@ func TestProtocolStateTimeouts(t *testing.T) {
 	})
 
 	t.Run("LocalStateQuery timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification.
 		cfg := localstatequery.NewConfig()
 		timeouts := map[string]time.Duration{
 			"AcquireTimeout": cfg.AcquireTimeout,
 			"QueryTimeout":   cfg.QueryTimeout,
 		}
 		for name, timeout := range timeouts {
-			if timeout <= 0 {
-				t.Errorf("%s must be positive, got %v", name, timeout)
-			}
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
+			if timeout != 0 {
+				t.Errorf("%s should default to none, got %v", name, timeout)
 			}
 		}
 	})
 
 	t.Run("LocalTxMonitor timeouts", func(t *testing.T) {
+		// Node-to-client protocols have no timeouts in the specification.
 		cfg := localtxmonitor.NewConfig()
 		timeouts := map[string]time.Duration{
 			"AcquireTimeout": cfg.AcquireTimeout,
 			"QueryTimeout":   cfg.QueryTimeout,
 		}
 		for name, timeout := range timeouts {
-			if timeout <= 0 {
-				t.Errorf("%s must be positive, got %v", name, timeout)
-			}
-			if timeout < time.Second || timeout > time.Hour {
-				t.Errorf(
-					"%s should be between 1 second and 1 hour, got %v",
-					name,
-					timeout,
-				)
+			if timeout != 0 {
+				t.Errorf("%s should default to none, got %v", name, timeout)
 			}
 		}
 	})

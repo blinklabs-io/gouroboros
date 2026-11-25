@@ -194,13 +194,17 @@ func (o *conwayCertsOverlay) DRepRegistration(
 	return o.ls.DRepRegistration(cred)
 }
 
-// IsPoolRegistered reports whether pool is registered after this
-// transaction's own certificates, falling back to ls otherwise.
-func (o *conwayCertsOverlay) IsPoolRegistered(pool common.PoolKeyHash) bool {
+// poolRegistered reports whether pool is registered after this
+// transaction's own certificates, falling back to common.PoolRegistered on ls
+// otherwise.
+func (o *conwayCertsOverlay) poolRegistered(
+	slot uint64,
+	pool common.PoolKeyHash,
+) (bool, error) {
 	if _, tracked := o.poolRegistrations[pool]; tracked {
-		return true
+		return true, nil
 	}
-	return o.ls.IsPoolRegistered(pool)
+	return common.PoolRegistered(o.ls, slot, pool)
 }
 
 // committeeCredentialState resolves ls's optional CommitteeCredentialState

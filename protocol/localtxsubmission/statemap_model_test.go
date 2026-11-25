@@ -114,17 +114,13 @@ func modelReceive(role, state, kind string) string {
 	return modelJudge(state, kind)
 }
 
-// gouroborosReceive maps the reference onto gOuroboros where they differ, each
-// a recorded deviation: protocol.Protocol refuses a message sent while the
-// receiver holds agency instead of leaving it to wait, and the server does
-// not restart after MsgDone, so what follows it is never read.
+// gouroborosReceive maps the reference onto gOuroboros where they differ, a
+// recorded deviation: protocol.Protocol refuses a message sent while the
+// receiver holds agency instead of leaving it to wait.
 func gouroborosReceive(role, state, kind string) string {
 	outcome := modelReceive(role, state, kind)
-	switch {
-	case outcome == modelWaits:
+	if outcome == modelWaits {
 		return modelViolation
-	case state == stDone && role == modelRoleServer:
-		return modelHeld
 	}
 	return outcome
 }

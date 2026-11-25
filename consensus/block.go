@@ -324,9 +324,16 @@ func (b *BlockBuilder) BuildHeader(
 				input.Slot,
 			)
 		}
-		nonceVrfInput, nErr := vrf.MkSeedTPraos(
-			int64(input.Slot), //nolint:gosec // G115: validated above
-			input.EpochNonce,
+		epochNonce, nErr := epochNonceFromBytes(input.EpochNonce)
+		if nErr != nil {
+			return nil, leaderResult, fmt.Errorf(
+				"failed to create nonce VRF input: %w",
+				nErr,
+			)
+		}
+		nonceVrfInput, nErr := vrf.MkSeedTPraosFromNonce(
+			input.Slot,
+			epochNonce,
 			vrf.SeedEta(),
 		)
 		if nErr != nil {
@@ -522,6 +529,9 @@ func ComputeBlockBodyHash(bodyBytes []byte) []byte {
 
 // ComputeVRFInput creates the VRF input for a given slot and epoch nonce.
 // Returns nil if epochNonce is not exactly 32 bytes or if slot overflows int64.
+// epochNonce is always appended, so it cannot express a NeutralNonce.
+//
+// Deprecated: use ComputeVRFInputFromNonce to represent neutrality explicitly.
 func ComputeVRFInput(slot uint64, epochNonce []byte) []byte {
 	// Validate epochNonce length to prevent panic in vrf.MkInputVrf
 	if len(epochNonce) != 32 {
@@ -540,6 +550,28 @@ func ComputeVRFInput(slot uint64, epochNonce []byte) []byte {
 		return nil
 	}
 	return vrfInput
+}
+
+// ComputeVRFInputFromNonce creates the Praos VRF input for a slot and epoch
+// nonce. A NonceTypeNeutral epoch nonce adds no bytes, as in the reference.
+func ComputeVRFInputFromNonce(
+	slot uint64,
+	epochNonce common.Nonce,
+) ([]byte, error) {
+	return vrf.MkInputVrfFromNonce(slot, epochNonce)
+}
+
+// epochNonceFromBytes reads a 32-byte epoch nonce. The []byte APIs have no
+// spelling for NeutralNonce, so the result is always an ordinary nonce.
+func epochNonceFromBytes(epochNonce []byte) (common.Nonce, error) {
+	if len(epochNonce) != 32 {
+		return common.Nonce{}, fmt.Errorf(
+			"epoch nonce must be 32 bytes, got %d", len(epochNonce),
+		)
+	}
+	nonce := common.Nonce{Type: common.NonceTypeNonce}
+	copy(nonce.Value[:], epochNonce)
+	return nonce, nil
 }
 
 // Errors for block construction

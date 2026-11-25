@@ -110,14 +110,26 @@ type PoolState interface {
 	// longer pending and must be reported as nil, not as the pool's most
 	// recent retirement.
 	//
-	// PoolRegistrationDepositDue reads the pair together and treats a
-	// retirement epoch the current epoch has reached as evidence that the pool
-	// is no longer registered, so an implementation that returned the latest
-	// retirement unconditionally would charge a second pool deposit on every
-	// parameter update made after a re-registration and reject a canonical
-	// block for failing value conservation.
+	// This method is the authority for whether a pool is registered: every
+	// validation rule that needs it calls PoolRegistered, which reads the
+	// pair together. A pool must be returned with a registration whenever it
+	// is in the ledger's current stake-pool map. Once POOLREAP has removed a
+	// pool, an implementation may return nil or the pool's last registration
+	// with the retirement epoch that removed it; PoolRegistered treats a
+	// retirement epoch the current epoch has reached as not registered.
+	//
+	// An implementation that returned the latest retirement unconditionally
+	// would make a re-registered pool look reaped once that epoch passed: it
+	// would refuse delegations to the pool and charge a second pool deposit
+	// on every parameter update, rejecting a canonical block.
 	PoolCurrentState(PoolKeyHash) (*PoolRegistrationCertificate, *uint64, error)
-	// IsPoolRegistered checks if a pool is currently registered
+	// IsPoolRegistered reports whether the pool is in the ledger's current
+	// stake-pool map. It must agree with PoolRegistered over
+	// PoolCurrentState at the current slot; in particular it must be false
+	// for a pool whose retirement epoch has been reached. gOuroboros'
+	// validation rules do not rely on it alone, because an implementation
+	// that derives it from a stale PoolCurrentState answer would report a
+	// reaped pool as registered.
 	IsPoolRegistered(PoolKeyHash) bool
 	// IsVrfKeyInUse checks if a VRF key hash is registered by another pool.
 	// Returns (inUse, owningPoolId, error). Used for PV11+ VRF uniqueness validation.
@@ -464,6 +476,12 @@ type PoolDelegation struct {
 type GovActionState struct {
 	ActionId   GovActionId
 	ActionType GovActionType
+	// ExpirySlot is the last slot in which a vote on the action is still
+	// accepted: the final slot of the epoch named by the action's
+	// gasExpiresAfter (proposal epoch plus govActionLifetime). The reference
+	// refuses a vote once the current epoch is past gasExpiresAfter, so the
+	// first slot of that epoch would refuse votes a whole epoch early. Zero
+	// means unknown, and votes on the action then fail closed.
 	ExpirySlot uint64
 	// Action is the governance action itself, as proposed. Rules that need
 	// proposal contents fail closed when it is nil.
@@ -516,7 +534,15 @@ type GovState interface {
 	// Treasury value
 	TreasuryValue() (uint64, error)
 
-	// Governance action queries
+	// GovActionById returns a governance action that is still in the
+	// proposals set, or nil when there is none. An action RATIFY has
+	// classified as expired stays until EPOCH removes it. An action that was
+	// enacted, or removed with its rivals or an expired ancestor, must not be
+	// returned. That includes the current root of each purpose: the rules
+	// read roots from GovPurposeRootsState, and a vote naming an action this
+	// method returns is accepted, while the reference refuses a vote on an
+	// enacted action as GovActionsDoNotExist.
 	GovActionById(GovActionId) (*GovActionState, error)
+	// GovActionExists reports whether GovActionById would return an action.
 	GovActionExists(GovActionId) bool
 }

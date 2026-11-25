@@ -225,3 +225,47 @@ func TestVerifyDijkstraCertificateForMessage(t *testing.T) {
 	require.NotNil(t, configErr)
 	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
 }
+
+// The committee is the top committeeSize pools, or every pool when fewer are
+// registered (selectLeiosCommittee), and verifyLeiosCert sizes the signer
+// bitfield by the committee's own seat count.
+func TestVerifyDijkstraCertificateCommitteeSmallerThanParameter(t *testing.T) {
+	t.Parallel()
+	secrets := []*big.Int{big.NewInt(29), big.NewInt(31)}
+	hash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	signature := signLeiosTestMessage(
+		t,
+		new(big.Int).Add(secrets[0], secrets[1]),
+		hash[:],
+		leiosSignatureDST,
+	)
+	context := common.DijkstraLeiosCertificateContext{
+		AnnouncingBlockHash: hash,
+		TotalActiveStake:    2,
+		Committee: []common.DijkstraLeiosCommitteeMember{
+			{Stake: 1, Key: makeLeiosTestKey(t, secrets[0])},
+			{Stake: 1, Key: makeLeiosTestKey(t, secrets[1])},
+		},
+	}
+	quorum := big.NewRat(3, 4)
+
+	t.Run("bitfield sized by the seated committee", func(t *testing.T) {
+		require.NoError(t, VerifyDijkstraCertificate(
+			[]byte{0xc0}, signature, 900, quorum, context,
+		))
+	})
+	t.Run("bitfield sized by the parameter", func(t *testing.T) {
+		signers := make([]byte, common.LeiosSignerBitfieldSize(900))
+		signers[0] = 0xc0
+		err := VerifyDijkstraCertificate(
+			signers, signature, 900, quorum, context,
+		)
+		require.ErrorIs(t, err, ErrMalformedCommittee)
+	})
+	t.Run("committee larger than the parameter", func(t *testing.T) {
+		err := VerifyDijkstraCertificate(
+			[]byte{0xc0}, signature, 1, quorum, context,
+		)
+		require.ErrorIs(t, err, ErrMalformedCommittee)
+	})
+}
