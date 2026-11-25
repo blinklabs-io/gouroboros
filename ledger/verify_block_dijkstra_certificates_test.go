@@ -116,8 +116,9 @@ func TestValidateDijkstraBlockCertificates(t *testing.T) {
 		)
 	})
 	t.Run("invalid committee bitfield", func(t *testing.T) {
+		// Longer than any committee of at most nine seats needs.
 		invalid := *validCert
-		invalid.Signers = []byte{0x80}
+		invalid.Signers = []byte{0x80, 0x80, 0x80}
 		invalidBlock := &dijkstra.DijkstraBlock{
 			BlockHeader: block.BlockHeader,
 			BlockBody:   dijkstra.DijkstraBlockBody{LeiosCertificate: &invalid},
@@ -337,4 +338,71 @@ func TestValidateDijkstraBlockCertificatesInvalidDomainIsConfigurationError(
 	require.Equal(
 		t, common.ValidationErrorTypeConfiguration, validationErr.Type,
 	)
+}
+
+// A committee smaller than LeiosCommitteeSize, as when fewer pools are
+// registered, has a signer bitfield sized by its own seats.
+func TestValidateDijkstraBlockCertificatesSmallCommittee(t *testing.T) {
+	t.Parallel()
+	secret := big.NewInt(37)
+	blockHash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	sign := func(message []byte, dst string) []byte {
+		hash, err := bls12381.HashToG1(message, []byte(dst))
+		require.NoError(t, err)
+		var sig bls12381.G1Affine
+		sig.ScalarMultiplication(&hash, secret)
+		encoded := sig.Bytes()
+		return encoded[:]
+	}
+	var public bls12381.G2Affine
+	public.ScalarMultiplicationBase(secret)
+	encodedPublic := public.Bytes()
+	state := dijkstraLeiosTestState{
+		context: common.DijkstraLeiosCertificateContext{
+			AnnouncingBlockHash: blockHash,
+			TotalActiveStake:    1,
+			Committee: []common.DijkstraLeiosCommitteeMember{{
+				Stake: 1,
+				Key: &common.LeiosKey{
+					PublicKey: encodedPublic[:],
+					PossessionProof: sign(
+						encodedPublic[:],
+						"BLS_POP_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_",
+					),
+				},
+			}},
+		},
+	}
+	block := &dijkstra.DijkstraBlock{
+		BlockHeader: &dijkstra.DijkstraBlockHeader{
+			LeiosHeaderExtension: []cbor.RawMessage{{0xf5}},
+		},
+		BlockBody: dijkstra.DijkstraBlockBody{
+			LeiosCertificate: &dijkstra.DijkstraLeiosCertificate{
+				Signers: []byte{0x80},
+				AggregatedSignature: sign(
+					blockHash[:],
+					"BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_",
+				),
+			},
+		},
+	}
+	params := &dijkstra.DijkstraProtocolParameters{
+		LeiosCommitteeSize:        900,
+		LeiosQuorumStakeThreshold: &cbor.Rat{Rat: big.NewRat(3, 4)},
+	}
+	require.NoError(t, validateDijkstraBlockCertificates(block, params, state))
+
+	oversized := *block.BlockBody.LeiosCertificate
+	oversized.Signers = make([]byte, common.LeiosSignerBitfieldSize(900)+1)
+	oversized.Signers[0] = 0x80
+	oversizedBlock := &dijkstra.DijkstraBlock{
+		BlockHeader: block.BlockHeader,
+		BlockBody:   dijkstra.DijkstraBlockBody{LeiosCertificate: &oversized},
+	}
+	err := validateDijkstraBlockCertificates(oversizedBlock, params, nil)
+	var validationErr *common.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
+	require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
 }
