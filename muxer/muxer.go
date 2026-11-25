@@ -1141,12 +1141,23 @@ func (m *Muxer) StartOnce() {
 type callbackOwnerKey struct{}
 
 // CallbackContext returns the context a Metrics callback passes to Stop to
-// stop its own muxer. It carries no deadline and is never cancelled.
+// stop its own muxer, or to the Close of the connection that owns the
+// muxer. It carries no deadline and is never cancelled.
 func (m *Muxer) CallbackContext() context.Context {
 	if m.callbackCtx == nil {
 		return context.Background()
 	}
 	return m.callbackCtx
+}
+
+// CallbackOwner returns the muxer whose CallbackContext ctx is or derives
+// from, or nil when ctx carries none.
+func CallbackOwner(ctx context.Context) *Muxer {
+	if ctx == nil {
+		return nil
+	}
+	m, _ := ctx.Value(callbackOwnerKey{}).(*Muxer)
+	return m
 }
 
 // Stop shuts down the muxer and waits for its goroutines. It closes the
@@ -1163,8 +1174,7 @@ func (m *Muxer) CallbackContext() context.Context {
 // once the callback returns.
 func (m *Muxer) Stop(ctx context.Context) error {
 	m.stop()
-	if owner, _ := ctx.Value(callbackOwnerKey{}).(*Muxer); owner == m ||
-		m.cleanupDone == nil {
+	if CallbackOwner(ctx) == m || m.cleanupDone == nil {
 		return nil
 	}
 	// A join that has already happened wins over a done ctx.
