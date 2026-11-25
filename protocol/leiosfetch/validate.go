@@ -133,11 +133,11 @@ func validateBlock(req *MsgBlockRequest, resp *MsgBlock) error {
 	return nil
 }
 
-type voteKey struct {
-	slotNo  uint64
-	voterId uint64
-}
-
+// validateVotes checks that a reply holds no more votes than were requested,
+// and that each vote's voter was requested, once per request. A CIP-0164
+// vote names its announcing ranking block, not its election slot, which is
+// that block's slot, so only the caller can match a vote to the slot of the
+// ID it requested.
 func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 	if len(resp.VotesRaw) > len(req.VoteIds) {
 		return unexpectedResponse(
@@ -151,10 +151,10 @@ func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 		)
 	}
 	// A repeated ID in the request is answerable that many times, so count the
-	// occurrences instead of treating the IDs as a set.
-	remaining := make(map[voteKey]int, len(req.VoteIds))
+	// occurrences instead of treating the voters as a set.
+	remaining := make(map[uint64]int, len(req.VoteIds))
 	for _, id := range req.VoteIds {
-		remaining[voteKey{id.SlotNo, id.VoterId}]++
+		remaining[id.VoterId]++
 	}
 	for idx, raw := range resp.VotesRaw {
 		var vote lcommon.LeiosVote
@@ -165,20 +165,19 @@ func validateVotes(req *MsgVotesRequest, resp *MsgVotes) error {
 				fmt.Sprintf("decode vote %d: %s", idx, err),
 			)
 		}
-		key := voteKey{vote.SlotNo, vote.VoterId}
-		if remaining[key] == 0 {
+		voter := uint64(vote.VoterId)
+		if remaining[voter] == 0 {
 			return unexpectedResponse(
 				req,
 				resp,
 				fmt.Sprintf(
-					"vote %d (slot %d, voter %d) was not requested or repeats",
+					"vote %d (voter %d) was not requested or repeats",
 					idx,
-					vote.SlotNo,
 					vote.VoterId,
 				),
 			)
 		}
-		remaining[key]--
+		remaining[voter]--
 	}
 	return nil
 }

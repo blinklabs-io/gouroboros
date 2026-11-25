@@ -380,7 +380,7 @@ func TestMsgVotesOfferMarshalRejectsOversizedBatch(t *testing.T) {
 func TestMsgVotesOfferMarshalRejectsOversizedMessage(t *testing.T) {
 	t.Parallel()
 
-	msg := NewMsgVotesOfferFull([]lcommon.LeiosVote{{
+	msg := NewMsgVotesOfferFull([]lcommon.LeiosLegacyVote{{
 		VoteSignature: make([]byte, MaxVotesOfferBytes),
 	}})
 	_, err := msg.MarshalCBOR()
