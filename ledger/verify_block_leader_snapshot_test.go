@@ -52,6 +52,11 @@ func TestVerifyBlockStateUsesLeaderSnapshot(t *testing.T) {
 		PrevSlot:             b.Slot - 1, PrevBlockNumber: b.BlockNumber - 1,
 		PrevHeaderHash: b.PrevHash[:], EpochNonce: nonce,
 		PoolStake: 1, TotalStake: 1, RegisteredVrfKeyHash: vrfHash[:],
+		Envelope: &consensus.EnvelopeInput{
+			ProtocolMajorVersion: 10, MaxMajorProtocolVersion: 10,
+			HeaderSize: uint64(len(h.Cbor())), BlockBodySize: b.BlockBodySize,
+			MaxBlockHeaderSize: 1100, MaxBlockBodySize: 90112,
+		},
 	})
 	require.True(t, result.Valid, "%v", result.Errors)
 

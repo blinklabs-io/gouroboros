@@ -6263,3 +6263,60 @@ func TestEvaluatePlutusScriptsRejectsNilTransaction(t *testing.T) {
 	)
 	require.Error(t, err)
 }
+
+// TestUtxoValidateBadInputsUtxoCollateralAndReferenceInputs pins the
+// reference's Conway BadInputsUTxO input set, spent inputs ∪ collateral ∪
+// reference inputs (babbageUtxoValidation): a missing collateral or
+// reference input is a bad input even when no other rule resolves it, and
+// an input both spent and referenced is reported once.
+func TestUtxoValidateBadInputsUtxoCollateralAndReferenceInputs(t *testing.T) {
+	txId := "d228b482a1aae768e4a796380f49e021d9c21f70d3c12cb186b188dedfc0ee22"
+	present := shelley.MustNewShelleyTransactionInput(txId, 0)
+	missing := shelley.MustNewShelleyTransactionInput(txId, 1)
+	ls := mockledger.NewLedgerStateBuilder().
+		WithUtxos([]common.Utxo{{Id: present}}).
+		Build()
+	set := func(in ...shelley.ShelleyTransactionInput) cbor.SetType[shelley.ShelleyTransactionInput] {
+		return cbor.NewSetType(in, true)
+	}
+	newTx := func(
+		ins, coll, refs []shelley.ShelleyTransactionInput,
+	) *conway.ConwayTransaction {
+		return &conway.ConwayTransaction{
+			Body: conway.ConwayTransactionBody{
+				TxInputs:          conway.NewConwayTransactionInputSet(ins),
+				TxCollateral:      set(coll...),
+				TxReferenceInputs: set(refs...),
+			},
+		}
+	}
+	one := func(in shelley.ShelleyTransactionInput) []shelley.ShelleyTransactionInput {
+		return []shelley.ShelleyTransactionInput{in}
+	}
+	pp := &conway.ConwayProtocolParameters{}
+	tests := []struct {
+		name string
+		tx   *conway.ConwayTransaction
+		bad  []common.TransactionInput
+	}{
+		{"all present", newTx(one(present), one(present), one(present)), nil},
+		{"missing collateral", newTx(one(present), one(missing), nil), []common.TransactionInput{missing}},
+		{"missing reference input", newTx(one(present), nil, one(missing)), []common.TransactionInput{missing}},
+		{"spent and referenced, missing", newTx(one(missing), nil, one(missing)), []common.TransactionInput{missing}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := conway.UtxoValidateBadInputsUtxo(tc.tx, 0, ls, pp)
+			if tc.bad == nil {
+				require.NoError(t, err)
+				return
+			}
+			var badErr shelley.BadInputsUtxoError
+			require.ErrorAs(t, err, &badErr)
+			require.Len(t, badErr.Inputs, len(tc.bad))
+			for i := range tc.bad {
+				require.Equal(t, tc.bad[i].String(), badErr.Inputs[i].String())
+			}
+		})
+	}
+}

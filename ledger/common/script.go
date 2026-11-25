@@ -1329,6 +1329,15 @@ type NativeScriptPubkey struct {
 
 // UnmarshalCBOR requires the signature hash to match its ledger-defined width.
 func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(data); !indefinite && n >= 0 &&
+		n != 2 {
+		return fmt.Errorf(
+			"native script pubkey must contain 2 fields, got %d",
+			n,
+		)
+	}
 	var fields []cbor.RawMessage
 	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err

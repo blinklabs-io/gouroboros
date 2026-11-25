@@ -1112,7 +1112,9 @@ func ValidateClassicProtocolParameterUpdates(
 	pp ProtocolParameters,
 ) error {
 	targetEpoch, updates := tx.ProtocolParameterUpdates()
-	if len(updates) == 0 {
+	// Only an absent update (a nil map) skips the rule. An update whose
+	// proposal map is empty still has its target epoch checked.
+	if updates == nil {
 		return nil
 	}
 	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
@@ -1206,6 +1208,49 @@ func ValidateClassicProtocolParameterUpdates(
 		}
 		if err := versioned.ValidateProtocolParameterUpdateVersion(currentVersion); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// ValidateClassicProtocolParameterUpdateWitnesses requires a vkey witness from
+// the current delegate of every proposing genesis key that is in the genesis
+// delegation map. It is the UTXOW part of PPUP authorization
+// (witsVKeyNeededGenDelegs), which applies to every transaction; a proposing
+// key outside the map needs no witness here, because rejecting it is the PPUP
+// rule's job.
+func ValidateClassicProtocolParameterUpdateWitnesses(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+) error {
+	_, updates := tx.ProtocolParameterUpdates()
+	if len(updates) == 0 {
+		return nil
+	}
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
+	if !ok {
+		return GenesisDelegationStateUnavailableError{}
+	}
+	signed := make(map[Blake2b224]struct{})
+	if w := tx.Witnesses(); w != nil {
+		for _, witness := range w.Vkey() {
+			signed[Blake2b224Hash(witness.Vkey)] = struct{}{}
+		}
+	}
+	for genesisKey := range updates {
+		delegateKey, ok, err := genesisState.GenesisDelegateForGenesisKey(
+			genesisKey,
+			slot,
+		)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if _, ok := signed[delegateKey]; !ok {
+			return ProtocolParameterUpdateWitnessError{Delegate: genesisKey}
 		}
 	}
 	return nil

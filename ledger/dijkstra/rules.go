@@ -40,6 +40,14 @@ import (
 const minUtxoOverheadBytes = 160
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	// BadInputs runs first. cardano-ledger accumulates every failure, so a
+	// missing input always yields BadInputsUTxO; this list stops at the first
+	// failure, and the rules below resolve collateral and reference inputs
+	// and would otherwise report the same missing input in their own terms.
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
 	{
 		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
 		Validator: common.UtxoValidateCurrentTreasuryValueAnyPhase,
@@ -167,10 +175,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
-	},
-	{
-		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: UtxoValidateBadInputsUtxo,
 	},
 	{
 		Id:        common.UtxoValidationRuleScriptWitnesses,

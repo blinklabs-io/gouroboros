@@ -56,6 +56,9 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
+	// ProtocolParameterUpdates returns the update's target epoch and
+	// proposals, or a nil map when the transaction carries no update. An
+	// update with no proposals returns an empty, non-nil map.
 	ProtocolParameterUpdates() (uint64, map[Blake2b224]ProtocolParameterUpdate)
 	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
@@ -720,6 +723,29 @@ func (b *TransactionBodyBase) Id() Blake2b256 {
 	return b.hash.Get(func() Blake2b256 {
 		return Blake2b256Hash(b.Cbor())
 	})
+}
+
+// TransactionBodyId returns a transaction id: the Blake2b-256 hash of the
+// body's stored CBOR, or, when base holds none, of the bytes encode returns.
+// Era transaction bodies pass their own MarshalCBOR as encode, because base
+// alone cannot encode the era-specific body that embeds it. A body with no
+// stored CBOR is one built in code or cleared with SetCbor(nil) after a
+// mutation; its id is not memoized, since its fields may still change. A body
+// that cannot be encoded has no transaction id. Id cannot report an error, so
+// such a body gets the zero hash: the hash of empty input would look like a
+// real id.
+func TransactionBodyId(
+	base *TransactionBodyBase,
+	encode func() ([]byte, error),
+) Blake2b256 {
+	if base.Cbor() != nil {
+		return base.Id()
+	}
+	data, err := encode()
+	if err != nil {
+		return Blake2b256{}
+	}
+	return Blake2b256Hash(data)
 }
 
 func (b *TransactionBodyBase) Inputs() []TransactionInput {
