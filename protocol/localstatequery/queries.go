@@ -79,6 +79,7 @@ const (
 	QueryTypeShelleySPOStakeDistr          = 30
 	QueryTypeShelleyGetProposals           = 31
 	QueryTypeShelleyGetRatifyState         = 32
+	QueryTypeShelleyFuturePParams          = 33
 
 	// GetLedgerPeerSnapshot (Shelley sub-query 34, NtC v19+ / cardano-node
 	// 10.7+): [34] up to v22, [34, peer_kind] from v23.
@@ -278,6 +279,7 @@ func shelleyQueryTypes() map[int]any {
 		QueryTypeShelleySPOStakeDistr:           &ShelleySPOStakeDistrQuery{},
 		QueryTypeShelleyGetProposals:            &ShelleyGetProposalsQuery{},
 		QueryTypeShelleyGetRatifyState:          &ShelleyGetRatifyStateQuery{},
+		QueryTypeShelleyFuturePParams:           &ShelleyFuturePParamsQuery{},
 		QueryTypeShelleyGetLedgerPeerSnapshot:   &ShelleyGetLedgerPeerSnapshotQuery{},
 		QueryTypeShelleyStakePoolDefaultVote:    &ShelleyStakePoolDefaultVoteQuery{},
 		QueryTypeShelleyStakeDistribution2:      &ShelleyStakeDistribution2Query{},
@@ -870,10 +872,14 @@ func (r *EraHistoryResult) UnmarshalCBOR(data []byte) error {
 
 // eraHistoryReply is the GetEraHistory reply, a list of eras. Like the
 // reference's Summary decoder, it requires at least one era: an empty list
-// or a null is an error, not an empty history.
+// or a null is an error, not an empty history. The list is a plain definite
+// or indefinite array, so a tag in front of it is an error too.
 type eraHistoryReply []EraHistoryResult
 
 func (r *eraHistoryReply) UnmarshalCBOR(data []byte) error {
+	if len(data) > 0 && data[0]&cbor.CborTypeMask == cbor.CborTypeTag {
+		return errors.New("era history must be an untagged list")
+	}
 	var eras growingArray[EraHistoryResult]
 	if err := eras.UnmarshalCBOR(data); err != nil {
 		return err
@@ -1251,6 +1257,15 @@ type CurrentProtocolParamsResult interface {
 
 type ProposedProtocolParamsUpdatesResult map[lcommon.GenesisHash]lcommon.ProtocolParameterUpdate
 
+func (r *ProposedProtocolParamsUpdatesResult) UnmarshalCBOR(data []byte) error {
+	var tmp growingMap[lcommon.GenesisHash, lcommon.ProtocolParameterUpdate]
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = ProposedProtocolParamsUpdatesResult(tmp)
+	return nil
+}
+
 type StakeDistributionResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -1258,6 +1273,15 @@ type StakeDistributionResult struct {
 		StakeFraction *cbor.Rat
 		VrfHash       ledger.Blake2b256
 	}
+}
+
+func (r *StakeDistributionResult) UnmarshalCBOR(data []byte) error {
+	results, err := decodePoolStakeMap(data)
+	if err != nil {
+		return err
+	}
+	r.Results = results
+	return nil
 }
 
 type UTxOsResult struct {
@@ -1395,12 +1419,12 @@ type StakeDelegDepositsResult map[StakeCredential]uint64
 func (r *StakeDelegDepositsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Deposits map[StakeCredential]uint64
+		Deposits growingMap[StakeCredential, uint64]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	*r = tmp.Deposits
+	*r = StakeDelegDepositsResult(tmp.Deposits)
 	return nil
 }
 
@@ -1411,8 +1435,8 @@ func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(
 		cbor.StructAsArray
 		Inner struct {
 			cbor.StructAsArray
-			Delegations map[StakeCredential]ledger.Blake2b224
-			Rewards     map[StakeCredential]uint64
+			Delegations growingMap[StakeCredential, ledger.Blake2b224]
+			Rewards     growingMap[StakeCredential, uint64]
 		}
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
@@ -1465,9 +1489,9 @@ func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
 			R                 uint64
 			TotalStake        uint64
 			BlocksCount       uint64
-			Decentralization  *cbor.Rat
+			Decentralization  plainRational
 			ExpectedBlocks    uint64
-			Eta               *cbor.Rat
+			Eta               plainRational
 			RPot              uint64
 			TreasuryCut       uint64
 			ActiveStake       uint64
@@ -1486,9 +1510,9 @@ func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
 	r.R = tmp.Inner.R
 	r.TotalStake = tmp.Inner.TotalStake
 	r.BlocksCount = tmp.Inner.BlocksCount
-	r.Decentralization = tmp.Inner.Decentralization
+	r.Decentralization = tmp.Inner.Decentralization.value
 	r.ExpectedBlocks = tmp.Inner.ExpectedBlocks
-	r.Eta = tmp.Inner.Eta
+	r.Eta = tmp.Inner.Eta.value
 	r.RPot = tmp.Inner.RPot
 	r.TreasuryCut = tmp.Inner.TreasuryCut
 	r.ActiveStake = tmp.Inner.ActiveStake
@@ -1590,20 +1614,26 @@ func (r *StakePoolParamsResult) UnmarshalCBOR(data []byte) error {
 	if r == nil {
 		return errors.New("nil StakePoolParamsResult receiver")
 	}
-	type stakePoolParamsResult StakePoolParamsResult
-	var tmp stakePoolParamsResult
+	var tmp struct {
+		cbor.StructAsArray
+		Results cbor.RawMessage
+	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	for poolId, params := range tmp.Results {
+	var res StakePoolParamsResult
+	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
+		return err
+	}
+	for poolId, params := range res.Results {
 		if params.PoolMetadata == nil {
 			continue
 		}
 		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
-			delete(tmp.Results, poolId)
+			delete(res.Results, poolId)
 		}
 	}
-	*r = StakePoolParamsResult(tmp)
+	*r = res
 	return nil
 }
 
@@ -1676,7 +1706,7 @@ func (r *RewardInfoPoolsResult) UnmarshalCBOR(data []byte) error {
 		Inner struct {
 			cbor.StructAsArray
 			Params RewardParams
-			Pools  map[ledger.Blake2b224]RewardInfoPool
+			Pools  growingMap[ledger.Blake2b224, RewardInfoPool]
 		}
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
@@ -1759,10 +1789,10 @@ func (r *PoolStateResult) UnmarshalCBOR(data []byte) error {
 	type rawPoolStateParams PoolStateParams
 	var tmp struct {
 		cbor.StructAsArray
-		PState   map[ledger.Blake2b224]*rawPoolStateParams
-		FState   map[ledger.Blake2b224]*rawPoolStateParams
-		Retiring map[ledger.Blake2b224]uint64
-		Deposits map[ledger.Blake2b224]uint64
+		PState   growingMap[ledger.Blake2b224, *rawPoolStateParams]
+		FState   growingMap[ledger.Blake2b224, *rawPoolStateParams]
+		Retiring growingMap[ledger.Blake2b224, uint64]
+		Deposits growingMap[ledger.Blake2b224, uint64]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
@@ -1852,6 +1882,15 @@ type PoolDistrResult struct {
 	}
 }
 
+func (r *PoolDistrResult) UnmarshalCBOR(data []byte) error {
+	results, err := decodePoolStakeMap(data)
+	if err != nil {
+		return err
+	}
+	r.Results = results
+	return nil
+}
+
 // Conway governance query types
 
 type ShelleyConstitutionQuery struct {
@@ -1905,6 +1944,13 @@ type ShelleyGetProposalsQuery struct {
 }
 
 type ShelleyGetRatifyStateQuery struct {
+	simpleQueryBase
+}
+
+// ShelleyFuturePParamsQuery is GetFuturePParams (Shelley sub-query 33), which
+// asks for the protocol parameters that take effect at the next epoch
+// boundary, if any are known. The reference answers it from Conway.
+type ShelleyFuturePParamsQuery struct {
 	simpleQueryBase
 }
 
@@ -2649,12 +2695,12 @@ type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
 func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Delegatees map[StakeCredential]lcommon.Drep
+		Delegatees growingMap[StakeCredential, lcommon.Drep]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	*r = tmp.Delegatees
+	*r = FilteredVoteDelegateesResult(tmp.Delegatees)
 	return nil
 }
 
@@ -2663,6 +2709,18 @@ func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
 type SPOStakeDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]uint64
+}
+
+func (r *SPOStakeDistrResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results growingMap[ledger.PoolId, uint64]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = SPOStakeDistrResult{Results: tmp.Results}
+	return nil
 }
 
 // ProposalsResult represents the result of a GetProposals query.

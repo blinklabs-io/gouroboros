@@ -359,6 +359,9 @@ func (b *AlonzoTransactionBody) UnmarshalCBOR(cborData []byte) error {
 	if err := common.ValidatePreConwayCertificateTypes(tmp.TxCertificates); err != nil {
 		return err
 	}
+	if err := common.ValidatePreConwaySetTags(cborData, 13, 14); err != nil {
+		return err
+	}
 	tmp.TxCollateral = coalesceUntaggedTransactionInputs(tmp.TxCollateral)
 	if err := tmp.TxCollateral.CheckForDuplicates(); err != nil {
 		return fmt.Errorf("collateral inputs: %w", err)
@@ -381,6 +384,7 @@ func (b AlonzoTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
+	b.TxCertificates = common.PreConwayCertificates(b.TxCertificates)
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
 		&b,
 		0,
@@ -652,24 +656,24 @@ func (o AlonzoTransactionOutput) MarshalJSON() ([]byte, error) {
 
 func (o AlonzoTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount.Amount > 0 {
-		valueData = append(
-			valueData,
-			[2]data.PlutusData{
-				data.NewByteString(nil),
-				data.NewMap(
-					[][2]data.PlutusData{
-						{
-							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount.Amount),
-							),
-						},
+	// The ada entry is present even at zero: cardano-ledger's
+	// transCoinToValue builds PV1.singleton adaSymbol adaToken c for any c.
+	valueData = append(
+		valueData,
+		[2]data.PlutusData{
+			data.NewByteString(nil),
+			data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(nil),
+						data.NewInteger(
+							new(big.Int).SetUint64(o.OutputAmount.Amount),
+						),
 					},
-				),
-			},
-		)
-	}
+				},
+			),
+		},
+	)
 	if o.OutputAmount.Assets != nil {
 		assetData := o.OutputAmount.Assets.ToPlutusData()
 		assetDataMap, ok := assetData.(*data.Map)
@@ -957,6 +961,9 @@ func (w *AlonzoTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	type tAlonzoTransactionWitnessSet AlonzoTransactionWitnessSet
 	var tmp tAlonzoTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidatePreConwaySetTags(cborData, 0, 1, 2, 3, 4, 5); err != nil {
 		return err
 	}
 	if err := common.ValidateNativeScriptConstructors(tmp.WsNativeScripts, 5); err != nil {

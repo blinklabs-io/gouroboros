@@ -291,6 +291,7 @@ func (b MaryTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
+	b.TxCertificates = common.PreConwayCertificates(b.TxCertificates)
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
 		&b,
 		0,
@@ -724,24 +725,24 @@ func (o MaryTransactionOutput) MarshalJSON() ([]byte, error) {
 
 func (o MaryTransactionOutput) ToPlutusData() data.PlutusData {
 	var valueData [][2]data.PlutusData
-	if o.OutputAmount.Amount > 0 {
-		valueData = append(
-			valueData,
-			[2]data.PlutusData{
-				data.NewByteString(nil),
-				data.NewMap(
-					[][2]data.PlutusData{
-						{
-							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount.Amount),
-							),
-						},
+	// The ada entry is present even at zero: cardano-ledger's
+	// transCoinToValue builds PV1.singleton adaSymbol adaToken c for any c.
+	valueData = append(
+		valueData,
+		[2]data.PlutusData{
+			data.NewByteString(nil),
+			data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(nil),
+						data.NewInteger(
+							new(big.Int).SetUint64(o.OutputAmount.Amount),
+						),
 					},
-				),
-			},
-		)
-	}
+				},
+			),
+		},
+	)
 	if o.OutputAmount.Assets != nil {
 		assetData := o.OutputAmount.Assets.ToPlutusData()
 		assetDataMap, ok := assetData.(*data.Map)
@@ -846,6 +847,18 @@ func (v *MaryTransactionOutputValue) UnmarshalCBOR(data []byte) error {
 		"Mary transaction output value",
 	); err != nil {
 		return err
+	}
+	// The pair's coin is a plain unsigned integer like a bare coin: the
+	// library would read a tag 2 bignum that fits a uint64 into Amount.
+	var parts []cbor.RawMessage
+	if _, err := cbor.Decode(data, &parts); err != nil {
+		return err
+	}
+	if len(parts) != 2 || len(parts[0]) == 0 ||
+		parts[0][0]&cbor.CborTypeMask != 0 {
+		return errors.New(
+			"mary transaction output coin must be an unsigned integer",
+		)
 	}
 	type tMaryTransactionOutputValue MaryTransactionOutputValue
 	var tmp tMaryTransactionOutputValue

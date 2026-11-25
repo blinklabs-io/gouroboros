@@ -96,7 +96,7 @@ func TestRewardServiceIntegration(t *testing.T) {
 	require.NotNil(t, result)
 
 	assert.Greater(t, len(result.PoolRewards), 0)
-	assert.Equal(t, pots.Rewards, result.TotalRewards)
+	assert.Equal(t, pots.Rewards, result.TotalRewards+result.Undistributed)
 	assert.Equal(
 		t,
 		common.RewardCredential{
