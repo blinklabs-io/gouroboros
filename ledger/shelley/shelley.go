@@ -464,8 +464,10 @@ func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
+	body := *b
+	body.TxCertificates = common.PreConwayCertificates(b.TxCertificates)
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
-		b,
+		&body,
 		0,
 		1,
 		2,
@@ -954,6 +956,9 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	type tShelleyTransactionWitnessSet ShelleyTransactionWitnessSet
 	var tmp tShelleyTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidatePreConwaySetTags(cborData, 0, 1, 2); err != nil {
 		return err
 	}
 	*w = ShelleyTransactionWitnessSet(tmp)
