@@ -102,11 +102,10 @@ func (c *Client) Start() {
 //
 // Stop sends the message that ends the client's run and waits up to 250ms
 // for it to be written, then stops the protocol. It signals shutdown at
-// once. When ctx is the Context of a CallbackContext this client passed to a
-// callback, Stop returns without waiting for the protocol's goroutines,
-// since the goroutine running the callback is one of them. Otherwise it
-// waits until they have returned, or until ctx is done, in which case it
-// returns ctx.Err() and shutdown still proceeds.
+// once. The client's callbacks run on the goroutine that called
+// SubmitMessage, not on a protocol goroutine, so Stop always waits until
+// the protocol's goroutines have returned, or until ctx is done, in which
+// case it returns ctx.Err() and shutdown still proceeds.
 func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
