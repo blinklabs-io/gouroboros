@@ -256,3 +256,63 @@ func TestCalculateEpochNonceInvalidExtraEntropyLength(t *testing.T) {
 		t.Fatal("expected error for 64-byte extraEntropy, got nil")
 	}
 }
+
+// Expected values follow the reference tick, ηc ⭒ ηh ⭒ ηe
+// (cardano-ledger Cardano.Protocol.TPraos.Rules.Tickn tickTransition), with
+// NeutralNonce as the identity of ⭒ (Cardano.Ledger.BaseTypes). The hashes
+// are blake2b-256 of the concatenated operands, computed with b2sum -l 256,
+// not with the reference itself.
+func TestEpochNonceFromNonces(t *testing.T) {
+	nonce := func(b byte) common.Nonce {
+		n := common.Nonce{Type: common.NonceTypeNonce}
+		copy(n.Value[:], bytes.Repeat([]byte{b}, 32))
+		return n
+	}
+	hashed := func(h string) common.Nonce {
+		n := common.Nonce{Type: common.NonceTypeNonce}
+		raw, err := hex.DecodeString(h)
+		require.NoError(t, err)
+		copy(n.Value[:], raw)
+		return n
+	}
+	neutral := common.Nonce{Type: common.NonceTypeNeutral}
+	candidate, lab, entropy := nonce(1), nonce(2), nonce(3)
+	for _, test := range []struct {
+		name                    string
+		candidate, lab, entropy common.Nonce
+		want                    common.Nonce
+	}{
+		{"neutral lab", candidate, neutral, neutral, candidate},
+		{
+			"neutral lab with extra entropy", candidate, neutral, entropy,
+			hashed("725d60bce59829bc8127bb1551be4b065b3105277343bf405a0c8ab43b69ed7b"),
+		},
+		{
+			"neutral extra entropy", candidate, lab, neutral,
+			hashed("30b600fb1f0cc0b3f0fc28cdcb7389405a6659be81c7d5c5905725aa3a5119ce"),
+		},
+		{
+			"all nonneutral", candidate, lab, entropy,
+			hashed("d1d371ee5b8ba2283151d7817ec46afd6c32b09c4acec3735de7ca2540272031"),
+		},
+		{"neutral candidate", neutral, lab, neutral, lab},
+		{"all neutral", neutral, neutral, neutral, neutral},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := common.EpochNonceFromNonces(
+				test.candidate, test.lab, test.entropy,
+			)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got)
+		})
+	}
+	invalid := common.Nonce{Type: 2}
+	for _, args := range [][3]common.Nonce{
+		{invalid, lab, entropy},
+		{candidate, invalid, entropy},
+		{candidate, lab, invalid},
+	} {
+		_, err := common.EpochNonceFromNonces(args[0], args[1], args[2])
+		require.Error(t, err)
+	}
+}

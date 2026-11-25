@@ -17,6 +17,7 @@ package localtxsubmission
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -24,6 +25,11 @@ import (
 // Server implements the LocalTxSubmission server
 type Server struct {
 	*protocol.Protocol
+	protocolMu   sync.RWMutex
+	protoOptions protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped         bool
 	config          *Config
 	callbackContext CallbackContext
 }
@@ -35,27 +41,59 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config: cfg,
+		config:       cfg,
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+func (s *Server) Stop() {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -76,7 +114,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleSubmitTx(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("submit tx",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -93,7 +131,7 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	err := s.config.SubmitTxFunc(s.callbackContext, msgSubmitTx.Transaction)
 	if err == nil {
 		newMsg := NewMsgAcceptTx()
-		if err := s.SendMessage(newMsg); err != nil {
+		if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 			return err
 		}
 	} else {
@@ -102,19 +140,29 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 			return encErr
 		}
 		newMsg := NewMsgRejectTx(errCbor)
-		if err := s.SendMessage(newMsg); err != nil {
+		if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// handleDone restarts the server in Idle, as the reference's inbound
+// governor restarts a responder that ended cleanly, so the client can start
+// another run on the same connection.
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	p.StopForRestart()
+	if !s.initProtocol() {
+		p.CancelRestart()
+		return
+	}
+	s.ProtocolInstance().Start()
 }
