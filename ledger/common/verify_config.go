@@ -130,8 +130,10 @@ type VerifyConfig struct {
 	// When false (default), LedgerState and ProtocolParameters must be set.
 	SkipTransactionValidation bool
 	// SkipStakePoolValidation disables issuer membership and VRF-key checks
-	// against the active leader distribution in VerifyBlock and VerifyBlockState.
-	// When false (default), LeaderPoolVrfKeyHash must be set for non-Byron blocks.
+	// against the active leader distribution and the TPraos overlay schedule in
+	// VerifyBlock and VerifyBlockState. When false (default),
+	// LeaderPoolVrfKeyHash must be set for non-Byron blocks, and TPraosOverlay
+	// for Shelley-through-Alonzo blocks.
 	SkipStakePoolValidation bool
 	// SkipBlockLimitsValidation disables block-wide execution-unit and
 	// serialized-size limit enforcement in VerifyBlock() (the BBODY

@@ -909,11 +909,15 @@ func verifyBlockTransactions(
 // its collateral. It never writes to config.LedgerState, so the caller
 // applies the block itself once it is accepted.
 //
+// For a Shelley-through-Alonzo block, unless config.SkipStakePoolValidation is
+// set, VerifyBlock classifies the slot with config.TPraosOverlay, using its
+// ActiveSlotCoeff: an active overlay slot admits only the scheduled genesis
+// delegate and its VRF key, and a non-active overlay slot admits no block.
+//
 // VerifyBlock is not full chain-context consensus validation. It does not
-// receive the previous header, active stake distribution, active slot
-// coefficient, or operational certificate sequence state, so callers must
-// combine it with chain-state validation before using a block
-// as a production consensus decision.
+// receive the previous header, active stake distribution, or operational
+// certificate sequence state, so callers must combine it with chain-state
+// validation before using a block as a production consensus decision.
 func VerifyBlock(
 	block Block,
 	eta0Hex string,
@@ -1513,7 +1517,10 @@ func verifyByronBlockLocal(
 
 // VerifyBlockState checks the Dijkstra header rules, certificates, block
 // limits and transactions against current ledger state, and the issuer against
-// the active leader distribution supplied by config.LeaderPoolVrfKeyHash.
+// the active leader distribution supplied by config.LeaderPoolVrfKeyHash. For a
+// Shelley-through-Alonzo block the issuer is first checked against
+// config.TPraosOverlay: in an overlay slot the schedule decides and the leader
+// distribution is not consulted.
 // Callers must first verify the same immutable block with VerifyBlockLocal and
 // serialize this check with application of preceding blocks.
 func VerifyBlockState(block Block, config common.VerifyConfig) error {
