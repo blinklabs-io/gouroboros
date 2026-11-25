@@ -44,6 +44,16 @@ Busy --Vote, tokens = 1--> Idle
 Idle --Done--> Done
 ```
 
+### Pipelining
+
+A client may send its next `VotesRequestNext` before the current batch is
+delivered (CIP-0164 protocol pipelining), so a server in `Busy` accepts one.
+It holds the request until the batch's last `Vote` returns the protocol to
+`Idle`, then answers it, so batches follow request order. Held requests are
+bounded by the receive queue, the state's pending-message byte limit, and the
+protocol's ingress limit; a client that keeps sending past them fails the
+connection.
+
 ## Optional server responder
 
 Leios votes has no state-machine-valid empty batch response. When
