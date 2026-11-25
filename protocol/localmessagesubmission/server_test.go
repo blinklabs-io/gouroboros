@@ -43,8 +43,8 @@ func newSubmissionTestSession(
 	serverMuxer := muxer.New(serverConn)
 	clientErrors := make(chan error, 1)
 	serverErrors := make(chan error, 1)
-	// Room for every answer a test gets: the callbacks run on the receive
-	// loop before SubmitMessage returns, so a full channel would stall it.
+	// Room for every answer a test gets: the callbacks run before
+	// SubmitMessage returns, so a full channel would stall it.
 	result := make(chan pcommon.RejectReason, 8)
 	clientCfg := NewConfig(
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
