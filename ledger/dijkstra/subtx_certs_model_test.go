@@ -221,9 +221,10 @@ func (f subCertFixture) ledger(
 	reg bool,
 	bal int64,
 	pool bool,
+	utxos ...common.Utxo,
 ) common.LedgerState {
 	t.Helper()
-	builder := mockledger.NewLedgerStateBuilder().WithNetworkId(0)
+	builder := mockledger.NewLedgerStateBuilder().WithNetworkId(0).WithUtxos(utxos)
 	if reg {
 		builder = builder.
 			WithRewardAccountCredentialBalance(f.credential, uint64(bal)*subCertCoin).
@@ -290,7 +291,6 @@ func TestSubTxModelEntities(t *testing.T) {
 	pp := subCertPParams()
 	f := newSubCertFixture(t)
 	levels := subCertLevels()
-	cells, accepted := 0, 0
 	for _, reg := range []bool{false, true} {
 		bals := []int64{0}
 		if reg {
@@ -298,41 +298,45 @@ func TestSubTxModelEntities(t *testing.T) {
 		}
 		for _, bal := range bals {
 			for _, pool := range []bool{false, true} {
-				ls := f.ledger(t, reg, bal, pool)
-				for _, valid := range []bool{false, true} {
-					for _, top := range levels {
-						for _, subs := range modelUpTo2(levels) {
-							built := make([]DijkstraSubTransaction, 0, len(subs))
-							for k, l := range subs {
-								sub := subCertSubTx(t, k)
-								sub.Body.TxCertificates = f.certificate(t, l.cert)
-								sub.Body.TxWithdrawals = f.withdrawals(l.wd)
-								sub.Body.TxDirectDeposits = f.directDeposits(l.dd)
-								built = append(built, sub)
-							}
-							tx := modelBatch(t, valid, modelLevel{ins: []int{0}}, built)
-							tx.Body.TxCertificates = f.certificate(t, top.cert)
-							tx.Body.TxWithdrawals = f.withdrawals(top.wd)
-							tx.Body.TxDirectDeposits = f.directDeposits(top.dd)
-							err := modelFirstError(tx, ls, pp, rules)
-							want := subCertSpecEnt(reg, bal, pool, valid, top, subs)
-							if want != (err == nil) {
-								t.Fatalf(
-									"reg=%v bal=%d pool=%v valid=%v top=%v subs=%v: reference accepts=%v, gOuroboros error=%v",
-									reg, bal, pool, valid, top, subs, want, err,
-								)
-							}
-							cells++
-							if want {
-								accepted++
+				t.Run(fmt.Sprintf("reg=%v/bal=%d/pool=%v", reg, bal, pool), func(t *testing.T) {
+					t.Parallel()
+					cells, accepted := 0, 0
+					ls := f.ledger(t, reg, bal, pool)
+					for _, valid := range []bool{false, true} {
+						for _, top := range levels {
+							for _, subs := range modelUpTo2(levels) {
+								built := make([]DijkstraSubTransaction, 0, len(subs))
+								for k, l := range subs {
+									sub := subCertSubTx(t, k)
+									sub.Body.TxCertificates = f.certificate(t, l.cert)
+									sub.Body.TxWithdrawals = f.withdrawals(l.wd)
+									sub.Body.TxDirectDeposits = f.directDeposits(l.dd)
+									built = append(built, sub)
+								}
+								tx := modelBatch(t, valid, modelLevel{ins: []int{0}}, built)
+								tx.Body.TxCertificates = f.certificate(t, top.cert)
+								tx.Body.TxWithdrawals = f.withdrawals(top.wd)
+								tx.Body.TxDirectDeposits = f.directDeposits(top.dd)
+								err := modelFirstError(tx, ls, pp, rules)
+								want := subCertSpecEnt(reg, bal, pool, valid, top, subs)
+								if want != (err == nil) {
+									t.Fatalf(
+										"reg=%v bal=%d pool=%v valid=%v top=%v subs=%v: reference accepts=%v, gOuroboros error=%v",
+										reg, bal, pool, valid, top, subs, want, err,
+									)
+								}
+								cells++
+								if want {
+									accepted++
+								}
 							}
 						}
 					}
-				}
+					t.Logf("cells: %d (%d accepted)", cells, accepted)
+				})
 			}
 		}
 	}
-	t.Logf("entity cells: %d (%d accepted)", cells, accepted)
 }
 
 // ---------------------------------------------------------------------------
