@@ -68,6 +68,10 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 // array element and map pair at any depth, not each collection separately. When
 // Value is the destination of Decode, DecodeStrict or another entry point, that
 // entry point's mode supplies the same totals.
+//
+// The content of an alternative (constructor) tag is not counted: it is kept
+// as raw bytes in a ConstructorDecoder rather than decoded into the tree, and
+// its fields are limited by whatever mode later decodes them.
 func (v *Value) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty CBOR data")
