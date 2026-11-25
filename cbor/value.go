@@ -67,7 +67,10 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 // MaxArrayElements and MaxMapPairs bound the whole decoded tree, counting every
 // array element and map pair at any depth, not each collection separately. When
 // Value is the destination of Decode, DecodeStrict or another entry point, that
-// entry point's mode supplies the same totals.
+// entry point's mode supplies the same totals. A Value nested inside another
+// decoded type, such as a struct field or slice element, is decoded through
+// this method and so uses the default mode's totals whatever mode the outer
+// decode used.
 //
 // The content of an alternative (constructor) tag is not counted: it is kept
 // as raw bytes in a ConstructorDecoder rather than decoded into the tree, and
