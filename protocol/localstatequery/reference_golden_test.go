@@ -95,6 +95,9 @@ var referenceBlockQueries = map[string]func(*testing.T, any){
 	"GetEpochNo": func(t *testing.T, q any) {
 		require.IsType(t, &localstatequery.ShelleyEpochNoQuery{}, q)
 	},
+	"GetFuturePParams": func(t *testing.T, q any) {
+		require.IsType(t, &localstatequery.ShelleyFuturePParamsQuery{}, q)
+	},
 	"GetNonMyopicMemberRewards": func(t *testing.T, q any) {
 		query, ok := q.(*localstatequery.ShelleyNonMyopicMemberRewardsQuery)
 		require.True(t, ok, "%T", q)
@@ -294,13 +297,6 @@ func referenceQueryUnsupported(name string) bool {
 	return false
 }
 
-// referenceQueryLeftOut lists goldens this test does not judge:
-// GetFuturePParams (Shelley block query 33), whose decoding is covered where
-// the server learns the query.
-func referenceQueryLeftOut(name string) bool {
-	return strings.HasSuffix(name, "_GetFuturePParams")
-}
-
 // decodeReferenceQuery decodes a MsgQuery carrying the golden block query the
 // way the server does, and returns the wrapper and the message bytes.
 func decodeReferenceQuery(
@@ -345,9 +341,6 @@ func TestReferenceQueryGoldensDecode(t *testing.T) {
 		}
 		seen++
 		t.Run(name, func(t *testing.T) {
-			if referenceQueryLeftOut(name) {
-				t.Skip("GetFuturePParams is not judged here")
-			}
 			raw := readReferenceGolden(t, referenceCardanoN2C, name)
 			full := blockQueryGolden(raw)
 			wrapper, _, err := decodeReferenceQuery(t, full)
@@ -386,12 +379,12 @@ func TestReferenceQueryGoldensDecode(t *testing.T) {
 			require.Equal(t, hex.EncodeToString(full), hex.EncodeToString(reencoded))
 		})
 	}
-	// Seven Shelley-family eras times the era-independent queries (one of
-	// them GetFuturePParams), two eras times the Conway queries, and the
-	// Byron, two QueryAnytime and one hard-fork query.
+	// Seven Shelley-family eras times the era-independent queries, two eras
+	// times the Conway queries, and the Byron, two QueryAnytime and one
+	// hard-fork query.
 	require.Equal(
 		t,
-		7*(len(referenceBlockQueries)+1)+2*len(referenceConwayBlockQueries)+4,
+		7*len(referenceBlockQueries)+2*len(referenceConwayBlockQueries)+4,
 		seen,
 	)
 }
