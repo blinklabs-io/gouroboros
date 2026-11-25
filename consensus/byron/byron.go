@@ -26,6 +26,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"math/bits"
@@ -57,7 +58,15 @@ type ByronConfig struct {
 	PBFTSignatureThresholdNumerator   uint64
 	PBFTSignatureThresholdDenominator uint64
 	TxFeePolicy                       ByronTxFeePolicy
+	// EndSlot is the first slot after Byron, the start of the next era,
+	// taken from the era history once it is known. While it is nil every
+	// slot is treated as a Byron slot.
+	EndSlot *uint64
 }
+
+// ErrSlotAfterByron reports a slot at or past the end of the Byron era,
+// whose epoch the Byron epoch length does not determine.
+var ErrSlotAfterByron = errors.New("slot is after the Byron era")
 
 // ByronTxFeePolicy contains the transaction fee policy parameters.
 // Byron uses a linear fee formula: fee = (summand + multiplier * txSize) / 10^9
@@ -113,12 +122,34 @@ func (c *ByronConfig) CalculateMinFee(txSizeBytes uint64) uint64 {
 	return c.TxFeePolicy.CalculateMinFee(txSizeBytes)
 }
 
-// SlotToEpoch converts a slot number to an epoch number.
+// SlotToEpoch converts a Byron slot number to an epoch number. It returns
+// zero if the configured epoch length is zero or the slot is at or past
+// EndSlot. Use SlotToEpochChecked to distinguish those errors from epoch
+// zero.
 func (c *ByronConfig) SlotToEpoch(slot uint64) uint64 {
-	if c.SlotsPerEpoch == 0 {
+	epoch, err := c.SlotToEpochChecked(slot)
+	if err != nil {
 		return 0
 	}
-	return slot / c.SlotsPerEpoch
+	return epoch
+}
+
+// SlotToEpochChecked converts a Byron slot number to an epoch number. It
+// returns ErrSlotAfterByron for a slot at or past EndSlot: later eras have
+// other epoch lengths, so converting such a slot needs the era history.
+func (c *ByronConfig) SlotToEpochChecked(slot uint64) (uint64, error) {
+	if c.SlotsPerEpoch == 0 {
+		return 0, errors.New("byron slots per epoch is zero")
+	}
+	if c.EndSlot != nil && slot >= *c.EndSlot {
+		return 0, fmt.Errorf(
+			"%w: slot %d, Byron ends at slot %d",
+			ErrSlotAfterByron,
+			slot,
+			*c.EndSlot,
+		)
+	}
+	return slot / c.SlotsPerEpoch, nil
 }
 
 // EpochFirstSlot returns the first slot of an epoch, or zero if the configured

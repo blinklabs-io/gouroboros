@@ -297,3 +297,48 @@ func TestMuxerDoneCancelsStandaloneBlockingRequestAndCleaner(t *testing.T) {
 		t.Fatal("expiration cleaner did not observe muxer shutdown")
 	}
 }
+
+// TestAddMessageWakesBlockingRequestAndWaiter waits for a message in two
+// places at once: a blocking request inside the handler and an application
+// call to WaitForMessage. One AddMessage must wake both. If the application
+// took the only wakeup, the blocking request would stay unanswered with the
+// message sitting in the queue until some later AddMessage.
+func TestAddMessageWakesBlockingRequestAndWaiter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := NewConfig(
+			WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		)
+		server := NewServer(protocol.ProtocolOptions{}, &cfg)
+		handled := make(chan error, 1)
+		go func() { handled <- server.handleBlockingRequest() }()
+		waited := make(chan error, 1)
+		go func() { waited <- server.WaitForMessage(0) }()
+		synctest.Wait()
+
+		msg := clientTestMessage(
+			t,
+			"wake",
+			uint32(time.Now().Add(time.Minute).Unix()),
+		)
+		require.NoError(t, server.AddMessage(&msg))
+		synctest.Wait()
+
+		server.lock.Lock()
+		queued := len(server.messageQueue)
+		server.lock.Unlock()
+		applicationWoken := false
+		select {
+		case err := <-waited:
+			require.NoError(t, err)
+			applicationWoken = true
+		default:
+		}
+		require.NoError(t, server.Stop())
+		<-handled
+		if !applicationWoken {
+			<-waited
+		}
+		require.Zero(t, queued, "the blocking request did not take the message")
+		require.True(t, applicationWoken, "WaitForMessage was not woken")
+	})
+}

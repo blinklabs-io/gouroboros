@@ -102,8 +102,13 @@ The LocalStateQuery protocol queries the local node's ledger state at specific c
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Acquire Timeout | 5 seconds | Time to acquire state |
-| Query Timeout | 180 seconds | Time to execute query |
+| Acquire Timeout | none | Time to acquire state |
+| Query Timeout | none | Time to execute query |
+
+The specification sets no timeouts for node-to-client protocols, and the
+reference defines no time limits for this one. `WithAcquireTimeout` and
+`WithQueryTimeout` set a client-side limit; one that expires tears down the
+connection.
 
 ## Acquire Targets
 

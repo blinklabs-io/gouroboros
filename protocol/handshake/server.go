@@ -219,15 +219,17 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			"handshake query mode: connection terminated after query reply",
 		)
 	}
-	// Accept the proposed version
-	// We send our version data in the response and the proposed version data in the callback
-	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, versionData)
+	// Both MsgAcceptVersion and the callback carry the agreed data, as the
+	// reference server does, so the connection derives the same diffusion
+	// mode as its peer.
+	agreedData := agreedVersionData(versionData, proposedVersionData)
+	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, agreedData)
 	if err := s.SendMessageAndWait(msgAcceptVersion); err != nil {
 		return err
 	}
 	return s.config.FinishedFunc(
 		s.callbackContext,
 		proposedVersion,
-		proposedVersionData,
+		agreedData,
 	)
 }

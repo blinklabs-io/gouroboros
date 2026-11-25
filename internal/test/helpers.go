@@ -2,10 +2,12 @@ package test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 )
 
@@ -76,4 +78,29 @@ func JsonStringsEqual(jsonData1 []byte, jsonData2 []byte) bool {
 		return false
 	}
 	return reflect.DeepEqual(tmpObj1, tmpObj2)
+}
+
+// OversizedArrayItems is the item count of the arrays built by
+// ArrayOfZeros: large enough that decoding them into a slice of raw items
+// costs megabytes, small enough that the encoded array is under 100 KiB.
+const OversizedArrayItems = 100_000
+
+// ArrayOfZeros returns a definite-length CBOR array of count unsigned
+// integer zeros.
+func ArrayOfZeros(count int) []byte {
+	data := make([]byte, 5+count)
+	data[0] = 0x9a
+	binary.BigEndian.PutUint32(data[1:], uint32(count)) // #nosec G115
+	return data
+}
+
+// AllocatedBytes returns the heap bytes allocated while fn runs. The counter
+// is process-wide, so callers must not run in parallel with other tests.
+func AllocatedBytes(fn func()) uint64 {
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	fn()
+	runtime.ReadMemStats(&after)
+	return after.TotalAlloc - before.TotalAlloc
 }
