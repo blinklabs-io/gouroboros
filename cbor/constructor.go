@@ -196,8 +196,12 @@ func plutusByteKind(item any) ([]byte, bool) {
 		v.Type().Elem().Kind() != reflect.Uint8 {
 		return nil, false
 	}
+	// reflect.Copy needs identical element types, and the element may be a
+	// named uint8 type.
 	data := make([]byte, v.Len())
-	reflect.Copy(reflect.ValueOf(data), v)
+	for i := range data {
+		data[i] = byte(v.Index(i).Uint()) //nolint:gosec // the element kind is uint8
+	}
 	return data, true
 }
 

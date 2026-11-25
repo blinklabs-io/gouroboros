@@ -201,9 +201,14 @@ func TestConstructorEncoderMapItemsAsPlutus(t *testing.T) {
 // chunks its magnitude over 64 bytes.
 func TestConstructorEncoderItemKindsAsPlutus(t *testing.T) {
 	type script []byte
+	type namedByte uint8
 	bytes65 := make([]byte, 65)
+	named65 := make([]namedByte, 65)
+	var namedArray65 [65]namedByte
 	for i := range bytes65 {
 		bytes65[i] = byte(i)
+		named65[i] = namedByte(i)
+		namedArray65[i] = namedByte(i)
 	}
 	hex65 := hex.EncodeToString(bytes65)
 	chunked65 := "5f5840" + hex65[:128] + "41" + hex65[128:] + "ff"
@@ -220,6 +225,9 @@ func TestConstructorEncoderItemKindsAsPlutus(t *testing.T) {
 		{"slice of named byte slices", []script{script(bytes65)}, "d8799f" + chunked65 + "ff"},
 		{"byte array", []any{array65}, "d8799f" + chunked65 + "ff"},
 		{"short named byte slice", []any{script{0x61}}, "d8799f4161ff"},
+		{"slice of a named byte type", []any{named65}, "d8799f" + chunked65 + "ff"},
+		{"array of a named byte type", []any{namedArray65}, "d8799f" + chunked65 + "ff"},
+		{"short slice of a named byte type", []any{[]namedByte{0x61}}, "d8799f4161ff"},
 		{"big.Int value", []any{*big65}, "d8799fc25f5840" + bigMag[:128] + "4100" + "ff" + "ff"},
 		{"small big.Int value", []any{*big.NewInt(5)}, "d8799f05ff"},
 	}
