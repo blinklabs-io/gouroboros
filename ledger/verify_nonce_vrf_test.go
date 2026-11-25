@@ -24,11 +24,14 @@ import (
 )
 
 func TestVerifyNonceVrf(t *testing.T) {
-	const slot = int64(1200)
-	eta0 := bytes.Repeat([]byte{0x91}, 32)
+	const slot = 1200
+	eta0 := common.Nonce{Type: common.NonceTypeNonce}
+	copy(eta0.Value[:], bytes.Repeat([]byte{0x91}, 32))
+	other := common.Nonce{Type: common.NonceTypeNonce}
+	copy(other.Value[:], bytes.Repeat([]byte{0x92}, 32))
 	publicKey, secretKey, err := vrf.KeyGen(bytes.Repeat([]byte{0x27}, 32))
 	require.NoError(t, err)
-	message, err := vrf.MkSeedTPraos(slot, eta0, vrf.SeedEta())
+	message, err := vrf.MkSeedTPraosFromNonce(slot, eta0, vrf.SeedEta())
 	require.NoError(t, err)
 	proof, output, err := vrf.Prove(secretKey, message)
 	require.NoError(t, err)
@@ -37,7 +40,7 @@ func TestVerifyNonceVrf(t *testing.T) {
 	require.NoError(t, verifyNonceVrf(result, publicKey, slot, eta0))
 	require.Error(
 		t,
-		verifyNonceVrf(result, publicKey, slot, bytes.Repeat([]byte{0x92}, 32)),
+		verifyNonceVrf(result, publicKey, slot, other),
 	)
 
 	result.Output = bytes.Clone(result.Output)

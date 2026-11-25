@@ -18,7 +18,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"hash/maphash"
 	"math"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
@@ -28,20 +30,37 @@ import (
 // Server implements the LocalTxMonitor server
 type Server struct {
 	*protocol.Protocol
+	protocolMu   sync.RWMutex
+	protoOptions protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped          bool
 	config           *Config
 	callbackContext  CallbackContext
 	mempoolCapacity  uint32
 	mempoolTxs       []TxAndEraId
 	mempoolNextTxIdx int
-	// txHashes holds the IDs computed by HasTx, by era and transaction CBOR.
-	// Entries survive an Acquire while their transaction is still in the
-	// snapshot, so a client polling Acquire and HasTx parses each
-	// transaction once rather than the whole mempool on every poll.
-	txHashes   map[uint]map[string]*txHashEntry
+	// txHashes holds the IDs computed by HasTx, by era and the maphash of the
+	// transaction CBOR. Each entry points at the snapshot's own bytes rather
+	// than a copy, and acquireMempool re-points carried entries at the new
+	// snapshot, so the cache never pins bytes from an older one. Entries
+	// survive an Acquire while their transaction is still in the snapshot, so
+	// a client polling Acquire and HasTx parses each transaction once rather
+	// than the whole mempool on every poll.
+	txHashes   map[uint]map[uint64]*txHashEntry
 	snapshotId uint64
 }
 
+// txHashSeed keys txHashes. Entries are confirmed with bytes.Equal, so a
+// hash collision costs a reparse and never a wrong answer.
+var txHashSeed = maphash.MakeSeed()
+
+func txHashKey(txCbor []byte) uint64 {
+	return maphash.Bytes(txHashSeed, txCbor)
+}
+
 type txHashEntry struct {
+	tx         []byte
 	hash       lcommon.Blake2b256
 	snapshotId uint64
 }
@@ -53,19 +72,27 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config: cfg,
+		config:       cfg,
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
@@ -73,8 +100,32 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		StateMap:            StateMap,
 		InitialState:        stateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+func (s *Server) Stop() {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	p.Stop()
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -103,7 +154,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleAcquire() error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("acquire",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -120,7 +171,7 @@ func (s *Server) handleAcquire() error {
 		return err
 	}
 	newMsg := NewMsgAcquired(mempoolSlotNumber)
-	if err := s.SendMessage(newMsg); err != nil {
+	if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 		return err
 	}
 	return nil
@@ -142,9 +193,14 @@ func (s *Server) acquireMempool() (uint64, error) {
 	copy(s.mempoolTxs, mempoolTxs)
 	// Keep the IDs of transactions still in the snapshot and drop the rest,
 	// so the cache never outgrows the current mempool.
+	if len(s.txHashes) == 0 {
+		return mempoolSlotNumber, nil
+	}
 	s.snapshotId++
 	for _, tx := range s.mempoolTxs {
-		if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
+		entry, ok := s.txHashes[tx.EraId][txHashKey(tx.Tx)]
+		if ok && bytes.Equal(entry.tx, tx.Tx) {
+			entry.tx = tx.Tx
 			entry.snapshotId = s.snapshotId
 		}
 	}
@@ -161,18 +217,30 @@ func (s *Server) acquireMempool() (uint64, error) {
 	return mempoolSlotNumber, nil
 }
 
+// handleDone restarts the server in Idle, as the reference's inbound
+// governor restarts a responder that ended cleanly, so the client can start
+// another run on the same connection.
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	p := s.ProtocolInstance()
+	p.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	s.releaseMempool()
+	s.mempoolNextTxIdx = 0
+	p.StopForRestart()
+	if !s.initProtocol() {
+		p.CancelRestart()
+		return
+	}
+	s.ProtocolInstance().Start()
 }
 
 func (s *Server) handleRelease() {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("release",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -192,7 +260,7 @@ func (s *Server) releaseMempool() {
 }
 
 func (s *Server) handleHasTx(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("has tx",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -205,7 +273,7 @@ func (s *Server) handleHasTx(msg protocol.Message) error {
 		return err
 	}
 	newMsg := NewMsgReplyHasTx(hasTx)
-	if err := s.SendMessage(newMsg); err != nil {
+	if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 		return err
 	}
 	return nil
@@ -236,23 +304,30 @@ func (s *Server) hasTx(msg *MsgHasTx) (bool, error) {
 // txHash returns the ID of a snapshot transaction, parsing it only the first
 // time it is seen.
 func (s *Server) txHash(tx TxAndEraId) (lcommon.Blake2b256, error) {
-	if entry, ok := s.txHashes[tx.EraId][string(tx.Tx)]; ok {
-		return entry.hash, nil
+	key := txHashKey(tx.Tx)
+	existing, found := s.txHashes[tx.EraId][key]
+	if found && bytes.Equal(existing.tx, tx.Tx) {
+		return existing.hash, nil
 	}
 	txObj, err := ledger.NewTransactionFromCbor(tx.EraId, tx.Tx)
 	if err != nil {
 		return lcommon.Blake2b256{}, err
 	}
 	hash := txObj.Hash()
+	if found {
+		// Another transaction owns this key; leave it and do not cache.
+		return hash, nil
+	}
 	if s.txHashes == nil {
-		s.txHashes = make(map[uint]map[string]*txHashEntry)
+		s.txHashes = make(map[uint]map[uint64]*txHashEntry)
 	}
 	eraHashes := s.txHashes[tx.EraId]
 	if eraHashes == nil {
-		eraHashes = make(map[string]*txHashEntry)
+		eraHashes = make(map[uint64]*txHashEntry)
 		s.txHashes[tx.EraId] = eraHashes
 	}
-	eraHashes[string(tx.Tx)] = &txHashEntry{
+	eraHashes[key] = &txHashEntry{
+		tx:         tx.Tx,
 		hash:       hash,
 		snapshotId: s.snapshotId,
 	}
@@ -260,7 +335,7 @@ func (s *Server) txHash(tx TxAndEraId) (lcommon.Blake2b256, error) {
 }
 
 func (s *Server) handleNextTx() error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("next tx",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -269,7 +344,7 @@ func (s *Server) handleNextTx() error {
 		)
 	if s.mempoolNextTxIdx >= len(s.mempoolTxs) {
 		newMsg := NewMsgReplyNextTx(0, nil)
-		if err := s.SendMessage(newMsg); err != nil {
+		if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 			return err
 		}
 		return nil
@@ -279,7 +354,7 @@ func (s *Server) handleNextTx() error {
 		return errors.New("integer overflow in era id")
 	}
 	newMsg := NewMsgReplyNextTx(uint8(mempoolTx.EraId), mempoolTx.Tx)
-	if err := s.SendMessage(newMsg); err != nil {
+	if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 		return err
 	}
 	s.mempoolNextTxIdx++
@@ -287,7 +362,7 @@ func (s *Server) handleNextTx() error {
 }
 
 func (s *Server) handleGetSizes() error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("get sizes",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -312,7 +387,7 @@ func (s *Server) handleGetSizes() error {
 		uint32(totalTxSize),
 		uint32(numTxs),
 	)
-	if err := s.SendMessage(newMsg); err != nil {
+	if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 		return err
 	}
 	return nil

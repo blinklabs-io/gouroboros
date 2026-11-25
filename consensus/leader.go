@@ -149,20 +149,16 @@ func checkSlotLeadership(
 			"slot %d exceeds maximum int64 value for VRF input", slot,
 		)
 	}
+	nonce, err := epochNonceFromBytes(epochNonce)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create VRF input: %w", err)
+	}
 	var vrfInput []byte
-	var err error
 	switch mode {
 	case ConsensusModeTPraos:
-		vrfInput, err = vrf.MkSeedTPraos(
-			int64(slot), //nolint:gosec
-			epochNonce,
-			vrf.SeedL(),
-		)
+		vrfInput, err = vrf.MkSeedTPraosFromNonce(slot, nonce, vrf.SeedL())
 	case ConsensusModeCPraos:
-		vrfInput, err = vrf.MkInputVrf(
-			int64(slot), //nolint:gosec
-			epochNonce,
-		)
+		vrfInput, err = vrf.MkInputVrfFromNonce(slot, nonce)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create VRF input: %w", err)

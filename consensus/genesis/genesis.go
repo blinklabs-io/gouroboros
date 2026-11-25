@@ -42,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"math/bits"
 )
 
 // GenesisConfig contains configuration for Genesis chain selection.
@@ -277,9 +278,12 @@ func (f *SimpleChainFragment) BlockCountInWindow(windowSlots uint64) uint64 {
 	if windowSlots >= fragmentSlots {
 		return f.Blocks
 	}
-	// Estimate proportionally
-	proportion := float64(windowSlots) / float64(fragmentSlots)
-	return uint64(float64(f.Blocks) * proportion)
+	// Estimate proportionally: floor(Blocks*windowSlots/fragmentSlots), in
+	// 128-bit integer arithmetic. windowSlots < fragmentSlots, so the
+	// quotient is below Blocks and Div64 cannot overflow.
+	hi, lo := bits.Mul64(f.Blocks, windowSlots)
+	quo, _ := bits.Div64(hi, lo, fragmentSlots)
+	return quo
 }
 
 // Density computes the block density (blocks per slot) for a fragment

@@ -485,6 +485,19 @@ func (c *Connection) restartingServersLocked() []interface{ Stop() } {
 	if c.leiosVotes != nil && c.leiosVotes.Server != nil {
 		servers = append(servers, c.leiosVotes.Server)
 	}
+	if c.localTxMonitor != nil && c.localTxMonitor.Server != nil {
+		servers = append(servers, c.localTxMonitor.Server)
+	}
+	if c.localTxSubmission != nil && c.localTxSubmission.Server != nil {
+		servers = append(servers, c.localTxSubmission.Server)
+	}
+	if c.perasVotes != nil && c.perasVotes.Server != nil {
+		servers = append(servers, c.perasVotes.Server)
+	}
+	if c.localMessageSubmission != nil &&
+		c.localMessageSubmission.Server != nil {
+		servers = append(servers, c.localMessageSubmission.Server)
+	}
 	return servers
 }
 
@@ -571,7 +584,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxSubmission.Client.Protocol)
 		}
 		if c.localTxSubmission.Server != nil {
-			protocols = append(protocols, c.localTxSubmission.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxSubmission.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localTxMonitor != nil {
@@ -579,7 +595,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxMonitor.Client.Protocol)
 		}
 		if c.localTxMonitor.Server != nil {
-			protocols = append(protocols, c.localTxMonitor.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxMonitor.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.peerSharing != nil {
@@ -631,7 +650,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.perasVotes.Client.Protocol)
 		}
 		if c.perasVotes.Server != nil {
-			protocols = append(protocols, c.perasVotes.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.perasVotes.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localMessageSubmission != nil {
@@ -644,7 +666,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageSubmission.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageSubmission.Server.Protocol,
+				c.localMessageSubmission.Server.ProtocolInstance(),
 			)
 		}
 	}
@@ -658,7 +680,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageNotification.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageNotification.Server.Protocol,
+				c.localMessageNotification.Server.ProtocolInstance(),
 			)
 		}
 	}
@@ -937,7 +959,7 @@ func (c *Connection) setupConnection() error {
 				c.leiosVotes.Server.EnsureRegistered()
 			}
 			if c.perasVotes != nil {
-				c.perasVotes.Server.EnsureRegistered()
+				c.perasVotes.Server.ProtocolInstance().EnsureRegistered()
 			}
 		}
 		// Start protocols
