@@ -497,6 +497,11 @@ func UtxoValidateOutputTooSmallUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	// Checked here so that the wrong parameters are reported even when no
+	// output reaches MinCoinTxOut.
+	if _, ok := pp.(*MaryProtocolParameters); !ok {
+		return errors.New("pparams are not expected type")
+	}
 	var badOutputs []common.TransactionOutput
 	for _, tmpOutput := range tx.Outputs() {
 		if outputHasPositiveAsset(tmpOutput) {
@@ -632,11 +637,8 @@ func valueSize(
 		return 0, false
 	}
 	numAssets := 0
-	numPolicies := 0
+	policies := make(map[common.Blake2b224]struct{})
 	assetNames := make(map[string]struct{})
-	// Entries of one policy are visited consecutively, so a change of policy
-	// marks the next distinct policy.
-	var lastPolicy common.Blake2b224
 	assets.RangeUnordered(func(
 		policyId common.Blake2b224,
 		name []byte,
@@ -645,10 +647,7 @@ func valueSize(
 		if quantity == nil || quantity.Sign() == 0 {
 			return true
 		}
-		if numPolicies == 0 || policyId != lastPolicy {
-			numPolicies++
-			lastPolicy = policyId
-		}
+		policies[policyId] = struct{}{}
 		numAssets++
 		assetNames[string(name)] = struct{}{}
 		return true
@@ -661,7 +660,7 @@ func valueSize(
 		nameBytes += len(name)
 	}
 	repSize := numAssets*assetTripleSize +
-		numPolicies*policyIdSize +
+		len(policies)*policyIdSize +
 		nameBytes
 	words := (repSize + wordLength - 1) / wordLength
 	return uint64(words + valueRepOverhead), true // #nosec G115
