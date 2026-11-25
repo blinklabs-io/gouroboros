@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -774,7 +775,7 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		OperationalCertificate: opcert,
 		ColdVerificationKey:    []byte(pub),
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("body"),
+			MessageBody: bytes.Repeat([]byte{0x42}, MinMessageBodySize),
 			KESPeriod:   1,
 			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
@@ -843,7 +844,7 @@ func buildSignedTestMessageOver(
 	))
 
 	payload := DmqMessagePayload{
-		MessageBody: []byte("hello"),
+		MessageBody: bytes.Repeat([]byte("hello"), MinMessageBodySize/5),
 		KESPeriod:   msgPeriod,
 		ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 	}

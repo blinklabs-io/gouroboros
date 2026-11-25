@@ -34,6 +34,13 @@ import (
 // pool's cold verification key.
 const PoolKeyHashSize = 28
 
+// MinMessageBodySize and MaxMessageBodySize bound a DMQ message body, in
+// bytes: CIP-0137 messageBody = bstr .size (90..2000).
+const (
+	MinMessageBodySize = 90
+	MaxMessageBodySize = 2000
+)
+
 // DefaultMaxKESEvolutions is the Cardano mainnet maxKESEvolutions genesis value.
 const DefaultMaxKESEvolutions uint64 = 62
 
@@ -69,6 +76,11 @@ var (
 	// no stake in the current distribution.
 	ErrPoolNotInStakeDistribution = errors.New(
 		"protocol/common: issuing pool holds no stake in the current distribution",
+	)
+	// ErrMessageBodySize is returned when a message body is outside
+	// [MinMessageBodySize, MaxMessageBodySize].
+	ErrMessageBodySize = errors.New(
+		"protocol/common: message body size out of range",
 	)
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
@@ -345,6 +357,19 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 
 	if msg == nil {
 		return errors.New("message is nil")
+	}
+
+	// dmq-node refuses an out-of-range body when it decodes the message,
+	// before any other check (Codec.hs decodeBody).
+	if n := len(msg.Payload.MessageBody); n < MinMessageBodySize ||
+		n > MaxMessageBodySize {
+		return fmt.Errorf(
+			"%w: %d bytes, want %d to %d",
+			ErrMessageBodySize,
+			n,
+			MinMessageBodySize,
+			MaxMessageBodySize,
+		)
 	}
 
 	// Step 1: Verify deterministic message ID before heavier auth checks.

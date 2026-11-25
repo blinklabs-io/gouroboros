@@ -43,7 +43,7 @@ func serverTestSignedMessages(
 	messages := make([]pcommon.DmqMessage, len(bodies))
 	for i := range bodies {
 		payload := pcommon.DmqMessagePayload{
-			MessageBody: []byte(bodies[i]),
+			MessageBody: paddedTestBody(bodies[i]),
 			KESPeriod:   1,
 			ExpiresAt: uint32(
 				time.Now().Add(10 * time.Minute).Unix(),
@@ -381,4 +381,14 @@ func TestServerReplayCacheDefaultCoversHonestMempool(t *testing.T) {
 		require.Equal(t, 31*4096, server.config.MaxReplayEntries)
 	}
 	require.Equal(t, 31*4096, NewConfig().MaxReplayEntries)
+}
+
+// paddedTestBody pads body to the minimum DMQ message body size, keeping
+// distinct bodies distinct.
+func paddedTestBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < pcommon.MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }
