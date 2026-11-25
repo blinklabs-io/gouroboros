@@ -39,7 +39,7 @@ func TestBlockPipelineFenceDoesNotWaitForResultsReader(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	shelley := getValidShelleyBlock(t)
 	for i := range blocks {
@@ -87,7 +87,7 @@ func TestBlockPipelineUnreadResultsDoNotHoldSubmitBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	for i := range blocks {
 		require.NoError(t, p.Submit(
@@ -132,7 +132,7 @@ func TestBlockPipelineResultsReaderThatKeepsUpSeesEveryResult(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	for i := range blocks {
 		require.NoError(t, p.Submit(
@@ -169,7 +169,7 @@ func TestBlockPipelineResultsDropOldestWhenReaderFallsBehind(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	for i := range blocks {
 		require.NoError(t, p.Submit(

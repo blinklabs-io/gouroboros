@@ -127,7 +127,7 @@ func TestBlockPipelineSubmitNodeToClient(t *testing.T) {
 	})
 	// Stop closes Errors, so it must run before the drain is awaited.
 	defer drained.Wait()
-	defer p.Stop()
+	defer p.Stop(context.Background())
 
 	next := func() *BlockItem {
 		t.Helper()

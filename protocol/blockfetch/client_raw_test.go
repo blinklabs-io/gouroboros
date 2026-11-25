@@ -348,7 +348,7 @@ func TestGetBlockRangePipelineStillFailsUndecodableBlock(t *testing.T) {
 		}),
 	)
 	require.NoError(t, blockPipeline.Start(t.Context()))
-	defer func() { _ = blockPipeline.Stop() }()
+	defer func() { _ = blockPipeline.Stop(context.Background()) }()
 	rawCalled := make(chan struct{}, 1)
 	connErr := runTestExpectingError(
 		t,
