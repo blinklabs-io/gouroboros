@@ -383,7 +383,12 @@ func (u AlonzoProtocolParameterUpdate) ValidateProtocolParameterUpdateVersion(
 	return common.ValidateClassicCostModelUpdate(
 		u.CostModels,
 		currentVersion.Major,
-		map[uint]int{PlutusV1Key: plutusParamCounts[PlutusV1Key]},
+		// The legacy decoder accepts PlutusV2 in every pre-Conway era,
+		// Alonzo included, not only from Babbage.
+		map[uint]int{
+			PlutusV1Key: plutusParamCounts[PlutusV1Key],
+			PlutusV2Key: plutusParamCounts[PlutusV2Key],
+		},
 	)
 }
 
