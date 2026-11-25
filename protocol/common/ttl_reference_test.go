@@ -67,3 +67,28 @@ func TestValidateMessageTTLAtAsReference(t *testing.T) {
 		})
 	}
 }
+
+// TestIsValidAtAsReferenceMempool checks DmqMessage.IsValidAt, which prunes
+// messages a local notification server still holds, against dmq-node
+// a267003c14e9 src/DMQ/Diffusion/NodeKernel.hs 313-330: the mempool worker
+// drops a message once expiresAt <= now, with now at sub-second precision.
+func TestIsValidAtAsReferenceMempool(t *testing.T) {
+	const expiresAt = int64(1_000_000)
+	msg := &DmqMessage{
+		Payload: DmqMessagePayload{ExpiresAt: uint32(expiresAt)},
+	}
+	half := 500 * time.Millisecond
+	cases := []struct {
+		name  string
+		now   time.Time
+		valid bool
+	}{
+		{"a second before", time.Unix(expiresAt-1, 0), true},
+		{"half a second before", time.Unix(expiresAt, 0).Add(-half), true},
+		{"at expiresAt", time.Unix(expiresAt, 0), false},
+		{"half a second after", time.Unix(expiresAt, 0).Add(half), false},
+	}
+	for _, tc := range cases {
+		require.Equal(t, tc.valid, msg.IsValidAt(tc.now), tc.name)
+	}
+}
