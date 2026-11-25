@@ -592,7 +592,7 @@ func (c *Client) GetUTxOByAddress(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyUtxoByAddress,
-		addrs,
+		eraFilterSet(addrs, currentEra),
 	)
 	var result UTxOsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -672,7 +672,7 @@ func (c *Client) GetFilteredDelegationsAndRewardAccounts(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyFilteredDelegationAndRewardAccounts,
-		cbor.NewSetType(creds, true),
+		eraFilterSet(creds, currentEra),
 	)
 	var result FilteredDelegationsAndRewardAccountsResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -890,7 +890,7 @@ func (c *Client) GetUTxOByTxIn(
 	query := buildShelleyQuery(
 		currentEra,
 		QueryTypeShelleyUtxoByTxin,
-		txIns,
+		eraFilterSet(txIns, currentEra),
 	)
 	var result UTxOByTxInResult
 	if err := c.runQuery(query, &result); err != nil {
@@ -2234,6 +2234,18 @@ func (c *Client) runQueryMaxItems(
 		return err
 	}
 	return nil
+}
+
+// eraFilterSet encodes a filter that the reference writes with the era's own
+// encoding (LC.toEraCBOR @era in ouroboros-consensus encodeShelleyQuery).
+// From Conway, protocol version 9, a set carries tag 258. Before it, a set is
+// a plain array and the node's decoder (decodeSet in cardano-ledger-binary)
+// refuses the tag. A nil filter is the empty set, not CBOR null.
+func eraFilterSet[T any](items []T, era int) cbor.SetType[T] {
+	if items == nil {
+		items = []T{}
+	}
+	return cbor.NewSetType(items, era >= ledger.EraIdConway)
 }
 
 // Helper function for getting the current era
