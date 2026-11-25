@@ -294,6 +294,14 @@ type BlockPipeline struct {
 	errorsChan    chan error
 	resultsDone   chan struct{}
 
+	// applyCtx is the context every submitted item's ApplyContext returns.
+	// Its value under applyMarkerKey is this pipeline.
+	applyCtx context.Context
+
+	// losslessResults is set by Start: WithLosslessResults, or a pipeline
+	// without an ApplyFunc, whose only output is Results.
+	losslessResults bool
+
 	// Metrics
 	metrics *PipelineMetrics
 
@@ -328,11 +336,21 @@ type BlockPipeline struct {
 	// testSubmitReady is called after Submit's cancellation and stopping checks,
 	// immediately before its enqueue select. It is nil in production and lets
 	// tests synchronize cancellation at the backpressure boundary.
-	testSubmitReady    func()
-	testFenceBoundary  func(uint64)
-	testProcessedFunc  func(uint64)
-	testResultsForward func()
-	testResultHandoff  func(*BlockItem)
+	testSubmitReady   func()
+	testFenceBoundary func(uint64)
+	testProcessedFunc func(uint64)
+	testResultHandoff func(*BlockItem)
+}
+
+// applyMarkerKey is the context key under which an item's ApplyContext
+// carries the pipeline whose ApplyFunc is handling it.
+type applyMarkerKey struct{}
+
+// calledFromApplyFunc reports whether ctx is, or derives from, the
+// ApplyContext of an item of this pipeline: the caller may be this
+// pipeline's apply runner, so it must not wait for that runner.
+func (p *BlockPipeline) calledFromApplyFunc(ctx context.Context) bool {
+	return ctx.Value(applyMarkerKey{}) == p
 }
 
 // NewBlockPipeline creates a new BlockPipeline using functional options.
@@ -356,6 +374,7 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 		rawBytesFreed: make(chan struct{}),
 		activeItems:   make(map[*BlockItem]struct{}),
 	}
+	p.applyCtx = context.WithValue(context.Background(), applyMarkerKey{}, p)
 	p.submitGate <- struct{}{}
 	return p
 }
@@ -579,6 +598,8 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 		}
 	}
 
+	p.losslessResults = p.config.LosslessResults || p.config.ApplyFunc == nil
+
 	// Create cancellable context
 	p.ctx, p.cancel = context.WithCancel(ctx)
 
@@ -680,50 +701,116 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	return nil
 }
 
-// forwardResults makes result handoff to the public consumer synchronous. The
-// apply runner may prefetch into resultsQueue, but retained-byte reservations
-// remain charged until a consumer (or Stop) receives the item.
+// pendingResult is a committed result waiting for the Results reader, with
+// the CBOR bytes it retains.
+type pendingResult struct {
+	item  *BlockItem
+	bytes uint64
+}
+
+// forwardResults moves committed results from the apply runner to the Results
+// reader. It is always ready to receive from resultsQueue, so the runner, and
+// therefore Fence and WaitForDrain, never wait for a reader. This follows
+// ouroboros-consensus, where ChainDB followers pull and a slow or absent
+// follower never holds back chain selection.
+//
+// Without a chain database behind it, a lagging reader cannot be served from
+// storage, so undelivered results are bounded instead: at most
+// PrefetchBufferSize items retaining at most MaxRawCborBytes. A result moves
+// from the admission budget to this bound when the runner hands it over, so
+// unread results never block Submit. Past either bound the oldest undelivered
+// result is dropped, which keeps the most recent commit available to a late
+// reader.
 func (p *BlockPipeline) forwardResults() {
 	defer close(p.resultsDone)
 	defer close(p.resultsChan)
-	if p.testResultsForward != nil {
-		p.testResultsForward()
+	maxItems := max(p.config.PrefetchBufferSize, 1)
+	maxBytes := p.maxRawCborBytes()
+	lossless := p.losslessResults
+	// stopping is set once the pipeline context ends. Lossless mode then stops
+	// holding the runner back, so Stop never waits for a reader that is gone.
+	stopping := false
+	done := p.ctx.Done()
+	var pending []pendingResult
+	var pendingBytes uint64
+	pop := func() pendingResult {
+		head := pending[0]
+		pending[0] = pendingResult{}
+		pending = pending[1:]
+		pendingBytes -= head.bytes
+		return head
 	}
-	for {
-		select {
-		case request := <-p.drainResults:
-			request <- p.drainQueuedResults()
-		case item, ok := <-p.resultsQueue:
-			if !ok {
-				return
-			}
-			select {
-			case p.resultsChan <- item:
-				if p.testResultHandoff != nil {
-					p.testResultHandoff(item)
-				}
-				p.markItemDelivered(item)
-			case request := <-p.drainResults:
-				p.markItemDelivered(item)
-				results := append([]*BlockItem{item}, p.drainQueuedResults()...)
-				request <- results
-			}
+	accept := func(item *BlockItem) {
+		// Read the size before returning the admission reservation, which
+		// zeroes it.
+		bytes := item.retainedBytes()
+		p.markItemDelivered(item)
+		pending = append(pending, pendingResult{item: item, bytes: bytes})
+		pendingBytes += bytes
+		// In lossless mode the receive case below is disabled while the queue
+		// is full, so nothing is dropped before Stop begins.
+		if lossless && !stopping {
+			return
+		}
+		// The newest result always stays: admission already bounded its size
+		// by MaxRawCborBytes.
+		for len(pending) > maxItems ||
+			(len(pending) > 1 && pendingBytes > maxBytes) {
+			pop().item.Release()
+			p.metrics.RecordResultDropped()
 		}
 	}
-}
-
-func (p *BlockPipeline) drainQueuedResults() []*BlockItem {
-	var results []*BlockItem
 	for {
+		// A nil channel disables the send case while nothing is pending.
+		var out chan<- *BlockItem
+		var head *BlockItem
+		if len(pending) > 0 {
+			out = p.resultsChan
+			head = pending[0].item
+		}
+		// In lossless mode a full queue stops taking results, so the runner
+		// waits for the reader instead of a result being dropped.
+		in := p.resultsQueue
+		if lossless && !stopping && len(pending) > 0 &&
+			(len(pending) >= maxItems || pendingBytes >= maxBytes) {
+			in = nil
+		}
 		select {
-		case item, ok := <-p.resultsQueue:
+		case <-done:
+			stopping = true
+			done = nil
+		case item, ok := <-in:
 			if !ok {
-				return results
+				for len(pending) > 0 {
+					pop().item.Release()
+				}
+				return
 			}
-			p.markItemDelivered(item)
-			results = append(results, item)
-		default:
-			return results
+			accept(item)
+		case out <- head:
+			pop()
+			if p.testResultHandoff != nil {
+				p.testResultHandoff(head)
+			}
+		case request := <-p.drainResults:
+			// Include results the runner has already queued.
+		queued:
+			for {
+				select {
+				case item, ok := <-p.resultsQueue:
+					if !ok {
+						break queued
+					}
+					accept(item)
+				default:
+					break queued
+				}
+			}
+			results := make([]*BlockItem, 0, len(pending))
+			for len(pending) > 0 {
+				results = append(results, pop().item)
+			}
+			request <- results
 		}
 	}
 }
@@ -805,6 +892,7 @@ func (p *BlockPipeline) submit(
 	reserved := true
 	item := NewBlockItem(blockType, rawCbor, tip, sequence)
 	item.nodeToClient = nodeToClient
+	item.applyCtx = p.applyCtx
 	p.trackItem(item, retainedBytes)
 	reservationOwned = false
 	defer func() {
@@ -926,15 +1014,23 @@ func (p *BlockPipeline) markProcessed(sequence uint64) {
 	p.completionMu.Unlock()
 }
 
-// Results returns a channel of successfully processed block items. Each item
-// stays charged against MaxRawCborBytes until the consumer receives it from
-// this channel. Consumers own received items and should call Release after
-// use to clear their raw and decoded CBOR.
-// If the pipeline has not been started, it returns a closed channel. Results
-// are observational: Stop may consume undelivered notifications while waiting
-// for the apply runner. Callers that need every notification must receive them
-// before invoking Stop; delivery is not guaranteed after Stop begins. ApplyFunc
-// remains the authoritative commit sink.
+// Results returns a channel of successfully processed block items, in commit
+// order. Consumers own received items and should call Release after use to
+// clear their raw and decoded CBOR.
+// If the pipeline has not been started, it returns a closed channel.
+//
+// With an ApplyFunc, results are observational by default and reading them is
+// optional: committing, Fence and WaitForDrain never wait for a reader. With
+// WithLosslessResults, and always in header-only and trusted decode-only
+// modes, where Results is the only output, every committed block is delivered
+// and committing waits for the reader instead of dropping results. The pipeline holds at most
+// PrefetchBufferSize undelivered results, retaining at most MaxRawCborBytes of
+// CBOR. A reader that stays within both bounds receives every result. When a
+// new result would exceed either bound, the oldest undelivered result is
+// dropped and counted in PipelineStats.ResultsDropped; a dropped result shows
+// as a gap in SequenceNumber. Stop releases undelivered results, so delivery is
+// not guaranteed after Stop begins. ApplyFunc remains the authoritative commit
+// sink.
 func (p *BlockPipeline) Results() <-chan *BlockItem {
 	if !p.started.Load() {
 		return closedResultsChan
@@ -952,9 +1048,8 @@ func (p *BlockPipeline) Errors() <-chan error {
 	return p.errorsChan
 }
 
-// Stop gracefully stops the pipeline. It drains undelivered observational
-// results while waiting for the apply runner so shutdown cannot depend on a
-// Results consumer.
+// Stop gracefully stops the pipeline. It releases undelivered observational
+// results; shutdown does not depend on a Results consumer.
 func (p *BlockPipeline) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -988,44 +1083,16 @@ func (p *BlockPipeline) Stop() error {
 		close(p.validatedChan)
 	}
 
-	// The fatal path preserves its committed prefix with blocking result sends.
-	// Drain those observational notifications while waiting so a caller that
-	// does not consume Results cannot prevent shutdown.
-	applyDone := make(chan struct{})
-	go func() {
-		p.applyRunner.Stop()
-		close(applyDone)
-	}()
-	for {
-		select {
-		case <-applyDone:
-			goto applyStopped
-		case item, ok := <-p.resultsChan:
-			if ok {
-				item.Release()
-			}
-		}
-	}
-
-applyStopped:
-	// The runner has stopped; closing its queue lets the forwarding goroutine
-	// finish. Continue draining public handoffs so shutdown cannot block.
+	// The forwarder always accepts the runner's results, including the
+	// committed prefix of a fatal failure, so the runner stops without a
+	// Results reader. Closing the queue then makes the forwarder release
+	// whatever is still undelivered.
+	p.applyRunner.Stop()
 	if p.resultsQueue != nil {
 		close(p.resultsQueue)
-		for {
-			select {
-			case <-p.resultsDone:
-				goto resultsDrained
-			case item, ok := <-p.resultsChan:
-				if !ok {
-					goto resultsDrained
-				}
-				item.Release()
-			}
-		}
+		<-p.resultsDone
 	}
 
-resultsDrained:
 	p.releaseActiveItems()
 
 	// Close output channels
@@ -1068,6 +1135,11 @@ func (p *BlockPipeline) PendingCount() int {
 // WaitForDrain blocks until every block accepted before the drain boundary has
 // completed ordered processing, or the context is cancelled. This is useful
 // before handling rollbacks to ensure no earlier block is applied afterward.
+// Once Stop has begun, WaitForDrain succeeds without waiting for the boundary,
+// but only after the apply runner has exited, so no ApplyFunc call is still
+// committing when it returns. An ApplyFunc that calls WaitForDrain during Stop
+// passes its item's ApplyContext: the call then returns without waiting for
+// the runner that is running it, which would never exit.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1078,19 +1150,46 @@ func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	// Preserve the historical lifecycle contract: explicit shutdown makes the
 	// drain vacuous, including while Stop waits for the submission gate.
 	if p.stopping.Load() || p.stopped.Load() {
-		return nil
+		return p.drainDuringStop(ctx)
 	}
 	err := p.Fence(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
 	if p.stopping.Load() || p.stopped.Load() {
-		return nil
+		return p.drainDuringStop(ctx)
 	}
 	if p.ctx.Err() != nil {
 		return p.stoppedError()
 	}
 	return err
+}
+
+// drainDuringStop is WaitForDrain once Stop has begun. A call from this
+// pipeline's ApplyFunc returns at once: the runner it would wait for is the
+// one running it, and after the call returns the runner commits nothing more,
+// because the pipeline context is cancelled.
+func (p *BlockPipeline) drainDuringStop(ctx context.Context) error {
+	if p.calledFromApplyFunc(ctx) {
+		return nil
+	}
+	return p.waitForApplyRunner(ctx)
+}
+
+// waitForApplyRunner waits for the apply runner to exit. Stop cancels the
+// pipeline context before the runner returns, and an ApplyFunc call already
+// under way still commits its block, so a drain that reported success as soon
+// as Stop began would let a caller roll back state that block then changes.
+func (p *BlockPipeline) waitForApplyRunner(ctx context.Context) error {
+	p.applyRunner.mu.Lock()
+	done := p.applyRunner.done
+	p.applyRunner.mu.Unlock()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // metricsCollector collects metrics from processed items.

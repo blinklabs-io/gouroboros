@@ -145,6 +145,63 @@ func TestDebugChainDepStatePraos(t *testing.T) {
 	assert.NotNil(t, got.LastEpochBlockNonce)
 }
 
+// TestDebugChainDepStatePraosRejectsBadCounters ensures the Praos counter
+// map is validated before typed decoding sizes a Go map from its declared
+// count.
+func TestDebugChainDepStatePraosRejectsBadCounters(t *testing.T) {
+	t.Parallel()
+	rest := func() []byte {
+		out, err := cbor.Encode([]any{
+			nonceHash(hash32(0xaa)), nonceNeutral, nonceHash(hash32(0xbb)),
+			nonceNeutral, nonceNeutral, nonceNeutral,
+		})
+		require.NoError(t, err, "encode nonces")
+		// Drop the array header so the nonces extend the state array.
+		return out[1:]
+	}
+	// wire builds [version, [slot, counters, nonces...]] around raw counters.
+	wire := func(counters []byte) []byte {
+		slot, err := cbor.Encode(slotAt(1))
+		require.NoError(t, err, "encode slot")
+		inner := append([]byte{0x88}, slot...)
+		inner = append(inner, counters...)
+		inner = append(inner, rest()...)
+		out := []byte{0x82, byte(chainDepStateVersionPraos)}
+		return append(out, inner...)
+	}
+	oversized := map[ledger.Blake2b224]uint64{}
+	for i := 0; i <= maxLocalStateQuerySetItems; i++ {
+		var key ledger.Blake2b224
+		key[0] = byte(i)
+		key[1] = byte(i >> 8)
+		key[2] = 1
+		oversized[key] = 1
+	}
+	oversizedCBOR, err := cbor.Encode(oversized)
+	require.NoError(t, err, "encode oversized counters")
+	cases := map[string][]byte{
+		"declared count exceeds the data": {
+			0xbb, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		},
+		"count above the bound": oversizedCBOR,
+		"null counters":         {0xf6},
+		"non-map counters":      {0x80},
+	}
+	for name, counters := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var got DebugChainDepStateResult
+			_, err := cbor.Decode(wire(counters), &got)
+			require.Error(t, err)
+			if name != "declared count exceeds the data" {
+				require.ErrorContains(
+					t, err, "praos operational certificate",
+				)
+			}
+		})
+	}
+}
+
 // TestDebugChainDepStateTPraos decodes a TPraos (Shelley..Alonzo)
 // chain-dep-state result and checks every field lands where the layout puts it.
 func TestDebugChainDepStateTPraos(t *testing.T) {

@@ -256,10 +256,9 @@ type LocalTxMonitorOptionFunc func(*Config)
 
 // NewConfig returns a new LocalTxMonitor config object with the provided options
 func NewConfig(options ...LocalTxMonitorOptionFunc) Config {
-	c := Config{
-		AcquireTimeout: 5 * time.Second,
-		QueryTimeout:   30 * time.Second,
-	}
+	// No default timeouts: the specification sets none for node-to-client
+	// protocols, and the reference defines no time limits for this one.
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -286,14 +285,17 @@ func WithAwaitMempoolFunc(
 	}
 }
 
-// WithAcquireTimeout specifies the timeout for acquire operations when acting as a client
+// WithAcquireTimeout specifies the timeout for acquire operations when acting
+// as a client. There is none by default: the reference sets none, and a node
+// answers a re-acquire only once its mempool changes.
 func WithAcquireTimeout(timeout time.Duration) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout
 	}
 }
 
-// WithQueryTimeout specifies the timeout for query operations when acting as a client
+// WithQueryTimeout specifies the timeout for query operations when acting as
+// a client. There is none by default, as in the reference.
 func WithQueryTimeout(timeout time.Duration) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.QueryTimeout = timeout

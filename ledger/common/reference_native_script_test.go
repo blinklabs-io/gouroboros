@@ -406,11 +406,10 @@ func TestInvalidTransactionsRetainReferenceScriptRequirements(t *testing.T) {
 // resolved, so it evaluates the witness set alone and contributes no
 // reference-provided script. That is safe only because a transaction with an
 // unresolvable input is rejected anyway, by a rule every era registers ahead
-// of the native-script rule: UtxoValidateBadInputsUtxo for a consumed input,
-// UtxoValidateScriptWitnesses for a reference input, which
-// UtxoValidateBadInputsUtxo does not cover. Resolving the reachable inputs
-// into a partial view instead would make the needed-script set depend on
-// which lookups happened to succeed, which is worse for a rule that has to
+// of the native-script rule: UtxoValidateBadInputsUtxo, which from Babbage
+// covers reference inputs as well as consumed ones. Resolving the reachable
+// inputs into a partial view instead would make the needed-script set depend
+// on which lookups happened to succeed, which is worse for a rule that has to
 // reach the same verdict on every node.
 func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 	vkey := bytes.Repeat([]byte{0x63}, 32)
@@ -470,11 +469,8 @@ func TestUnresolvableInputsAreRejectedBeforeNativeScripts(t *testing.T) {
 				)
 			},
 			assert: func(t *testing.T, err error) {
-				require.ErrorIs(
-					t,
-					err,
-					common.ErrReferenceInputResolution,
-				)
+				var badInputs shelley.BadInputsUtxoError
+				require.ErrorAs(t, err, &badInputs)
 			},
 		},
 	}
