@@ -28,8 +28,14 @@ import (
 // https://github.com/cardano-foundation/CIPs/tree/master/CIP-0137
 
 // DmqMessagePayload represents the unsigned message payload for DMQ messages.
+//
+// A payload decoded in the current CIP-0137 shape keeps the bytes it was
+// decoded from: the message ID hashes them, the KES signature covers them,
+// and MarshalCBOR emits them unchanged. Call SetCbor(nil) after changing a
+// decoded payload's fields, or the old bytes are hashed and sent.
 type DmqMessagePayload struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	// MessageID is a legacy alias kept for source compatibility. It is not
 	// part of the current CIP-0137 messagePayload CBOR encoding.
 	MessageID []byte `cbor:"-"`
@@ -69,9 +75,14 @@ type DmqMessage struct {
 	ColdVerificationKey []byte
 }
 
-// MarshalCBOR encodes the payload using the current CIP-0137 shape:
-// [messageBody, kesPeriod, expiresAt].
+// MarshalCBOR returns the bytes the payload was decoded from, if any, and
+// otherwise encodes it in the current CIP-0137 shape:
+// [messageBody, kesPeriod, expiresAt]. dmq-node signs, hashes and relays a
+// payload's bytes as received, so a decoded payload is never re-encoded.
 func (p DmqMessagePayload) MarshalCBOR() ([]byte, error) {
+	if raw := p.Cbor(); raw != nil {
+		return raw, nil
+	}
 	return cbor.Encode([]any{
 		p.MessageBody,
 		p.KESPeriod,
@@ -93,6 +104,7 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 		p.MessageBody = current.MessageBody
 		p.KESPeriod = current.KESPeriod
 		p.ExpiresAt = current.ExpiresAt
+		p.SetCbor(data)
 		return nil
 	}
 
@@ -110,6 +122,9 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 	p.MessageBody = legacy.MessageBody
 	p.KESPeriod = legacy.KESPeriod
 	p.ExpiresAt = legacy.ExpiresAt
+	// The legacy shape carries the message ID inside the payload, so its
+	// bytes are not the payload the ID and signature cover.
+	p.SetCbor(nil)
 	return nil
 }
 
@@ -198,7 +213,8 @@ func (m *DmqMessage) SetComputedMessageID() error {
 	return nil
 }
 
-// ComputeDmqMessageID returns Blake2b-256(cbor(messagePayload)).
+// ComputeDmqMessageID returns Blake2b-256(cbor(messagePayload)), over the
+// payload's decoded bytes when it has them.
 func ComputeDmqMessageID(payload DmqMessagePayload) ([]byte, error) {
 	payload.MessageID = nil
 	payloadCbor, err := cbor.Encode(payload)
