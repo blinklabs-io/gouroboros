@@ -213,6 +213,27 @@ func (v *Value) unmarshalCBOR(
 				return 0, err
 			}
 			v.value = tmpConstr
+		} else if tmpTag.Number == CborTagSet {
+			// The library decodes set members as interface values, which
+			// cannot hold a map keyed by an array or a map, so the members
+			// are walked here like any other list.
+			var members Value
+			if _, err := members.unmarshalCBOR(
+				tmpTag.Content,
+				false,
+				nil,
+				nil,
+				depth+1,
+				duplicateKeyPolicy,
+				decMode,
+			); err != nil {
+				return 0, err
+			}
+			items, ok := members.value.([]any)
+			if !ok {
+				return 0, errors.New("CBOR set content is not a list")
+			}
+			v.value = Set(items)
 		} else {
 			// Fall back to standard CBOR tag parsing for our supported types
 			var tmpTagDecode any
