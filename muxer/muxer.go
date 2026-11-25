@@ -190,7 +190,9 @@ type Muxer struct {
 // Metrics callbacks may call other muxer methods, including RegisterProtocol
 // and UnregisterProtocol. If a callback unregisters a role whose callback is
 // already running, receiver shutdown finishes after those callbacks return.
-// RegisterProtocol returns nil channels once the muxer is stopping.
+// RegisterProtocol returns nil channels once the muxer is stopping. A
+// callback that stops the muxer passes CallbackContext to Stop; any other
+// context makes Stop wait for the goroutine running the callback.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
