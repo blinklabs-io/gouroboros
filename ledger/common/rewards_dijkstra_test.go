@@ -42,21 +42,33 @@ func dijkstraRewardSnapshot(
 			map[common.PoolKeyHash]*common.PoolRegistrationCertificate,
 			len(pools),
 		),
-		StakeRegistrations: map[common.AddrKeyHash]bool{
-			{1}: true,
-			{2}: true,
-		},
-		PoolBlocks: map[common.PoolKeyHash]uint32{},
+		StakeRegistrations: map[common.AddrKeyHash]bool{},
+		PoolBlocks:         map[common.PoolKeyHash]uint32{},
+		TotalBlocksInEpoch: 1_000,
 	}
+	// Each pool makes blocks in proportion to its stake, so its apparent
+	// performance is 1. Its owner, whose key is the pool id's first byte
+	// plus 0x10, delegates exactly the pledge and receives the leader
+	// reward; the member, keyed by the pool id's first byte, delegates the
+	// rest.
 	for poolID, pool := range pools {
-		stakeholder := common.AddrKeyHash{byte(poolID[0])}
+		member := common.AddrKeyHash{poolID[0]}
+		owner := common.AddrKeyHash{poolID[0] + 0x10}
+		snapshot.PoolBlocks[poolID] = uint32(pool.stake) // #nosec G115 -- test stakes are small
 		snapshot.PoolStake[poolID] = pool.stake
 		snapshot.DelegatorStake[poolID] = map[common.AddrKeyHash]uint64{
-			stakeholder: pool.stake,
+			member: pool.stake - pool.pledge,
 		}
+		if pool.pledge > 0 {
+			snapshot.DelegatorStake[poolID][owner] = pool.pledge
+		}
+		snapshot.StakeRegistrations[member] = true
+		snapshot.StakeRegistrations[owner] = true
 		snapshot.PoolParams[poolID] = &common.PoolRegistrationCertificate{
-			Margin: pool.margin,
-			Pledge: pool.pledge,
+			Margin:        pool.margin,
+			Pledge:        pool.pledge,
+			PoolOwners:    []common.AddrKeyHash{owner},
+			RewardAccount: owner,
 		}
 	}
 	return snapshot
@@ -83,6 +95,7 @@ func TestCalculateRewardsAppliesDijkstraPledgeLeverage(t *testing.T) {
 	)
 	pots := common.AdaPots{Rewards: 100_000}
 	baseParams := common.RewardParameters{
+		DesiredPools: 10,
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{
 			Major: common.ProtocolVersionDijkstra,
 		},
@@ -102,12 +115,14 @@ func TestCalculateRewardsAppliesDijkstraPledgeLeverage(t *testing.T) {
 		baseline.PoolRewards[underPledged].TotalRewards,
 		"pledge leverage must cap the under-pledged pool's reward share",
 	)
-	require.Greater(
+	// maxPool' caps only the under-pledged pool; the amount it loses
+	// returns to the reserves rather than to other pools.
+	require.Equal(
 		t,
-		limited.PoolRewards[wellPledged].TotalRewards,
 		baseline.PoolRewards[wellPledged].TotalRewards,
-		"the capped share must remain available to the well-pledged pool",
+		limited.PoolRewards[wellPledged].TotalRewards,
 	)
+	require.Greater(t, limited.Undistributed, baseline.Undistributed)
 }
 
 func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
@@ -128,6 +143,7 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 		pots,
 		snapshot,
 		common.RewardParameters{
+			DesiredPools: 10,
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: common.ProtocolVersionDijkstra,
 			},
@@ -135,9 +151,11 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 			MaxPledgeLeverage: big.NewRat(10, 1),
 		},
 	)
+	// A zero pledge caps the pool's stake at 0 under leverage, so maxPool'
+	// is 0 and the whole pot returns to the reserves.
 	require.NoError(t, err)
-	require.Empty(t, result.PoolRewards)
-	require.Equal(t, pots, result.UpdatedPots)
+	require.Zero(t, result.PoolRewards[poolID].TotalRewards)
+	require.Equal(t, common.AdaPots{Reserves: 1_100_000}, result.UpdatedPots)
 
 	zeroPledge := common.PoolKeyHash{1}
 	pledged := common.PoolKeyHash{2}
@@ -149,13 +167,11 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 			margin: common.NewGenesisRat(0, 1),
 		},
 	})
-	// A malformed all-zero-performance snapshot enters the legacy equal-share
-	// fallback; zero-pledge pools must remain excluded from that fallback.
-	snapshot.TotalBlocksInEpoch = 10
 	result, err = common.CalculateRewards(
 		pots,
 		snapshot,
 		common.RewardParameters{
+			DesiredPools: 10,
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: common.ProtocolVersionDijkstra,
 			},
@@ -165,7 +181,9 @@ func TestCalculateRewardsZeroPledgeHasNoEligibleShare(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.Zero(t, result.PoolRewards[zeroPledge].TotalRewards)
-	require.Equal(t, uint64(100_000), result.PoolRewards[pledged].TotalRewards)
+	// sigma and the relative pledge are both 0.5, capped at z0 = 1/10:
+	// floor(100000 / 1.3 * (0.1 + 0.1 * 0.3 * 1)) = 10000.
+	require.Equal(t, uint64(10_000), result.PoolRewards[pledged].TotalRewards)
 }
 
 func TestCalculateRewardsPledgeLeverageIsInactiveBeforeDijkstra(t *testing.T) {
@@ -185,6 +203,7 @@ func TestCalculateRewardsPledgeLeverageIsInactiveBeforeDijkstra(t *testing.T) {
 	)
 	pots := common.AdaPots{Rewards: 100_000}
 	params := common.RewardParameters{
+		DesiredPools:    10,
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{Major: 11},
 		PoolInfluence:   big.NewRat(3, 10),
 	}
@@ -223,6 +242,7 @@ func TestCalculateRewardsPledgeLeverageBelowAndAtCap(t *testing.T) {
 				},
 			)
 			params := common.RewardParameters{
+				DesiredPools: 10,
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: common.ProtocolVersionDijkstra,
 				},
@@ -264,6 +284,7 @@ func TestCalculateRewardsPledgeLeverageKeepsGlobalSaturation(t *testing.T) {
 		common.AdaPots{Rewards: 100_000},
 		snapshot,
 		common.RewardParameters{
+			DesiredPools: 10,
 			ProtocolVersion: common.ProtocolParametersProtocolVersion{
 				Major: common.ProtocolVersionDijkstra,
 			},
@@ -271,15 +292,17 @@ func TestCalculateRewardsPledgeLeverageKeepsGlobalSaturation(t *testing.T) {
 			MaxPledgeLeverage: big.NewRat(10_000, 1),
 		},
 	)
+	// Both pools are at or above z0 = 1/10 of the stake, so with a0 = 0
+	// each earns R * z0 whatever its pledge leverage allows.
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		uint64(50_000),
+		uint64(10_000),
 		result.PoolRewards[poolIDs[0]].TotalRewards,
 	)
 	require.Equal(
 		t,
-		uint64(50_000),
+		uint64(10_000),
 		result.PoolRewards[poolIDs[1]].TotalRewards,
 	)
 }
@@ -296,13 +319,14 @@ func TestCalculateRewardsDijkstraMinPoolMargin(t *testing.T) {
 		t.Helper()
 		snapshot := dijkstraRewardSnapshot(
 			map[common.PoolKeyHash]dijkstraRewardPool{
-				poolID: {stake: 1_000, pledge: 1_000, margin: margin},
+				poolID: {stake: 1_000, pledge: 100, margin: margin},
 			},
 		)
 		result, err := common.CalculateRewards(
 			common.AdaPots{Rewards: 100_000},
 			snapshot,
 			common.RewardParameters{
+				DesiredPools: 10,
 				ProtocolVersion: common.ProtocolParametersProtocolVersion{
 					Major: version,
 				},
@@ -345,31 +369,23 @@ func TestCalculateRewardsDijkstraMinPoolMargin(t *testing.T) {
 		nil,
 	)
 
-	require.Equal(t, uint64(10_000), belowFloor.OperatorRewards)
+	// The pool earns 10000 (sigma 1 and relative pledge 0.1, both capped at
+	// z0 = 1/10, a0 = 3/10). With margin m and owner share 0.1 the leader
+	// takes floor(10000 * (m + (1 - m) * 0.1)) and the member
+	// floor(10000 * (1 - m) * 0.9).
+	require.Equal(t, uint64(1_900), belowFloor.OperatorRewards)
 	require.Equal(t, belowFloor, equalFloor)
-	require.Equal(t, uint64(20_000), aboveFloor.OperatorRewards)
-	require.Equal(t, uint64(5_000), beforeActivation.OperatorRewards)
+	require.Equal(t, uint64(2_800), aboveFloor.OperatorRewards)
+	require.Equal(t, uint64(1_450), beforeActivation.OperatorRewards)
 	require.Equal(t, beforeActivation, zeroFloor)
 	require.Equal(t, zeroFloor, unsetFloor)
-	delegator := common.RewardCredential{
+	member := common.RewardCredential{
 		CredType:   common.CredentialTypeAddrKeyHash,
 		Credential: common.CredentialHash{1},
 	}
-	require.Equal(
-		t,
-		uint64(90_000),
-		belowFloor.DelegatorRewards[delegator],
-	)
-	require.Equal(
-		t,
-		uint64(80_000),
-		aboveFloor.DelegatorRewards[delegator],
-	)
-	require.Equal(
-		t,
-		uint64(95_000),
-		beforeActivation.DelegatorRewards[delegator],
-	)
+	require.Equal(t, uint64(8_100), belowFloor.DelegatorRewards[member])
+	require.Equal(t, uint64(7_200), aboveFloor.DelegatorRewards[member])
+	require.Equal(t, uint64(8_550), beforeActivation.DelegatorRewards[member])
 }
 
 func TestDijkstraMinPoolMarginDoesNotChangePoolRewardShares(t *testing.T) {
@@ -380,15 +396,16 @@ func TestDijkstraMinPoolMarginDoesNotChangePoolRewardShares(t *testing.T) {
 	snapshot := dijkstraRewardSnapshot(
 		map[common.PoolKeyHash]dijkstraRewardPool{
 			belowFloor: {
-				stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 20),
+				stake: 400, pledge: 40, margin: common.NewGenesisRat(1, 20),
 			},
 			aboveFloor: {
-				stake: 400, pledge: 400, margin: common.NewGenesisRat(1, 5),
+				stake: 400, pledge: 40, margin: common.NewGenesisRat(1, 5),
 			},
 		},
 	)
 	pots := common.AdaPots{Rewards: 100_000}
 	params := common.RewardParameters{
+		DesiredPools: 10,
 		ProtocolVersion: common.ProtocolParametersProtocolVersion{
 			Major: common.ProtocolVersionDijkstraMinPoolMargin,
 		},
@@ -432,24 +449,28 @@ func TestCalculateRewardsValidatesDijkstraRewardParameters(t *testing.T) {
 		{
 			name: "leverage below one",
 			params: common.RewardParameters{
+				DesiredPools:      10,
 				MaxPledgeLeverage: big.NewRat(1, 2),
 			},
 		},
 		{
 			name: "leverage above maximum",
 			params: common.RewardParameters{
+				DesiredPools:      10,
 				MaxPledgeLeverage: big.NewRat(10_001, 1),
 			},
 		},
 		{
 			name: "negative minimum margin",
 			params: common.RewardParameters{
+				DesiredPools:  10,
 				MinPoolMargin: big.NewRat(-1, 100),
 			},
 		},
 		{
 			name: "minimum margin above one",
 			params: common.RewardParameters{
+				DesiredPools:  10,
 				MinPoolMargin: big.NewRat(101, 100),
 			},
 		},

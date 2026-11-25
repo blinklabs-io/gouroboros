@@ -124,8 +124,13 @@ var protocolMessageDecoders = []protocolMessageDecoder{
 	},
 	{
 		name:       "messagesubmission",
-		maxMsgType: messagesubmission.MessageTypeDone,
+		maxMsgType: messagesubmission.MessageTypeV1Init,
 		decode:     messagesubmission.NewMsgFromCbor,
+	},
+	{
+		name:       "messagesubmission-v2",
+		maxMsgType: messagesubmission.MessageTypeV2Done,
+		decode:     messagesubmission.NewMsgFromCborV2,
 	},
 	{
 		name:       "peersharing",

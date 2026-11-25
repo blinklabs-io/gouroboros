@@ -128,6 +128,20 @@ The test implementation uses the shared conformance harness from `github.com/bli
 - `conformance.NewHarness(sm, config)` - Creates the test harness
 - `harness.RunAllVectors(t)` - Runs all test vectors
 
+### Rules-only replay
+
+The shared harness runs its own phase-1 validator and a reduced Conway rule
+list before and instead of gOuroboros's governance rules, so a GOV failure
+the reference raises can pass `TestRulesConformance` without any gOuroboros
+rule rejecting it. `TestRulesOnlyConformanceVectors` replays every vector
+without that validator: Conway specification vectors run the full Conway
+rule list (less the fee and size rules), and every transaction must reach its
+expected outcome through gOuroboros alone. It adds the governance views the
+full list reads (purpose roots, the constitution's guardrails script, stake
+credential deposits and proposal contents) from the mock's state. Vectors
+with rollback events are skipped, and `rulesOnlyExclusions` names the three
+vectors the replay cannot judge and why.
+
 The mock state provider must implement `common.CommitteeCredentialState`, which
 resolves committee membership by typed credential rather than by hash alone.
 `TestStateProviderExposesCommitteeCredentials` fails closed if it does not, so

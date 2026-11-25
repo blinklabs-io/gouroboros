@@ -211,14 +211,14 @@ func TestServerRejectedReplyDoesNotCommitAuthenticationState(t *testing.T) {
 	messages[1].OperationalCertificate.ColdSignature[0] ^= 0xff
 	server := serverWithPendingMessages(authenticator, messages[:2])
 
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[:2]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:2]))
 	require.Error(t, err)
 	require.NotNil(t, server.pendingMsgRequest)
 
 	server = serverWithPendingMessages(authenticator, messages[2:])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[2:])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[2:])),
 	)
 }
 
@@ -232,12 +232,12 @@ func TestServerAcceptedReplyCommitsAuthenticationState(t *testing.T) {
 
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:2])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:2])),
 	)
 	require.Nil(t, server.pendingMsgRequest)
 
 	server = serverWithPendingMessages(authenticator, messages[2:])
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[2:]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[2:]))
 	require.ErrorContains(t, err, "opcert number went backwards")
 }
 
@@ -271,7 +271,7 @@ func TestServerDropsReplyForAlreadyDeliveredMessage(t *testing.T) {
 	request(messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 	require.Equal(t, [][]byte{messages[0].ID()}, delivered)
 
@@ -279,7 +279,7 @@ func TestServerDropsReplyForAlreadyDeliveredMessage(t *testing.T) {
 	request(messages...)
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages)),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages)),
 	)
 	require.Equal(
 		t,
@@ -320,10 +320,10 @@ func TestServerReplayCacheCapacityIsBounded(t *testing.T) {
 	serverTestRequest(server, messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 	serverTestRequest(server, messages[1])
-	err := server.handleReplyMessages(NewMsgReplyMessages(messages[1:]))
+	err := server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[1:]))
 	require.ErrorIs(t, err, errReplayCacheCapacityExceeded)
 	require.Equal(t, 1, delivered)
 	require.Len(t, server.deliveredIDs, 1)
@@ -353,7 +353,7 @@ func TestServerReplayCacheReleasesExpiredIDs(t *testing.T) {
 	serverTestRequest(server, messages[0])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[:1])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[:1])),
 	)
 
 	// Once the first message expires its slot is released, so a full cache
@@ -364,7 +364,7 @@ func TestServerReplayCacheReleasesExpiredIDs(t *testing.T) {
 	serverTestRequest(server, messages[1])
 	require.NoError(
 		t,
-		server.handleReplyMessages(NewMsgReplyMessages(messages[1:])),
+		server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages[1:])),
 	)
 	require.Equal(t, [][]byte{messages[0].ID(), messages[1].ID()}, delivered)
 	require.Equal(

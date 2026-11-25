@@ -63,10 +63,10 @@ func TestServerRequestsAfterRestart(t *testing.T) {
 		requestAfterDone(t, server)
 		require.Equal(
 			t,
-			uint(messagesubmission.MessageTypeRequestMessageIds),
+			uint(messagesubmission.MessageTypeV1RequestMessageIds),
 			h.RecvType("RequestMessageIds"),
 		)
-		h.Send(messagesubmission.NewMsgDone())
+		h.Send(messagesubmission.NewMsgDone(0))
 	}
 }
 
@@ -91,10 +91,10 @@ func TestServerHandlesInitSentDuringRestart(t *testing.T) {
 	require.NoError(t, server.RequestMessageIdsBlocking(0, 1))
 	require.Equal(
 		t,
-		uint(messagesubmission.MessageTypeRequestMessageIds),
+		uint(messagesubmission.MessageTypeV1RequestMessageIds),
 		h.RecvType("RequestMessageIds"),
 	)
-	h.Send(messagesubmission.NewMsgDone())
+	h.Send(messagesubmission.NewMsgDone(0))
 	h.WaitHeld()
 	h.Send(messagesubmission.NewMsgInit())
 	h.Settle()
@@ -103,7 +103,7 @@ func TestServerHandlesInitSentDuringRestart(t *testing.T) {
 	requestAfterDone(t, server)
 	require.Equal(
 		t,
-		uint(messagesubmission.MessageTypeRequestMessageIds),
+		uint(messagesubmission.MessageTypeV1RequestMessageIds),
 		h.RecvType("RequestMessageIds after restart"),
 	)
 }

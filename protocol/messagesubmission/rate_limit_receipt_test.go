@@ -53,7 +53,9 @@ func TestServerRefusesOnlyTheTooFrequentMessage(t *testing.T) {
 	reply := []pcommon.DmqMessage{a[0], a[1], b[0]}
 	serverTestRequest(server, reply...)
 
-	err = server.handleReplyMessages(NewMsgReplyMessages(reply))
+	err = server.handleReplyMessages(
+		NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, reply),
+	)
 	require.ErrorIs(t, err, pcommon.ErrMessageTooFrequent)
 	require.Equal(t, [][]byte{a[0].ID(), b[0].ID()}, delivered)
 	require.NoError(
