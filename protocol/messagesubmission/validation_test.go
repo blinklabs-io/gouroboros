@@ -522,11 +522,11 @@ func newStartedMessageSubmissionServer(t *testing.T) *Server {
 	options.Muxer = m
 	options.ErrorChan = make(chan error, 1)
 	server := NewServer(options, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	m.Start()
 	server.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop(context.Background())
+		server.ProtocolInstance().Stop(context.Background())
 		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()

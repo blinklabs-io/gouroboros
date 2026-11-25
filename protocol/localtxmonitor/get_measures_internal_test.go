@@ -137,7 +137,7 @@ func TestServerRefusesGetMeasuresBeforeVersion20(t *testing.T) {
 		config:            &Config{},
 		enableGetMeasures: supportsGetMeasures(protocol.ProtocolVersionNtCOffset + 19),
 	}
-	s.Protocol = protocol.New(protocol.ProtocolConfig{
+	s.proto = protocol.New(protocol.ProtocolConfig{
 		Name:         ProtocolName,
 		Role:         protocol.ProtocolRoleServer,
 		StateMap:     StateMap,

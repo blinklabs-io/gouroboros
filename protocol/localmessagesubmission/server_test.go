@@ -69,7 +69,7 @@ func newSubmissionTestSession(
 		ErrorChan: serverErrors,
 	}, serverCfg)
 	client.Protocol.EnsureRegistered()
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	clientMuxer.Start()
 	serverMuxer.Start()
 	client.Start()
@@ -580,7 +580,7 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 				ErrorChan: serverErrors,
 			}, &serverCfg)
 			client.Protocol.EnsureRegistered()
-			server.Protocol.EnsureRegistered()
+			server.ProtocolInstance().EnsureRegistered()
 			clientMuxer.Start()
 			serverMuxer.Start()
 			client.Start()

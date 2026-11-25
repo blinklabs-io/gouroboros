@@ -30,7 +30,7 @@ import (
 
 // Server implements the LocalTxMonitor server
 type Server struct {
-	*protocol.Protocol
+	proto        *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu   sync.RWMutex
 	protoOptions protocol.ProtocolOptions
 	// stopped is set by Stop under protocolMu. initProtocol checks it under
@@ -115,7 +115,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -124,7 +124,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
@@ -139,7 +139,7 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -246,7 +246,7 @@ func (s *Server) awaitMempoolChange() (bool, error) {
 // computes them on demand.
 func (s *Server) acquireMempool() (uint64, error) {
 	mempoolSlotNumber, mempoolCapacity, mempoolTxs, err := s.config.GetMempoolFunc(
-		s.callbackContext.withOwner(s.Protocol),
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 	)
 	if err != nil {
 		return 0, err

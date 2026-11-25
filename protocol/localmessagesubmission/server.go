@@ -27,7 +27,7 @@ import (
 
 // Server implements the LocalMessageSubmission server
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	config          *Config
 	callbackContext CallbackContext
 	now             func() time.Time
@@ -154,7 +154,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -163,7 +163,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Start starts the protocol instance of the current run.
@@ -183,7 +183,7 @@ func (s *Server) Start() {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -316,7 +316,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 			s.config.replayState.release(msgSubmit.Message.ID(), token)
 		}
 	}()
-	reason := s.config.SubmitMessageFunc(s.callbackContext.withOwner(s.Protocol), &msgSubmit.Message)
+	reason := s.config.SubmitMessageFunc(s.callbackContext.withOwner(s.ProtocolInstance()), &msgSubmit.Message)
 	if reason != nil {
 		s.ProtocolInstance().Logger().
 			Warn("message rejected by handler",
@@ -341,7 +341,7 @@ func (s *Server) refuse(
 	reason pcommon.RejectReason,
 ) error {
 	if s.config.SubmitRefusedFunc != nil {
-		s.config.SubmitRefusedFunc(s.callbackContext.withOwner(s.Protocol), &msg.Message, reason)
+		s.config.SubmitRefusedFunc(s.callbackContext.withOwner(s.ProtocolInstance()), &msg.Message, reason)
 	}
 	return s.sendReject(reason)
 }
