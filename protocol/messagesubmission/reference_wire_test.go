@@ -295,7 +295,7 @@ func newServerHarness(t *testing.T, version uint16) *serverHarness {
 	h.server.Protocol.EnsureRegistered()
 	m.Start()
 	h.server.Start()
-	t.Cleanup(func() { h.server.Protocol.Stop() })
+	t.Cleanup(h.server.Stop)
 	return h
 }
 
@@ -363,11 +363,13 @@ func TestV1InboundMatchesReferenceOutbound(t *testing.T) {
 	require.NoError(t, h.server.RequestMessageIdsBlocking(1, 3))
 	h.peer.expect(false, []byte{0x84, 0x00, 0xf5, 0x01, 0x03})
 	// MsgDone = [4], the outbound's alternative to answering a blocking
-	// request. The Server has no callback for it, so watch its state.
+	// request. The Server has no callback for it, so watch the run's
+	// instance: the server then restarts on a new one, which is not done.
+	run := h.server.ProtocolInstance()
 	h.peer.send(true, []byte{0x81, 0x04})
 	require.Eventually(
 		t,
-		h.server.IsDone,
+		run.IsDone,
 		referenceWireWait,
 		time.Millisecond,
 		"MsgDone did not end the session",
