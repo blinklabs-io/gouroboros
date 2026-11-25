@@ -172,30 +172,46 @@ func (f *votingFixture) refKeyed(i int) bool {
 	return i < len(f.seats) && f.seats[i].key == keyValid
 }
 
+// votingKeyAge is the election's key-age context: epoch 30, where a key
+// registered in epoch 0 is past mainnet's 21-epoch maximum key age and one
+// registered in the election's own epoch is honoured.
+var votingKeyAge = func() common.DijkstraLeiosKeyAgeContext {
+	ka := testLeiosKeyAge
+	ka.Epoch = 30
+	return ka
+}()
+
+// keyRegisteredIn is the epoch in which a seat's key was registered: epoch 0
+// for an aged-out key, the election's epoch for every other.
+func keyRegisteredIn(state votingKeyState) uint64 {
+	if state == keyAged {
+		return 0
+	}
+	return votingKeyAge.Epoch
+}
+
 // context builds the committee a caller hands gOuroboros: the seated pools in
-// seat order with their registered keys, a badly proven one included, since
-// gOuroboros checks proofs itself. passAged says whether the caller also
-// hands over keys past their honoured age, which only it can judge.
+// seat order with every registered key and the epoch it was registered in, a
+// badly proven key and an aged-out one included, since gOuroboros checks
+// proofs and key age itself.
 func (f *votingFixture) context(
 	t *testing.T,
 	ann int,
-	passAged bool,
 ) common.DijkstraLeiosCertificateContext {
 	t.Helper()
 	ctx := common.DijkstraLeiosCertificateContext{
-		KeyAge:              testLeiosKeyAge,
+		KeyAge:              votingKeyAge,
 		AnnouncingBlockHash: f.anns[ann],
 		TotalActiveStake:    f.total,
 	}
 	for i, p := range f.seats {
-		member := common.DijkstraLeiosCommitteeMember{Stake: p.stake}
+		member := common.DijkstraLeiosCommitteeMember{
+			Stake:           p.stake,
+			KeyRegisteredIn: keyRegisteredIn(p.key),
+		}
 		switch p.key {
-		case keyValid:
+		case keyValid, keyAged:
 			member.Key = makeLeiosTestKey(t, f.secrets[i])
-		case keyAged:
-			if passAged {
-				member.Key = makeLeiosTestKey(t, f.secrets[i])
-			}
 		case keyBadProof:
 			key := makeLeiosTestKey(t, f.secrets[i])
 			other := makeLeiosTestKey(t, big.NewInt(7))
@@ -356,18 +372,16 @@ func (f *votingFixture) goAccepts(
 	t *testing.T,
 	ann int,
 	votes []vote,
-	passAged bool,
 ) (bool, error) {
 	t.Helper()
 	signers, signature := f.certificate(t, votes)
-	return f.goVerify(t, ann, signers, signature, passAged)
+	return f.goVerify(t, ann, signers, signature)
 }
 
 func (f *votingFixture) goVerify(
 	t *testing.T,
 	ann int,
 	signers, signature []byte,
-	passAged bool,
 ) (bool, error) {
 	t.Helper()
 	err := VerifyDijkstraCertificateForMessage(
@@ -375,7 +389,7 @@ func (f *votingFixture) goVerify(
 		signature,
 		uint16(len(f.seats)),
 		f.scenario.tau,
-		f.context(t, ann, passAged),
+		f.context(t, ann),
 		common.DijkstraBlsProofDomainPop,
 		common.DijkstraLeiosCertificateMessageRawHash,
 	)
@@ -462,7 +476,7 @@ func TestLeiosVotingReferenceCertificates(t *testing.T) {
 			)
 			for _, c := range res.certs {
 				require.True(t, f.refAccepts(c.ann, c.votes), "%v", c)
-				ok, err := f.goAccepts(t, c.ann, c.votes, false)
+				ok, err := f.goAccepts(t, c.ann, c.votes)
 				require.True(t, ok, "certificate %v: %v", c, err)
 			}
 		})
@@ -498,7 +512,7 @@ func TestLeiosVotingMutatedAggregation(t *testing.T) {
 				if !want {
 					rejected++
 				}
-				got, err := f.goAccepts(t, c.ann, c.votes, false)
+				got, err := f.goAccepts(t, c.ann, c.votes)
 				require.Equal(t, want, got, "certificate %v: %v", c, err)
 			}
 			require.NotZero(
@@ -520,48 +534,42 @@ func TestLeiosVotingEquivocationIsTheCallers(t *testing.T) {
 	require.NotZero(t, res.twoCerts)
 	for _, c := range res.certs {
 		require.True(t, f.refAccepts(c.ann, c.votes), "%v", c)
-		ok, err := f.goAccepts(t, c.ann, c.votes, false)
+		ok, err := f.goAccepts(t, c.ann, c.votes)
 		require.True(t, ok, "certificate %v: %v", c, err)
 	}
 }
 
 // TestLeiosVotingEverySignerSet checks gOuroboros against verifyLeiosCert on
-// every signer set of every seated committee, each signer signing well.
-// An aged-out key is withheld by the caller; with it handed over, gOuroboros
-// cannot tell it apart and accepts a certificate the reference rejects
-// (SignerWithoutKey), so key age is the caller's to enforce.
+// every signer set of every seated committee, each signer signing well. The
+// reference seats no key for an aged-out pool, so a set holding it is
+// refused (SignerWithoutKey); gOuroboros, handed the key with its
+// registration epoch, refuses the same set as keyless.
 func TestLeiosVotingEverySignerSet(t *testing.T) {
 	for _, sc := range votingScenarios() {
-		for _, passAged := range []bool{false, true} {
-			name := sc.name
-			if passAged {
-				name += "/aged-key-handed-over"
+		t.Run(sc.name, func(t *testing.T) {
+			f := newVotingFixture(t, sc)
+			aged := 0
+			for mask := 1; mask < 1<<len(f.seats); mask++ {
+				var votes []vote
+				agedSigner := false
+				for i := range f.seats {
+					if mask&(1<<i) != 0 {
+						votes = append(votes, vote{i, 0, true})
+						agedSigner = agedSigner || f.seats[i].key == keyAged
+					}
+				}
+				want := f.refAccepts(0, votes)
+				got, err := f.goAccepts(t, 0, votes)
+				require.Equal(t, want, got, "signers %v: %v", votes, err)
+				if agedSigner {
+					aged++
+					require.ErrorIs(t, err, ErrKeylessSigner, "signers %v", votes)
+				}
 			}
-			t.Run(name, func(t *testing.T) {
-				f := newVotingFixture(t, sc)
-				disagree := 0
-				for mask := 1; mask < 1<<len(f.seats); mask++ {
-					var votes []vote
-					for i := range f.seats {
-						if mask&(1<<i) != 0 {
-							votes = append(votes, vote{i, 0, true})
-						}
-					}
-					want := f.refAccepts(0, votes)
-					got, err := f.goAccepts(t, 0, votes, passAged)
-					if passAged && got != want {
-						disagree++
-						continue
-					}
-					require.Equal(t, want, got, "signers %v: %v", votes, err)
-				}
-				if passAged && sc.name == "aged" {
-					require.NotZero(t, disagree)
-				} else {
-					require.Zero(t, disagree)
-				}
-			})
-		}
+			if sc.name == "aged" {
+				require.NotZero(t, aged)
+			}
+		})
 	}
 }
 
@@ -601,7 +609,7 @@ func TestLeiosVotingKeylessBitsDoNotCount(t *testing.T) {
 						signers[i/8] |= 1 << (7 - i%8)
 					}
 				}
-				ok, err := f.goVerify(t, 0, signers, signature, false)
+				ok, err := f.goVerify(t, 0, signers, signature)
 				require.False(t, ok, "signer mask %b accepted", mask)
 				require.Error(t, err)
 			}
