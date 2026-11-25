@@ -105,12 +105,14 @@ func requireDelivered(
 	require.True(t, delivered, "response was dropped")
 }
 
+// testVote encodes a CIP-0164 vote. The vote names its announcing block, not
+// its slot, so slotNo only picks the announcing hash.
 func testVote(t *testing.T, slotNo, voterId uint64) cbor.RawMessage {
 	t.Helper()
 	vote := lcommon.LeiosVote{
-		SlotNo:        slotNo,
-		VoterId:       voterId,
-		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
+		AnnouncingRbHash: lcommon.NewBlake2b256([]byte{byte(slotNo)}),
+		VoterId:          uint16(voterId),
+		VoteSignature:    make([]byte, lcommon.LeiosBlsSignatureSize),
 	}
 	raw, err := cbor.Encode(vote)
 	require.NoError(t, err)
@@ -228,10 +230,11 @@ func TestValidateResponse(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "vote from other slot",
+			// A vote names its announcing block, not its slot, so only the
+			// caller, which knows that block's slot, can match it.
+			name:    "requested voter for another announcement",
 			request: NewMsgVotesRequest(voteIds),
 			resp:    NewMsgVotes([]cbor.RawMessage{testVote(t, 6, 1)}),
-			wantErr: true,
 		},
 		{
 			name:    "duplicate vote",

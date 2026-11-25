@@ -152,6 +152,7 @@ func runCertModelScenario(t *testing.T, s certModelScenario) {
 	t.Helper()
 	hash := common.Blake2b256Hash([]byte("announcing ranking block"))
 	context := common.DijkstraLeiosCertificateContext{
+		KeyAge:              testLeiosKeyAge,
 		AnnouncingBlockHash: hash,
 		TotalActiveStake:    s.totalStake,
 	}
