@@ -162,6 +162,9 @@ type Muxer struct {
 	// protocol role on this connection.
 	ingress *ingressAccount
 	metrics atomic.Pointer[Metrics]
+	// protocolLoops tracks the mini-protocol goroutines; see
+	// StartProtocolLoops.
+	protocolLoops protocolLoops
 	// registerHook, when non-nil, runs in RegisterProtocol between its
 	// first shutdown check and the insertion of the new receiver. It exists
 	// only so a test can run a complete Stop inside that window, which is

@@ -68,7 +68,7 @@ func TestValidatingPipelineAcceptsByronEpochBoundaryBlock(t *testing.T) {
 		}),
 	)
 	require.NoError(t, p.Start(t.Context()))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	require.NoError(t, p.Submit(
 		t.Context(),

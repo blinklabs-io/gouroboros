@@ -24,6 +24,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -127,6 +128,25 @@ type Connection struct {
 	// muxerSegmentReadTimeout overrides the muxer's default segment-read
 	// timeout when non-nil; see WithMuxerSegmentReadTimeout.
 	muxerSegmentReadTimeout *time.Duration
+
+	// setupMu orders setupConnection's writes of doneChan and muxer against
+	// Close and shutdown, which can run on another goroutine while Dial is
+	// still setting up: shutdown either finds the muxer and stops it, or
+	// setup finds doneChan closed and creates none.
+	setupMu sync.Mutex
+	// closeRequested is set by Close, under setupMu, so that a Dial or
+	// setup that has not yet published doneChan gives up.
+	closeRequested bool
+	// beforeMuxerHook, when set by a test, runs in setupConnection after
+	// doneChan is published and before the muxer is created.
+	beforeMuxerHook func()
+	// trackMu orders goTracked's waitGroup.Go against shutdown's
+	// waitGroup.Wait; see goTracked.
+	trackMu sync.Mutex
+	// beforeProtocolErrorForwarderHook, when set by a test, runs in
+	// setupConnection after the handshake and before the protocol-error
+	// forwarder is started.
+	beforeProtocolErrorForwarderHook func()
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -240,29 +260,96 @@ func (c *Connection) DialTimeout(
 	address string,
 	timeout time.Duration,
 ) error {
-	if c.conn != nil {
+	c.setupMu.Lock()
+	established, closed := c.conn != nil, c.closeRequested
+	c.setupMu.Unlock()
+	if established {
 		return errors.New("a connection was already established")
+	}
+	if closed {
+		return errConnectionClosed
 	}
 	conn, err := net.DialTimeout(proto, address, timeout)
 	if err != nil {
 		return err
 	}
-	c.conn = conn
+	c.setupMu.Lock()
+	closed = c.closeRequested
+	if !closed {
+		c.conn = conn
+	}
+	c.setupMu.Unlock()
+	if closed {
+		_ = conn.Close()
+		return errConnectionClosed
+	}
 	if err := c.setupConnection(); err != nil {
 		return err
 	}
 	return nil
 }
 
-// Close will shutdown the Ouroboros connection
+// Close will shutdown the Ouroboros connection. It tears down whatever has
+// been set up, even while Dial or New is still setting the connection up,
+// and a later Dial fails. Close returns once every mini-protocol goroutine
+// has exited, so no callback runs after it returns: a callback that does not
+// return when its protocol's StopChan closes holds Close until it does. A
+// callback must not call Close, which would wait for itself; it calls
+// CloseContext instead.
 func (c *Connection) Close() error {
-	if c.doneChan == nil {
+	return c.closeExcept(nil)
+}
+
+// CloseContext is Close for a mini-protocol callback that closes its own
+// connection. Pass the context the callback was given (its callback
+// context's Context field). When ctx marks a protocol instance of this
+// connection, CloseContext does not wait for that instance's goroutines,
+// one of which is running the callback, nor for those of another instance
+// whose callback is also in CloseContext, which would wait for it in turn;
+// it waits for every other one. Any number of callbacks may close at once:
+// the connection is torn down once and every one of them returns. A ctx
+// from another connection's callback, or with no marker, makes
+// CloseContext the same as Close.
+func (c *Connection) CloseContext(ctx context.Context) error {
+	return c.closeExcept(protocol.CallbackOwner(ctx))
+}
+
+// closeExcept closes the connection and waits for every protocol goroutine
+// except those of owner, which a nil owner excepts none of.
+func (c *Connection) closeExcept(owner any) error {
+	c.setupMu.Lock()
+	c.closeRequested = true
+	doneChan, conn, m := c.doneChan, c.conn, c.muxer
+	c.setupMu.Unlock()
+	if doneChan == nil {
+		// Setup has not begun; it sees closeRequested and gives up.
+		if conn != nil {
+			_ = conn.Close()
+		}
 		return nil
+	}
+	excused := false
+	if m != nil && owner != nil {
+		// A callback closing its own connection must not be waited for by
+		// the shutdown it is waiting for. An owner with no loop on this
+		// muxer, such as another connection's callback, excuses nothing.
+		excused = m.ExcuseProtocolLoops(owner)
 	}
 	c.requestClose()
 	// Wait until all connection-owned goroutines have stopped. After this
 	// returns, a caller may safely close a channel supplied with WithErrorChan.
 	<-c.connClosedChan
+	if m != nil {
+		if !excused {
+			// Shutdown did not wait for loops whose callback is in
+			// CloseContext; Close waits for them too.
+			m.WaitProtocolLoopsExcept(nil)
+		} else {
+			// Not the excused loops: each runs a callback in CloseContext,
+			// and two such callbacks waiting for each other never return.
+			m.WaitProtocolLoops()
+		}
+	}
 	return nil
 }
 
@@ -379,10 +466,22 @@ func (c *Connection) shutdown() {
 	c.onceShutdown.Do(func() {
 		c.stopProtocols()
 		// Gracefully stop the muxer
-		if c.muxer != nil {
-			c.muxer.Stop()
+		c.setupMu.Lock()
+		m, conn := c.muxer, c.conn
+		c.setupMu.Unlock()
+		if m != nil {
+			m.Stop()
+			// Every protocol is stopped and the muxer is closed, so the
+			// loops leave once their callbacks return.
+			m.CloseProtocolLoops()
+			m.WaitProtocolLoops()
+		} else if conn != nil {
+			// Close came after doneChan and before the muxer; setup's guard
+			// also closes conn, but only once setup resumes.
+			_ = conn.Close()
 		}
 		// Wait for other goroutines to finish
+		c.fenceTracked()
 		c.waitGroup.Wait()
 		// Signal shutdown only on the channel created by this connection.
 		// A channel supplied with WithErrorChan remains caller-owned.
@@ -394,6 +493,35 @@ func (c *Connection) shutdown() {
 		close(c.connClosedChan)
 	})
 }
+
+// goTracked runs f on a goroutine that shutdown waits for, unless shutdown
+// has begun. A WaitGroup.Add from zero must happen before the Wait it is
+// meant to delay (sync.WaitGroup), and doneChan can close at any point of
+// setupConnection: a forwarder started after shutdown's Wait is joined by
+// nothing, and once errorChan is closed, forwarding a queued error would
+// send on it. Checking doneChan and calling Go under trackMu, which
+// shutdown takes after doneChan is closed and before Wait, starts every
+// tracked goroutine either before the Wait or not at all.
+func (c *Connection) goTracked(f func()) {
+	c.trackMu.Lock()
+	defer c.trackMu.Unlock()
+	select {
+	case <-c.doneChan:
+		return
+	default:
+	}
+	c.waitGroup.Go(f)
+}
+
+// fenceTracked returns once every goTracked call that began before doneChan
+// was closed has finished; any later call sees doneChan closed and starts
+// nothing. shutdown calls it before waitGroup.Wait.
+func (c *Connection) fenceTracked() {
+	c.trackMu.Lock()
+	defer c.trackMu.Unlock()
+}
+
+var errConnectionClosed = errors.New("connection closed")
 
 // forwardError attempts immediate best-effort delivery without allowing a full
 // or undrained consumer channel to prevent connection shutdown.
@@ -703,17 +831,36 @@ func (c *Connection) setupConnection() error {
 		return errors.New("WithDMQ and WithNodeToNode are mutually exclusive")
 	}
 	// Start Goroutine to shutdown when doneChan is closed
-	c.doneChan = make(chan any)
+	doneChan := make(chan any)
+	c.setupMu.Lock()
+	c.doneChan = doneChan
+	closeRequested := c.closeRequested
+	c.setupMu.Unlock()
 	go func() {
-		<-c.doneChan
+		<-doneChan
 		c.shutdown()
 	}()
+	if closeRequested {
+		c.requestClose()
+	}
+	if c.beforeMuxerHook != nil {
+		c.beforeMuxerHook()
+	}
 	// Populate connection ID
 	c.id = ConnectionId{
 		LocalAddr:  c.conn.LocalAddr(),
 		RemoteAddr: c.conn.RemoteAddr(),
 	}
-	// Create muxer instance
+	// Create muxer instance, unless a Close has already begun shutdown,
+	// which would not see a muxer created after it read c.muxer.
+	c.setupMu.Lock()
+	select {
+	case <-doneChan:
+		c.setupMu.Unlock()
+		_ = c.conn.Close()
+		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
+	default:
+	}
 	if c.muxerSegmentReadTimeout != nil {
 		c.muxer = muxer.NewWithSegmentReadTimeout(
 			c.conn,
@@ -722,8 +869,9 @@ func (c *Connection) setupConnection() error {
 	} else {
 		c.muxer = muxer.New(c.conn)
 	}
+	c.setupMu.Unlock()
 	// Start Goroutine to pass along errors from the muxer
-	c.waitGroup.Go(func() {
+	c.goTracked(func() {
 		select {
 		case <-c.doneChan:
 			return
@@ -862,8 +1010,11 @@ func (c *Connection) setupConnection() error {
 	}
 	// Provide the negotiated protocol version to the various mini-protocols
 	protoOptions.Version = c.handshakeVersion
+	if c.beforeProtocolErrorForwarderHook != nil {
+		c.beforeProtocolErrorForwarderHook()
+	}
 	// Start Goroutine to pass along errors from the mini-protocols
-	c.waitGroup.Go(func() {
+	c.goTracked(func() {
 		select {
 		case <-c.doneChan:
 			// Return if we're shutting down

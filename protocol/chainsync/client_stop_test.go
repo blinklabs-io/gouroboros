@@ -426,7 +426,7 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	clientConn, peerConn := net.Pipe()

@@ -35,7 +35,7 @@ func TestLosslessResultsDeliversEveryCommittedBlock(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	shelley := getValidShelleyBlock(t)
 	submitErr := make(chan error, 1)
@@ -87,7 +87,7 @@ func TestLosslessResultsHoldsCommitsForTheReader(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	shelley := getValidShelleyBlock(t)
 	submit := func() {
@@ -132,7 +132,7 @@ func TestLosslessResultsStopWithoutReader(t *testing.T) {
 		))
 	}
 	stopped := make(chan error, 1)
-	go func() { stopped <- p.Stop() }()
+	go func() { stopped <- p.Stop(context.Background()) }()
 	select {
 	case err := <-stopped:
 		require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestDecodeOnlyResultsAreLosslessByDefault(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			require.NoError(t, p.Start(ctx))
-			t.Cleanup(func() { require.NoError(t, p.Stop()) })
+			t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 			go func() {
 				for range blocks {

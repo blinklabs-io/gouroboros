@@ -821,6 +821,12 @@ func TestServerCancelsRequestOutstandingAtQuit(t *testing.T) {
 	}
 }
 
+// The server answers every request pipelined behind MsgQuit with MsgCanceled
+// and asks the notification source only for the first. The client writes the
+// rest once the source holds the first. Each later request is handled only
+// after the one before it is answered, which is after the quit signal fires,
+// so none of them reaches the source. Without that wait the read loop can read
+// MsgQuit before the first handler runs, and the source is not asked at all.
 func TestServerCancelsEveryPipelinedRequest(t *testing.T) {
 	const pipelined = 1000
 	var sourceCalls atomic.Int32
@@ -836,8 +842,14 @@ func TestServerCancelsEveryPipelinedRequest(t *testing.T) {
 		}),
 	))
 
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	select {
+	case <-sourceStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("source was not asked for the first request")
+	}
 	go func() {
-		for range pipelined {
+		for range pipelined - 1 {
 			writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
 		}
 		writeQuitTestMessage(t, conn, NewMsgQuit())
