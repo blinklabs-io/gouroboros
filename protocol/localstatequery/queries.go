@@ -1276,18 +1276,11 @@ type StakeDistributionResult struct {
 }
 
 func (r *StakeDistributionResult) UnmarshalCBOR(data []byte) error {
-	var tmp struct {
-		cbor.StructAsArray
-		Results cbor.RawMessage
-	}
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	results, err := decodePoolStakeMap(data)
+	if err != nil {
 		return err
 	}
-	var res StakeDistributionResult
-	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
-		return err
-	}
-	*r = res
+	r.Results = results
 	return nil
 }
 
@@ -1496,9 +1489,9 @@ func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
 			R                 uint64
 			TotalStake        uint64
 			BlocksCount       uint64
-			Decentralization  *cbor.Rat
+			Decentralization  plainRational
 			ExpectedBlocks    uint64
-			Eta               *cbor.Rat
+			Eta               plainRational
 			RPot              uint64
 			TreasuryCut       uint64
 			ActiveStake       uint64
@@ -1517,9 +1510,9 @@ func (r *RewardProvenanceResult) UnmarshalCBOR(data []byte) error {
 	r.R = tmp.Inner.R
 	r.TotalStake = tmp.Inner.TotalStake
 	r.BlocksCount = tmp.Inner.BlocksCount
-	r.Decentralization = tmp.Inner.Decentralization
+	r.Decentralization = tmp.Inner.Decentralization.value
 	r.ExpectedBlocks = tmp.Inner.ExpectedBlocks
-	r.Eta = tmp.Inner.Eta
+	r.Eta = tmp.Inner.Eta.value
 	r.RPot = tmp.Inner.RPot
 	r.TreasuryCut = tmp.Inner.TreasuryCut
 	r.ActiveStake = tmp.Inner.ActiveStake
@@ -1890,18 +1883,11 @@ type PoolDistrResult struct {
 }
 
 func (r *PoolDistrResult) UnmarshalCBOR(data []byte) error {
-	var tmp struct {
-		cbor.StructAsArray
-		Results cbor.RawMessage
-	}
-	if _, err := cbor.Decode(data, &tmp); err != nil {
+	results, err := decodePoolStakeMap(data)
+	if err != nil {
 		return err
 	}
-	var res PoolDistrResult
-	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
-		return err
-	}
-	*r = res
+	r.Results = results
 	return nil
 }
 

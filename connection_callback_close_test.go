@@ -422,7 +422,11 @@ func TestLocalMessageSubmissionCallbackClosesConnection(t *testing.T) {
 	cc.conn.Store(server)
 	go func() {
 		_ = client.LocalMessageSubmission().Client.SubmitMessage(
-			&pcommon.DmqMessage{},
+			&pcommon.DmqMessage{
+				Payload: pcommon.DmqMessagePayload{
+					MessageBody: make([]byte, pcommon.MinMessageBodySize),
+				},
+			},
 		)
 	}()
 	requireClosedFromCallback(t, cc, client)

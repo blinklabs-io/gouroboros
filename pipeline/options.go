@@ -35,7 +35,8 @@ type BlockTypeResolver func(context.Context, []byte) (uint, error)
 // serially immediately before the current block's stateful validation and must
 // not disable validation. For non-Byron blocks it must supply
 // VerifyConfig.LeaderPoolVrfKeyHash from the same distribution used by
-// ChainContextValidator for the block's slot.
+// ChainContextValidator for the block's slot, and for Shelley-through-Alonzo
+// blocks VerifyConfig.TPraosOverlay for the block's epoch.
 type VerifyConfigProvider func(context.Context, *BlockItem) (common.VerifyConfig, error)
 
 // DefaultMaxPendingBlocks is the default limit for out-of-order blocks buffered

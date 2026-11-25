@@ -29,6 +29,7 @@ func TestCalculateAdaPots(t *testing.T) {
 	}
 
 	params := common.RewardParameters{
+		DesiredPools:          10,
 		MonetaryExpansion:     3000,              // 0.3% = 3000 millionths
 		TreasuryGrowth:        2000,              // 20% = 2000 millionths
 		Decentralization:      500000,            // 50% decentralization
@@ -66,6 +67,7 @@ func TestCalculateAdaPots(t *testing.T) {
 
 func TestCalculateAdaPotsRejectsInvalidEtaParameters(t *testing.T) {
 	baseParams := common.RewardParameters{
+		DesiredPools:          10,
 		ActiveSlotsCoeff:      big.NewRat(1, 20),
 		ExpectedSlotsPerEpoch: 432000,
 	}
@@ -166,6 +168,7 @@ func TestCalculateRewards(t *testing.T) {
 	}
 
 	params := common.RewardParameters{
+		DesiredPools:  10,
 		PoolInfluence: big.NewRat(1, 1), // a0 = 1
 	}
 
@@ -176,12 +179,14 @@ func TestCalculateRewards(t *testing.T) {
 	// Check that rewards were calculated
 	assert.Greater(t, len(result.PoolRewards), 0)
 
-	// Check that total rewards equal the reward pot
-	totalDistributed := uint64(0)
-	for _, poolRewards := range result.PoolRewards {
-		totalDistributed += poolRewards.TotalRewards
-	}
-	assert.Equal(t, pots.Rewards, totalDistributed)
+	// Every lovelace of the pot is either a reward or returned to the
+	// reserves.
+	assert.Equal(t, pots.Rewards, result.TotalRewards+result.Undistributed)
+	assert.Equal(
+		t,
+		pots.Reserves+result.Undistributed,
+		result.UpdatedPots.Reserves,
+	)
 
 	// Check that updated pots have zero rewards
 	assert.Equal(t, uint64(0), result.UpdatedPots.Rewards)

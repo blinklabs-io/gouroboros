@@ -224,7 +224,7 @@ func (s *Server) awaitMempoolChange() (bool, error) {
 	copy(held, s.mempoolTxs)
 	err := s.config.AwaitMempoolFunc(
 		ctx,
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 		s.acquiredSlot,
 		held,
 	)
