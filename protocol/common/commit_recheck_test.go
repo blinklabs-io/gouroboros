@@ -93,6 +93,8 @@ func TestPrepareMessagesCommitRechecksEveryCounter(t *testing.T) {
 			return 100 * 129600, nil
 		},
 		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
+		// One pool's messages are verified together to test the counter.
+		MinSigDelay: -1,
 	})
 	require.NoError(t, err)
 	pool := newRecheckPool(t)
