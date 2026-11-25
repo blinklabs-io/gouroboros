@@ -183,6 +183,7 @@ func (f *votingFixture) context(
 ) common.DijkstraLeiosCertificateContext {
 	t.Helper()
 	ctx := common.DijkstraLeiosCertificateContext{
+		KeyAge:              testLeiosKeyAge,
 		AnnouncingBlockHash: f.anns[ann],
 		TotalActiveStake:    f.total,
 	}
@@ -664,6 +665,7 @@ func TestCertificateQuorumBoundary(t *testing.T) {
 				uint16(len(committee)),
 				tc.tau,
 				common.DijkstraLeiosCertificateContext{
+					KeyAge:              testLeiosKeyAge,
 					AnnouncingBlockHash: hash,
 					TotalActiveStake:    tc.total,
 					Committee:           committee,
