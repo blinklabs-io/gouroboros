@@ -599,12 +599,24 @@ for result := range pipeline.Results() {
 ```
 
 Pipeline admission reserves the raw and decoded full block CBOR copies against
-`MaxRawCborBytes` before allocating a `BlockItem`. A result stays charged until
-the consumer receives it from the results channel. The consumer then owns the
-item and should call `BlockItem.Release()` when finished to clear the raw and
-decoded CBOR; received results are no longer included in the pipeline budget. A
-zero byte limit selects `DefaultMaxRawCborBytes`, and stopping the pipeline
-retires internally owned items and results that shutdown drains.
+`MaxRawCborBytes` before allocating a `BlockItem`. A block stays charged to
+admission until the apply runner commits it and hands it to the results
+forwarder. Committed results awaiting a reader are bounded separately: at most
+`PrefetchBufferSize` items retaining at most `MaxRawCborBytes` of CBOR.
+
+With an `ApplyFunc`, `Results` is observational and reading it is optional;
+committing, `Fence` and `WaitForDrain` never wait for a reader. When a new
+result would exceed either bound, the oldest undelivered result is released and
+counted in `PipelineStats.ResultsDropped`, which a reader sees as a gap in
+`SequenceNumber`. `WithLosslessResults()` instead makes committing wait for the
+reader, so every committed block is delivered. Header-only and trusted
+decode-only pipelines have no `ApplyFunc` and `Results` is their only output,
+so they are always lossless; their caller must read `Results` or call `Stop`.
+
+The consumer owns each received item and should call `BlockItem.Release()` when
+finished to clear the raw and decoded CBOR. A zero byte limit selects
+`DefaultMaxRawCborBytes`. Stopping the pipeline releases undelivered results,
+in every mode, so delivery is not guaranteed after `Stop` begins.
 
 ## Testing
 

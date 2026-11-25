@@ -118,6 +118,8 @@ func TestTachysEnforcementPointsFollowPerSlotLeader(t *testing.T) {
 		public := cold.Public().(ed25519.PublicKey)
 		opCertBody := common.OpCertSignableBytes(kesPublic, 0, 0)
 		return validator.ValidateHeader(&ValidateHeaderInput{
+			Envelope:             testEnvelope(),
+			Overlay:              testOverlayD0(),
 			Slot:                 slotB,
 			BlockNumber:          1,
 			PrevHash:             previousHash,

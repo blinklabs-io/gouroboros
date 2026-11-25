@@ -2022,6 +2022,12 @@ func TestMIRGenesisQuorumRegisteredAcrossEras(t *testing.T) {
 				state,
 				nil,
 			))
+
+			// The quorum is a UTXOW check (validateMIRInsufficientGenesisSigs),
+			// which runs for every transaction, IsValid false included.
+			invalid := mirTransaction(delegateA)
+			invalid.(*mockledger.MockTransaction).WithValid(false)
+			require.ErrorAs(t, registered(invalid, 0, state, nil), &quorumErr)
 		})
 	}
 }
