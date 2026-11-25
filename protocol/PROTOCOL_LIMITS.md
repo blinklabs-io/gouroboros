@@ -334,9 +334,9 @@ the exported state-map constants above.
 
 These protocols have no static state-map timeout; the client copies the map and
 applies the configured operation timeout where indicated. The specification
-sets no node-to-client timeouts, so Local State Query and Local Tx Monitor
-default to none; their `WithAcquireTimeout` and `WithQueryTimeout` options
-opt in:
+sets no node-to-client timeouts, so Local State Query, Local Tx Monitor and
+Local Tx Submission default to none; their `WithAcquireTimeout`,
+`WithQueryTimeout` and `WithTimeout` options opt in:
 
 | Protocol | State/operation | Default |
 | --- | --- | ---: |
@@ -344,7 +344,7 @@ opt in:
 | Local State Query | Querying | none |
 | Local Tx Monitor | Acquiring | none |
 | Local Tx Monitor | Busy queries | none |
-| Local Tx Submission | Busy submit | 30 seconds |
+| Local Tx Submission | Busy submit | none |
 
 The local protocols have no additional queue, pipeline, or pending-message
 byte limits in their state maps. A Local Message Notification client bounds
