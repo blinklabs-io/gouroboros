@@ -37,6 +37,11 @@ type Client struct {
 	// the answer that arrives is the answer to the holder's message.
 	busyMutex        sync.Mutex
 	submitResultChan chan error
+	// stopMutex orders a submission's queueing against Stop's MsgDone: a
+	// submission queued after MsgDone would never be sent, since StDone
+	// sends nothing, so it waits forever for an answer.
+	stopMutex sync.Mutex
+	stopping  bool
 }
 
 // NewClient returns a new LocalMessageSubmission client object
@@ -111,7 +116,10 @@ func (c *Client) Stop(ctx context.Context) error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgDone()
+		c.stopMutex.Lock()
+		c.stopping = true
 		c.stopErr = stopping.SendDone(ctx, c.Protocol, msg)
+		c.stopMutex.Unlock()
 	})
 	if err := c.Protocol.Stop(ctx); err != nil {
 		return err
@@ -123,8 +131,10 @@ func (c *Client) Stop(ctx context.Context) error {
 // reference client's submit does. It returns nil when the node accepts the
 // message and a MessageRejectedError when it rejects it. Concurrent calls
 // are sent one at a time, and each returns the answer to its own message.
-// AcceptMessageFunc and RejectMessageFunc, when set, run before the call
-// returns.
+// It returns ErrProtocolShuttingDown, without sending, once Stop has been
+// called. AcceptMessageFunc and RejectMessageFunc, when set, run on the
+// calling goroutine before the call returns, after the next submission may
+// start, so a callback may itself call SubmitMessage.
 func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 	if msg == nil {
 		return errors.New("message cannot be nil")
@@ -143,13 +153,35 @@ func (c *Client) SubmitMessage(msg *pcommon.DmqMessage) error {
 
 	submitMsg := NewMsgSubmitMessage(*msg)
 	c.busyMutex.Lock()
-	defer c.busyMutex.Unlock()
-	if err := c.SendMessage(submitMsg); err != nil {
+	c.stopMutex.Lock()
+	if c.stopping {
+		c.stopMutex.Unlock()
+		c.busyMutex.Unlock()
+		return protocol.ErrProtocolShuttingDown
+	}
+	err := c.SendMessage(submitMsg)
+	c.stopMutex.Unlock()
+	if err != nil {
+		c.busyMutex.Unlock()
 		return err
 	}
 	err, ok := <-c.submitResultChan
+	c.busyMutex.Unlock()
 	if !ok {
 		return protocol.ErrProtocolShuttingDown
+	}
+	// The callbacks run here rather than on the receive loop: a callback
+	// that submits again needs the receive loop free to read its answer.
+	var rejected MessageRejectedError
+	switch {
+	case err == nil:
+		if c.config.AcceptMessageFunc != nil {
+			c.config.AcceptMessageFunc(c.callbackContext)
+		}
+	case errors.As(err, &rejected):
+		if c.config.RejectMessageFunc != nil {
+			c.config.RejectMessageFunc(c.callbackContext, rejected.Reason)
+		}
 	}
 	return err
 }
@@ -180,9 +212,6 @@ func (c *Client) handleAcceptMessage() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
-	if c.config.AcceptMessageFunc != nil {
-		c.config.AcceptMessageFunc(c.callbackContext.withOwner(c.Protocol))
-	}
 	c.submitResultChan <- nil
 	return nil
 }
@@ -216,9 +245,6 @@ func (c *Client) handleRejectMessage(msg protocol.Message) error {
 	rr, err := pcommon.FromRejectReasonData(msgReject.Reason)
 	if err != nil {
 		return err
-	}
-	if c.config.RejectMessageFunc != nil {
-		c.config.RejectMessageFunc(c.callbackContext.withOwner(c.Protocol), rr)
 	}
 	c.submitResultChan <- MessageRejectedError{Reason: rr}
 	return nil

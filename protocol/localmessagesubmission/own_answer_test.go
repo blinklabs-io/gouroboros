@@ -48,7 +48,10 @@ func TestConcurrentSubmitsGetTheirOwnAnswers(t *testing.T) {
 	submit := func(id string) error {
 		return session.client.SubmitMessage(&pcommon.DmqMessage{
 			MessageID: []byte(id),
-			Payload:   pcommon.DmqMessagePayload{ExpiresAt: expires},
+			Payload: pcommon.DmqMessagePayload{
+				MessageBody: paddedTestBody(id),
+				ExpiresAt:   expires,
+			},
 		})
 	}
 	var acceptErr, rejectErr error

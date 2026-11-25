@@ -16,9 +16,12 @@ package common_test
 
 import (
 	"errors"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/common/script"
@@ -267,9 +270,32 @@ func TestTransactionScopedMemoWaiterRetriesAfterBuildPanic(t *testing.T) {
 		})
 		waiter <- result{value, err}
 	}()
+	// The waiter must be parked on the in-progress entry before the build
+	// panics; otherwise it arrives after the entry is dropped and takes the
+	// new-entry path, which leaves the retry of an abandoned entry untested.
+	require.Eventually(t, waiterParkedInMemo, 5*time.Second, time.Millisecond)
 	close(panicNow)
 	require.NotNil(t, <-builderDone)
 	got := <-waiter
 	require.NoError(t, got.err)
 	require.Equal(t, "built", got.value)
+}
+
+// waiterParkedInMemo reports whether a goroutine is blocked on a channel
+// receive directly inside TransactionScopedMemo: a caller waiting for another
+// caller's build. The builder also blocks inside TransactionScopedMemo, but
+// in its build function, so its innermost frame is the test's closure.
+func waiterParkedInMemo() bool {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		lines := strings.SplitN(g, "\n", 3)
+		if len(lines) < 2 || !strings.Contains(lines[0], "[chan receive") {
+			continue
+		}
+		if strings.Contains(lines[1], "(*cachedLedgerState).TransactionScopedMemo(") {
+			return true
+		}
+	}
+	return false
 }

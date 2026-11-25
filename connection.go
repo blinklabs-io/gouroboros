@@ -325,10 +325,12 @@ func (c *Connection) Close(ctx context.Context) error {
 		c.requestClose()
 		return nil
 	}
+	excused := false
 	if m != nil && owner != nil {
 		// A callback closing its own connection must not be waited for by
-		// the shutdown it is waiting for.
-		m.ExcuseProtocolLoops(owner)
+		// the shutdown it is waiting for. An owner with no loop on this
+		// muxer, such as another connection's callback, excuses nothing.
+		excused = m.ExcuseProtocolLoops(owner)
 	}
 	c.requestClose()
 	// Wait until all connection-owned goroutines have stopped. After this
@@ -339,7 +341,7 @@ func (c *Connection) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if m != nil {
-		if owner == nil {
+		if !excused {
 			// Shutdown did not wait for loops whose callback is in
 			// Close; a Close from outside a callback waits for them too.
 			return m.WaitProtocolLoopsExcept(ctx, nil)

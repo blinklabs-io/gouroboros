@@ -1138,16 +1138,17 @@ func (p *BlockPipeline) requestStop(explicit bool) bool {
 		p.stopRequestedClosed = true
 		close(p.stopRequested)
 	}
+	if explicit {
+		// Publish the explicit stop before canceling the pipeline context so
+		// drain waiters can distinguish Stop from cancellation inherited from
+		// Start. A Stop after the watcher's teardown publishes it too, so
+		// Start refuses the pipeline and WaitForDrain sees the stop.
+		p.stopping.Store(true)
+	}
 	if p.teardownStarted {
 		return true
 	}
 	p.teardownStarted = true
-	if explicit {
-		// Publish the explicit stop before canceling the pipeline context so
-		// drain waiters can distinguish Stop from cancellation inherited from
-		// Start.
-		p.stopping.Store(true)
-	}
 	// Cancel before the teardown takes submitGate: Submit holds the gate
 	// while blocked on a channel send and needs ctx.Done to unblock.
 	p.cancel()
