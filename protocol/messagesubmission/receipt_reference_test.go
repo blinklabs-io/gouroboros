@@ -199,7 +199,7 @@ func TestServerReceivesRepliesAsReference(t *testing.T) {
 			}
 			server.pendingMsgRequest = &messageRequest{ids: ids}
 
-			err = server.handleReplyMessages(NewMsgReplyMessages(messages))
+			err = server.handleReplyMessages(NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, messages))
 			if tc.fatal {
 				require.Error(t, err)
 			} else {

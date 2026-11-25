@@ -10,93 +10,51 @@ The MessageSubmission protocol propagates authenticated messages between nodes. 
 | Protocol ID | `11` |
 | Mode | Node-to-Node |
 
-## State Machine
+## Sides and versions
 
-```
-┌──────┐     Init      ┌──────┐
-│ Init │ ─────────────►│ Idle │◄────────────────────────┐
-└──────┘               └──┬───┘                         │
-                          │                             │
-      RequestMessageIds   │                             │ ReplyMessageIds
-      (blocking)          │                             │ ReplyMessages
-                          ▼                             │
-                   ┌───────────────────┐                │
-                   │ MessageIdsBlocking│────────────────┤
-                   └─────────┬─────────┘                │
-                             │                          │
-                             │ Done                     │
-                             ▼                          │
-                         ┌──────┐                       │
-                         │ Done │                       │
-                         └──────┘                       │
-                                                        │
-      RequestMessageIds   │                             │
-      (non-blocking)      │                             │
-                          ▼                             │
-                   ┌─────────────────────┐              │
-                   │MessageIdsNonBlocking│──────────────┤
-                   └─────────────────────┘              │
-                                                        │
-      RequestMessages     │                             │
-                          ▼                             │
-                   ┌──────────┐                         │
-                   │ Messages │─────────────────────────┘
-                   └──────────┘
-```
+The **Client** has messages and answers requests for them; the **Server**
+wants messages and requests them. The wire format and the side that starts
+follow the reference implementation, dmq-node, where it differs from
+CIP-0137:
+
+| Version | Negotiated as | Wire format | Initiator |
+|---------|---------------|-------------|-----------|
+| V1 | DMQ `NodeToNodeV_1`, or a Cardano NtN version below 15 | tx-submission's | Client (sends `Init`) |
+| V2 | DMQ `NodeToNodeV_2`, or a Cardano NtN version of 15 or more | dmq-node's `SigSubmissionV2` | Server (sends the first request) |
+
+In V2 the Server is registered on the muxer as the initiator and the Client
+as the responder. Start the Server on the side that opened the connection.
 
 ## States
 
-| State | ID | Agency | Description |
-|-------|-----|--------|-------------|
-| **Init** | 1 | Client | Initial state before activation |
-| **Idle** | 2 | Server | Waiting for message request |
-| **MessageIdsBlocking** | 3 | Client | Client provides message IDs (blocking) |
-| **MessageIdsNonBlocking** | 4 | Client | Client provides message IDs (non-blocking) |
-| **Messages** | 5 | Client | Client provides full messages |
-| **Done** | 6 | None | Terminal state |
+| State | V1 agency | V2 agency |
+|-------|-----------|-----------|
+| **Init** | Client | (none: V2 starts in Idle) |
+| **Idle** | Server | Server |
+| **MessageIdsBlocking** | Client | Client |
+| **MessageIdsNonBlocking** | Client | Client |
+| **Messages** | Client | Client |
+| **Done** | None | None |
 
 ## Messages
 
-| Message | Type ID | Direction | Description |
-|---------|---------|-----------|-------------|
-| `Init` | 0 | Client → Server | Initialize protocol |
-| `RequestMessageIds` | 1 | Server → Client | Request message IDs |
-| `ReplyMessageIds` | 2 | Client → Server | Provide message IDs |
-| `RequestMessages` | 3 | Server → Client | Request full messages |
-| `ReplyMessages` | 4 | Client → Server | Provide message bodies |
-| `Done` | 5 | Client ↔ Server | Terminate protocol |
+Every collection is encoded as an indefinite-length CBOR list; the reference
+decoders accept no other form.
 
-## State Transitions
+| Message | V1 tag | V2 tag | Sender | From state | To state |
+|---------|--------|--------|--------|------------|----------|
+| `Init` | 6 | - | Client | Init | Idle |
+| `RequestMessageIds` | 0 | 1 | Server | Idle | MessageIdsBlocking or MessageIdsNonBlocking |
+| `ReplyMessageIds` | 1 | 2 | Client | MessageIds* | Idle |
+| `ReplyNoMessageIds` | - | 3 | Client | MessageIdsBlocking | Idle |
+| `RequestMessages` | 2 | 4 | Server | Idle | Messages |
+| `ReplyMessages` | 3 | 5 | Client | Messages | Idle |
+| `Done` | 4 | 6 | V1: Client; V2: Server | V1: MessageIdsBlocking; V2: Idle | Done |
 
-### From Init (Client Agency)
-| Message | New State |
-|---------|-----------|
-| `Init` | Idle |
-
-### From Idle (Server Agency)
-| Message | New State | Condition |
-|---------|-----------|-----------|
-| `RequestMessageIds` | MessageIdsBlocking | Blocking = true |
-| `RequestMessageIds` | MessageIdsNonBlocking | Blocking = false |
-| `RequestMessages` | Messages | |
-| `Done` | Done | |
-
-### From MessageIdsBlocking (Client Agency)
-| Message | New State |
-|---------|-----------|
-| `ReplyMessageIds` | Idle |
-| `Done` | Done |
-
-### From MessageIdsNonBlocking (Client Agency)
-| Message | New State |
-|---------|-----------|
-| `ReplyMessageIds` | Idle |
-| `Done` | Done |
-
-### From Messages (Client Agency)
-| Message | New State |
-|---------|-----------|
-| `ReplyMessages` | Idle |
+`ReplyNoMessageIds` (`Client.ReplyNoMessageIds`) answers a V2 blocking
+request with no IDs and still applies the request's acknowledgement.
+dmq-node's V2 requester allows 20 seconds for a blocking answer, so a Client
+with nothing to announce should send it before then.
 
 ## Timeouts
 
