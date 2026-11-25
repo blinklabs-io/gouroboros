@@ -36,8 +36,8 @@ const (
 	DefaultPipelineLimit           = 1
 	DefaultTimeout                 = 60 * time.Second
 	// MaxVoteMessageBytes is the largest encoded Vote message a client
-	// admits. A vote holds two unsigned integers, a 32-byte hash and a
-	// 48-byte signature, so a Vote message is at most 143 bytes even with
+	// admits. A vote holds a 32-byte hash, an unsigned integer and a 48-byte
+	// signature, so a Vote message is at most 134 bytes even with
 	// every CBOR head in its longest form. The limit leaves headroom above
 	// that and refuses votes padded further, such as with indefinite-length
 	// chunks.

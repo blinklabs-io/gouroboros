@@ -304,6 +304,10 @@ func (c *Connection) DialTimeout(
 // other one. Any number of callbacks may close at once: the connection is
 // torn down once and every one of them returns. If ctx is done first, Close
 // returns ctx.Err() and shutdown still proceeds.
+//
+// When ctx is the muxer's CallbackContext, which a muxer Metrics callback
+// passes, Close signals shutdown and returns without waiting for it: the
+// shutdown waits for the muxer's goroutines, one of which runs the callback.
 func (c *Connection) Close(ctx context.Context) error {
 	owner := protocol.CallbackOwner(ctx)
 	c.setupMu.Lock()
@@ -315,6 +319,10 @@ func (c *Connection) Close(ctx context.Context) error {
 		if conn != nil {
 			_ = conn.Close()
 		}
+		return nil
+	}
+	if m != nil && muxer.CallbackOwner(ctx) == m {
+		c.requestClose()
 		return nil
 	}
 	if m != nil && owner != nil {
