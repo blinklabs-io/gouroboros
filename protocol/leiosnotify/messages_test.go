@@ -611,3 +611,32 @@ func TestWireTagsMatchReferenceNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x81, 0x00}, encoded)
 }
+
+// TestMsgVotesOfferFullRoundTrip pins the legacy vote encoding: a full-vote
+// offer must stay four-element votes on the wire, [slot, eb_hash, voter_id,
+// signature], so a peer decodes it back into FullVotes rather than as the
+// three-element prototype shape.
+func TestMsgVotesOfferFullRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	vote := lcommon.LeiosLegacyVote{
+		SlotNo:        12,
+		VoterId:       3,
+		VoteSignature: bytes.Repeat([]byte{0x01}, lcommon.LeiosBlsSignatureSize),
+	}
+	vote.EndorserBlockHash[0] = 0xab
+	data, err := NewMsgVotesOfferFull([]lcommon.LeiosLegacyVote{vote}).MarshalCBOR()
+	require.NoError(t, err)
+
+	msg, err := NewMsgFromCbor(MessageTypeVotesOffer, data)
+	require.NoError(t, err)
+	offer, ok := msg.(*MsgVotesOffer)
+	require.True(t, ok)
+	require.Empty(t, offer.PrototypeVotes)
+	require.Len(t, offer.FullVotes, 1)
+	got := offer.FullVotes[0]
+	require.Equal(t, vote.SlotNo, got.SlotNo)
+	require.Equal(t, vote.EndorserBlockHash, got.EndorserBlockHash)
+	require.Equal(t, vote.VoterId, got.VoterId)
+	require.Equal(t, vote.VoteSignature, got.VoteSignature)
+}
