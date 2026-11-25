@@ -1431,6 +1431,19 @@ func validateDijkstraProtocolParameterUpdate(
 			Value:     uint(*ppu.RefScriptCostStride),
 		}
 	}
+	// Dijkstra's ppuWellFormed adds these two to Conway's (cardano-ledger
+	// Dijkstra PParams.hs): eMax may not be set to zero, and a pledge
+	// leverage cap below 1 is refused. Removing the cap is allowed.
+	if ppu.MaxEpoch != nil && *ppu.MaxEpoch == 0 {
+		return conway.ProtocolParameterUpdateFieldZeroError{FieldName: "eMax"}
+	}
+	if ppu.MaxPledgeLeverage != nil && ppu.MaxPledgeLeverage.Rat != nil &&
+		ppu.MaxPledgeLeverage.Cmp(big.NewRat(1, 1)) < 0 {
+		return conway.ConwayProtocolParameterUpdateError{
+			FieldName: "maxPledgeLeverage",
+			Reason:    "must be at least 1",
+		}
+	}
 	return validateLeiosCommitteeStakeParameters(
 		ppu.CommitteeStakeCoverage,
 		ppu.QuorumStakeThreshold,
