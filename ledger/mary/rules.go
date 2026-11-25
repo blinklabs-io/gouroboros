@@ -572,10 +572,8 @@ func UtxoValidateMaxTxSizeUtxo(
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
-// protocol parameters. The fee-relevant transaction size is determined by
-// common.TxSizeForFee, which uses the original on-wire CBOR length. For
-// pre-Alonzo eras the full CBOR length is the fee-relevant size; for Alonzo+
-// the IsValid byte is subtracted.
+// protocol parameters and the transaction size measured by
+// common.TxSizeForFee.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
