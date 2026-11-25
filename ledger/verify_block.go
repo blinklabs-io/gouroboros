@@ -1398,6 +1398,86 @@ func verifyBlock(
 	return true, vrfHex, blockNo, slot, nil
 }
 
+// isTPraosEra reports whether era's headers follow TPraos, the eras with a
+// decentralization parameter and its overlay schedule.
+func isTPraosEra(era common.Era) bool {
+	switch era.Id {
+	case shelley.EraShelley.Id, allegra.EraAllegra.Id, mary.EraMary.Id,
+		alonzo.EraAlonzo.Id:
+		return true
+	}
+	return false
+}
+
+// verifyTPraosOverlayIssuer applies the OVERLAY rule's slot classification
+// (cardano-ledger Cardano/Protocol/TPraos/Rules/Overlay.hs): a non-active
+// overlay slot admits no block, and an active one admits only the scheduled
+// genesis delegate with its VRF key, whatever the stake distribution says. It
+// reports true when the slot is an overlay slot and the issuer passed, so the
+// pool distribution check does not apply.
+func verifyTPraosOverlayIssuer(
+	schedule *common.TPraosOverlaySchedule,
+	slot uint64,
+	issuer common.Blake2b224,
+	vrfKey []byte,
+) (bool, error) {
+	if schedule == nil {
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"TPraosOverlay is required for TPraos issuer validation",
+			map[string]any{"block_slot": slot},
+			nil,
+		)
+	}
+	kind, delegation, err := schedule.Classify(slot)
+	if err != nil {
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"invalid TPraos overlay schedule",
+			map[string]any{"block_slot": slot},
+			err,
+		)
+	}
+	switch kind {
+	case common.OverlaySlotNonActive:
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeStakePool,
+			"block in a non-active overlay slot",
+			map[string]any{"block_slot": slot},
+			nil,
+		)
+	case common.OverlaySlotActive:
+		if issuer != delegation.DelegateKeyHash {
+			return false, common.NewValidationError(
+				common.ValidationErrorTypeStakePool,
+				"issuer is not the scheduled genesis delegate",
+				map[string]any{
+					"block_slot": slot,
+					"issuer":     issuer.String(),
+					"delegate":   delegation.DelegateKeyHash.String(),
+				},
+				nil,
+			)
+		}
+		vrfKeyHash := common.Blake2b256Hash(vrfKey)
+		if vrfKeyHash != delegation.VrfKeyHash {
+			return false, common.NewValidationError(
+				common.ValidationErrorTypeVRF,
+				"VRF key does not match the scheduled genesis delegation",
+				map[string]any{
+					"block_slot":        slot,
+					"block_vrf_hash":    vrfKeyHash.String(),
+					"delegate_vrf_hash": delegation.VrfKeyHash.String(),
+				},
+				nil,
+			)
+		}
+		return true, nil
+	case common.OverlaySlotNone:
+	}
+	return false, nil
+}
+
 func verifyByronBlockLocal(
 	block Block,
 ) (bool, string, uint64, uint64, error) {
@@ -1859,6 +1939,21 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		}
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
+
+		if isTPraosEra(block.Era()) {
+			overlaySlot, err := verifyTPraosOverlayIssuer(
+				config.TPraosOverlay,
+				slot,
+				poolKeyHash,
+				blockVrfKey,
+			)
+			if err != nil {
+				return err
+			}
+			if overlaySlot {
+				return nil
+			}
+		}
 
 		snapshotVrfKeyHash, err := config.LeaderPoolVrfKeyHash(
 			slot,
