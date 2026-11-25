@@ -1253,6 +1253,15 @@ type CurrentProtocolParamsResult interface {
 
 type ProposedProtocolParamsUpdatesResult map[lcommon.GenesisHash]lcommon.ProtocolParameterUpdate
 
+func (r *ProposedProtocolParamsUpdatesResult) UnmarshalCBOR(data []byte) error {
+	var tmp growingMap[lcommon.GenesisHash, lcommon.ProtocolParameterUpdate]
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = ProposedProtocolParamsUpdatesResult(tmp)
+	return nil
+}
+
 type StakeDistributionResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]struct {
@@ -1260,6 +1269,22 @@ type StakeDistributionResult struct {
 		StakeFraction *cbor.Rat
 		VrfHash       ledger.Blake2b256
 	}
+}
+
+func (r *StakeDistributionResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	var res StakeDistributionResult
+	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
+		return err
+	}
+	*r = res
+	return nil
 }
 
 type UTxOsResult struct {
@@ -1397,12 +1422,12 @@ type StakeDelegDepositsResult map[StakeCredential]uint64
 func (r *StakeDelegDepositsResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Deposits map[StakeCredential]uint64
+		Deposits growingMap[StakeCredential, uint64]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	*r = tmp.Deposits
+	*r = StakeDelegDepositsResult(tmp.Deposits)
 	return nil
 }
 
@@ -1413,8 +1438,8 @@ func (r *FilteredDelegationsAndRewardAccountsResult) UnmarshalCBOR(
 		cbor.StructAsArray
 		Inner struct {
 			cbor.StructAsArray
-			Delegations map[StakeCredential]ledger.Blake2b224
-			Rewards     map[StakeCredential]uint64
+			Delegations growingMap[StakeCredential, ledger.Blake2b224]
+			Rewards     growingMap[StakeCredential, uint64]
 		}
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
@@ -1592,20 +1617,26 @@ func (r *StakePoolParamsResult) UnmarshalCBOR(data []byte) error {
 	if r == nil {
 		return errors.New("nil StakePoolParamsResult receiver")
 	}
-	type stakePoolParamsResult StakePoolParamsResult
-	var tmp stakePoolParamsResult
+	var tmp struct {
+		cbor.StructAsArray
+		Results cbor.RawMessage
+	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	for poolId, params := range tmp.Results {
+	var res StakePoolParamsResult
+	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
+		return err
+	}
+	for poolId, params := range res.Results {
 		if params.PoolMetadata == nil {
 			continue
 		}
 		if err := validateQueryPoolMetadataURL(params.PoolMetadata.Url); err != nil {
-			delete(tmp.Results, poolId)
+			delete(res.Results, poolId)
 		}
 	}
-	*r = StakePoolParamsResult(tmp)
+	*r = res
 	return nil
 }
 
@@ -1678,7 +1709,7 @@ func (r *RewardInfoPoolsResult) UnmarshalCBOR(data []byte) error {
 		Inner struct {
 			cbor.StructAsArray
 			Params RewardParams
-			Pools  map[ledger.Blake2b224]RewardInfoPool
+			Pools  growingMap[ledger.Blake2b224, RewardInfoPool]
 		}
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
@@ -1761,10 +1792,10 @@ func (r *PoolStateResult) UnmarshalCBOR(data []byte) error {
 	type rawPoolStateParams PoolStateParams
 	var tmp struct {
 		cbor.StructAsArray
-		PState   map[ledger.Blake2b224]*rawPoolStateParams
-		FState   map[ledger.Blake2b224]*rawPoolStateParams
-		Retiring map[ledger.Blake2b224]uint64
-		Deposits map[ledger.Blake2b224]uint64
+		PState   growingMap[ledger.Blake2b224, *rawPoolStateParams]
+		FState   growingMap[ledger.Blake2b224, *rawPoolStateParams]
+		Retiring growingMap[ledger.Blake2b224, uint64]
+		Deposits growingMap[ledger.Blake2b224, uint64]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
@@ -1852,6 +1883,22 @@ type PoolDistrResult struct {
 		StakeFraction *cbor.Rat
 		VrfHash       ledger.Blake2b256
 	}
+}
+
+func (r *PoolDistrResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results cbor.RawMessage
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	var res PoolDistrResult
+	if err := decodeGrowingMap(tmp.Results, &res.Results); err != nil {
+		return err
+	}
+	*r = res
+	return nil
 }
 
 // Conway governance query types
@@ -2658,12 +2705,12 @@ type FilteredVoteDelegateesResult map[StakeCredential]lcommon.Drep
 func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
 	var tmp struct {
 		cbor.StructAsArray
-		Delegatees map[StakeCredential]lcommon.Drep
+		Delegatees growingMap[StakeCredential, lcommon.Drep]
 	}
 	if _, err := cbor.Decode(data, &tmp); err != nil {
 		return err
 	}
-	*r = tmp.Delegatees
+	*r = FilteredVoteDelegateesResult(tmp.Delegatees)
 	return nil
 }
 
@@ -2672,6 +2719,18 @@ func (r *FilteredVoteDelegateesResult) UnmarshalCBOR(data []byte) error {
 type SPOStakeDistrResult struct {
 	cbor.StructAsArray
 	Results map[ledger.PoolId]uint64
+}
+
+func (r *SPOStakeDistrResult) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Results growingMap[ledger.PoolId, uint64]
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*r = SPOStakeDistrResult{Results: tmp.Results}
+	return nil
 }
 
 // ProposalsResult represents the result of a GetProposals query.
