@@ -279,7 +279,7 @@ func subCertSubTx(t *testing.T, k int) DijkstraSubTransaction {
 	}}
 }
 
-func TestSubTxModelEntities(t *testing.T) {
+func TestSubTxCellsEntities(t *testing.T) {
 	rules := []common.UtxoValidationRuleFunc{
 		modelPhasedRule(t, common.UtxoValidationRuleBatchWithdrawals),
 		modelPhasedRule(t, common.UtxoValidationRuleAccountBalanceIntervals),
@@ -372,7 +372,7 @@ func subCertSpecDep(pool bool, b subCertDepBatch) bool {
 	return !b.legacy || b.dTop == legacy
 }
 
-func TestSubTxModelPoolDeposit(t *testing.T) {
+func TestSubTxCellsPoolDeposit(t *testing.T) {
 	rules := []common.UtxoValidationRuleFunc{
 		modelPhasedRule(t, common.UtxoValidationRuleValueNotConserved),
 		modelPhasedRule(t, common.UtxoValidationRuleValueNotConservedLegacyMode),
@@ -529,7 +529,7 @@ func subCertSpecOwn(
 	return true
 }
 
-func TestSubTxModelPoolOwnerWitnesses(t *testing.T) {
+func TestSubTxCellsPoolOwnerWitnesses(t *testing.T) {
 	rule := modelPhasedRule(t, common.UtxoValidationRuleRequiredVKeyWitnesses)
 	pp := subCertPParams()
 	blsKey := &common.LeiosKey{PublicKey: []byte{0x0b}}

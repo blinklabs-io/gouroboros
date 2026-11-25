@@ -81,7 +81,7 @@ func subGuardSpec(kind string, listed, wit bool, avail string, reqs []string) bo
 	return !listed || kind != "key" || wit
 }
 
-func TestSubTxModelGuards(t *testing.T) {
+func TestSubTxCellsGuards(t *testing.T) {
 	rules := []common.UtxoValidationRuleFunc{
 		modelPhasedRule(t, common.UtxoValidationRuleRedeemerAndScriptWitnesses),
 		modelPhasedRule(t, common.UtxoValidationRuleScriptWitnesses),
@@ -200,7 +200,7 @@ func TestSubTxModelGuards(t *testing.T) {
 // The context a top-level guard script sees: the datum each level gives it,
 // keyed by level id, and every credential any level requires, once.
 
-func TestSubTxModelGuardContext(t *testing.T) {
+func TestSubTxCellsGuardContext(t *testing.T) {
 	plutus := dijkstraGuardTestPlutus(t, lang.LanguageVersionV4, false)
 	g := dijkstraGuardCredentialForScript(plutus)
 	h := common.Credential{
@@ -348,7 +348,7 @@ func (u subPropUpdate) build() DijkstraProtocolParameterUpdate {
 	return ret
 }
 
-func TestSubTxModelProposalChecks(t *testing.T) {
+func TestSubTxCellsProposalChecks(t *testing.T) {
 	rules := []common.UtxoValidationRuleFunc{
 		modelPhasedRule(t, common.UtxoValidationRuleGovActionWellFormedness),
 		modelPhasedRule(t, common.UtxoValidationRuleProposalProcedures),

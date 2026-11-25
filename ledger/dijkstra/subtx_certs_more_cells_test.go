@@ -72,7 +72,7 @@ func subCertSpecRet(pool, valid bool, levels []string) bool {
 	return true
 }
 
-func TestSubTxModelPoolRetirement(t *testing.T) {
+func TestSubTxCellsPoolRetirement(t *testing.T) {
 	rules := subCertEntityRules(t)
 	pp := subCertPParams()
 	pp.MaxEpoch = 18
@@ -163,7 +163,7 @@ func subCertSpecMulti(
 	return total <= bal && (total == 0 || reg) && s.ok
 }
 
-func TestSubTxModelMultiCertificateLevels(t *testing.T) {
+func TestSubTxCellsMultiCertificateLevels(t *testing.T) {
 	rules := subCertEntityRules(t)
 	pp := subCertPParams()
 	f := newSubCertFixture(t)
@@ -195,7 +195,7 @@ func TestSubTxModelMultiCertificateLevels(t *testing.T) {
 				ls := f.ledger(t, reg, bal, pool)
 				for _, valid := range []bool{false, true} {
 					for _, top := range levels {
-						for _, subs := range modelUpTo1(levels) {
+						for _, subs := range cellsUpTo1(levels) {
 							built := make([]DijkstraSubTransaction, 0, len(subs))
 							for k, l := range subs {
 								sub := subCertSubTx(t, k)
@@ -264,7 +264,7 @@ func subCertSpecLegacy(
 	return s.ok
 }
 
-func TestSubTxModelLegacyWithdrawalCertificates(t *testing.T) {
+func TestSubTxCellsLegacyWithdrawalCertificates(t *testing.T) {
 	rules := []common.UtxoValidationRuleFunc{
 		modelPhasedRule(t, common.UtxoValidationRuleBatchWithdrawals),
 		modelPhasedRule(t, common.UtxoValidationRuleAccountBalanceIntervals),
@@ -300,7 +300,7 @@ func TestSubTxModelLegacyWithdrawalCertificates(t *testing.T) {
 							if topAmt >= 0 {
 								top.wd = "amount"
 							}
-							for _, subs := range modelUpTo1(subLevels) {
+							for _, subs := range cellsUpTo1(subLevels) {
 								built := make([]DijkstraSubTransaction, 0, len(subs))
 								for k, l := range subs {
 									sub := subCertSubTx(t, k)
@@ -409,7 +409,7 @@ func subCertSpecIv(
 	return total <= bal && (!anyWd || reg) && s.ok
 }
 
-func TestSubTxModelBalanceIntervals(t *testing.T) {
+func TestSubTxCellsBalanceIntervals(t *testing.T) {
 	rules := subCertEntityRules(t)
 	pp := subCertPParams()
 	f := newSubCertFixture(t)
@@ -461,7 +461,7 @@ func TestSubTxModelBalanceIntervals(t *testing.T) {
 			ls := f.ledger(t, reg, bal, false)
 			for _, valid := range []bool{false, true} {
 				for _, top := range tops {
-					for _, subs := range modelUpTo1(subLevels) {
+					for _, subs := range cellsUpTo1(subLevels) {
 						built := make([]DijkstraSubTransaction, 0, len(subs))
 						for k, l := range subs {
 							sub := subCertSubTx(t, k)

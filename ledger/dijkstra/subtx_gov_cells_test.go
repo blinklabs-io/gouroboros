@@ -329,7 +329,7 @@ func subGovSpec(
 	return subGovSpecLevel(s, top, "top").ok
 }
 
-func TestSubTxModelGovernance(t *testing.T) {
+func TestSubTxCellsGovernance(t *testing.T) {
 	rules := subGovRules(t)
 	pp := subGovPParams()
 	f := newSubGovFixture(t)
@@ -348,7 +348,7 @@ func TestSubTxModelGovernance(t *testing.T) {
 						ls := f.ledger(t, reg, dreg, pool, c1)
 						for _, valid := range []bool{false, true} {
 							for _, top := range tops {
-								for _, subs := range modelUpTo1(subLevels) {
+								for _, subs := range cellsUpTo1(subLevels) {
 									tx := modelBatch(t, valid, modelLevel{ins: []int{0}}, nil)
 									subId := common.GovActionId{}
 									if len(subs) > 0 {
@@ -395,7 +395,7 @@ func TestSubTxModelGovernance(t *testing.T) {
 	}
 }
 
-func modelUpTo1[T any](items []T) [][]T {
+func cellsUpTo1[T any](items []T) [][]T {
 	ret := [][]T{nil}
 	for _, item := range items {
 		ret = append(ret, []T{item})
@@ -435,7 +435,7 @@ func subGovSpecCom(dreg bool, c1 string, valid bool, levels []string) bool {
 	return ok
 }
 
-func TestSubTxModelDRepCommitteeCertificates(t *testing.T) {
+func TestSubTxCellsDRepCommitteeCertificates(t *testing.T) {
 	rules := subGovRules(t)
 	pp := subGovPParams()
 	f := newSubGovFixture(t)
