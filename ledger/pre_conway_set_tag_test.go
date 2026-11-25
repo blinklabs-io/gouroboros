@@ -23,6 +23,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/allegra"
 	"github.com/blinklabs-io/gouroboros/ledger/alonzo"
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/conway"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
@@ -344,6 +345,78 @@ func TestPoolOwnersRefuseOtherTags(t *testing.T) {
 			}
 			if !tc.ok && err == nil {
 				t.Fatalf("accepted: %x", data)
+			}
+		})
+	}
+}
+
+// TestBuiltPoolOwnersRoundTripPerEra builds a body holding a pool
+// registration with no cached CBOR, encodes it and decodes the bytes. Before
+// protocol version 9 encodeSet writes no tag (cardano-ledger-binary
+// Encoding/Encoder.hs encodeSet), and the decoder refuses one, so a Shelley
+// to Babbage body writes the owner set untagged; from Conway it is tagged.
+func TestBuiltPoolOwnersRoundTripPerEra(t *testing.T) {
+	type body interface {
+		SetCbor([]byte)
+		MarshalCBOR() ([]byte, error)
+	}
+	tagged := append([]byte{0xd9, 0x01, 0x02}, arr(bstr(28, 4))...)
+	for _, tc := range []struct {
+		name   string
+		fields []field
+		dest   func() body
+		certs  func(body) []common.CertificateWrapper
+		tagged bool
+	}{
+		{"shelley", shelleyBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &shelley.ShelleyTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*shelley.ShelleyTransactionBody).TxCertificates
+			}, false},
+		{"allegra", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &allegra.AllegraTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*allegra.AllegraTransactionBody).TxCertificates
+			}, false},
+		{"mary", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &mary.MaryTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*mary.MaryTransactionBody).TxCertificates
+			}, false},
+		{"alonzo", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &alonzo.AlonzoTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*alonzo.AlonzoTransactionBody).TxCertificates
+			}, false},
+		{"babbage", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &babbage.BabbageTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*babbage.BabbageTransactionBody).TxCertificates
+			}, false},
+		{"conway", alonzoBodyFields(field{0x04, arr(poolCert(false))}),
+			func() body { return &conway.ConwayTransactionBody{} },
+			func(b body) []common.CertificateWrapper {
+				return b.(*conway.ConwayTransactionBody).TxCertificates
+			}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			built := tc.dest()
+			if _, err := cbor.Decode(cmap(tc.fields...), built); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			built.SetCbor(nil)
+			for _, c := range tc.certs(built) {
+				c.Certificate.(*common.PoolRegistrationCertificate).SetCbor(nil)
+			}
+			data, err := built.MarshalCBOR()
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			if got := bytes.Contains(data, tagged); got != tc.tagged {
+				t.Errorf("owner set tagged = %v: %x", got, data)
+			}
+			if _, err := cbor.Decode(data, tc.dest()); err != nil {
+				t.Errorf("own encoding refused: %v", err)
 			}
 		})
 	}

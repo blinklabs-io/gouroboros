@@ -1811,8 +1811,51 @@ func (c *PoolRegistrationCertificate) UnmarshalCBOR(cborData []byte) error {
 
 // NOTE: UnmarshalCBOR caches the original CBOR bytes, and MarshalCBOR returns
 // those bytes for both 10- and 11-field variants. Call SetCbor(nil) before
-// marshaling mutated fields.
+// marshaling mutated fields. Without cached bytes the owner set is written
+// under tag 258, as cardano-ledger writes it from protocol version 9; a
+// Shelley to Babbage body writes it untagged through PreConwayCertificates.
 func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
+	return c.marshalCBOR(true)
+}
+
+// PreConwayCertificates returns certificates to encode in a Shelley to
+// Babbage transaction body. cardano-ledger's encodeSet writes no tag before
+// protocol version 9, and those bodies refuse a tagged pool owner set, so a
+// pool registration with no cached CBOR writes its owner set untagged. The
+// slice is copied only when it holds such a certificate.
+func PreConwayCertificates(
+	certificates []CertificateWrapper,
+) []CertificateWrapper {
+	var ret []CertificateWrapper
+	for i, certificate := range certificates {
+		pool, ok := certificate.Certificate.(*PoolRegistrationCertificate)
+		if !ok || pool == nil || pool.Cbor() != nil {
+			continue
+		}
+		if ret == nil {
+			ret = append([]CertificateWrapper(nil), certificates...)
+		}
+		ret[i].Certificate = untaggedOwnersPoolRegistration{pool}
+	}
+	if ret == nil {
+		return certificates
+	}
+	return ret
+}
+
+// untaggedOwnersPoolRegistration encodes a pool registration with an
+// untagged owner set.
+type untaggedOwnersPoolRegistration struct {
+	*PoolRegistrationCertificate
+}
+
+func (c untaggedOwnersPoolRegistration) MarshalCBOR() ([]byte, error) {
+	return c.marshalCBOR(false)
+}
+
+func (c *PoolRegistrationCertificate) marshalCBOR(
+	tagOwners bool,
+) ([]byte, error) {
 	if cborData := c.Cbor(); cborData != nil {
 		return cborData, nil
 	}
@@ -1827,7 +1870,7 @@ func (c PoolRegistrationCertificate) MarshalCBOR() ([]byte, error) {
 	sort.Slice(poolOwners, func(i, j int) bool {
 		return bytes.Compare(poolOwners[i][:], poolOwners[j][:]) < 0
 	})
-	poolOwnerSet := cbor.NewSetType(poolOwners, true)
+	poolOwnerSet := cbor.NewSetType(poolOwners, tagOwners)
 	if c.LeiosKey == nil {
 		return cbor.Encode([]any{
 			c.CertType,
