@@ -299,8 +299,11 @@ func (c *Connection) DialTimeout(
 // StopChan closes holds Close until it does. When ctx is the Context of a
 // mini-protocol CallbackContext of this connection, Close does not wait for
 // the goroutines of the protocol instance that made the callback, one of
-// which is running it; it still waits for every other one. If ctx is done
-// first, Close returns ctx.Err() and shutdown still proceeds.
+// which is running it, nor for those of another instance whose callback is
+// also in Close, which would wait for it in turn; it still waits for every
+// other one. Any number of callbacks may close at once: the connection is
+// torn down once and every one of them returns. If ctx is done first, Close
+// returns ctx.Err() and shutdown still proceeds.
 func (c *Connection) Close(ctx context.Context) error {
 	owner := protocol.CallbackOwner(ctx)
 	c.setupMu.Lock()
@@ -328,13 +331,14 @@ func (c *Connection) Close(ctx context.Context) error {
 		return ctx.Err()
 	}
 	if m != nil {
-		// Shutdown did not wait for loops whose callback is in Close;
-		// wait for them now, except the caller's own.
-		var except any
-		if owner != nil {
-			except = owner
+		if owner == nil {
+			// Shutdown did not wait for loops whose callback is in
+			// Close; a Close from outside a callback waits for them too.
+			return m.WaitProtocolLoopsExcept(ctx, nil)
 		}
-		return m.WaitProtocolLoopsExcept(ctx, except)
+		// Not the excused loops: each runs a callback in Close, and two
+		// such callbacks waiting for each other never return.
+		return m.WaitProtocolLoops(ctx)
 	}
 	return nil
 }
@@ -453,7 +457,7 @@ func (c *Connection) shutdown() {
 		c.stopProtocols()
 		// Gracefully stop the muxer
 		c.setupMu.Lock()
-		m := c.muxer
+		m, conn := c.muxer, c.conn
 		c.setupMu.Unlock()
 		if m != nil {
 			// Stop returns once the muxer's goroutines, which run the
@@ -463,7 +467,11 @@ func (c *Connection) shutdown() {
 			// Every protocol is stopped and the muxer is closed, so the
 			// loops leave once their callbacks return.
 			m.CloseProtocolLoops()
-			m.WaitProtocolLoops()
+			_ = m.WaitProtocolLoops(context.Background())
+		} else if conn != nil {
+			// Close came after doneChan and before the muxer; setup's guard
+			// also closes conn, but only once setup resumes.
+			_ = conn.Close()
 		}
 		// Wait for other goroutines to finish
 		c.fenceTracked()
@@ -613,6 +621,19 @@ func (c *Connection) restartingServersLocked() []interface {
 	if c.leiosVotes != nil && c.leiosVotes.Server != nil {
 		servers = append(servers, c.leiosVotes.Server)
 	}
+	if c.localTxMonitor != nil && c.localTxMonitor.Server != nil {
+		servers = append(servers, c.localTxMonitor.Server)
+	}
+	if c.localTxSubmission != nil && c.localTxSubmission.Server != nil {
+		servers = append(servers, c.localTxSubmission.Server)
+	}
+	if c.perasVotes != nil && c.perasVotes.Server != nil {
+		servers = append(servers, c.perasVotes.Server)
+	}
+	if c.localMessageSubmission != nil &&
+		c.localMessageSubmission.Server != nil {
+		servers = append(servers, c.localMessageSubmission.Server)
+	}
 	return servers
 }
 
@@ -699,7 +720,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxSubmission.Client.Protocol)
 		}
 		if c.localTxSubmission.Server != nil {
-			protocols = append(protocols, c.localTxSubmission.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxSubmission.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localTxMonitor != nil {
@@ -707,7 +731,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.localTxMonitor.Client.Protocol)
 		}
 		if c.localTxMonitor.Server != nil {
-			protocols = append(protocols, c.localTxMonitor.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.localTxMonitor.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.peerSharing != nil {
@@ -759,7 +786,10 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 			protocols = append(protocols, c.perasVotes.Client.Protocol)
 		}
 		if c.perasVotes.Server != nil {
-			protocols = append(protocols, c.perasVotes.Server.Protocol)
+			protocols = append(
+				protocols,
+				c.perasVotes.Server.ProtocolInstance(),
+			)
 		}
 	}
 	if c.localMessageSubmission != nil {
@@ -772,7 +802,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageSubmission.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageSubmission.Server.Protocol,
+				c.localMessageSubmission.Server.ProtocolInstance(),
 			)
 		}
 	}
@@ -786,7 +816,7 @@ func (c *Connection) protocolInstancesLocked() []*protocol.Protocol {
 		if c.localMessageNotification.Server != nil {
 			protocols = append(
 				protocols,
-				c.localMessageNotification.Server.Protocol,
+				c.localMessageNotification.Server.ProtocolInstance(),
 			)
 		}
 	}
@@ -1088,7 +1118,7 @@ func (c *Connection) setupConnection() error {
 				c.leiosVotes.Server.EnsureRegistered()
 			}
 			if c.perasVotes != nil {
-				c.perasVotes.Server.EnsureRegistered()
+				c.perasVotes.Server.ProtocolInstance().EnsureRegistered()
 			}
 		}
 		// Start protocols

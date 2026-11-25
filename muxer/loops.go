@@ -110,10 +110,11 @@ func (m *Muxer) CloseProtocolLoops() {
 }
 
 // WaitProtocolLoops returns once every protocol loop has exited, except the
-// loops excused by ExcuseProtocolLoops.
-func (m *Muxer) WaitProtocolLoops() {
+// loops excused by ExcuseProtocolLoops, or returns ctx.Err() once ctx is
+// done.
+func (m *Muxer) WaitProtocolLoops(ctx context.Context) error {
 	l := &m.protocolLoops
-	_ = l.waitUntil(context.Background(), func() bool {
+	return l.waitUntil(ctx, func() bool {
 		for entry := range l.running {
 			if _, excused := l.excused[entry.owner]; !excused {
 				return false

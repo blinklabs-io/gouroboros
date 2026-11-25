@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -35,6 +36,11 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	protoVersion    uint16
+	protoOptions    protocol.ProtocolOptions
+	protocolMu      sync.RWMutex
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 
 	// Server-side state for message queue management
 	lock              sync.Mutex
@@ -60,14 +66,23 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		deliveredIDs:      make(map[string]uint32),
 		now:               time.Now,
 		protoVersion:      protoOptions.Version,
+		protoOptions:      protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
 
+	s.initProtocol()
+	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, with the
+// negotiated version's state map, unless the server was stopped. It reports
+// whether it installed one.
+func (s *Server) initProtocol() bool {
 	// Select state map and initial state based on negotiated version
-	isV2 := isMessageSubmissionV2(protoOptions.Version)
+	isV2 := isMessageSubmissionV2(s.protoOptions.Version)
 	var baseStateMap protocol.StateMap
 	var initialState protocol.State
 	if isV2 {
@@ -81,10 +96,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	protoConfig := protocol.ProtocolConfig{
 		Name:               ProtocolName,
 		ProtocolId:         ProtocolID,
-		Muxer:              protoOptions.Muxer,
-		Logger:             protoOptions.Logger,
-		ErrorChan:          protoOptions.ErrorChan,
-		Mode:               protoOptions.Mode,
+		Muxer:              s.protoOptions.Muxer,
+		Logger:             s.protoOptions.Logger,
+		ErrorChan:          s.protoOptions.ErrorChan,
+		Mode:               s.protoOptions.Mode,
 		Role:               protocol.ProtocolRoleServer,
 		MessageHandlerFunc: s.messageHandler,
 		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
@@ -97,8 +112,44 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		StateMap:     baseStateMap,
 		InitialState: initialState,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone from the client.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Start starts the protocol instance of the current run.
+func (s *Server) Start() {
+	s.ProtocolInstance().Start()
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 // collectionLimit bounds an inbound collection before it is decoded. A reply
@@ -146,7 +197,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 
 	s.messageQueue = append(s.messageQueue, msg)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("message added to queue",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -197,7 +248,7 @@ func (s *Server) requestMessageIDs(
 	}
 	s.pendingIDRequest = request
 	s.lock.Unlock()
-	if err := s.SendMessage(
+	if err := s.ProtocolInstance().SendMessage(
 		NewMsgRequestMessageIds(blocking, ackCount, requestCount),
 	); err != nil {
 		s.lock.Lock()
@@ -228,7 +279,7 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	}
 	s.pendingMsgRequest = request
 	s.lock.Unlock()
-	if err := s.SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
+	if err := s.ProtocolInstance().SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
 		s.lock.Lock()
 		if s.pendingMsgRequest == request {
 			s.pendingMsgRequest = nil
@@ -244,7 +295,7 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 // to end the protocol (the client cannot send MsgDone).
 func (s *Server) Done() error {
 	msg := NewMsgDone()
-	return s.SendMessage(msg)
+	return s.ProtocolInstance().SendMessage(msg)
 }
 
 // GetAvailableMessages returns messages from the outbound queue up to maxCount
@@ -296,7 +347,7 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 		if len(ids) < count {
 			messageCbor, err := cbor.Encode(*msg)
 			if err != nil {
-				s.Protocol.Logger().
+				s.ProtocolInstance().Logger().
 					Warn("failed to encode message for size calculation",
 						"component", "network",
 						"protocol", ProtocolName,
@@ -374,7 +425,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 //nolint:unparam
 func (s *Server) handleInit() error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received init message",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -388,7 +439,7 @@ func (s *Server) handleInit() error {
 func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessageIds)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received reply message IDs",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -429,7 +480,7 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessages)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received reply messages",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -452,7 +503,7 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 
 	for i := range fresh {
 		if err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i]); err != nil {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Warn("message validation failed",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -472,7 +523,7 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			fresh,
 		)
 		if err != nil {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Warn("message authentication failed",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -507,15 +558,36 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	return nil
 }
 
+// handleDone restarts the server in its initial state after the client's
+// MsgDone. dmq-node runs its node-to-node responders under the inbound
+// governor, which restarts a responder that ended cleanly, so the client may
+// start a new run on the connection. The outstanding IDs and requests belong
+// to the run and are dropped; the outbound queue and the delivered IDs belong
+// to the connection and are kept.
+//
 //nolint:unparam
 func (s *Server) handleDone() error {
-	s.Protocol.Logger().
+	old := s.ProtocolInstance()
+	old.Logger().
 		Debug("received done message",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return nil
+	}
+	s.Start()
+	// The run's request stays recorded until the new instance has started,
+	// so a request for the next run cannot reach an unstarted instance.
+	s.lock.Lock()
+	s.pendingMessageIDs = [][]byte{}
+	s.pendingIDRequest = nil
+	s.pendingMsgRequest = nil
+	s.lock.Unlock()
 	return nil
 }
 

@@ -47,7 +47,7 @@ func TestProtocolLoopsRefusedAfterClose(t *testing.T) {
 	m.CloseProtocolLoops()
 	started := false
 	require.False(t, m.StartProtocolLoops(m, func() { started = true }))
-	m.WaitProtocolLoops()
+	require.NoError(t, m.WaitProtocolLoops(context.Background()))
 	require.False(t, started)
 }
 
@@ -65,7 +65,7 @@ func TestWaitProtocolLoopsWaitsForRunningLoop(t *testing.T) {
 	<-entered
 	waited := make(chan struct{})
 	go func() {
-		m.WaitProtocolLoops()
+		_ = m.WaitProtocolLoops(context.Background())
 		close(waited)
 	}()
 	select {
@@ -94,7 +94,10 @@ func TestExcusedLoopIsNotWaitedFor(t *testing.T) {
 	<-entered
 	require.False(t, m.ExcuseProtocolLoops(other), "excused an owner with no loops")
 	require.True(t, m.ExcuseProtocolLoops(owner))
-	requireReturns(t, m.WaitProtocolLoops, "WaitProtocolLoops waited for an excused loop")
+	requireReturns(
+		t,
+		func() { _ = m.WaitProtocolLoops(context.Background()) },
+		"WaitProtocolLoops waited for an excused loop")
 	requireReturns(
 		t,
 		func() { _ = m.WaitProtocolLoopsExcept(context.Background(), owner) },

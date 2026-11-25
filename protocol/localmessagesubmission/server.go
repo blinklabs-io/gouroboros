@@ -15,6 +15,7 @@
 package localmessagesubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,6 +31,11 @@ type Server struct {
 	config          *Config
 	callbackContext CallbackContext
 	now             func() time.Time
+	protocolMu      sync.RWMutex
+	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 var (
@@ -114,28 +120,72 @@ func (r *submissionReplayState) release(id []byte, token uint64) {
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	normalizedCfg := normalizeConfig(cfg)
 	s := &Server{
-		config: &normalizedCfg,
-		now:    time.Now,
+		config:       &normalizedCfg,
+		now:          time.Now,
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
+	s.initProtocol()
+	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolID,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
 		Role:                protocol.ProtocolRoleServer,
 		MessageHandlerFunc:  s.messageHandler,
 		MessageFromCborFunc: NewMsgFromCbor,
 		StateMap:            stateMap,
 		InitialState:        protocolStateIdle,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Start starts the protocol instance of the current run.
+func (s *Server) Start() {
+	s.ProtocolInstance().Start()
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -163,7 +213,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 			ProtocolName,
 			msg,
 		)
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Warn("unexpected message type in handleSubmitMessage",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -174,7 +224,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		return err
 	}
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("submit message",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -186,7 +236,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		err := errors.New(
 			"received local-message-submission SubmitMessage message but no callback function is defined",
 		)
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Warn("submit message callback not configured",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -202,7 +252,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		&msgSubmit.Message,
 		s.now(),
 	); err != nil {
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Warn("message validation failed",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -219,7 +269,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		[]pcommon.DmqMessage{msgSubmit.Message},
 	)
 	if err != nil {
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Warn("message authentication failed",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -268,7 +318,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 	}()
 	reason := s.config.SubmitMessageFunc(s.callbackContext.withOwner(s.Protocol), &msgSubmit.Message)
 	if reason != nil {
-		s.Protocol.Logger().
+		s.ProtocolInstance().Logger().
 			Warn("message rejected by handler",
 				"component", "network",
 				"protocol", ProtocolName,
@@ -280,7 +330,7 @@ func (s *Server) handleSubmitMessage(msg protocol.Message) error {
 		return s.sendReject(reason)
 	}
 	accepted = true
-	return s.SendMessage(NewMsgAcceptMessage())
+	return s.ProtocolInstance().SendMessage(NewMsgAcceptMessage())
 }
 
 // refuse rejects a submission before it reaches SubmitMessageFunc, reporting
@@ -301,7 +351,7 @@ func (s *Server) sendReject(reason pcommon.RejectReason) error {
 	if err != nil {
 		return err
 	}
-	return s.SendMessage(rejectMsg)
+	return s.ProtocolInstance().SendMessage(rejectMsg)
 }
 
 func ttlValidationRejectReason(err error) pcommon.RejectReason {
@@ -311,14 +361,26 @@ func ttlValidationRejectReason(err error) pcommon.RejectReason {
 	return pcommon.InvalidReason{Message: err.Error()}
 }
 
+// handleDone restarts the server in its initial state. dmq-node runs its
+// node-to-client servers under the inbound governor, which restarts a
+// responder that ended cleanly, so the client may start a new run on the
+// connection. The replay cache lives in the config and outlasts the run.
+//
 //nolint:unparam
 func (s *Server) handleDone() error {
-	s.Protocol.Logger().
+	old := s.ProtocolInstance()
+	old.Logger().
 		Debug("received done message",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return nil
+	}
+	s.Start()
 	return nil
 }

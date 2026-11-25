@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 )
@@ -27,32 +28,59 @@ type Server struct {
 	*protocol.Protocol
 	config          *Config
 	callbackContext CallbackContext
+	protocolMu      sync.RWMutex
+	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer creates a server endpoint with the supplied protocol options.
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	cfg = normalizeConfig(cfg)
-	s := &Server{config: cfg}
+	s := &Server{config: cfg, protoOptions: protoOptions}
 	s.callbackContext = CallbackContext{
 		Server: s, ConnectionId: protoOptions.ConnectionId,
 		ConnectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
-	s.Protocol = protocol.New(protocol.ProtocolConfig{
-		Name: ProtocolName, ProtocolId: ProtocolId,
-		Muxer: protoOptions.Muxer, Logger: protoOptions.Logger,
-		ErrorChan: protoOptions.ErrorChan, Mode: protoOptions.Mode,
-		Role: protocol.ProtocolRoleServer, MessageHandlerFunc: s.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateContext:        newStateContext(cfg.MaxObjectsUnacknowledged),
-		StateMap:            clientStateMap(cfg), InitialState: StateInit,
-	})
+	s.initProtocol()
 	return s
 }
 
-// Start starts the server endpoint.
-func (s *Server) Start() { s.Protocol.Start() }
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
+	p := protocol.New(protocol.ProtocolConfig{
+		Name: ProtocolName, ProtocolId: ProtocolId,
+		Muxer: s.protoOptions.Muxer, Logger: s.protoOptions.Logger,
+		ErrorChan: s.protoOptions.ErrorChan, Mode: s.protoOptions.Mode,
+		Role: protocol.ProtocolRoleServer, MessageHandlerFunc: s.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateContext:        newStateContext(s.config.MaxObjectsUnacknowledged),
+		StateMap:            clientStateMap(s.config), InitialState: StateInit,
+	})
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.Protocol = p
+	return true
+}
 
-// Stop interrupts the server endpoint.
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.Protocol
+}
+
+// Start starts the server endpoint.
+func (s *Server) Start() { s.ProtocolInstance().Start() }
+
+// Stop interrupts the server endpoint. A restart that is in progress when
+// Stop is called does not start a new protocol instance.
 //
 // Stop signals shutdown at once. When ctx is the Context of a
 // CallbackContext this server passed to a callback, Stop returns without
@@ -60,11 +88,20 @@ func (s *Server) Start() { s.Protocol.Start() }
 // for. Otherwise it waits until the protocol's goroutines have returned, or
 // until ctx is done, in which case it returns ctx.Err() and shutdown still
 // proceeds.
-func (s *Server) Stop(ctx context.Context) error { return s.Protocol.Stop(ctx) }
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.Protocol
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
+}
 
 func (s *Server) messageHandler(msg protocol.Message) error {
 	switch msg.Type() {
-	case MessageTypeInit, MessageTypeDone:
+	case MessageTypeInit:
+		return nil
+	case MessageTypeDone:
+		s.handleDone()
 		return nil
 	case MessageTypeRequestObjectIDs:
 		return s.handleRequestObjectIDs(msg.(*MsgRequestObjectIDs))
@@ -80,6 +117,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
+	proto := s.ProtocolInstance()
 	if s.config.ObjectIDsFunc == nil {
 		return errors.New(
 			"peras object IDs function must be configured on the server",
@@ -103,20 +141,21 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 	if msg.Blocking && len(ids) == 0 {
 		// A blocking reply cannot be empty, and the client gives up after
 		// CanAwaitTimeout, so say promptly that the answer will come later.
-		if err := s.SendMessage(NewMsgAwaitReply()); err != nil {
+		if err := proto.SendMessage(NewMsgAwaitReply()); err != nil {
 			return err
 		}
-		go s.awaitObjectIDs(msg.RequestCount)
+		go s.awaitObjectIDs(proto, msg.RequestCount)
 		return nil
 	}
-	return s.SendMessage(NewMsgReplyObjectIDs(ids))
+	return proto.SendMessage(NewMsgReplyObjectIDs(ids))
 }
 
 // awaitObjectIDs finishes a blocking request after MsgAwaitReply: the IDs
 // that arrive within AwaitTimeout, or MsgServerIdle. It runs off the receive
 // path; the client has no agency until it answers, so nothing else is
-// handled meanwhile.
-func (s *Server) awaitObjectIDs(requestCount uint16) {
+// handled meanwhile. It answers on proto, the instance of the run that made
+// the request.
+func (s *Server) awaitObjectIDs(proto *protocol.Protocol, requestCount uint16) {
 	ctx, cancel := context.WithTimeout(
 		context.Background(),
 		s.config.AwaitTimeout,
@@ -124,7 +163,7 @@ func (s *Server) awaitObjectIDs(requestCount uint16) {
 	defer cancel()
 	go func() {
 		select {
-		case <-s.DoneChan():
+		case <-proto.DoneChan():
 		case <-s.callbackContext.ConnectionDoneChan:
 		case <-ctx.Done():
 		}
@@ -141,19 +180,19 @@ func (s *Server) awaitObjectIDs(requestCount uint16) {
 			requestCount,
 		)
 		if err != nil && ctx.Err() == nil {
-			s.SendError(err)
+			proto.SendError(err)
 			return
 		}
 	}
 	select {
-	case <-s.DoneChan():
+	case <-proto.DoneChan():
 		return
 	case <-s.callbackContext.ConnectionDoneChan:
 		return
 	default:
 	}
 	if len(ids) > int(requestCount) {
-		s.SendError(fmt.Errorf(
+		proto.SendError(fmt.Errorf(
 			"peras await object IDs function returned %d IDs for a request of %d",
 			len(ids),
 			requestCount,
@@ -164,8 +203,8 @@ func (s *Server) awaitObjectIDs(requestCount uint16) {
 	if len(ids) > 0 {
 		reply = NewMsgReplyObjectIDs(ids)
 	}
-	if err := s.SendMessage(reply); err != nil {
-		s.SendError(err)
+	if err := proto.SendMessage(reply); err != nil {
+		proto.SendError(err)
 	}
 }
 
@@ -210,5 +249,25 @@ func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 		}
 		seen[id] = struct{}{}
 	}
-	return s.SendMessage(NewMsgReplyObjects(objects))
+	return s.ProtocolInstance().SendMessage(NewMsgReplyObjects(objects))
+}
+
+// handleDone restarts the server in its initial state. The reference runs
+// this side as a responder, and the inbound governor restarts a responder
+// that ended cleanly, so the client may start a new run on the connection.
+func (s *Server) handleDone() {
+	old := s.ProtocolInstance()
+	old.Logger().
+		Debug("done",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
+	s.Start()
 }
