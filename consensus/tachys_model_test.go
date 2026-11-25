@@ -352,6 +352,7 @@ func TestTachysModelValidator(t *testing.T) {
 					OpCertHotVkey:      kesPublic,
 					OpCertSignature:    ed25519.Sign(issuer.cold, opCertBody),
 					OpCertCounterState: opCertSequence(0),
+					Envelope:           testEnvelope(),
 					PrevHeaderHash:     previousHash,
 					EpochNonce:         nonce[:],
 					PoolStake:          1,
@@ -391,9 +392,11 @@ func TestTachysModelValidator(t *testing.T) {
 						unscheduled = true
 					}
 				}
-				// The schedule is checked only after the VRF proof.
+				// The schedule is part of the eligibility check, which runs
+				// only after the VRF proof and the registered VRF key pass,
+				// as in the reference header validation order.
 				require.Equal(
-					t, vrfOK && !issuer.scheduled, unscheduled,
+					t, vrfOK && vrfKeyOK && !issuer.scheduled, unscheduled,
 					"%v", result.Errors,
 				)
 			})
