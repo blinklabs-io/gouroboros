@@ -316,9 +316,9 @@ func TestRequestNextAfterStoppedSyncGetsOwnVote(t *testing.T) {
 	require.NoError(t, client.Sync())
 	requireReadTestSegment(t, connB)
 
-	sendVote := func(slot uint64) {
+	sendVote := func(voter uint16) {
 		vote := testVote()
-		vote.SlotNo = slot
+		vote.VoterId = voter
 		data, err := cbor.Encode(NewMsgVote(vote))
 		require.NoError(t, err)
 		writeTestSegment(t, connB, muxer.NewSegment(ProtocolId, data, true))
@@ -348,7 +348,7 @@ func TestRequestNextAfterStoppedSyncGetsOwnVote(t *testing.T) {
 	case r := <-results:
 		require.NoError(t, r.err)
 		require.Len(t, r.votes, 1)
-		require.Equal(t, uint64(3), r.votes[0].SlotNo,
+		require.Equal(t, uint16(3), r.votes[0].VoterId,
 			"RequestNext returned a vote the stopped loop was owed")
 	case <-time.After(5 * time.Second):
 		t.Fatal("RequestNext did not return")

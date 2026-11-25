@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"time"
 
@@ -258,7 +257,12 @@ func (m *MessageAuthenticator) PrepareMessages(
 		slotsPerKesPeriod:     m.slotsPerKesPeriod,
 		maxKESEvolutions:      m.maxKESEvolutions,
 	}
-	touchedPools := make(map[PoolKeyHash]struct{})
+	// lowestIssue keeps each touched pool's lowest counter in the batch. At
+	// commit every message must still be no lower than the pool's recorded
+	// counter, as if it were validated then; checking only the batch's
+	// final counter would let an earlier, lower one through after a
+	// concurrent commit recorded a higher one.
+	lowestIssue := make(map[PoolKeyHash]uint64)
 	for i := range messages {
 		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
 			return nil, fmt.Errorf(
@@ -271,14 +275,16 @@ func (m *MessageAuthenticator) PrepareMessages(
 		if err != nil {
 			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
 		}
-		touchedPools[poolID] = struct{}{}
+		issue := messages[i].OperationalCertificate.IssueNumber
+		if lowest, seen := lowestIssue[poolID]; !seen || issue < lowest {
+			lowestIssue[poolID] = issue
+		}
 	}
 
 	return func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		for poolID := range touchedPools {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
+		for poolID, issueNumber := range lowestIssue {
 			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
 				issueNumber < currentIssue {
 				return fmt.Errorf(
@@ -288,7 +294,7 @@ func (m *MessageAuthenticator) PrepareMessages(
 				)
 			}
 		}
-		for poolID := range touchedPools {
+		for poolID := range lowestIssue {
 			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
 			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
 				issueNumber > currentIssue {
@@ -756,52 +762,30 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 		return errors.New("message is nil")
 	}
 
-	nowUnix := now.Unix()
+	// Compare at the clock's full precision: dmq-node's now is a POSIXTime
+	// with sub-second precision, so a message is already expired half a
+	// second after its whole-second expiresAt. Truncating now to seconds
+	// would accept it.
 	expiresAt := msg.Payload.ExpiresAt
-	// Reject `now` past the uint32 domain explicitly: clamping to MaxUint32
-	// would leave a message with expiresAt == MaxUint32 looking valid even
-	// though any uint32 expiresAt is strictly in the past relative to such
-	// a time.
-	if nowUnix > math.MaxUint32 {
+	expiry := time.Unix(int64(expiresAt), 0)
+	if now.After(expiry) {
 		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
+			"%w: now=%s, expiresAt=%d",
 			ErrMessageExpired,
-			nowUnix,
-			expiresAt,
-		)
-	}
-	if nowUnix < 0 {
-		nowUnix = 0
-	}
-	// #nosec G115 -- bounded to [0, MaxUint32] above
-	nowSec := uint32(nowUnix)
-
-	// Check if message has already expired
-	if nowSec > expiresAt {
-		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
-			ErrMessageExpired,
-			nowSec,
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
 		)
 	}
 
-	// Check if expiration is too far in the future (protocol violation).
-	// Compute in uint64 to avoid overflow when adding TTL seconds to current time.
-	maxAllowedTTLSeconds := uint64(v.maxAllowedTTL.Seconds())
-	nowUint64 := uint64(nowSec)
-	maxAllowedExpirationUint64 := min(
-		nowUint64+maxAllowedTTLSeconds,
-		math.MaxUint32,
-	)
-	// #nosec G115 -- overflow prevented by clamping to MaxUint32 above
-	maxAllowedExpiration := uint32(maxAllowedExpirationUint64)
-	if expiresAt > maxAllowedExpiration {
+	// The bound is exclusive, as in dmq-node (expiresAt < now + maxTTL): an
+	// expiry exactly maxTTL ahead is a protocol violation.
+	bound := now.Add(v.maxAllowedTTL)
+	if !expiry.Before(bound) {
 		return fmt.Errorf(
-			"message expiration too far in future: now=%d, expiresAt=%d, max_allowed=%d",
-			nowSec,
+			"message expiration too far in future: now=%s, expiresAt=%d, bound=%s",
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
-			maxAllowedExpiration,
+			bound.UTC().Format(time.RFC3339Nano),
 		)
 	}
 
