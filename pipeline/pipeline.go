@@ -33,6 +33,13 @@ var ErrPipelineStopped = errors.New("pipeline is stopped")
 // ErrPipelineNotStarted is returned when trying to use a pipeline that hasn't been started.
 var ErrPipelineNotStarted = errors.New("pipeline not started")
 
+// ErrWaitForDrainInApplyFunc is returned by WaitForDrain when it is called
+// with an item's ApplyContext before Stop: the blocks it would wait for can
+// only complete after the calling ApplyFunc returns.
+var ErrWaitForDrainInApplyFunc = errors.New(
+	"pipeline: WaitForDrain from ApplyFunc cannot wait for its own runner",
+)
+
 // ErrRawCborBudgetExceeded is returned when one block's retained full CBOR
 // copies cannot fit within the pipeline byte budget.
 var ErrRawCborBudgetExceeded = errors.New(
@@ -314,9 +321,21 @@ type BlockPipeline struct {
 	stopping          atomic.Bool
 	stopped           atomic.Bool
 	wg                sync.WaitGroup
-	mu                sync.Mutex // protects Start/Stop
-	fatalErrMu        sync.RWMutex
-	fatalErr          error
+	mu                sync.Mutex // protects Start and starting the teardown
+	// teardownStarted is set, under mu, by the first Stop after Start, or by
+	// the watcher once the context given to Start has ended; that call starts
+	// the teardown goroutine, which closes teardownDone.
+	teardownStarted bool
+	teardownDone    chan struct{}
+	// stopRequested is closed, under mu, by the first Stop after Start; it
+	// ends the watch on the context given to Start. watcherDone is closed
+	// when that watcher returns.
+	stopRequested       chan struct{}
+	stopRequestedClosed bool
+	watcherDone         chan struct{}
+
+	fatalErrMu sync.RWMutex
+	fatalErr   error
 	// submitGate serializes successful submissions and Fence boundaries.
 	// Its channel form lets Fence stop waiting when its context is canceled.
 	submitGate     chan struct{}
@@ -375,6 +394,7 @@ func NewBlockPipeline(opts ...PipelineOption) *BlockPipeline {
 		activeItems:   make(map[*BlockItem]struct{}),
 	}
 	p.applyCtx = context.WithValue(context.Background(), applyMarkerKey{}, p)
+	p.teardownDone = make(chan struct{})
 	p.submitGate <- struct{}{}
 	return p
 }
@@ -692,6 +712,9 @@ func (p *BlockPipeline) Start(ctx context.Context) error {
 	}
 	p.applyRunner.Start(p.ctx) //nolint:contextcheck
 	go p.forwardResults()
+	p.watcherDone = make(chan struct{})
+	p.stopRequested = make(chan struct{})
+	go p.watchParentCancel(ctx)
 
 	// Start metrics collection goroutine
 	p.wg.Add(1)
@@ -816,7 +839,7 @@ func (p *BlockPipeline) forwardResults() {
 }
 
 // Submit submits a new block for processing.
-// This method is safe to call concurrently with Stop().
+// This method is safe to call concurrently with Stop.
 // The context allows callers to handle timeouts or cancellations when the
 // pipeline is full and applying backpressure.
 func (p *BlockPipeline) Submit(
@@ -1048,27 +1071,103 @@ func (p *BlockPipeline) Errors() <-chan error {
 	return p.errorsChan
 }
 
-// Stop gracefully stops the pipeline. It releases undelivered observational
-// results; shutdown does not depend on a Results consumer.
-func (p *BlockPipeline) Stop() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// watchParentCancel tears the pipeline down when parent, the context given
+// to Start, ends without Stop, so that its goroutines return and the items
+// they held release their retained CBOR, as Go code expects of a context's
+// end. A fatal processing error also cancels the pipeline context, but does
+// not end parent: the pipeline then keeps its committed results for the
+// Results consumer until Stop. Stop waits for the watcher to return.
+func (p *BlockPipeline) watchParentCancel(parent context.Context) {
+	defer close(p.watcherDone)
+	select {
+	case <-parent.Done():
+	case <-p.stopRequested:
+		return
+	}
+	p.requestStop(false)
+}
 
-	if !p.started.Load() || p.stopped.Load() {
+// Stop stops the pipeline and waits until every goroutine it started has
+// returned, every undelivered result has been released, and every retained
+// CBOR reservation has been returned, or until ctx is done, in which case it
+// returns ctx.Err() and the pipeline goes on stopping. It drains undelivered
+// observational results while it waits, so shutdown does not depend on a
+// Results consumer. Stop is safe to call more than once and from several
+// goroutines; each call waits as described. After the context given to
+// Start has ended the pipeline stops by itself; Stop then waits for that and
+// returns nil.
+//
+// A call in progress of ApplyFunc cannot be interrupted, so Stop waits for it
+// to return. An ApplyFunc that stops its own pipeline passes its item's
+// ApplyContext: Stop then only requests the stop and returns nil at once,
+// since the goroutine it would wait for is the one running ApplyFunc. The
+// pipeline finishes stopping after ApplyFunc returns; a later Stop waits for
+// that. Any other ctx, including the ApplyContext of another pipeline's item,
+// waits.
+func (p *BlockPipeline) Stop(ctx context.Context) error {
+	if !p.requestStop(true) {
 		return nil
 	}
+	if p.calledFromApplyFunc(ctx) {
+		return nil
+	}
+	// watcherDone is nil for a pipeline that Start did not set up.
+	for _, done := range []<-chan struct{}{p.teardownDone, p.watcherDone} {
+		if done == nil {
+			continue
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
 
-	// Publish the explicit stop before canceling the pipeline context so drain
-	// waiters can distinguish Stop from cancellation inherited from Start.
-	p.stopping.Store(true)
-	// Cancel before acquiring submitGate to avoid deadlock: Submit holds the
-	// gate while blocked on a channel send and needs ctx.Done to unblock.
+// requestStop starts the teardown once, and reports whether the pipeline was
+// started. explicit is true for Stop and false for the watcher after the
+// context given to Start has ended.
+func (p *BlockPipeline) requestStop(explicit bool) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started.Load() {
+		return false
+	}
+	if explicit && p.stopRequested != nil && !p.stopRequestedClosed {
+		p.stopRequestedClosed = true
+		close(p.stopRequested)
+	}
+	if explicit {
+		// Publish the explicit stop before canceling the pipeline context so
+		// drain waiters can distinguish Stop from cancellation inherited from
+		// Start. A Stop after the watcher's teardown publishes it too, so
+		// Start refuses the pipeline and WaitForDrain sees the stop.
+		p.stopping.Store(true)
+	}
+	if p.teardownStarted {
+		return true
+	}
+	p.teardownStarted = true
+	// Cancel before the teardown takes submitGate: Submit holds the gate
+	// while blocked on a channel send and needs ctx.Done to unblock.
 	p.cancel()
+	go p.teardown(explicit)
+	return true
+}
+
+// teardown joins the pipeline's goroutines and releases what they held. It
+// runs once, on its own goroutine, so that a Stop that cannot wait for the
+// apply runner need not. explicit is true when Stop started it.
+func (p *BlockPipeline) teardown(explicit bool) {
+	defer close(p.teardownDone)
 
 	// Now acquire the gate to ensure no Submit() calls are in progress.
 	// Any Submit() blocked on channel send will now return via ctx.Done().
 	<-p.submitGate
-	p.stopped.Store(true)
+	if explicit {
+		p.stopped.Store(true)
+	}
 	// Close input channel to signal shutdown
 	close(p.submitChan)
 	p.unlockSubmit()
@@ -1100,8 +1199,6 @@ func (p *BlockPipeline) Stop() error {
 
 	// Wait for metrics collector
 	p.wg.Wait()
-
-	return nil
 }
 
 // Stats returns the current pipeline statistics.
@@ -1137,9 +1234,13 @@ func (p *BlockPipeline) PendingCount() int {
 // before handling rollbacks to ensure no earlier block is applied afterward.
 // Once Stop has begun, WaitForDrain succeeds without waiting for the boundary,
 // but only after the apply runner has exited, so no ApplyFunc call is still
-// committing when it returns. An ApplyFunc that calls WaitForDrain during Stop
-// passes its item's ApplyContext: the call then returns without waiting for
-// the runner that is running it, which would never exit.
+// committing when it returns.
+//
+// An ApplyFunc that calls WaitForDrain passes its item's ApplyContext, so the
+// call never waits for the apply runner that is running it: during Stop it
+// returns nil, and otherwise ErrWaitForDrainInApplyFunc, because the blocks
+// it would wait for, its own included, complete only after ApplyFunc returns.
+// Any other ctx waits until the drain completes or ctx is done.
 func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1151,6 +1252,9 @@ func (p *BlockPipeline) WaitForDrain(ctx context.Context) error {
 	// drain vacuous, including while Stop waits for the submission gate.
 	if p.stopping.Load() || p.stopped.Load() {
 		return p.drainDuringStop(ctx)
+	}
+	if p.calledFromApplyFunc(ctx) {
+		return ErrWaitForDrainInApplyFunc
 	}
 	err := p.Fence(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {

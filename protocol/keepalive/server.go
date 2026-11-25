@@ -113,7 +113,9 @@ func (s *Server) handleKeepAlive(
 		)
 	msg := msgGeneric.(*MsgKeepAlive)
 	if s.config != nil && s.config.KeepAliveFunc != nil {
-		return s.config.KeepAliveFunc(s.callbackContext, msg.Cookie)
+		callbackContext := s.callbackContext
+		callbackContext.Context = proto.CallbackContext()
+		return s.config.KeepAliveFunc(callbackContext, msg.Cookie)
 	}
 
 	// Call optional notification callback if provided
@@ -138,7 +140,9 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config != nil && s.config.DoneFunc != nil {
-		if err := s.config.DoneFunc(s.callbackContext); err != nil {
+		callbackContext := s.callbackContext
+		callbackContext.Context = proto.CallbackContext()
+		if err := s.config.DoneFunc(callbackContext); err != nil {
 			return err
 		}
 	}

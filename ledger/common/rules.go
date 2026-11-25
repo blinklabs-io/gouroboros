@@ -155,13 +155,17 @@ type cachedLedgerState struct {
 // transactionScopedMemoEntry holds tx itself, not its address, so the
 // transaction stays reachable for as long as the memo does and a later
 // allocation can never be mistaken for it. done is closed once value and err
-// are set, so concurrent callers for the same entry wait for one build.
+// are set, so concurrent callers for the same entry wait for one build. A
+// build that panics sets abandoned instead, and removes the entry, before
+// done is closed: its waiters then build again rather than read the nil
+// value and nil error the panic left.
 type transactionScopedMemoEntry struct {
-	key   any
-	tx    Transaction
-	value any
-	err   error
-	done  chan struct{}
+	key       any
+	tx        Transaction
+	value     any
+	err       error
+	abandoned bool
+	done      chan struct{}
 }
 
 // TransactionScopedMemoizer is implemented by the ledger state that
@@ -174,7 +178,9 @@ type TransactionScopedMemoizer interface {
 	// key and tx, calling build the first time. A transaction is identified
 	// by object, so a distinct transaction value, such as a Dijkstra
 	// sub-transaction, never shares an entry. A transaction that is not a
-	// pointer is never memoized.
+	// pointer is never memoized. If build panics, nothing is recorded: the
+	// panic reaches the caller that ran build, and the next caller for the
+	// same key, including one already waiting, runs build again.
 	TransactionScopedMemo(
 		tx Transaction,
 		key any,
@@ -235,22 +241,66 @@ func (c *cachedLedgerState) TransactionScopedMemo(
 		(key != nil && !reflect.ValueOf(key).Comparable()) {
 		return build()
 	}
-	c.memoMu.Lock()
-	for _, entry := range c.memo {
-		if entry.tx == tx && entry.key == key {
-			c.memoMu.Unlock()
-			<-entry.done
+	for {
+		entry, owner := c.transactionScopedMemoEntry(tx, key)
+		if owner {
+			return c.buildTransactionScopedMemo(entry, build)
+		}
+		<-entry.done
+		if !entry.abandoned {
 			return entry.value, entry.err
+		}
+	}
+}
+
+// transactionScopedMemoEntry returns the entry for tx and key, adding one if
+// there is none; owner reports whether the caller added it and must build it.
+func (c *cachedLedgerState) transactionScopedMemoEntry(
+	tx Transaction,
+	key any,
+) (*transactionScopedMemoEntry, bool) {
+	c.memoMu.Lock()
+	defer c.memoMu.Unlock()
+	for _, entry := range c.memo {
+		if entry != nil && entry.tx == tx && entry.key == key {
+			return entry, false
 		}
 	}
 	entry := &transactionScopedMemoEntry{
 		key: key, tx: tx, done: make(chan struct{}),
 	}
 	c.memo = append(c.memo, entry)
-	c.memoMu.Unlock()
-	defer close(entry.done)
+	return entry, true
+}
+
+func (c *cachedLedgerState) buildTransactionScopedMemo(
+	entry *transactionScopedMemoEntry,
+	build func() (any, error),
+) (any, error) {
+	built := false
+	defer func() {
+		if !built {
+			c.abandonTransactionScopedMemo(entry)
+		}
+		close(entry.done)
+	}()
 	entry.value, entry.err = build()
+	built = true
 	return entry.value, entry.err
+}
+
+func (c *cachedLedgerState) abandonTransactionScopedMemo(
+	entry *transactionScopedMemoEntry,
+) {
+	c.memoMu.Lock()
+	defer c.memoMu.Unlock()
+	entry.abandoned = true
+	for i, candidate := range c.memo {
+		if candidate == entry {
+			c.memo = append(c.memo[:i], c.memo[i+1:]...)
+			return
+		}
+	}
 }
 
 // UnwrapLedgerState implements LedgerStateUnwrapper, so a package that walks
