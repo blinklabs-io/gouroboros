@@ -73,7 +73,7 @@ func TestDebugChainDepStateIntegration(t *testing.T) {
 	)
 	require.NoError(t, err, "ouroboros handshake")
 	defer func() {
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 	}()
 
 	client := oConn.LocalStateQuery().Client
