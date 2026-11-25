@@ -872,10 +872,14 @@ func (r *EraHistoryResult) UnmarshalCBOR(data []byte) error {
 
 // eraHistoryReply is the GetEraHistory reply, a list of eras. Like the
 // reference's Summary decoder, it requires at least one era: an empty list
-// or a null is an error, not an empty history.
+// or a null is an error, not an empty history. The list is a plain definite
+// or indefinite array, so a tag in front of it is an error too.
 type eraHistoryReply []EraHistoryResult
 
 func (r *eraHistoryReply) UnmarshalCBOR(data []byte) error {
+	if len(data) > 0 && data[0]&cbor.CborTypeMask == cbor.CborTypeTag {
+		return errors.New("era history must be an untagged list")
+	}
 	var eras growingArray[EraHistoryResult]
 	if err := eras.UnmarshalCBOR(data); err != nil {
 		return err
