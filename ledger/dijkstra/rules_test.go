@@ -1808,7 +1808,12 @@ func TestUtxoValidateProposalProceduresDijkstraProtocolParameterUpdate(
 		tx.Body.TxProposalProcedures[0].PPGovAction.Action = &DijkstraParameterChangeGovAction{
 			ParamUpdate: update,
 		}
-		require.NoError(t, UtxoValidateProposalProcedures(tx, 0, nil, nil))
+		err := UtxoValidateProposalProcedures(tx, 0, nil, nil)
+		if leverage.Cmp(big.NewRat(1, 1)) < 0 {
+			require.Error(t, err)
+			continue
+		}
+		require.NoError(t, err)
 	}
 
 	for _, update := range []DijkstraProtocolParameterUpdate{
@@ -1925,11 +1930,18 @@ func TestDijkstraProposalRejectsVersionedZeroParameters(t *testing.T) {
 			true,
 		},
 		{
-			"max pledge leverage zero allowed",
+			"max pledge leverage zero rejected",
 			12,
 			DijkstraProtocolParameterUpdate{MaxPledgeLeverage: zeroRat},
+			true,
 			false,
-			false,
+		},
+		{
+			"eMax zero rejected",
+			12,
+			DijkstraProtocolParameterUpdate{MaxEpoch: &zero},
+			true,
+			true,
 		},
 		{
 			"reference script stride zero rejected",

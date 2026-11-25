@@ -203,13 +203,21 @@ func ValidateProtocolParameterUpdateDomains(
 		if _, err := cbor.Decode(raw, &version); err != nil {
 			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
-				Reason: "must contain unsigned 16-bit major and minor values",
+				Reason: "must contain unsigned major and minor values",
 			}
 		}
-		if version.Major > math.MaxUint16 || version.Minor > math.MaxUint16 {
+		// The reference ProtVer carries a Word32 minor; its era-bounded
+		// major is far below 16 bits.
+		if version.Major > math.MaxUint16 {
 			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
-				Reason: "major and minor values must fit in 16 bits",
+				Reason: "major value must fit in 16 bits",
+			}
+		}
+		if version.Minor > math.MaxUint32 {
+			return nil, ProtocolParameterUpdateDomainError{
+				Field:  "protocol version",
+				Reason: "minor value must fit in 32 bits",
 			}
 		}
 	}
