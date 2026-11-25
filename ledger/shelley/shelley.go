@@ -868,25 +868,25 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
-	var valueData [][2]data.PlutusData
-	if o.OutputAmount > 0 {
-		valueData = append(
-			valueData,
-			[2]data.PlutusData{
-				data.NewByteString(nil),
-				data.NewMap(
-					[][2]data.PlutusData{
-						{
-							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount),
-							),
-						},
+	valueData := make([][2]data.PlutusData, 0, 1)
+	// The ada entry is present even at zero: cardano-ledger's
+	// transCoinToValue builds PV1.singleton adaSymbol adaToken c for any c.
+	valueData = append(
+		valueData,
+		[2]data.PlutusData{
+			data.NewByteString(nil),
+			data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(nil),
+						data.NewInteger(
+							new(big.Int).SetUint64(o.OutputAmount),
+						),
 					},
-				),
-			},
-		)
-	}
+				},
+			),
+		},
+	)
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
