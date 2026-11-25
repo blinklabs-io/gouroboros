@@ -455,6 +455,17 @@ func (p *rawRequestingPeer) waitForOutboundMessage(
 
 func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 	t.Helper()
+	return newRawRequestingPeerAtVersion(t, cfg, 0)
+}
+
+// newRawRequestingPeerAtVersion is newRawRequestingPeer on a connection that
+// negotiated the given node-to-node version.
+func newRawRequestingPeerAtVersion(
+	t *testing.T,
+	cfg *Config,
+	version uint16,
+) *rawRequestingPeer {
+	t.Helper()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	m.Start()
@@ -473,6 +484,7 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 		Muxer:     m,
 		ErrorChan: errorChan,
 		Mode:      protocol.ProtocolModeNodeToNode,
+		Version:   version,
 	}, cfg)
 	c.Start()
 	// Init leaves the Init state for Idle, which is where a peer's

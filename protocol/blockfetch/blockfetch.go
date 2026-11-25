@@ -224,10 +224,14 @@ const DefaultRangeTimeout = BusyTimeout +
 // RangeRequest.ExpectedBytes).
 const IngressLimit = 10 * 2_097_154 * 11 / 10
 
-// BusyTimeout is the timeout for the server to start a batch or respond no blocks.
+// BusyTimeout is the timeout for the server to start a batch or respond no
+// blocks: the reference implementation's longWait, and the NewConfig default
+// for Config.BatchStartTimeout.
 const BusyTimeout = 60 * time.Second
 
-// StreamingTimeout is the timeout for the server to send the next block in a batch.
+// StreamingTimeout is the timeout for the server to send the next block in a
+// batch: the reference implementation's longWait, and the NewConfig default
+// for Config.BlockTimeout.
 const StreamingTimeout = 60 * time.Second
 
 // CallbackContext provides context for Block Fetch callbacks.
@@ -275,11 +279,12 @@ type BlockRawFunc func(CallbackContext, uint, []byte) error
 // completion through RangeDoneFunc instead.
 type BatchDoneFunc func(CallbackContext) error
 
-// RangeDoneFunc is a callback invoked exactly once for each request made
-// through Client.RequestRange. The error is nil when the peer completed the
-// batch, and otherwise reports why the request will not be completed: the
-// range was unavailable, the peer violated the protocol, or the protocol shut
-// down with the request still outstanding.
+// RangeDoneFunc is a callback invoked exactly once for each request for which
+// Client.RequestRange returned an id, and never for a call that returned an
+// error. It can run before RequestRange returns. The error is nil when the
+// peer completed the batch, and otherwise reports why the request will not be
+// completed: the range was unavailable, the peer violated the protocol, or the
+// protocol shut down with the request still outstanding.
 type RangeDoneFunc func(CallbackContext, error) error
 
 // RequestRangeFunc is a callback for handling block range requests.
@@ -301,8 +306,8 @@ type BlockFetchOptionFunc func(*Config)
 // It returns an error if the resulting configuration is invalid.
 func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 	c := Config{
-		BatchStartTimeout: 5 * time.Second,
-		BlockTimeout:      60 * time.Second,
+		BatchStartTimeout: BusyTimeout,
+		BlockTimeout:      StreamingTimeout,
 		RecvQueueSize:     DefaultRecvQueueSize,
 		MaxInFlightBytes:  DefaultMaxInFlightBytes,
 		MaxBlocksPerRange: DefaultMaxBlocksPerRange,

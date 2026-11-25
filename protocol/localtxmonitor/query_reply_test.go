@@ -72,6 +72,15 @@ func testQueries() []testQuery {
 				return err
 			},
 		},
+		{
+			name:      "GetMeasures",
+			queryType: MessageTypeGetMeasures,
+			reply:     NewMsgReplyGetMeasures(0, nil),
+			call: func(c *Client) error {
+				_, err := c.GetMeasures()
+				return err
+			},
+		},
 	}
 }
 

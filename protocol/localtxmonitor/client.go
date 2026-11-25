@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -35,6 +36,8 @@ type Client struct {
 	hasTxResultChan    chan bool
 	nextTxResultChan   chan []byte
 	getSizesResultChan chan MsgReplyGetSizesResult
+	getMeasuresChan    chan MempoolMeasures
+	enableGetMeasures  bool
 	onceStart          sync.Once
 	onceStop           sync.Once
 }
@@ -51,6 +54,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		hasTxResultChan:    make(chan bool),
 		nextTxResultChan:   make(chan []byte),
 		getSizesResultChan: make(chan MsgReplyGetSizesResult),
+		getMeasuresChan:    make(chan MempoolMeasures),
+		enableGetMeasures:  supportsGetMeasures(protoOptions.Version),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -252,6 +257,46 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 	}
 }
 
+// ErrGetMeasuresUnsupported is returned by GetMeasures when the negotiated
+// node-to-client version is older than 20, which has no MsgGetMeasures.
+var ErrGetMeasuresUnsupported = errors.New(
+	"local-tx-monitor: GetMeasures requires node-to-client version 20 or later",
+)
+
+// GetMeasures returns the number of transactions in the mempool snapshot and
+// their measures (such as MeasureTransactionBytes) against the mempool's
+// capacity. It needs node-to-client version 20 or later and otherwise
+// returns ErrGetMeasuresUnsupported without sending anything, since an older
+// node cannot decode the request.
+func (c *Client) GetMeasures() (MempoolMeasures, error) {
+	c.Protocol.Logger().
+		Debug("calling GetMeasures()",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	if !c.enableGetMeasures {
+		return MempoolMeasures{}, ErrGetMeasuresUnsupported
+	}
+	c.busyMutex.Lock()
+	defer c.busyMutex.Unlock()
+	if !c.acquired {
+		if err := c.acquire(); err != nil {
+			return MempoolMeasures{}, err
+		}
+	}
+	if err := c.SendMessage(NewMsgGetMeasures()); err != nil {
+		return MempoolMeasures{}, err
+	}
+	select {
+	case result := <-c.getMeasuresChan:
+		return result, nil
+	case <-c.DoneChan():
+		return MempoolMeasures{}, protocol.ErrProtocolShuttingDown
+	}
+}
+
 func (c *Client) messageHandler(msg protocol.Message) error {
 	var err error
 	switch msg.Type() {
@@ -263,6 +308,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		c.handleReplyNextTx(msg)
 	case MessageTypeReplyGetSizes:
 		c.handleReplyGetSizes(msg)
+	case MessageTypeReplyGetMeasures:
+		c.handleReplyGetMeasures(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -321,6 +368,21 @@ func (c *Client) handleReplyGetSizes(msg protocol.Message) {
 		)
 	msgReplyGetSizes := msg.(*MsgReplyGetSizes)
 	deliverResult(c, c.getSizesResultChan, msgReplyGetSizes.Result)
+}
+
+func (c *Client) handleReplyGetMeasures(msg protocol.Message) {
+	c.Protocol.Logger().
+		Debug("reply get measures",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	reply := msg.(*MsgReplyGetMeasures)
+	deliverResult(c, c.getMeasuresChan, MempoolMeasures{
+		TxCount:  reply.TxCount,
+		Measures: reply.Measures,
+	})
 }
 
 // deliverResult hands a reply to the waiting caller, or gives up once the

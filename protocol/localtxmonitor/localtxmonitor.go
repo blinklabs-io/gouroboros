@@ -88,6 +88,11 @@ var StateMap = protocol.StateMap{
 				NewState:  stateBusy,
 				MatchFunc: matchQuery,
 			},
+			{
+				MsgType:   MessageTypeGetMeasures,
+				NewState:  stateBusy,
+				MatchFunc: matchQuery,
+			},
 		},
 	},
 	stateBusy: protocol.StateMapEntry{
@@ -108,6 +113,11 @@ var StateMap = protocol.StateMap{
 				NewState:  stateAcquired,
 				MatchFunc: matchReply,
 			},
+			{
+				MsgType:   MessageTypeReplyGetMeasures,
+				NewState:  stateAcquired,
+				MatchFunc: matchReply,
+			},
 		},
 	},
 	stateDone: protocol.StateMapEntry{
@@ -118,9 +128,10 @@ var StateMap = protocol.StateMap{
 // queryReplyTypes maps each query that hands agency to the server to the
 // only reply that may answer it.
 var queryReplyTypes = map[uint8]uint8{
-	MessageTypeHasTx:    MessageTypeReplyHasTx,
-	MessageTypeNextTx:   MessageTypeReplyNextTx,
-	MessageTypeGetSizes: MessageTypeReplyGetSizes,
+	MessageTypeHasTx:       MessageTypeReplyHasTx,
+	MessageTypeNextTx:      MessageTypeReplyNextTx,
+	MessageTypeGetSizes:    MessageTypeReplyGetSizes,
+	MessageTypeGetMeasures: MessageTypeReplyGetMeasures,
 }
 
 // stateContext records the query in flight so that Busy accepts only its
@@ -161,15 +172,39 @@ type LocalTxMonitor struct {
 
 // Config is used to configure the LocalTxMonitor protocol instance
 type Config struct {
-	GetMempoolFunc GetMempoolFunc
-	AcquireTimeout time.Duration
-	QueryTimeout   time.Duration
+	GetMempoolFunc   GetMempoolFunc
+	AwaitMempoolFunc AwaitMempoolFunc
+	AcquireTimeout   time.Duration
+	QueryTimeout     time.Duration
 }
 
 // Helper types
 type TxAndEraId struct {
 	EraId uint
 	Tx    []byte
+}
+
+// MempoolMeasures is the answer to GetMeasures: the number of transactions
+// and, by measure name, their size against the mempool's capacity.
+type MempoolMeasures struct {
+	TxCount  uint32
+	Measures map[string]MeasureSizeAndCapacity
+}
+
+// MeasureTransactionBytes is the measure of transaction sizes in bytes, the
+// name the reference node uses.
+const MeasureTransactionBytes = "transaction_bytes"
+
+// getMeasuresMinVersion is the first node-to-client version that has
+// MsgGetMeasures and MsgReplyGetMeasures.
+const getMeasuresMinVersion = 20
+
+// supportsGetMeasures reports whether the negotiated version has
+// MsgGetMeasures. A version below the node-to-client offset, as an
+// unconfigured test uses, wraps around and counts as supported, the same as
+// the local-state-query version checks.
+func supportsGetMeasures(version uint16) bool {
+	return version-protocol.ProtocolVersionNtCOffset >= getMeasuresMinVersion
 }
 
 // Callback context
@@ -209,6 +244,25 @@ func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
 // not modify them after returning.
 type GetMempoolFunc func(CallbackContext) (uint64, uint32, []TxAndEraId, error)
 
+// AwaitMempoolFunc is called by the server for MsgAwaitAcquire, an acquire
+// sent while the client holds a snapshot, with that snapshot's slot number
+// and transactions. It blocks until the mempool differs from them, then
+// returns nil and the server takes the new snapshot from GetMempoolFunc. The
+// reference node waits in the same way, treating a snapshot as unchanged
+// while its slot and the identity of its transactions are. ctx ends when the
+// server stops or the connection closes; nothing is sent then. Any other
+// error fails the connection. The specification sets no time limit on the
+// wait.
+//
+// Without it the server answers MsgAwaitAcquire at once with the current
+// mempool, which may be the snapshot the client already holds.
+type AwaitMempoolFunc func(
+	ctx context.Context,
+	callbackContext CallbackContext,
+	slotNo uint64,
+	txs []TxAndEraId,
+) error
+
 // New returns a new LocalTxMonitor object
 func New(protoOptions protocol.ProtocolOptions, cfg *Config) *LocalTxMonitor {
 	l := &LocalTxMonitor{
@@ -239,6 +293,16 @@ func WithGetMempoolFunc(
 ) LocalTxMonitorOptionFunc {
 	return func(c *Config) {
 		c.GetMempoolFunc = getMempoolFunc
+	}
+}
+
+// WithAwaitMempoolFunc specifies the callback the server uses to wait for
+// the mempool to change before answering MsgAwaitAcquire
+func WithAwaitMempoolFunc(
+	awaitMempoolFunc AwaitMempoolFunc,
+) LocalTxMonitorOptionFunc {
+	return func(c *Config) {
+		c.AwaitMempoolFunc = awaitMempoolFunc
 	}
 }
 

@@ -48,8 +48,14 @@ type Server struct {
 	// survive an Acquire while their transaction is still in the snapshot, so
 	// a client polling Acquire and HasTx parses each transaction once rather
 	// than the whole mempool on every poll.
-	txHashes   map[uint]map[uint64]*txHashEntry
-	snapshotId uint64
+	txHashes          map[uint]map[uint64]*txHashEntry
+	snapshotId        uint64
+	enableGetMeasures bool
+	// acquired is true while the client holds a snapshot, so an acquire
+	// received then is MsgAwaitAcquire. acquiredSlot is that snapshot's slot.
+	acquired           bool
+	acquiredSlot       uint64
+	connectionDoneChan <-chan any
 }
 
 // txHashSeed keys txHashes. Entries are confirmed with bytes.Equal, so a
@@ -73,8 +79,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config:       cfg,
-		protoOptions: protoOptions,
+		config:             cfg,
+		protoOptions:       protoOptions,
+		enableGetMeasures:  supportsGetMeasures(protoOptions.Version),
+		connectionDoneChan: protoOptions.ConnectionDoneChan,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
@@ -151,6 +159,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 		err = s.handleNextTx()
 	case MessageTypeGetSizes:
 		err = s.handleGetSizes()
+	case MessageTypeGetMeasures:
+		err = s.handleGetMeasures()
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -174,6 +184,12 @@ func (s *Server) handleAcquire() error {
 			"received local-tx-monitor Acquire message but no GetMempool callback function is defined",
 		)
 	}
+	if s.acquired && s.config.AwaitMempoolFunc != nil {
+		stopped, err := s.awaitMempoolChange()
+		if err != nil || stopped {
+			return err
+		}
+	}
 	mempoolSlotNumber, err := s.acquireMempool()
 	if err != nil {
 		return err
@@ -182,7 +198,47 @@ func (s *Server) handleAcquire() error {
 	if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
 		return err
 	}
+	s.acquired = true
+	s.acquiredSlot = mempoolSlotNumber
 	return nil
+}
+
+// awaitMempoolChange blocks in the message handler until AwaitMempoolFunc
+// reports that the mempool differs from the held snapshot. Blocking the
+// receive loop is safe here: in Acquiring the client has no agency, so it
+// has nothing to send. It reports stopped when the server or connection
+// shut down during the wait, in which case nothing is to be sent.
+func (s *Server) awaitMempoolChange() (bool, error) {
+	stopChan := s.ProtocolInstance().StopChan()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-stopChan:
+		case <-s.connectionDoneChan:
+		case <-ctx.Done():
+		}
+		cancel()
+	}()
+	held := make([]TxAndEraId, len(s.mempoolTxs))
+	copy(held, s.mempoolTxs)
+	err := s.config.AwaitMempoolFunc(
+		ctx,
+		s.callbackContext,
+		s.acquiredSlot,
+		held,
+	)
+	select {
+	case <-stopChan:
+		return true, nil
+	case <-s.connectionDoneChan:
+		return true, nil
+	default:
+	}
+	if err != nil {
+		return false, fmt.Errorf("%s: await mempool change: %w", ProtocolName, err)
+	}
+	return false, nil
 }
 
 // acquireMempool takes a new snapshot from the GetMempool callback. The
@@ -256,6 +312,7 @@ func (s *Server) handleRelease() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	s.releaseMempool()
+	s.acquired = false
 }
 
 // releaseMempool drops the snapshot along with its cached IDs. A client that
@@ -399,4 +456,45 @@ func (s *Server) handleGetSizes() error {
 		return err
 	}
 	return nil
+}
+
+// handleGetMeasures answers with the transactions NextTx has not yet
+// returned from the snapshot, as the reference server does: its count and
+// MeasureTransactionBytes are taken over the remaining transactions, while
+// GetSizes covers the whole snapshot. The reference encoder refuses
+// MsgReplyGetMeasures before node-to-client version 20, so this does too.
+func (s *Server) handleGetMeasures() error {
+	s.ProtocolInstance().Logger().
+		Debug("get measures",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+		)
+	if !s.enableGetMeasures {
+		return fmt.Errorf(
+			"%s: received GetMeasures before node-to-client version %d",
+			ProtocolName,
+			getMeasuresMinVersion,
+		)
+	}
+	remaining := s.mempoolTxs[s.mempoolNextTxIdx:]
+	numTxs := uint64(len(remaining))
+	if numTxs > math.MaxUint32 {
+		return errors.New("integer overflow in tx count")
+	}
+	var totalTxSize uint64
+	for _, tx := range remaining {
+		totalTxSize += uint64(len(tx.Tx))
+	}
+	newMsg := NewMsgReplyGetMeasures(
+		uint32(numTxs),
+		map[string]MeasureSizeAndCapacity{
+			MeasureTransactionBytes: {
+				Size:     totalTxSize,
+				Capacity: uint64(s.mempoolCapacity),
+			},
+		},
+	)
+	return s.ProtocolInstance().SendMessage(newMsg)
 }

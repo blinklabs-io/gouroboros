@@ -69,3 +69,30 @@ func TestScopedStateUnwrapsOneLayer(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "adapter", m.Marker())
 }
+
+// capabilityParentView answers committee membership itself, so it must not
+// be unwrapped, but leaves every other capability to the state it wraps.
+type capabilityParentView struct {
+	common.LedgerState
+}
+
+func (v capabilityParentView) CapabilityParentLedgerState() common.LedgerState {
+	return v.LedgerState
+}
+
+// TestCapabilityParentReachesEpochStateWithoutUnwrapping checks that a
+// first-provider lookup continues through a capability parent while
+// UnwrapLedgerState stops at it.
+func TestCapabilityParentReachesEpochStateWithoutUnwrapping(t *testing.T) {
+	inner := mockledger.NewLedgerStateBuilder().
+		WithEpochForSlot(func(uint64) (uint64, error) { return 7, nil }).
+		Build()
+	view := capabilityParentView{inner}
+
+	epochState, ok := common.EpochStateFor(view)
+	require.True(t, ok)
+	epoch, err := epochState.EpochForSlot(0)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), epoch)
+	require.Equal(t, common.LedgerState(view), common.UnwrapLedgerState(view))
+}
