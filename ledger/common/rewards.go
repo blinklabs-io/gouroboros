@@ -585,8 +585,16 @@ func poolOwnerStake(
 // reward was computed for (deltaR2) returns to the reserves: UpdatedPots has
 // it added to the reserves, unregistered rewards added to the treasury, and
 // the rewards pot emptied. Registration is read from
-// snapshot.StakeRegistrations by credential hash; the caller applies the
-// result, aggregating a credential's rewards from several pools.
+// snapshot.StakeRegistrations by credential hash.
+//
+// Before protocol version 3 a credential is paid only one reward, as
+// filterRewards in cardano-ledger Shelley/Rewards.hs does: the least under
+// Ord Reward, which puts leader rewards before member rewards and orders
+// rewards of one kind by pool key hash. A leader reward counts even when it
+// is zero. The credential's other rewards are left out of PoolRewards and
+// return to the reserves with deltaR2. From version 3 every reward is paid,
+// and the caller applying the result sums a credential's rewards across
+// pools.
 func CalculateRewards(
 	pots AdaPots,
 	snapshot RewardSnapshot,
@@ -618,6 +626,8 @@ func CalculateRewards(
 	}
 	totalStakeRat := ratFromUint64(totalStake)
 	forgoPrefilter := params.ProtocolVersion.Major > 6
+	aggregated := params.ProtocolVersion.Major > 2
+	owed := make(map[RewardCredential][]owedReward)
 	registered := func(hash AddrKeyHash) bool {
 		return snapshot.StakeRegistrations[hash]
 	}
@@ -723,6 +733,12 @@ func CalculateRewards(
 			if credit(AddrKeyHash(account.Credential), leader) {
 				pr.OperatorRewards = leader
 			}
+			if !aggregated && registered(AddrKeyHash(account.Credential)) {
+				owed[pr.OperatorRewardAccount] = append(
+					owed[pr.OperatorRewardAccount],
+					owedReward{leader: true, pool: poolID, amount: leader},
+				)
+			}
 			members := make([]AddrKeyHash, 0, len(delegators))
 			for member := range delegators {
 				if !owners[member] {
@@ -745,9 +761,38 @@ func CalculateRewards(
 				)
 				if credit(member, reward) {
 					pr.DelegatorRewards[keyRewardCredential(member)] = reward
+					if !aggregated {
+						owed[keyRewardCredential(member)] = append(
+							owed[keyRewardCredential(member)],
+							owedReward{pool: poolID, amount: reward},
+						)
+					}
 				}
 			}
 			result.PoolRewards[poolID] = pr
+		}
+	}
+
+	for credential, rewards := range owed {
+		if len(rewards) < 2 {
+			continue
+		}
+		paid := slices.MinFunc(rewards, compareOwedRewards)
+		for _, reward := range rewards {
+			if reward == paid {
+				continue
+			}
+			pr := result.PoolRewards[reward.pool]
+			if reward.leader {
+				pr.OperatorRewards = 0
+			} else {
+				delete(pr.DelegatorRewards, credential)
+			}
+			result.PoolRewards[reward.pool] = pr
+			distributed.Sub(
+				distributed,
+				new(big.Int).SetUint64(reward.amount),
+			)
 		}
 	}
 
@@ -780,6 +825,26 @@ func CalculateRewards(
 		Rewards:  0,
 	}
 	return result, nil
+}
+
+// owedReward is one reward computed for a credential before protocol
+// version 3, when the credential is paid only the least of them.
+type owedReward struct {
+	leader bool
+	pool   PoolKeyHash
+	amount uint64
+}
+
+// compareOwedRewards is Ord Reward in cardano-ledger Rewards.hs: leader
+// rewards first, then by pool key hash; the amount is not compared.
+func compareOwedRewards(a, b owedReward) int {
+	if a.leader != b.leader {
+		if a.leader {
+			return -1
+		}
+		return 1
+	}
+	return bytes.Compare(a.pool[:], b.pool[:])
 }
 
 func rewardCredential(credential Credential) RewardCredential {
