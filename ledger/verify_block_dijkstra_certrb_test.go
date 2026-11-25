@@ -16,6 +16,7 @@ package ledger
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/dijkstra"
+	"github.com/blinklabs-io/gouroboros/ledger/leios"
 	mockledger "github.com/blinklabs-io/ouroboros-mock/ledger"
 	"github.com/blinklabs-io/plutigo/data"
 	bls12381 "github.com/consensys/gnark-crypto/ecc/bls12-381"
@@ -44,12 +46,22 @@ type certRbTestState struct {
 	common.LedgerState
 	header common.DijkstraLeiosHeaderContext
 	cert   common.DijkstraLeiosCertificateContext
+	keyAge *common.DijkstraLeiosKeyAgeContext
 }
 
 func (s certRbTestState) DijkstraLeiosHeaderContext(
 	common.BlockHeader,
 ) (common.DijkstraLeiosHeaderContext, error) {
 	return s.header, nil
+}
+
+func (s certRbTestState) DijkstraLeiosKeyAgeContext(
+	common.BlockHeader,
+) (common.DijkstraLeiosKeyAgeContext, error) {
+	if s.keyAge != nil {
+		return *s.keyAge, nil
+	}
+	return testLeiosKeyAge, nil
 }
 
 func (s certRbTestState) DijkstraLeiosCertificateContext(
@@ -210,6 +222,37 @@ func TestVerifyBlockStateInlinedCertRb(t *testing.T) {
 		var both *dijkstra.LeiosCertifiedBlockTransactionsError
 		require.ErrorAs(t, err, &both)
 	})
+
+	// The committee's only key was registered in epoch 0. With mainnet's KES
+	// parameters it is honoured for 21 epochs (cardano-ledger
+	// Cardano.Ledger.Dijkstra.Rules.Snap.kesMaxKeyAgeEpochs), so through
+	// epoch 20; from epoch 21 the seat is keyless and its certificate is
+	// refused (cardano-base Cardano.Crypto.Leios.verifyLeiosCert,
+	// SignerWithoutKey).
+	for _, tc := range []struct {
+		epoch  uint64
+		accept bool
+	}{{20, true}, {21, false}} {
+		t.Run(fmt.Sprintf("voting key in epoch %d", tc.epoch), func(t *testing.T) {
+			t.Parallel()
+			block, state, _ := newCertRbTestBlock(t, certRbTestTxs())
+			keyAge := testLeiosKeyAge
+			keyAge.Epoch = tc.epoch
+			state.keyAge = &keyAge
+			err := VerifyBlockState(block, common.VerifyConfig{
+				ProtocolParameters:                     certRbTestParams(),
+				LedgerState:                            state,
+				SkipTransactionValidation:              true,
+				SkipStakePoolValidation:                true,
+				AllowCertifiedBlockInlinedTransactions: true,
+			})
+			if tc.accept {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, leios.ErrKeylessSigner)
+			}
+		})
+	}
 
 	// The RB body size limit applies to the on-chain body: the limit is set
 	// to exactly its size, which the full body exceeds.
