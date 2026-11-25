@@ -84,6 +84,22 @@ type PoolDistribution struct {
 	TotalActiveStake uint64
 }
 
+func (d *PoolDistribution) UnmarshalCBOR(data []byte) error {
+	var tmp struct {
+		cbor.StructAsArray
+		Pools            growingMap[ledger.PoolId, IndividualPoolStake]
+		TotalActiveStake uint64
+	}
+	if _, err := cbor.Decode(data, &tmp); err != nil {
+		return err
+	}
+	*d = PoolDistribution{
+		Pools:            tmp.Pools,
+		TotalActiveStake: tmp.TotalActiveStake,
+	}
+	return nil
+}
+
 // IndividualPoolStake is the ledger's IndividualPoolStake. BlsKey holds the
 // CBOR of the pool's registered BLS key when the entry carries one, and is
 // nil otherwise.

@@ -22,6 +22,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -383,8 +384,10 @@ func TestStateMapLimitsAgainstSpec(t *testing.T) {
 // modelHarness runs one block-fetch role over a muxer and plays the other
 // side of the connection by hand.
 type modelHarness struct {
-	conn    net.Conn
-	errs    chan error
+	conn net.Conn
+	errs chan error
+	// muxErrs carries the muxer's own errors, such as an ingress overflow.
+	muxErrs chan error
 	payload chan []byte
 	role    protocol.ProtocolRole
 	// blocks and ranges record what a client delivered.
@@ -404,6 +407,7 @@ func newModelHarness(
 	h := &modelHarness{
 		conn:    connB,
 		errs:    make(chan error, 8),
+		muxErrs: m.ErrorChan(),
 		payload: make(chan []byte, 8),
 		role:    role,
 		blocks:  make(chan uint64, 8),
@@ -522,6 +526,27 @@ func (h *modelHarness) requireViolation(t *testing.T, contains string) {
 	select {
 	case err := <-h.errs:
 		require.ErrorContains(t, err, contains)
+	case <-time.After(5 * time.Second):
+		t.Fatal("message the reference forbids was accepted without an error")
+	}
+}
+
+// requireRefusal checks that the role under test refuses the row's message.
+// The muxer's ingress limit for block-fetch is the largest per-state size
+// limit, so an oversized message the read loop has not started taking, while
+// it lags or while a server restarts, is refused by the muxer instead, which
+// also ends the connection.
+func (h *modelHarness) requireRefusal(t *testing.T, row modelReceiveRow) {
+	t.Helper()
+	if row.kind != kindOversized {
+		h.requireViolation(t, violationError(row))
+		return
+	}
+	select {
+	case err := <-h.errs:
+		require.ErrorContains(t, err, violationError(row))
+	case err := <-h.muxErrs:
+		require.ErrorIs(t, err, muxer.ErrIngressOverflow)
 	case <-time.After(5 * time.Second):
 		t.Fatal("message the reference forbids was accepted without an error")
 	}
@@ -813,7 +838,7 @@ func checkClientCell(t *testing.T, row modelReceiveRow) {
 		}
 		h.requireQuiet(t)
 	case modelViolation:
-		h.requireViolation(t, violationError(row))
+		h.requireRefusal(t, row)
 	case modelHeld:
 		h.requireQuiet(t)
 	default:
@@ -852,7 +877,7 @@ func checkServerCell(t *testing.T, row modelReceiveRow) {
 		requireServed(t, h)
 		h.requireReceive(t, blockfetch.MessageTypeNoBlocks)
 	case modelViolation:
-		h.requireViolation(t, violationError(row))
+		h.requireRefusal(t, row)
 	default:
 		t.Fatalf("no check for outcome %q", row.outcome)
 	}
@@ -895,5 +920,83 @@ func TestClientTimesOutInServerAgency(t *testing.T) {
 				"timeout waiting on transition from protocol state "+state.String(),
 			)
 		})
+	}
+}
+
+// depthRecorder keeps the last ingress queue depth the muxer reported.
+type depthRecorder struct {
+	depth atomic.Int64
+}
+
+func (d *depthRecorder) IngressQueueDepth(_ uint16, _ muxer.ProtocolRole, bytes int) {
+	d.depth.Store(int64(bytes))
+}
+
+func (*depthRecorder) IngressDeliveryBlocked(uint16, muxer.ProtocolRole, time.Duration) {}
+
+func (*depthRecorder) IngressBackpressure(uint16, muxer.ProtocolRole, time.Duration) {}
+
+// TestOversizedRefusedWhileReaderStalled sends the Busy cell's oversized
+// message while the server reads nothing: its RequestRangeFunc holds the
+// receive loop, and a receive queue of one leaves the read loop blocked
+// behind it. The muxer then holds the whole message and refuses it, as it
+// does when the read loop lags under load or is restarting after
+// MsgClientDone.
+func TestOversizedRefusedWhileReaderStalled(t *testing.T) {
+	t.Parallel()
+	h, opts := newModelHarness(t, protocol.ProtocolRoleServer)
+	depths := &depthRecorder{}
+	opts.Muxer.SetMetrics(depths)
+	released := make(chan struct{})
+	cfg, err := blockfetch.NewConfig(
+		blockfetch.WithBatchStartTimeout(time.Minute),
+		blockfetch.WithRecvQueueSize(1),
+		blockfetch.WithRequestRangeFunc(func(
+			blockfetch.CallbackContext, pcommon.Point, pcommon.Point,
+		) error {
+			h.served <- struct{}{}
+			<-released
+			return nil
+		}),
+	)
+	require.NoError(t, err)
+	server := blockfetch.NewServer(opts, &cfg)
+	server.Start()
+	t.Cleanup(func() { stopServer(server) })
+	t.Cleanup(func() { close(released) })
+	request := kindMessage(t, kindRequestRange, blockfetch.StateIdle)
+	h.sendRaw(t, request)
+	requireServed(t, h)
+	// The read loop blocks on the third request, holding at most one batch
+	// of ten segments, and the muxer's channel to it holds ten more. Forty
+	// one-segment requests therefore leave some on the muxer's queue, which
+	// nothing drains while the callback holds the receive loop.
+	for range 40 {
+		h.sendRaw(t, request)
+	}
+	require.Eventually(t, func() bool {
+		return depths.depth.Load() > 0
+	}, 5*time.Second, time.Millisecond, "the read loop kept taking segments")
+	row := modelReceiveRow{
+		role:    protocol.ProtocolRoleServer,
+		state:   blockfetch.StateBusy,
+		kind:    kindOversized,
+		outcome: modelWaits,
+	}
+	h.sendRaw(t, kindMessage(t, row.kind, row.state))
+	h.requireRefusal(t, row)
+}
+
+// stopServer stops s through whichever Stop signature the package has: a
+// plain Stop() or Stop(ctx) error. Both forms exist while the change that
+// adds a context to Stop is in flight, and this test must build against each.
+func stopServer(s any) {
+	switch v := s.(type) {
+	case interface{ Stop(context.Context) error }:
+		_ = v.Stop(context.Background())
+	case interface{ Stop() }:
+		v.Stop()
+	default:
+		panic(fmt.Sprintf("%T has no Stop method", s))
 	}
 }
