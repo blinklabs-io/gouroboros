@@ -102,9 +102,11 @@ if errors.As(err, &rejected) {
 ```
 
 `SubmitMessage` waits for the node's answer and returns it, so concurrent
-calls each get the answer to their own message. `AcceptMessageFunc` and
-`RejectMessageFunc`, when set, run on the receive loop before the call
-returns; they must not block.
+calls each get the answer to their own message. Once `Stop` has been called
+it returns `ErrProtocolShuttingDown` without sending. `AcceptMessageFunc` and
+`RejectMessageFunc`, when set, run on the goroutine that called
+`SubmitMessage`, before it returns and after the next submission may start,
+so a callback may itself call `SubmitMessage`.
 
 ## Message Authentication
 
