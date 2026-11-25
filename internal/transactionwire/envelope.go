@@ -39,6 +39,39 @@ func (r *rawCborReference) UnmarshalCBOR(data []byte) error {
 	return nil
 }
 
+// ShelleyFamilyEnvelope is the outer transaction shape used by Shelley,
+// Allegra and Mary: exactly body, witness set and auxiliary data, the latter
+// a null when absent. Its byte slices reference the input passed to
+// DecodeShelleyFamilyEnvelope.
+type ShelleyFamilyEnvelope struct {
+	Body          []byte
+	WitnessSet    []byte
+	AuxiliaryData []byte
+	WireSize      int
+}
+
+// DecodeShelleyFamilyEnvelope splits a three-component transaction without
+// decoding the era-specific components.
+func DecodeShelleyFamilyEnvelope(data []byte) (ShelleyFamilyEnvelope, error) {
+	var components []rawCborReference
+	bytesRead, err := cbor.Decode(data, &components)
+	if err != nil {
+		return ShelleyFamilyEnvelope{}, err
+	}
+	if len(components) != 3 {
+		return ShelleyFamilyEnvelope{}, fmt.Errorf(
+			"invalid transaction: expected 3 components, got %d",
+			len(components),
+		)
+	}
+	return ShelleyFamilyEnvelope{
+		Body:          components[0],
+		WitnessSet:    components[1],
+		AuxiliaryData: components[2],
+		WireSize:      bytesRead,
+	}, nil
+}
+
 // DecodeAlonzoFamilyEnvelope classifies the common three- or four-component
 // transaction envelope without decoding the era-specific components.
 func DecodeAlonzoFamilyEnvelope(data []byte) (AlonzoFamilyEnvelope, error) {

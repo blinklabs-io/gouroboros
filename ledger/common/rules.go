@@ -600,6 +600,12 @@ func VerifyTransactionWithSignatures(
 }
 
 const (
+	// txTypeShelley is the first era measured from the parts of its
+	// three-component transaction.
+	txTypeShelley = 1
+	// txTypeMary is the last era that uses the Shelley transaction size
+	// encoding.
+	txTypeMary = 3
 	// txTypeAlonzo is the first era whose mempool transaction envelope may
 	// carry the IsValid boolean.
 	txTypeAlonzo = 4
@@ -610,6 +616,12 @@ const (
 
 // TxSize returns the size of a transaction as the Cardano ledger spec defines
 // it — the measure used both for fees and for maxTxSize.
+//
+// For Shelley, Allegra and Mary the Haskell sizeShelleyTxF
+// (Shelley/Tx.hs) is the length of a one-byte array header followed by the
+// body, the witness set and the auxiliary data, a missing one as the single
+// null byte. The received outer array may use another valid framing, which
+// does not change the size.
 //
 // For Alonzo through Conway the Haskell toCBORForSizeComputation encodes a
 // canonical 3-element array [body, witnesses, metadata]. Mempool transaction
@@ -642,6 +654,11 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	fullSize := len(cborData)
+	if tx.Type() >= txTypeShelley && tx.Type() <= txTypeMary {
+		if size, ok := shelleyFamilyTransactionSize(cborData); ok {
+			return size, nil
+		}
+	}
 	if tx.Type() >= txTypeAlonzo && tx.Type() <= txTypeConway {
 		if size, ok := alonzoFamilyTransactionSize(cborData); ok {
 			return size, nil
@@ -657,6 +674,17 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	return fullSize, nil
+}
+
+// shelleyFamilyTransactionSize reports false when cborData is not exactly one
+// three-component array, leaving the caller to use the received length.
+func shelleyFamilyTransactionSize(cborData []byte) (int, bool) {
+	envelope, err := transactionwire.DecodeShelleyFamilyEnvelope(cborData)
+	if err != nil || envelope.WireSize != len(cborData) {
+		return 0, false
+	}
+	return 1 + len(envelope.Body) + len(envelope.WitnessSet) +
+		len(envelope.AuxiliaryData), true
 }
 
 func alonzoFamilyTransactionSize(cborData []byte) (int, bool) {
