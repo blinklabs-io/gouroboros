@@ -547,8 +547,8 @@ func (r *ApplyStageRunner) forwardProcessed(
 }
 
 // forwardCommitted preserves the ordered successful prefix after a fatal
-// cancellation. The runner retains ownership until the Results consumer has
-// accepted every item, so callers must continue draining Results during Stop.
+// cancellation. The runner retains ownership until its output has accepted
+// every item, so the output must be drained while the runner stops.
 func (r *ApplyStageRunner) forwardCommitted(processed []*BlockItem) {
 	for _, item := range processed {
 		r.output <- item

@@ -206,6 +206,8 @@ func TestTachysHeaderValidationKeepsCryptographicChecks(t *testing.T) {
 	opCertSignature := ed25519.Sign(coldPrivate, opCertBody)
 	previousHash := make([]byte, 32)
 	input := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
+		Overlay:              testOverlayD0(),
 		Slot:                 slot,
 		BlockNumber:          1,
 		PrevHash:             previousHash,

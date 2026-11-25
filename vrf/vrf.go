@@ -57,6 +57,7 @@ import (
 	"filippo.io/edwards25519"
 	"filippo.io/edwards25519/field"
 	"github.com/blinklabs-io/gouroboros/internal/cryptoutil"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -241,7 +242,10 @@ func Verify(
 }
 
 // MkInputVrf creates a VRF input from a slot and epoch nonce (eta0).
-// This is used in Cardano for leader election.
+// This is used in Cardano for leader election. eta0 is always appended, so it
+// cannot express a NeutralNonce epoch nonce.
+//
+// Deprecated: use MkInputVrfFromNonce to represent neutrality explicitly.
 func MkInputVrf(slot int64, eta0 []byte) ([]byte, error) {
 	if len(eta0) != 32 {
 		return nil, fmt.Errorf("eta0 must be 32 bytes, got %d", len(eta0))
@@ -263,6 +267,28 @@ func MkInputVrf(slot int64, eta0 []byte) ([]byte, error) {
 		return nil, errors.New("blake2b.Sum returned nil")
 	}
 	return result, nil
+}
+
+// MkInputVrfFromNonce creates the Praos VRF input for a slot and epoch nonce:
+//
+//	blake2b-256(slot_be64 || eta0)
+//
+// A NonceTypeNeutral eta0 adds no bytes. It implements
+// Cardano.Protocol.Praos.VRF.mkInputVRF.
+func MkInputVrfFromNonce(slot uint64, eta0 common.Nonce) ([]byte, error) {
+	var buf [8 + 32]byte
+	binary.BigEndian.PutUint64(buf[:8], slot)
+	input := buf[:8]
+	switch eta0.Type {
+	case common.NonceTypeNeutral:
+	case common.NonceTypeNonce:
+		copy(buf[8:], eta0.Value[:])
+		input = buf[:]
+	default:
+		return nil, fmt.Errorf("unsupported nonce type %d", eta0.Type)
+	}
+	sum := blake2b.Sum256(input)
+	return sum[:], nil
 }
 
 // mkNonceFromNumber computes blake2b-256 of a uint64 in big-endian encoding.
@@ -323,7 +349,10 @@ func SeedL() []byte {
 //	    Hash.xor(ucNonce) . Hash.hashWith id $ slot <> eNonce
 //
 // IMPORTANT: eta0 must be exactly 32 bytes and seedConstant must be
-// exactly 32 bytes.
+// exactly 32 bytes. eta0 is always appended, so it cannot express a
+// NeutralNonce epoch nonce.
+//
+// Deprecated: use MkSeedTPraosFromNonce to represent neutrality explicitly.
 func MkSeedTPraos(
 	slot int64,
 	eta0 []byte,
@@ -341,6 +370,34 @@ func MkSeedTPraos(
 	result := make([]byte, 32)
 	for i := range result {
 		result[i] = base[i] ^ seedConstant[i]
+	}
+	return result, nil
+}
+
+// MkSeedTPraosFromNonce constructs the TPraos VRF input used in Shelley
+// through Alonzo:
+//
+//	blake2b-256(slot_be64 || eta0) XOR seedConstant
+//
+// A NonceTypeNeutral eta0 adds no bytes. Pass SeedL() for the leader VRF and
+// SeedEta() for the nonce VRF. It implements
+// Cardano.Protocol.TPraos.BlockHeader.mkSeed.
+func MkSeedTPraosFromNonce(
+	slot uint64,
+	eta0 common.Nonce,
+	seedConstant []byte,
+) ([]byte, error) {
+	if len(seedConstant) != 32 {
+		return nil, fmt.Errorf(
+			"seedConstant must be 32 bytes, got %d", len(seedConstant),
+		)
+	}
+	result, err := MkInputVrfFromNonce(slot, eta0)
+	if err != nil {
+		return nil, err
+	}
+	for i := range result {
+		result[i] ^= seedConstant[i]
 	}
 	return result, nil
 }

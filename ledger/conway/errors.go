@@ -882,3 +882,18 @@ func (e InvalidGovActionAncestorError) Error() string {
 		e.Reason,
 	)
 }
+
+// HeaderProtVerTooHighError reports a mainnet Conway header whose major
+// protocol version is more than one above the major version in force.
+type HeaderProtVerTooHighError struct {
+	Supplied uint64
+	Expected uint64
+}
+
+func (e *HeaderProtVerTooHighError) Error() string {
+	return fmt.Sprintf(
+		"HeaderProtVerTooHigh (supplied %d, expected at most %d)",
+		e.Supplied,
+		e.Expected,
+	)
+}

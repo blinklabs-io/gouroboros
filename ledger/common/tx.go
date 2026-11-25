@@ -56,6 +56,9 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
+	// ProtocolParameterUpdates returns the update's target epoch and
+	// proposals, or a nil map when the transaction carries no update. An
+	// update with no proposals returns an empty, non-nil map.
 	ProtocolParameterUpdates() (uint64, map[Blake2b224]ProtocolParameterUpdate)
 	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
