@@ -507,3 +507,35 @@ func TestConnectionRolesFollowReference(t *testing.T) {
 		require.Equal(t, tc.serverRole, NewServer(opts, &cfg).Role())
 	}
 }
+
+// A V2 Client holds a request for ids that dmq-node's requester pipelines
+// behind its request for messages (SendMsgRequestSigsPipelined, then
+// SendMsgRequestSigIdsPipelined, DMQ/SigSubmissionV2/Inbound.hs), and
+// answers it after the messages instead of dropping the connection.
+func TestV2OutboundHoldsPipelinedIdRequest(t *testing.T) {
+	h := newClientHarness(t, protocol.ProtocolVersionDMQNtN2)
+	id := referenceID(0xf6)
+
+	h.peer.send(true, []byte{0x84, 0x01, 0xf5, 0x00, 0x03})
+	await(t, h.idRequests, h.errs, "the id request")
+	require.NoError(t, h.client.ReplyMessageIds([]pcommon.MessageIDAndSize{
+		{MessageID: id, SizeInBytes: 100},
+	}))
+	h.peer.expect(false, cat([]byte{0x82, 0x02, 0x9f}, idAndSize(id), []byte{0xff}))
+
+	h.peer.send(true, cat([]byte{0x82, 0x04, 0x9f}, byteString32(id), []byte{0xff}))
+	// Non-blocking, acknowledging nothing, asking for one more id.
+	h.peer.send(true, []byte{0x84, 0x01, 0xf4, 0x00, 0x01})
+	require.Equal(
+		t,
+		[][]byte{id},
+		await(t, h.bodyReqs, h.errs, "the body request"),
+	)
+	require.NoError(t, h.client.ReplyMessages(nil))
+	h.peer.expect(false, []byte{0x82, 0x05, 0x9f, 0xff})
+	require.Equal(
+		t,
+		idRequest{blocking: false, ack: 0, req: 1},
+		await(t, h.idRequests, h.errs, "the pipelined id request"),
+	)
+}

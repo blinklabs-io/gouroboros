@@ -164,6 +164,10 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids behind
+			// an unanswered request for messages; the outbound side holds it
+			// until it has replied.
+			PipelinedMessageTypes: []uint8{MessageTypeV1RequestMessageIds},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV1ReplyMessages,
@@ -245,6 +249,10 @@ var (
 			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids behind
+			// an unanswered request for messages; the outbound side holds it
+			// until it has replied.
+			PipelinedMessageTypes: []uint8{MessageTypeV2RequestMessageIds},
 			Transitions: []protocol.StateTransition{
 				{
 					MsgType:  MessageTypeV2ReplyMessages,
