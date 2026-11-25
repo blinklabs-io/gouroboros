@@ -959,8 +959,14 @@ func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
 // server-agency state the first request moved it to: a refusal is the only
 // outcome, whichever state the read loop snapshotted for the second request.
 // Without the hold, the read loop could snapshot the state after the reply
-// and then admit the second request as a legitimate one, and could refuse it
-// before the handler had run.
+// and then admit the second request as a legitimate one.
+//
+// The refusal can stop the protocol before the first handler runs: stateLoop
+// publishes Busy before requestStateTransition returns to recvLoop, which
+// then returns ErrProtocolShuttingDown instead of calling the handler. So the
+// test reads the refusal without waiting for the handler, and checks what the
+// refusal does prove: the first request's transition was applied, and the
+// second request never reached the handler.
 func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	t.Parallel()
 	const (
@@ -968,7 +974,7 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 		replyType   = uint8(1)
 		timeout     = 5 * time.Second
 	)
-	p, _, _ := newRoundTripTestProtocol(requestType, replyType)
+	p, _, busy := newRoundTripTestProtocol(requestType, replyType)
 	errorChan := make(chan error, 1)
 	p.config.ErrorChan = errorChan
 	p.config.MessageFromCborFunc = func(
@@ -1007,23 +1013,29 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	defer release()
 
 	select {
-	case <-handled:
-	case <-time.After(timeout):
-		t.Fatal("first request was not handled")
-	}
-	select {
 	case err := <-errorChan:
 		require.ErrorContains(t, err, "without peer agency")
 	case <-time.After(timeout):
 		t.Fatal("readLoop admitted a request sent without agency")
 	}
+	require.Equal(
+		t,
+		busy,
+		p.getCurrentState(),
+		"first request's transition was not applied, or its reply was",
+	)
 	release()
 	select {
 	case <-p.recvDoneChan:
 	case <-time.After(timeout):
 		t.Fatal("receive loop kept running after the refusal")
 	}
-	require.Empty(t, handled, "second request must not be handled")
+	require.LessOrEqual(
+		t,
+		len(handled),
+		1,
+		"second request must not be handled",
+	)
 }
 
 // A request whose first byte arrives while the server holds agency was sent
