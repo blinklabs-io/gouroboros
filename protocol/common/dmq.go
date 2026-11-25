@@ -100,6 +100,9 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 		ExpiresAt   uint32
 	}
 	if _, err := cbor.Decode(data, &current); err == nil {
+		if err := checkMessageBodySize(current.MessageBody); err != nil {
+			return err
+		}
 		p.MessageID = nil
 		p.MessageBody = current.MessageBody
 		p.KESPeriod = current.KESPeriod
@@ -118,6 +121,9 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &legacy); err != nil {
 		return err
 	}
+	if err := checkMessageBodySize(legacy.MessageBody); err != nil {
+		return err
+	}
 	p.MessageID = legacy.MessageID
 	p.MessageBody = legacy.MessageBody
 	p.KESPeriod = legacy.KESPeriod
@@ -125,6 +131,40 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 	// The legacy shape carries the message ID inside the payload, so its
 	// bytes are not the payload the ID and signature cover.
 	p.SetCbor(nil)
+	return nil
+}
+
+// checkMessageBodySize refuses a body outside [MinMessageBodySize,
+// MaxMessageBodySize]. dmq-node checks it while decoding (Codec.hs
+// decodeBody), before any other check, so a node-to-node peer that sends
+// one is disconnected even when the message has also expired.
+func checkMessageBodySize(body []byte) error {
+	if n := len(body); n < MinMessageBodySize || n > MaxMessageBodySize {
+		return fmt.Errorf(
+			"%w: %d bytes, want %d to %d",
+			ErrMessageBodySize,
+			n,
+			MinMessageBodySize,
+			MaxMessageBodySize,
+		)
+	}
+	return nil
+}
+
+// checkMessageBodySize refuses a body outside [MinMessageBodySize,
+// MaxMessageBodySize]. dmq-node checks it while decoding (Codec.hs
+// decodeBody), before any other check, so a node-to-node peer that sends
+// one is disconnected even when the message has also expired.
+func checkMessageBodySize(body []byte) error {
+	if n := len(body); n < MinMessageBodySize || n > MaxMessageBodySize {
+		return fmt.Errorf(
+			"%w: %d bytes, want %d to %d",
+			ErrMessageBodySize,
+			n,
+			MinMessageBodySize,
+			MaxMessageBodySize,
+		)
+	}
 	return nil
 }
 
@@ -161,7 +201,11 @@ func (m *DmqMessage) UnmarshalCBOR(data []byte) error {
 		OperationalCertificate OperationalCertificate
 		ColdVerificationKey    []byte
 	}
-	if _, err := cbor.Decode(data, &current); err == nil {
+	_, err := cbor.Decode(data, &current)
+	if errors.Is(err, ErrMessageBodySize) {
+		return err
+	}
+	if err == nil {
 		m.MessageID = current.MessageID
 		m.Payload = current.Payload
 		m.Payload.MessageID = current.MessageID

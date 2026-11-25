@@ -180,7 +180,7 @@ func TestMsgReplyMessagesEncoding(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -228,7 +228,7 @@ func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -368,7 +368,7 @@ func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	payload := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   []byte("id1"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedTestBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2000000000,
 		},
