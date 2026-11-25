@@ -255,13 +255,29 @@ ranges. `MaxRequestCount` and `MaxAckCount` (65,535) describe the ranges of the
 
 A request for transaction IDs must leave the peer inside that window. The
 client's `MsgRequestTxIds` handler rejects an acknowledgement larger than what
-it has outstanding, and rejects a request where `unacknowledged - ack + req`
-exceeds `MaxUnackedTxIds`; `Server.RequestTxIds` applies the same condition
-before putting a request on the wire. Both return
-`ErrProtocolViolationRequestExceeded`. This is the reference implementation's
-condition in `Ouroboros.Network.TxSubmission.Outbound`, which throws
-`ProtocolErrorAckedTooManyTxids` and `ProtocolErrorRequestedTooManyTxids`
-respectively.
+it has outstanding with `ErrProtocolViolationRequestExceeded`
+(`ProtocolErrorAckedTooManyTxids` in the reference implementation's
+`Ouroboros.Network.TxSubmission.Outbound`). A request where
+`unacknowledged - ack + req` exceeds `MaxUnackedTxIds` is treated by version:
+
+- Before node-to-node version 16 the window is shared by both sides, and the
+  client rejects the request with `ErrProtocolViolationRequestExceeded`
+  (`ProtocolErrorRequestedTooManyTxids`).
+- From version 16 the window is a local setting the peer cannot know, so the
+  client clamps the request instead (the reference's `TxOutboundV_2`): it
+  calls `RequestTxIdsFunc` with `MaxUnackedTxIds - (unacknowledged - ack)`
+  in place of `req` and refuses a callback reply longer than that. With the
+  window full a non-blocking request is clamped to zero and answered with an
+  empty reply, which the reference also does.
+
+In every version the client rejects, before any clamping, a blocking request
+for no IDs or one that leaves IDs unacknowledged after its acknowledgement,
+with `ErrProtocolViolationInvalidMessage` (`ProtocolErrorRequestedNothing`
+and `ProtocolErrorRequestBlocking`). A blocking request it answers therefore
+always asks for at least one ID that fits, and its reply is never empty.
+
+`Server.RequestTxIds` refuses a request past `MaxUnackedTxIds` before putting
+it on the wire, with `ErrProtocolViolationRequestExceeded`, in every version.
 
 A request for transaction bodies is bounded the same way: `Server.RequestTxs`
 and the client's request handler both reject more than `MaxUnackedTxIds`
