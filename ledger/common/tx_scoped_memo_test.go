@@ -203,3 +203,73 @@ func TestIsTransactionScopedLedgerState(t *testing.T) {
 	}
 	require.False(t, common.IsTransactionScopedLedgerState(adapter))
 }
+
+// A build that panics must not leave a result behind. Before, the entry's
+// deferred close published a nil value with a nil error, so every later
+// caller for the key got a success with no value, which NewTxScriptView turns
+// into an empty script view. A value the reference computes lazily raises
+// its failure to every caller that forces it, never an empty success.
+func TestTransactionScopedMemoRetriesAfterBuildPanic(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	require.Panics(t, func() {
+		_, _ = memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			panic("build failed")
+		})
+	})
+
+	builds := 0
+	value, err := memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+		builds++
+		return "built", nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "built", value)
+	require.Equal(t, 1, builds)
+}
+
+func TestTransactionScopedMemoWaiterRetriesAfterBuildPanic(t *testing.T) {
+	scoped := common.NewTransactionScopedLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	memo := scoped.(common.TransactionScopedMemoizer)
+	tx := plutusContextMockTransaction(
+		t,
+		mockledger.NewMockTransactionWitnessSet(),
+	)
+	started := make(chan struct{})
+	panicNow := make(chan struct{})
+	builderDone := make(chan any, 1)
+	go func() {
+		defer func() { builderDone <- recover() }()
+		_, _ = memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			close(started)
+			<-panicNow
+			panic("build failed")
+		})
+	}()
+	<-started
+
+	type result struct {
+		value any
+		err   error
+	}
+	waiter := make(chan result, 1)
+	go func() {
+		value, err := memo.TransactionScopedMemo(tx, memoKeyA{}, func() (any, error) {
+			return "built", nil
+		})
+		waiter <- result{value, err}
+	}()
+	close(panicNow)
+	require.NotNil(t, <-builderDone)
+	got := <-waiter
+	require.NoError(t, got.err)
+	require.Equal(t, "built", got.value)
+}
