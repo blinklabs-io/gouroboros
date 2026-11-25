@@ -84,8 +84,8 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
 	var reqCount int

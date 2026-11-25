@@ -71,8 +71,8 @@ func newDirectionFlow(
 	t.Cleanup(func() {
 		f.client.Protocol.Stop(context.Background())
 		f.server.Protocol.Stop(context.Background())
-		f.clientMuxer.Stop()
-		f.serverMuxer.Stop()
+		_ = f.clientMuxer.Stop(context.Background())
+		_ = f.serverMuxer.Stop(context.Background())
 		_ = f.clientConn.Close()
 		_ = f.serverConn.Close()
 	})

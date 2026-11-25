@@ -70,7 +70,7 @@ func TestUnconfiguredRequestRemainsBusyAndPreservesSharedBearer(t *testing.T) {
 	t.Cleanup(func() {
 		server.Stop(context.Background())
 		peerSharingServer.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -127,7 +127,7 @@ func TestUnconfiguredInvalidRequestReportsStateError(t *testing.T) {
 	m.Start()
 	t.Cleanup(func() {
 		server.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -178,7 +178,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	connectionDone := make(chan any)
 	callbackEntered := make(chan struct{})

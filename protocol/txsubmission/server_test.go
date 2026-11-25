@@ -131,7 +131,7 @@ func TestRequestTxIdsOverReturningCallbackNeverReachesThePeer(t *testing.T) {
 	// A blocking request has no timeout, so the server learns of the
 	// refusal only when the connection goes; this muxer has no connection
 	// to close it, so the test stops the server instead.
-	server.Stop()
+	_ = server.Stop(context.Background())
 	select {
 	case got := <-second:
 		require.ErrorIs(t, got.err, protocol.ErrProtocolShuttingDown)
@@ -155,7 +155,7 @@ func TestRequestTxIdsAcceptsReplyWithinRequest(t *testing.T) {
 	serverMuxer.Start()
 	clientMuxer.Start()
 	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
-	t.Cleanup(clientMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
 	connectionId := connection.ConnectionId{
 		LocalAddr:  &net.UnixAddr{Name: "local", Net: "unix"},
 		RemoteAddr: &net.UnixAddr{Name: "remote", Net: "unix"},

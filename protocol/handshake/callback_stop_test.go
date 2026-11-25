@@ -63,7 +63,7 @@ func TestCallbackStopsItsServer(t *testing.T) {
 	m.Start()
 	defer func() {
 		_ = peerConn.Close()
-		m.Stop()
+		_ = m.Stop(context.Background())
 		for range m.ErrorChan() {
 		}
 	}()

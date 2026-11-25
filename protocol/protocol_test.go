@@ -33,7 +33,7 @@ func TestEnsureRegisteredRefusesAfterStop(t *testing.T) {
 	localConn, remoteConn := net.Pipe()
 	t.Cleanup(func() { _ = remoteConn.Close() })
 	protocolMuxer := muxer.New(localConn)
-	t.Cleanup(protocolMuxer.Stop)
+	t.Cleanup(func() { _ = protocolMuxer.Stop(context.Background()) })
 	proto := New(ProtocolConfig{Muxer: protocolMuxer})
 
 	proto.Stop(context.Background())
@@ -61,7 +61,7 @@ func TestInitialStateTimeoutOptIn(t *testing.T) {
 			defer peerConn.Close()
 			m := muxer.New(serverConn)
 			m.Start()
-			defer m.Stop()
+			defer m.Stop(context.Background())
 			errorChan := make(chan error, 1)
 			state := NewState(1, "Initial")
 			p := New(ProtocolConfig{
@@ -121,7 +121,7 @@ func testSubsequentStateTimeoutRemainsActive(
 	defer peerConn.Close()
 	m := muxer.New(serverConn)
 	m.Start()
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	errorChan := make(chan error, 1)
 	initialState := NewState(1, "Initial")
 	confirmState := NewState(2, "Confirm")
@@ -180,7 +180,7 @@ func TestStateTimeoutAppliesOnlyWhileAwaitingPeer(t *testing.T) {
 			defer peerConn.Close()
 			m := muxer.New(conn)
 			m.Start()
-			defer m.Stop()
+			defer m.Stop(context.Background())
 			errorChan := make(chan error, 1)
 			initialState := NewState(1, "Initial")
 			busyState := NewState(2, "Busy")
@@ -204,7 +204,7 @@ func TestStateTimeoutAppliesOnlyWhileAwaitingPeer(t *testing.T) {
 				InitialState: initialState,
 			})
 			p.Start()
-			defer p.Stop()
+			defer p.Stop(context.Background())
 
 			require.NoError(t, p.transitionState(&MessageBase{MessageType: 1}))
 
@@ -245,7 +245,7 @@ func TestStateTimeoutExcludesInboundHandler(t *testing.T) {
 	defer peerConn.Close()
 	m := muxer.New(conn)
 	m.Start()
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	errorChan := make(chan error, 1)
 	idleState := NewState(1, "Idle")
 	streamingState := NewState(2, "Streaming")
@@ -279,7 +279,7 @@ func TestStateTimeoutExcludesInboundHandler(t *testing.T) {
 		},
 	})
 	p.Start()
-	defer p.Stop()
+	defer p.Stop(context.Background())
 
 	require.NoError(t, p.transitionState(&MessageBase{MessageType: 1}))
 	p.recvQueueChan <- inboundMessage{message: &MessageBase{MessageType: 2}}
@@ -844,7 +844,7 @@ func TestReadLoopDrainRespectsMaxBufferSize(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 	m.RaiseReadBufferBudget(maxBufferSize)
@@ -1003,7 +1003,7 @@ func TestReadLoopBoundsConnectionWideReadBuffers(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 	// Two mini-protocols sharing one connection, each with the same
@@ -1097,7 +1097,7 @@ func TestReadLoopReturnsConnectionBudgetOnExit(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 	m.RaiseReadBufferBudget(maxBufferSize)
@@ -1135,7 +1135,7 @@ func TestEnsureRegisteredRaisesConnectionBudget(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 	state := NewState(1, "Idle")
@@ -1179,7 +1179,7 @@ func TestReadLoopRejectsAnOversizedMessageOnTheProtocolCap(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 	m.RaiseReadBufferBudget(maxBufferSize)
@@ -1229,7 +1229,7 @@ func TestReadLoopAccountsRetainedCapacityAfterDelivery(t *testing.T) {
 	t.Parallel()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
-	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	t.Cleanup(func() { _ = m.Stop(context.Background()); _ = peerConn.Close() })
 	m.RaiseReadBufferBudget(8192)
 	// A complete 1000-byte message precedes a 3000-byte prefix of a
 	// second message, leaving the original 4000-byte allocation retained.
@@ -1272,7 +1272,7 @@ func TestReadLoopAccountsGrownCapacityAfterDelivery(t *testing.T) {
 	t.Parallel()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
-	t.Cleanup(func() { m.Stop(); _ = peerConn.Close() })
+	t.Cleanup(func() { _ = m.Stop(context.Background()); _ = peerConn.Close() })
 	m.RaiseReadBufferBudget(8192)
 	first := append(
 		[]byte{0x82, 0, 0x59, 0x03, 0xe3},

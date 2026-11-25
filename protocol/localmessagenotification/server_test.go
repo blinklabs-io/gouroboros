@@ -52,7 +52,7 @@ func TestServerRepeatedStopAfterStartCompletesLifecycle(t *testing.T) {
 		_ = remoteConn.Close()
 	})
 	protocolMuxer := muxer.New(localConn)
-	t.Cleanup(protocolMuxer.Stop)
+	t.Cleanup(func() { _ = protocolMuxer.Stop(context.Background()) })
 	server := NewServer(
 		protocol.ProtocolOptions{Muxer: protocolMuxer},
 		nil,
@@ -285,7 +285,7 @@ func TestMuxerDoneCancelsStandaloneBlockingRequestAndCleaner(t *testing.T) {
 	result := make(chan error, 1)
 	go func() { result <- server.handleBlockingRequest() }()
 
-	protocolMuxer.Stop()
+	_ = protocolMuxer.Stop(context.Background())
 	select {
 	case err := <-result:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

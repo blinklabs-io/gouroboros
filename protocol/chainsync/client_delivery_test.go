@@ -71,7 +71,7 @@ func newGatedClient(
 		_ = local.Close()
 		_ = peer.Close()
 		_ = client.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 	})
 	m.Start()
 	client.Start()

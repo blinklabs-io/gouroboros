@@ -507,7 +507,7 @@ func newStartedMessageSubmissionClient(t *testing.T) *Client {
 	client.Start()
 	t.Cleanup(func() {
 		client.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})
@@ -527,7 +527,7 @@ func newStartedMessageSubmissionServer(t *testing.T) *Server {
 	server.Start()
 	t.Cleanup(func() {
 		server.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})

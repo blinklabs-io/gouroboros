@@ -61,8 +61,8 @@ func newRawPeerPair(
 	send, recv, _ := peerMuxer.RegisterProtocol(ProtocolId, peerRole)
 	require.NotNil(t, send)
 	t.Cleanup(func() {
-		localMuxer.Stop()
-		peerMuxer.Stop()
+		_ = localMuxer.Stop(context.Background())
+		_ = peerMuxer.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})
@@ -426,8 +426,8 @@ func TestSyncAgainstServerWithNoVoteYet(t *testing.T) {
 	t.Cleanup(func() {
 		client.Stop(context.Background())
 		server.Stop(context.Background())
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})

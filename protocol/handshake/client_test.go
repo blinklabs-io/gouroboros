@@ -135,7 +135,7 @@ func TestClientAcceptVersionValidation(t *testing.T) {
 						},
 					)
 					protoMuxer := muxer.New(mockConn)
-					defer protoMuxer.Stop()
+					defer protoMuxer.Stop(context.Background())
 					errorChan := make(chan error, 1)
 					finishedChan := make(chan struct {
 						version uint16

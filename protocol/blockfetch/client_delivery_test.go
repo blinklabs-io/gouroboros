@@ -64,7 +64,7 @@ func newStopDeliveryClient(t *testing.T) (
 		_ = local.Close()
 		_ = peer.Close()
 		_ = c.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 	})
 	require.NoError(t, local.SetDeadline(time.Now().Add(3*time.Second)))
 	require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))

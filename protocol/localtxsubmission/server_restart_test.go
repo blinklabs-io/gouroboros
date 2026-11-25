@@ -15,6 +15,7 @@
 package localtxsubmission_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
@@ -51,7 +52,7 @@ func TestServerAnswersSubmitSentDuringRestart(t *testing.T) {
 		Logger: h.Logger("done"),
 	})
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(localtxsubmission.NewMsgDone())
@@ -74,7 +75,7 @@ func TestServerAnswersBackToBackRuns(t *testing.T) {
 	h := restartwindow.New(t, localtxsubmission.ProtocolId)
 	server := newRestartTestServer(h, protocol.ProtocolOptions{})
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 200 {

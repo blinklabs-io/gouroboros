@@ -106,7 +106,7 @@ func newPipelineTestServer(t *testing.T) pipelineTestServer {
 	t.Cleanup(func() {
 		releaseFn()
 		server.ProtocolInstance().Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})

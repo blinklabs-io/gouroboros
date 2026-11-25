@@ -38,7 +38,7 @@ func TestServerRefusalDeliveryWaitCanBeCancelled(t *testing.T) {
 	require.NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
 	m := muxer.New(serverConn)
 	m.Start()
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	version := uint16(12 + protocol.ProtocolVersionNtCOffset)
 	cfg := handshake.NewConfig(
 		handshake.WithProtocolVersionMap(
@@ -192,8 +192,8 @@ func startHandshakeWirePair(
 	t.Cleanup(func() {
 		server.Stop(context.Background())
 		client.Stop(context.Background())
-		serverMux.Stop()
-		clientMux.Stop()
+		_ = serverMux.Stop(context.Background())
+		_ = clientMux.Stop(context.Background())
 		_ = serverConn.Close()
 		_ = clientConn.Close()
 		for _, done := range []<-chan struct{}{server.DoneChan(), client.DoneChan()} {

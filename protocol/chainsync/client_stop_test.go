@@ -34,7 +34,7 @@ func TestConcurrentStopReleasesBusyMutexDuringActiveSync(t *testing.T) {
 	clientConn, peerConn := net.Pipe()
 	m := muxer.New(clientConn)
 	m.Start()
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	defer clientConn.Close()
 
 	peerDone := make(chan struct{})
@@ -437,8 +437,8 @@ func TestStopCancelsAwaitReplyPipelineFence(t *testing.T) {
 	defer func() {
 		_ = clientConn.Close()
 		_ = peerConn.Close()
-		clientMuxer.Stop()
-		peerMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = peerMuxer.Stop(context.Background())
 	}()
 	peerSendChan, peerRecvChan, _ := peerMuxer.RegisterProtocol(
 		ProtocolIdNtC,
@@ -524,7 +524,7 @@ func newStartedTestClient(t *testing.T, cfg *Config) (*Client, func()) {
 		_ = client.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = peerConn.Close()
-		m.Stop()
+		_ = m.Stop(context.Background())
 		<-peerDone
 	}
 }

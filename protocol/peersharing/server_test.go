@@ -110,7 +110,7 @@ func testPeerSharingServer(
 	m.Start()
 	t.Cleanup(func() {
 		server.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		connA.Close()
 		connB.Close()
 	})

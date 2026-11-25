@@ -139,12 +139,12 @@ func TestCallbackMayCloseItsConnection(t *testing.T) {
 	}
 }
 
-// TestConcurrentCloseContextCallbacksReturn checks that callbacks of two
+// TestConcurrentCloseCallbacksReturn checks that callbacks of two
 // protocol instances closing their connection at the same time both
 // return: neither waits for the other, whose callback is itself closing.
 // A later Close still waits for both. The reference mux tears down once
 // and releases every thread that asked (network-mux Mux.hs:280-287).
-func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
+func TestConcurrentCloseCallbacksReturn(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	entered := make(chan *Connection, 1)
 	bothEntered := make(chan struct{})
@@ -152,7 +152,7 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 	newKeepAliveCallbackConnection(t, func(c *Connection, ctx keepalive.CallbackContext) {
 		entered <- c
 		<-bothEntered
-		_ = c.CloseContext(ctx.Context)
+		_ = c.Close(ctx.Context())
 		returned <- struct{}{}
 	})
 	var conn *Connection
@@ -170,7 +170,7 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 	conn.setupMu.Unlock()
 	require.True(t, m.StartProtocolLoops(other, func() {
 		<-bothEntered
-		_ = conn.CloseContext(otherCtx)
+		_ = conn.Close(otherCtx)
 		returned <- struct{}{}
 	}))
 	close(bothEntered)
@@ -178,12 +178,12 @@ func TestConcurrentCloseContextCallbacksReturn(t *testing.T) {
 		select {
 		case <-returned:
 		case <-time.After(teardownJoinTimeout):
-			t.Fatal("CloseContext waited for another callback that was closing")
+			t.Fatal("Close waited for another callback that was closing")
 		}
 	}
 	closed := make(chan struct{})
 	go func() {
-		_ = conn.Close()
+		_ = conn.Close(context.Background())
 		close(closed)
 	}()
 	select {

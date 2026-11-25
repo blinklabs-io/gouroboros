@@ -213,7 +213,7 @@ func TestClientGetPeersRefusesWhenLocalDisabled(t *testing.T) {
 	require.Nil(t, peers)
 
 	client.Protocol.Stop(context.Background())
-	m.Stop()
+	_ = m.Stop(context.Background())
 	_ = remoteConn.Close()
 	select {
 	case <-peerDone:
@@ -253,7 +253,7 @@ func TestClientGetPeersReturnsAfterBusyTimeout(t *testing.T) {
 	m.Start()
 	t.Cleanup(func() {
 		client.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = remoteConn.Close()
 		select {
 		case <-peerDone:
@@ -335,7 +335,7 @@ func TestClientGetPeersReturnsAfterBusyTimeoutWithFullErrorChannel(
 	m.Start()
 	t.Cleanup(func() {
 		client.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = remoteConn.Close()
 		select {
 		case <-peerDone:

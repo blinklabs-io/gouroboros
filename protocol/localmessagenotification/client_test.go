@@ -460,7 +460,7 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 	)
 	t.Cleanup(func() {
 		client.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})

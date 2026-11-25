@@ -195,7 +195,7 @@ func startBudgetTestClient(
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	cfg := NewConfig(
 		WithRequestNextCount(count),

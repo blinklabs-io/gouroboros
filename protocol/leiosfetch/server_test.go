@@ -101,7 +101,7 @@ func assertUnconfiguredRequestFailsConnection(
 	m.Start()
 	t.Cleanup(func() {
 		server.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -171,7 +171,7 @@ func sendRepeatedRequestTest(
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	errs := make(chan error, 1)
 
 	server := NewServer(protocol.ProtocolOptions{

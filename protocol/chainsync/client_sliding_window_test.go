@@ -279,8 +279,8 @@ func newWindowHarness(
 		server.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	return h
 }

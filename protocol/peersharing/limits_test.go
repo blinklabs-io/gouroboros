@@ -75,7 +75,7 @@ func testPeerSharingClient(t *testing.T) (*Client, net.Conn, chan error) {
 	m.Start()
 	t.Cleanup(func() {
 		client.Protocol.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})

@@ -408,7 +408,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -771,8 +771,8 @@ func newModelPair(
 		_ = remote.Close()
 		server.Stop(context.Background())
 		client.Stop(context.Background())
-		serverMuxer.Stop()
-		clientMuxer.Stop()
+		_ = serverMuxer.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
 	})
 	server.Start()
 	client.Start()

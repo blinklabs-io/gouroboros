@@ -15,6 +15,7 @@
 package muxer_test
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -93,7 +94,7 @@ func runCallbackDuringStop(
 	t.Helper()
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &callDuringStopMetrics{
 		m:          m,
 		call:       call,
@@ -128,7 +129,7 @@ func runCallbackDuringStop(
 	// Request the stop while the callback is still running, let the cleanup
 	// reach its wait for the muxer's goroutines, and only then let the
 	// callback call into the muxer.
-	m.Stop()
+	_ = m.Stop(context.Background())
 	require.Eventually(t, func() bool {
 		return connClosed(conn)
 	}, 2*time.Second, time.Millisecond, "cleanup did not start")
@@ -194,7 +195,7 @@ func TestMetricsCallbackMuxerCallsDuringStop(t *testing.T) {
 		"send": func(m *muxer.Muxer) {
 			_ = m.Send(muxer.NewSegment(0x02, []byte("sent"), false))
 		},
-		"stop": func(m *muxer.Muxer) { m.Stop() },
+		"stop": func(m *muxer.Muxer) { _ = m.Stop(context.Background()) },
 	}
 	for name, call := range calls {
 		for _, onDelivery := range []bool{false, true} {

@@ -629,7 +629,7 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	client := NewClient(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
 			LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},

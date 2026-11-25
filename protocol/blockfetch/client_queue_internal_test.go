@@ -1161,7 +1161,7 @@ func newInMemoryPeer(
 			t.Error("protocol did not stop")
 		}
 		c.failOutstanding(protocol.ErrProtocolShuttingDown)
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:

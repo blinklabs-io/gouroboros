@@ -114,8 +114,8 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
 

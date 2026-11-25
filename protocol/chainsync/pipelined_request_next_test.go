@@ -47,7 +47,7 @@ func TestRequestNextBurstPipelinesWhileServerHasAgency(t *testing.T) {
 			})
 			m := muxer.New(localConn)
 			m.Start()
-			t.Cleanup(m.Stop)
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
 
 			payloadBytes := make(chan int, 100)
 			go func() {

@@ -139,7 +139,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	connectionDone := make(chan any)
 	testCleanup := make(chan struct{})
@@ -235,7 +235,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	response := NewMsgBlockAnnouncement(
 		testAnnouncementEra,
@@ -296,7 +296,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(leiosNotifyFailWriteConn{Conn: connA})
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
 			return NewMsgBlockAnnouncement(
@@ -345,7 +345,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	requestCalled := make(chan struct{})
 	releaseRequest := make(chan struct{})
@@ -437,7 +437,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	defer connB.Close()
 
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	cfg := NewConfig()
 	server := NewServer(
@@ -722,7 +722,7 @@ func newQuitTestServer(
 		_ = connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connId,
 		Muxer:        m,

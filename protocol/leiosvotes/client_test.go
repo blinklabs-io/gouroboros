@@ -281,7 +281,7 @@ func TestStopDuringSyncDoesNotRefillAfterDone(t *testing.T) {
 	defer connB.Close()
 
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer func() { _ = m.Stop(context.Background()) }()
 
 	stopErr := make(chan error, 1)
 	var client *Client

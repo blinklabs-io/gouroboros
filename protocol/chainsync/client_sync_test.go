@@ -276,8 +276,8 @@ func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	errs := make(chan error, 8)
 	var requests int

@@ -47,8 +47,8 @@ func newTipHarness(t *testing.T, clientErrors chan error) *tipHarness {
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	requested := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -204,7 +204,7 @@ func TestSlowDoneWithNothingOwedIsNotAbandoned(t *testing.T) {
 		_ = serverConn.Close()
 	})
 	clientMuxer := muxer.New(clientConn)
-	t.Cleanup(clientMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
 	clientErrors := make(chan error, 4)
 	clientCfg := NewConfig()
 	client := NewClient(protocol.ProtocolOptions{

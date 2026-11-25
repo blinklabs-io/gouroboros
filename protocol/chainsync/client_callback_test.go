@@ -723,7 +723,7 @@ func TestRollBackwardShutdownUsesStopRequestWhileReceiveLoopIsBlocked(
 		client.Protocol.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = clientConn.Close()
-		m.Stop()
+		_ = m.Stop(context.Background())
 		select {
 		case <-client.DoneChan():
 		case <-time.After(time.Second):

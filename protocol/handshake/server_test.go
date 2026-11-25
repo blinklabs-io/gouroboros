@@ -106,7 +106,7 @@ func TestServerInitialProposeTimeout(t *testing.T) {
 			defer peerConn.Close()
 			m := muxer.New(serverConn)
 			m.Start()
-			defer m.Stop()
+			defer m.Stop(context.Background())
 			errorChan := make(chan error, 1)
 			cfg := handshake.NewConfig(
 				handshake.WithTimeout(test.timeout),
@@ -256,7 +256,7 @@ func TestServerFinishedWaitsForAcceptVersionDelivery(t *testing.T) {
 		_ = peerConn.Close()
 		_ = serverConn.Close()
 		s.Stop(context.Background())
-		m.Stop()
+		_ = m.Stop(context.Background())
 	}()
 	m.Start()
 

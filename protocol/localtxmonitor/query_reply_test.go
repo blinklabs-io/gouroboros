@@ -173,7 +173,7 @@ func startAcquiredTestClient(t *testing.T) (*Client, net.Conn, chan error) {
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	client := NewClient(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
