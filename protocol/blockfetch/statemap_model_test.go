@@ -962,7 +962,7 @@ func TestOversizedRefusedWhileReaderStalled(t *testing.T) {
 	require.NoError(t, err)
 	server := blockfetch.NewServer(opts, &cfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { stopServer(server) })
 	t.Cleanup(func() { close(released) })
 	request := kindMessage(t, kindRequestRange, blockfetch.StateIdle)
 	h.sendRaw(t, request)
@@ -985,4 +985,18 @@ func TestOversizedRefusedWhileReaderStalled(t *testing.T) {
 	}
 	h.sendRaw(t, kindMessage(t, row.kind, row.state))
 	h.requireRefusal(t, row)
+}
+
+// stopServer stops s through whichever Stop signature the package has: a
+// plain Stop() or Stop(ctx) error. Both forms exist while the change that
+// adds a context to Stop is in flight, and this test must build against each.
+func stopServer(s any) {
+	switch v := s.(type) {
+	case interface{ Stop(context.Context) error }:
+		_ = v.Stop(context.Background())
+	case interface{ Stop() }:
+		v.Stop()
+	default:
+		panic(fmt.Sprintf("%T has no Stop method", s))
+	}
 }
