@@ -164,7 +164,7 @@ func TestClientAcceptsPipelinedRequestsWhileReplying(t *testing.T) {
 		}
 	}
 
-	require.NoError(t, peer.SendMessage(NewMsgRequestTxIds(false, 0, 2)))
+	require.NoError(t, peer.SendMessage(NewMsgRequestTxIds(true, 0, 2)))
 	expect(MessageTypeInit)
 	expect(MessageTypeReplyTxIds)
 
