@@ -257,20 +257,19 @@ type MessageIDAndSize struct {
 	SizeInBytes uint32
 }
 
-// IsValid checks if a message has not yet expired by comparing its expiration time
-// against the current Unix timestamp.
+// IsValid reports whether the message has not yet expired at the current
+// time. See IsValidAt.
 func (m *DmqMessage) IsValid() bool {
-	// Delegate to IsValidAt using current time for testability
-	// #nosec G115 -- Unix timestamp will not overflow uint32 until year 2106
 	return m.IsValidAt(time.Now())
 }
 
-// IsValidAt checks if a message has not yet expired when evaluated at the provided time.
-// This variant is provided for testability so callers can validate expiration behavior
-// deterministically by passing a specific timestamp.
+// IsValidAt reports whether the message is still held at time t: true while
+// t is strictly before its expiresAt, compared at t's full precision. This is
+// when dmq-node's mempool drops a message (expiresAt <= now), which is one
+// instant earlier than TTLValidator, whose admission rule accepts a message
+// arriving exactly at its expiresAt.
 func (m *DmqMessage) IsValidAt(t time.Time) bool {
-	// #nosec G115 -- Unix timestamp will not overflow uint32 until year 2106
-	return uint32(t.Unix()) <= m.Payload.ExpiresAt
+	return t.Before(time.Unix(int64(m.Payload.ExpiresAt), 0))
 }
 
 // RejectReason provides information about why a submitted message was rejected.
