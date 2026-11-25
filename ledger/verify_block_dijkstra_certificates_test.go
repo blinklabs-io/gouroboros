@@ -403,5 +403,6 @@ func TestValidateDijkstraBlockCertificatesSmallCommittee(t *testing.T) {
 	err := validateDijkstraBlockCertificates(oversizedBlock, params, nil)
 	var validationErr *common.ValidationError
 	require.ErrorAs(t, err, &validationErr)
+	require.NotNil(t, validationErr)
 	require.Equal(t, common.ValidationErrorTypeProtocol, validationErr.Type)
 }
