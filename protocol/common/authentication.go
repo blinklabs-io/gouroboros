@@ -492,12 +492,11 @@ func opCertSignableBytes(
 }
 
 // verifyKESSignature verifies the KES signature over the message payload (CBOR
-// encoded) at the given trusted slot. The certificate's own issuance
-// period (msg.OperationalCertificate.KESPeriod) — not the message's claimed
-// signing period (msg.Payload.KESPeriod) — is what a real KES evolution check
-// needs as its baseline; this function keeps them distinct and rejects a
-// message that claims to have been signed before its own certificate was
-// issued.
+// encoded). The signature is checked at the evolution from the certificate's
+// issuance period (msg.OperationalCertificate.KESPeriod) to the message's
+// claimed signing period (msg.Payload.KESPeriod), which must lie in the
+// certificate's window. The trusted slot only bounds the certificate: its
+// window must also contain the node's current KES period.
 func (m *MessageAuthenticator) verifyKESSignature(
 	msg *DmqMessage,
 	slot uint64,
@@ -539,7 +538,17 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		return err
 	}
 
+	// The node's own period must also lie in the certificate's window. The
+	// reference does not check this; it refuses only a message whose opcert
+	// has not started or has ended at the node's current slot.
 	currentKesPeriod := slot / m.slotsPerKesPeriod
+	if currentKesPeriod < certPeriod {
+		return fmt.Errorf(
+			"current KES period %d precedes certificate issuance period %d",
+			currentKesPeriod,
+			certPeriod,
+		)
+	}
 	if err := m.checkKESWindow(currentKesPeriod, certPeriod); err != nil {
 		return err
 	}
@@ -551,18 +560,16 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		"msg_period", msgPeriod,
 	)
 
-	valid, err := verifyKesComponents(
+	// The signer evolves its key to the period it claims, so the signature
+	// is checked at that evolution, not at the node's current period: a
+	// message signed late in one period is still valid in the next
+	// (dmq-node Validate.hs verifyKES at sigKESPeriod - ocertKESPeriod).
+	if !kes.VerifySignedKES(
+		msg.OperationalCertificate.KESVerificationKey,
+		msgPeriod-certPeriod,
 		payloadCbor,
 		msg.KESSignature,
-		msg.OperationalCertificate.KESVerificationKey,
-		certPeriod,
-		slot,
-		m.slotsPerKesPeriod,
-	)
-	if err != nil {
-		return fmt.Errorf("KES verification failed: %w", err)
-	}
-	if !valid {
+	) {
 		return errors.New("KES signature verification failed")
 	}
 	m.logger.Debug(
@@ -586,40 +593,6 @@ func (m *MessageAuthenticator) checkKESWindow(
 		)
 	}
 	return nil
-}
-
-// verifyKesComponents verifies a KES signature the same way
-// ledger.VerifyKesComponents does for block headers: it converts (kesPeriod,
-// slot, slotsPerKesPeriod) into a KES evolution index and checks the
-// signature at that evolution with kes.VerifySignedKES. Reimplemented
-// locally (rather than imported) to avoid the import cycle importing
-// ledger would create (ledger -> ledger/common -> protocol/common); the kes
-// package itself has no such dependency and is imported directly.
-func verifyKesComponents(
-	message []byte,
-	signature []byte,
-	hotVkey []byte,
-	kesPeriod uint64,
-	slot uint64,
-	slotsPerKesPeriod uint64,
-) (bool, error) {
-	if slotsPerKesPeriod == 0 {
-		return false, errors.New("slotsPerKesPeriod must be greater than 0")
-	}
-	if len(signature) != kes.CardanoKesSignatureSize {
-		return false, fmt.Errorf(
-			"invalid KES signature length: expected %d bytes, got %d",
-			kes.CardanoKesSignatureSize,
-			len(signature),
-		)
-	}
-	currentKesPeriod := slot / slotsPerKesPeriod
-	if currentKesPeriod < kesPeriod {
-		// Certificate start period is in the future - invalid.
-		return false, nil
-	}
-	t := currentKesPeriod - kesPeriod
-	return kes.VerifySignedKES(hotVkey, t, message, signature), nil
 }
 
 // verifyMessageID verifies the message ID format and size constraints.

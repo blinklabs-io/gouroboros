@@ -1008,9 +1008,8 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	err = auth.verifyKESSignature(firstInvalid, 103*129600)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
 
-	// A supplied slot determines the evolution used for signature verification
-	// and must obey the same certificate window even if the payload claims an
-	// earlier, otherwise valid KES period.
+	// The node's current period must lie in the same certificate window,
+	// even when the payload claims an earlier, otherwise valid KES period.
 	validClaim := buildSignedTestMessage(t, 100, 101)
 	tooLateSlot := uint64(103) * 129600
 	err = auth.verifyKESSignature(validClaim, tooLateSlot)
@@ -1038,18 +1037,21 @@ func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
 	realSlot := uint64(100) * 129600
 	assert.NoError(t, auth.VerifyMessageWithSlot(msg, realSlot))
 
-	// A slot corresponding to an earlier period than the cert's own
-	// issuance period must fail (KES signature won't verify at that
-	// evolution).
+	// A slot in an earlier period than the cert's own issuance period
+	// must fail: the certificate has not started at that slot.
 	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
 }
 
+// TestVerifyMessageUsesAuthoritativeCurrentSlot proves VerifyMessage bounds
+// the opcert by the configured current slot: a message signed in the
+// certificate's first period is refused once the node's own period is past
+// the certificate's last one.
 func TestVerifyMessageUsesAuthoritativeCurrentSlot(t *testing.T) {
 	stake := newStubStakeAuthority()
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
 		StakeAuthority: stake,
 		CurrentSlot: func() (uint64, error) {
-			return 101 * 129600, nil
+			return (100 + DefaultMaxKESEvolutions) * 129600, nil
 		},
 		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
 	})
@@ -1060,8 +1062,8 @@ func TestVerifyMessageUsesAuthoritativeCurrentSlot(t *testing.T) {
 	require.NoError(t, err)
 	stake.register(poolID, 1000)
 
-	require.ErrorContains(t, auth.VerifyMessage(msg), "KES signature")
-	require.NoError(t, auth.VerifyMessageWithSlot(msg, 100*129600))
+	require.ErrorContains(t, auth.VerifyMessage(msg), "exceeds the maximum")
+	require.NoError(t, auth.VerifyMessageWithSlot(msg, 101*129600))
 }
 
 func TestVerifyMessageRejectsOpCertSupersededInChainState(t *testing.T) {
