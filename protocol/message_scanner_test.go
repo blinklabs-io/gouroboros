@@ -1025,3 +1025,85 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	}
 	require.Empty(t, handled, "second request must not be handled")
 }
+
+// A request whose first byte arrives while the server holds agency was sent
+// without it, even when the reply returns agency to the client before the
+// rest of the request arrives. The read loop snapshots the state when the
+// request starts, so it must refuse the request rather than admit it against
+// the state the reply moved to.
+func TestReadLoopRejectsRequestStartedBeforeReply(t *testing.T) {
+	t.Parallel()
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+		timeout     = 5 * time.Second
+	)
+	p, idle, _ := newRoundTripTestProtocol(requestType, replyType)
+	errorChan := make(chan error, 1)
+	p.config.ErrorChan = errorChan
+	p.config.MessageFromCborFunc = func(
+		messageType uint,
+		_ []byte,
+	) (Message, error) {
+		return &MessageBase{MessageType: uint8(messageType)}, nil
+	}
+	handled := make(chan struct{}, 2)
+	releaseReply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseReply) }) }
+	p.config.MessageHandlerFunc = func(Message) error {
+		handled <- struct{}{}
+		<-releaseReply
+		return p.transitionState(&MessageBase{MessageType: replyType})
+	}
+	// Unbuffered, so a completed send means the read loop took the segment.
+	segments := make(chan *muxer.Segment)
+	p.muxerRecvChan = segments
+	p.recvQueueChan = make(chan inboundMessage, 2)
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	go p.recvLoop()
+	go p.readLoop()
+	t.Cleanup(p.Stop)
+	defer release()
+	send := func(payload []byte) {
+		segment := muxer.NewSegment(1, payload, false)
+		require.NotNil(t, segment)
+		select {
+		case segments <- segment:
+		case <-time.After(timeout):
+			t.Fatal("readLoop did not take a segment")
+		}
+	}
+
+	send([]byte{0x81, requestType})
+	select {
+	case <-handled:
+	case <-time.After(timeout):
+		t.Fatal("first request was not handled")
+	}
+	// The handler is holding the reply, so the server has agency when the
+	// second request's array header arrives.
+	send([]byte{0x81})
+	// One batch takes at most 1+maxSegmentsPerBatch segments, so the last of
+	// these is taken only after the batch holding the header was scanned and
+	// the state snapshotted.
+	for range maxSegmentsPerBatch + 1 {
+		send(nil)
+	}
+	release()
+	deadline := time.Now().Add(timeout)
+	for p.getCurrentState() != idle {
+		require.True(t, time.Now().Before(deadline), "reply did not return to Idle")
+		time.Sleep(time.Millisecond)
+	}
+	send([]byte{requestType})
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "without peer agency")
+	case <-time.After(timeout):
+		t.Fatal("readLoop admitted a request that started before the reply")
+	}
+	require.Empty(t, handled, "second request must not be handled")
+}
