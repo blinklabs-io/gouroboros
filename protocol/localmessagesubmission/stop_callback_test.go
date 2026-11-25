@@ -79,7 +79,8 @@ func testMessage(id string) *pcommon.DmqMessage {
 	return &pcommon.DmqMessage{
 		MessageID: []byte(id),
 		Payload: pcommon.DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
+			MessageBody: paddedTestBody(id),
+			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
 }

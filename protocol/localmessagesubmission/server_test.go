@@ -115,7 +115,8 @@ func replayTestMessage() pcommon.DmqMessage {
 	return pcommon.DmqMessage{
 		MessageID: []byte("authenticated-message-id"),
 		Payload: pcommon.DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
+			MessageBody: paddedTestBody(""),
+			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	}
 }
@@ -594,7 +595,10 @@ func TestServerRejectsExpiredMessageWithExpiredReason(t *testing.T) {
 			})
 
 			requireAnswered(t, client.SubmitMessage(&pcommon.DmqMessage{
-				Payload: pcommon.DmqMessagePayload{ExpiresAt: test.expiresAt},
+				Payload: pcommon.DmqMessagePayload{
+					MessageBody: paddedTestBody(""),
+					ExpiresAt:   test.expiresAt,
+				},
 			}))
 			select {
 			case reason := <-rejectReasons:

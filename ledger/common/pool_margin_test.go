@@ -616,7 +616,10 @@ func TestCalculateRewardsRejectsInvalidPoolMargins(t *testing.T) {
 					PoolBlocks:         map[PoolKeyHash]uint32{poolID: 10},
 					TotalBlocksInEpoch: 10,
 				},
-				RewardParameters{PoolInfluence: big.NewRat(3, 10)},
+				RewardParameters{
+					DesiredPools:  10,
+					PoolInfluence: big.NewRat(3, 10),
+				},
 			)
 			if !test.valid {
 				require.Error(t, err)
@@ -630,14 +633,17 @@ func TestCalculateRewardsRejectsInvalidPoolMargins(t *testing.T) {
 			for _, reward := range poolRewards.DelegatorRewards {
 				distributed += reward
 			}
-			assert.Equal(t, poolRewards.TotalRewards, distributed)
+			assert.LessOrEqual(t, distributed, poolRewards.TotalRewards)
+			assert.Equal(
+				t,
+				uint64(1_000_000_000),
+				result.TotalRewards+result.Undistributed,
+			)
 		})
 	}
 }
 
-func TestDistributePoolRewardsConservesInvalidMargins(t *testing.T) {
-	owner := AddrKeyHash{0x02}
-	delegator := AddrKeyHash{0x03}
+func TestPoolRewardSplitConservesInvalidMargins(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		margin GenesisRat
@@ -654,47 +660,37 @@ func TestDistributePoolRewardsConservesInvalidMargins(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			rewards := distributePoolRewards(
-				PoolKeyHash{0x01},
-				1_000_000_000,
-				map[AddrKeyHash]uint64{
-					owner:     100_000_000,
-					delegator: 900_000_000,
-				},
-				&PoolRegistrationCertificate{
-					Cost:       340_000_000,
-					Margin:     test.margin,
-					PoolOwners: []AddrKeyHash{owner},
-				},
-				RewardSnapshot{StakeRegistrations: map[AddrKeyHash]bool{
-					owner:     true,
-					delegator: true,
-				}},
-				RewardParameters{},
+			margin := marginRat(test.margin)
+			sigma := big.NewRat(1, 1)
+			poolReward := uint64(1_000_000_000)
+			distributed := leaderReward(
+				poolReward,
+				340_000_000,
+				margin,
+				big.NewRat(1, 10),
+				sigma,
+			) + memberReward(
+				poolReward,
+				340_000_000,
+				margin,
+				big.NewRat(9, 10),
+				sigma,
 			)
-			distributed := rewards.OperatorRewards
-			for _, reward := range rewards.DelegatorRewards {
-				distributed += reward
-			}
-			assert.LessOrEqual(t, distributed, rewards.TotalRewards)
+			assert.LessOrEqual(t, distributed, poolReward)
 		})
 	}
 }
 
-func TestDistributePoolRewardsConservesMaximumPot(t *testing.T) {
-	owner := AddrKeyHash{0x02}
-	rewards := distributePoolRewards(
-		PoolKeyHash{0x01},
+func TestLeaderRewardConservesMaximumPot(t *testing.T) {
+	assert.Equal(
+		t,
 		^uint64(0),
-		map[AddrKeyHash]uint64{owner: 1},
-		&PoolRegistrationCertificate{
-			Margin:     NewGenesisRat(1, 1),
-			PoolOwners: []AddrKeyHash{owner},
-		},
-		RewardSnapshot{StakeRegistrations: map[AddrKeyHash]bool{owner: true}},
-		RewardParameters{},
+		leaderReward(
+			^uint64(0),
+			0,
+			big.NewRat(1, 1),
+			big.NewRat(1, 1),
+			big.NewRat(1, 1),
+		),
 	)
-	assert.Equal(t, ^uint64(0), rewards.OperatorRewards)
-	assert.Empty(t, rewards.DelegatorRewards)
-	assert.Equal(t, ^uint64(0), rewards.TotalRewards)
 }
