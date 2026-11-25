@@ -136,6 +136,10 @@ type classicPPUPTestWitnessSet struct {
 
 func (w classicPPUPTestWitnessSet) Vkey() []common.VkeyWitness { return w.vkeys }
 
+func (classicPPUPTestWitnessSet) Bootstrap() []common.BootstrapWitness {
+	return nil
+}
+
 type classicPPUPTestState struct {
 	common.LedgerState
 	delegates   []common.Blake2b224
