@@ -31,6 +31,21 @@ type dijkstraLeiosTestState struct {
 	err     error
 }
 
+// testLeiosKeyAge honours every key registered in epoch 0: mainnet's KES
+// parameters give a maximum key age of 21 epochs.
+var testLeiosKeyAge = common.DijkstraLeiosKeyAgeContext{
+	Epoch:             1,
+	MarkEpochLength:   432000,
+	MaxKESEvolutions:  62,
+	SlotsPerKESPeriod: 129600,
+}
+
+func (s dijkstraLeiosTestState) DijkstraLeiosKeyAgeContext(
+	common.BlockHeader,
+) (common.DijkstraLeiosKeyAgeContext, error) {
+	return testLeiosKeyAge, nil
+}
+
 func (s dijkstraLeiosTestState) DijkstraLeiosCertificateContext(
 	common.BlockHeader,
 ) (common.DijkstraLeiosCertificateContext, error) {
