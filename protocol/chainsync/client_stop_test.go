@@ -528,3 +528,73 @@ func newStartedTestClient(t *testing.T, cfg *Config) (*Client, func()) {
 		<-peerDone
 	}
 }
+
+// TestStopJoinsPipelineStopWatcher checks that Stop waits for the goroutine
+// that cancels the pipeline fence when the protocol stops: it returns ctx's
+// error while that goroutine is held, and nil once it has returned.
+func TestStopJoinsPipelineStopWatcher(t *testing.T) {
+	p := pipeline.NewBlockPipeline(validatedPipelineOptions(t,
+		func(*pipeline.BlockItem) error { return nil },
+	)...)
+	require.NoError(t, p.Start(context.Background()))
+	defer func() { require.NoError(t, p.Stop(context.Background())) }()
+
+	clientConn, peerConn := net.Pipe()
+	clientMuxer := muxer.New(clientConn)
+	peerMuxer := muxer.New(peerConn)
+	clientMuxer.Start()
+	peerMuxer.Start()
+	defer func() {
+		_ = clientConn.Close()
+		_ = peerConn.Close()
+		_ = clientMuxer.Stop(context.Background())
+		_ = peerMuxer.Stop(context.Background())
+	}()
+	_, peerRecvChan, _ := peerMuxer.RegisterProtocol(
+		ProtocolIdNtC,
+		muxer.ProtocolRoleResponder,
+	)
+	go func() {
+		for range peerRecvChan {
+		}
+	}()
+
+	client := NewClient(
+		protocol.ProtocolOptions{
+			ConnectionId: testConnectionId(),
+			Muxer:        clientMuxer,
+			Mode:         protocol.ProtocolModeNodeToClient,
+		},
+		&Config{Pipeline: p},
+	)
+	watcherHeld := make(chan struct{})
+	releaseWatcher := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseWatcher) }) }
+	defer release()
+	var watcherExited sync.WaitGroup
+	watcherExited.Add(1)
+	client.testPipelineStopWatcherExit = func() {
+		close(watcherHeld)
+		<-releaseWatcher
+		watcherExited.Done()
+	}
+	client.Start()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	require.ErrorIs(
+		t,
+		client.Stop(ctx),
+		context.DeadlineExceeded,
+		"Stop returned while the pipeline stop watcher was running",
+	)
+	select {
+	case <-watcherHeld:
+	default:
+		t.Fatal("the pipeline stop watcher did not see the stop")
+	}
+	release()
+	require.NoError(t, client.Stop(context.Background()))
+	watcherExited.Wait()
+}
