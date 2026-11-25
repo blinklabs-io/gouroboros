@@ -924,6 +924,8 @@ func (c *Client) GetStakePools() (*StakePoolsResult, error) {
 	return &result, nil
 }
 
+// GetAccountState returns the treasury and reserves of the acquired ledger
+// state.
 func (c *Client) GetAccountState() (*AccountStateResult, error) {
 	c.Protocol.Logger().
 		Debug("calling GetAccountState()",
@@ -938,9 +940,11 @@ func (c *Client) GetAccountState() (*AccountStateResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if currentEra < ledger.EraIdConway {
+	// Every Shelley-based era answers it (queryChainAccountState in
+	// ouroboros-consensus Shelley/Ledger/Query.hs); Byron has no such query.
+	if currentEra < ledger.EraIdShelley {
 		return nil, fmt.Errorf(
-			"GetAccountState requires Conway era or later (current era: %d)",
+			"GetAccountState requires Shelley era or later (current era: %d)",
 			currentEra,
 		)
 	}
