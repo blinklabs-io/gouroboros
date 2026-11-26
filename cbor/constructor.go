@@ -393,25 +393,15 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		cd.fields = RawMessage(tmpTag.Content)
 	case tmpTag.Number == PlutusConstrGeneral:
 		// General constructors (tag 102): content is [constructor_number, fields]
-		var outerArray []RawMessage
-		if _, err := Decode(tmpTag.Content, &outerArray); err != nil {
-			return fmt.Errorf("decode alternative 128+ content: %w", err)
-		}
-		if len(outerArray) != 2 {
-			return fmt.Errorf(
-				"expected 2 elements for alternative 128+, got %d",
-				len(outerArray),
-			)
-		}
-		var altNum uint64
-		if _, err := Decode(outerArray[0], &altNum); err != nil {
-			return fmt.Errorf("decode alternative number: %w", err)
+		altNum, fields, err := decodeGeneralConstructor(tmpTag.Content)
+		if err != nil {
+			return err
 		}
 		if altNum > uint64(^uint(0)) {
 			return fmt.Errorf("alternative number %d overflows uint", altNum)
 		}
 		cd.tag = uint(altNum)
-		cd.fields = outerArray[1]
+		cd.fields = fields
 	default:
 		return fmt.Errorf("unsupported constructor tag: %d", tmpTag.Number)
 	}
@@ -420,6 +410,55 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		return errors.New("constructor fields are not a CBOR list")
 	}
 	return nil
+}
+
+// decodeGeneralConstructor reads the [constructor_number, fields] content of
+// a tag 102 constructor. The two items are read in place, so a content array
+// of any other length is rejected without a slice sized from, or grown to,
+// its item count.
+func decodeGeneralConstructor(content []byte) (uint64, RawMessage, error) {
+	count, headerSize, indefinite := ArrayInfo(content)
+	if count < 0 && !indefinite {
+		return 0, nil, errors.New(
+			"decode alternative 128+ content: expected an array",
+		)
+	}
+	if !indefinite && count != 2 {
+		return 0, nil, fmt.Errorf(
+			"expected 2 elements for alternative 128+, got %d",
+			count,
+		)
+	}
+	rest := content[headerSize:]
+	if len(rest) > 0 && rest[0] == cborBreak {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got 0",
+		)
+	}
+	var altNum uint64
+	n, err := Decode(rest, &altNum)
+	if err != nil {
+		return 0, nil, fmt.Errorf("decode alternative number: %w", err)
+	}
+	rest = rest[n:]
+	if len(rest) > 0 && rest[0] == cborBreak {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got 1",
+		)
+	}
+	var fields RawMessage
+	if n, err = Decode(rest, &fields); err != nil {
+		return 0, nil, fmt.Errorf("decode alternative 128+ content: %w", err)
+	}
+	rest = rest[n:]
+	// The tag content is one complete item, so a definite array ends here
+	// and an indefinite one must have only its break left.
+	if indefinite && (len(rest) != 1 || rest[0] != cborBreak) {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got more",
+		)
+	}
+	return altNum, fields, nil
 }
 
 // MarshalCBOR encodes the constructor as CBOR. If original bytes are available
