@@ -337,6 +337,9 @@ func (c *Client) GetMeasures() (MempoolMeasures, error) {
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	if c.stopping() {
+		return MempoolMeasures{}, protocol.ErrProtocolShuttingDown
+	}
 	if !c.acquired {
 		if err := c.acquire(); err != nil {
 			return MempoolMeasures{}, err
