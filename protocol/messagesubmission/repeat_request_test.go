@@ -145,7 +145,7 @@ func TestServerUnsentRequestReleasesItsIDs(t *testing.T) {
 	server.lock.Lock()
 	server.pendingMessageIDs = [][]byte{id}
 	server.lock.Unlock()
-	_ = server.Protocol.Stop(context.Background())
+	_ = server.ProtocolInstance().Stop(context.Background())
 
 	require.Error(t, server.RequestMessages([][]byte{id}))
 	server.lock.Lock()

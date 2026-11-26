@@ -60,7 +60,7 @@ func startSubmissionPair(
 		ErrorChan: make(chan error, 1),
 	}, &serverCfg)
 	client.Protocol.EnsureRegistered()
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	clientMuxer.Start()
 	serverMuxer.Start()
 	client.Start()

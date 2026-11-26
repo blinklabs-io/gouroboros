@@ -24,7 +24,7 @@ import (
 
 // Server implements the keep-alive protocol server, responsible for handling keep-alive requests and sending responses.
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
@@ -52,7 +52,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	s.Protocol = s.newProtocol()
+	s.proto = s.newProtocol()
 	return s
 }
 
@@ -78,7 +78,7 @@ func (s *Server) newProtocol() *protocol.Protocol {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // messageHandler handles incoming protocol messages for the server.
@@ -156,7 +156,7 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 		return nil
 	}
 	p := s.newProtocol()
-	s.Protocol = p
+	s.proto = p
 	s.protocolMu.Unlock()
 	// Start does nothing if Stop reached p first.
 	p.Start()
@@ -174,7 +174,7 @@ func (s *Server) handleDone(proto *protocol.Protocol) error {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }

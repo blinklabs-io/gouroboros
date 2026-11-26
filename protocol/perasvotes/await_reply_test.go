@@ -276,7 +276,7 @@ func startServerAgainstRawClient(
 		ErrorChan:    errs,
 		ConnectionId: testConnectionId(),
 	}, cfg)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	localMuxer.Start()
 	server.Start()
 	t.Cleanup(func() { _ = server.Stop(context.Background()) })
@@ -417,7 +417,7 @@ func TestSyncAgainstServerWithNoVoteYet(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{
 		Muxer: rightMuxer, ErrorChan: errs, ConnectionId: testConnectionId(),
 	}, &clientCfg)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()

@@ -35,7 +35,7 @@ var errReplayCacheCapacityExceeded = errors.New(
 // requests them. In V1 it is the connection's responder; in V2 it is the
 // initiator and sends the first message.
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	config          *Config
 	callbackContext CallbackContext
 	protoVersion    uint16
@@ -124,7 +124,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -133,7 +133,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Start starts the protocol instance of the current run.
@@ -153,7 +153,7 @@ func (s *Server) Start() {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -496,7 +496,7 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 
 	// Invoke callback
 	if s.config.ReplyMessageIdsFunc != nil {
-		s.config.ReplyMessageIdsFunc(s.callbackContext.withOwner(s.Protocol), msgReply.Messages)
+		s.config.ReplyMessageIdsFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msgReply.Messages)
 	}
 
 	return nil
@@ -534,7 +534,7 @@ func (s *Server) handleReplyNoMessageIds() error {
 
 	if s.config.ReplyMessageIdsFunc != nil {
 		s.config.ReplyMessageIdsFunc(
-			s.callbackContext.withOwner(s.Protocol),
+			s.callbackContext.withOwner(s.ProtocolInstance()),
 			[]pcommon.MessageIDAndSize{},
 		)
 	}
@@ -630,7 +630,7 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.Protocol), accepted)
+		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.ProtocolInstance()), accepted)
 	}
 
 	return fatal

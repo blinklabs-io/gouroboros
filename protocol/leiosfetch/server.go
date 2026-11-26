@@ -25,7 +25,7 @@ import (
 )
 
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
@@ -69,7 +69,7 @@ func (s *Server) initProtocol() bool {
 		s.protocolMu.Unlock()
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	s.protocolMu.Unlock()
 	return true
 }
@@ -94,7 +94,7 @@ func serverMessageFromCbor(
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
@@ -109,7 +109,7 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -138,7 +138,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleBlockRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -158,7 +158,7 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrBlockNotFound) {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Debug("endorser block not available",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -178,14 +178,14 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"received leios-fetch BlockRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block Txs request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -206,7 +206,7 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	)
 	if err != nil {
 		if errors.Is(err, ErrBlockTxsNotFound) {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Debug("endorser block transactions not available",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -226,14 +226,14 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"received leios-fetch BlockTxsRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleVotesRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("votes request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -241,7 +241,7 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return s.SendMessage(NewMsgVotes([]cbor.RawMessage{}))
+		return s.ProtocolInstance().SendMessage(NewMsgVotes([]cbor.RawMessage{}))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
@@ -256,14 +256,14 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"received leios-fetch VotesRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block range request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -295,7 +295,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("client done",
 			"component", "network",
 			"protocol", ProtocolName,

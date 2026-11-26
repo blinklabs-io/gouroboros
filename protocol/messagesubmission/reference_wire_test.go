@@ -293,7 +293,7 @@ func newServerHarness(t *testing.T, version uint16) *serverHarness {
 		ErrorChan: h.errs,
 		Version:   version,
 	}, &cfg)
-	h.server.Protocol.EnsureRegistered()
+	h.server.ProtocolInstance().EnsureRegistered()
 	m.Start()
 	h.server.Start()
 	t.Cleanup(func() { _ = h.server.Stop(context.Background()) })
@@ -509,7 +509,7 @@ func TestConnectionRolesFollowReference(t *testing.T) {
 		cfg := NewConfig()
 		opts := newTestProtoOptions(tc.version)
 		require.Equal(t, tc.clientRole, NewClient(opts, &cfg).Role())
-		require.Equal(t, tc.serverRole, NewServer(opts, &cfg).Role())
+		require.Equal(t, tc.serverRole, NewServer(opts, &cfg).ProtocolInstance().Role())
 	}
 }
 

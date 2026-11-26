@@ -25,7 +25,7 @@ import (
 
 // Server runs the outbound/server side of ObjectDiffusion.
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	config          *Config
 	callbackContext CallbackContext
 	protocolMu      sync.RWMutex
@@ -64,7 +64,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -73,7 +73,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Start starts the server endpoint.
@@ -91,7 +91,7 @@ func (s *Server) Start() { s.ProtocolInstance().Start() }
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -124,7 +124,7 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 		)
 	}
 	ids, err := s.config.ObjectIDsFunc(
-		s.callbackContext.withOwner(s.Protocol),
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msg.AckCount,
 		msg.RequestCount,
 	)
@@ -144,7 +144,11 @@ func (s *Server) handleRequestObjectIDs(msg *MsgRequestObjectIDs) error {
 		if err := proto.SendMessage(NewMsgAwaitReply()); err != nil {
 			return err
 		}
-		go s.awaitObjectIDs(proto, msg.RequestCount)
+		// RunLoop contains a panic in AwaitObjectIDsFunc as the receive
+		// loop contains one in any other callback.
+		proto.RunLoop("await object IDs", func() {
+			s.awaitObjectIDs(proto, msg.RequestCount)
+		})
 		return nil
 	}
 	return proto.SendMessage(NewMsgReplyObjectIDs(ids))
@@ -176,7 +180,7 @@ func (s *Server) awaitObjectIDs(proto *protocol.Protocol, requestCount uint16) {
 		var err error
 		ids, err = s.config.AwaitObjectIDsFunc(
 			ctx,
-			s.callbackContext.withOwner(s.Protocol),
+			s.callbackContext.withOwner(s.ProtocolInstance()),
 			requestCount,
 		)
 		if err != nil && ctx.Err() == nil {
@@ -214,7 +218,7 @@ func (s *Server) handleRequestObjects(msg *MsgRequestObjects) error {
 			"peras objects function must be configured on the server",
 		)
 	}
-	objects, err := s.config.ObjectsFunc(s.callbackContext.withOwner(s.Protocol), msg.ObjectIDs)
+	objects, err := s.config.ObjectsFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msg.ObjectIDs)
 	if err != nil {
 		return err
 	}

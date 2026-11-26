@@ -26,7 +26,7 @@ import (
 
 // Server implements the LocalStateQuery server
 type Server struct {
-	*protocol.Protocol
+	proto                         *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu                    sync.RWMutex
 	protoOptions                  protocol.ProtocolOptions
 	config                        *Config
@@ -98,7 +98,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -107,7 +107,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
@@ -122,7 +122,7 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }

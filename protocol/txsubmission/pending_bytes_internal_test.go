@@ -241,7 +241,7 @@ func TestTxIdsStateRejectsMessageOverLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
-	p.server.SetIngressBackpressure(true)
+	p.server.ProtocolInstance().SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes+1))
 	requireOversizedRejection(t, p.errorChan, LargeMaxPendingMessageBytes)
 }
@@ -256,7 +256,7 @@ func TestTxIdsStateAdmitsMessageAtLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
-	p.server.SetIngressBackpressure(true)
+	p.server.ProtocolInstance().SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes))
 	requireNoOversizedRejection(t, p.errorChan)
 }

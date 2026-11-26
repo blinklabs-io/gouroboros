@@ -155,7 +155,7 @@ func TestNewServer(t *testing.T) {
 	)
 
 	require.NotNil(t, server)
-	assert.NotNil(t, server.Protocol)
+	assert.NotNil(t, server.ProtocolInstance())
 	assert.NotNil(t, server.config)
 }
 

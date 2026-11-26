@@ -23,7 +23,7 @@ import (
 )
 
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	callbackContext CallbackContext
 	config          *Config
 	protocolMu      sync.RWMutex
@@ -72,7 +72,7 @@ func (s *Server) initProtocol() bool {
 		s.protocolMu.Unlock()
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	s.protocolMu.Unlock()
 	return true
 }
@@ -80,7 +80,7 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
@@ -95,7 +95,7 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
 	return p.Stop(ctx)
 }
@@ -119,7 +119,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleRequestNext(msg protocol.Message) error {
 	msgRequestNext := msg.(*MsgVotesRequestNext)
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("votes request next",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -154,7 +154,7 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	for _, vote := range votes {
-		if err := s.SendMessage(NewMsgVote(vote)); err != nil {
+		if err := s.ProtocolInstance().SendMessage(NewMsgVote(vote)); err != nil {
 			return err
 		}
 	}
@@ -162,7 +162,7 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("client done",
 			"component", "network",
 			"protocol", ProtocolName,

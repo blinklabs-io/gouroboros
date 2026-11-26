@@ -79,7 +79,7 @@ func TestEmptyIDReplyCallbackStopsItsServer(t *testing.T) {
 		ErrorChan: errs,
 		Version:   protocol.ProtocolVersionDMQNtN2,
 	}, &cfg)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	m.Start()
 	server.Start()
 

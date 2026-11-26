@@ -66,7 +66,7 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 		ErrorChan:    errors,
 		ConnectionId: testConnectionId(),
 	}, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()
@@ -177,7 +177,7 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 		Muxer:     rightMuxer,
 		ErrorChan: errors,
 	}, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()

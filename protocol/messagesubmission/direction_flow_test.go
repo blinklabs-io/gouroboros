@@ -63,14 +63,14 @@ func newDirectionFlow(
 		Version:   MessageSubmissionV2MinVersion,
 	}, &serverCfg)
 	f.client.Protocol.EnsureRegistered()
-	f.server.Protocol.EnsureRegistered()
+	f.server.ProtocolInstance().EnsureRegistered()
 	f.clientMuxer.Start()
 	f.serverMuxer.Start()
 	f.client.Start()
 	f.server.Start()
 	t.Cleanup(func() {
 		f.client.Protocol.Stop(context.Background())
-		f.server.Protocol.Stop(context.Background())
+		f.server.ProtocolInstance().Stop(context.Background())
 		_ = f.clientMuxer.Stop(context.Background())
 		_ = f.serverMuxer.Stop(context.Background())
 		_ = f.clientConn.Close()
