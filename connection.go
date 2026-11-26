@@ -1020,7 +1020,10 @@ func (c *Connection) setupConnection() error {
 	defer handshakeTimer.Stop()
 	select {
 	case <-c.doneChan:
-		// Return an error if we're shutting down
+		// Wait for the teardown, as the other cases do: it joins the
+		// handshake's loops, so FinishedFunc cannot write handshakeVersion
+		// after Dial has returned.
+		_ = c.Close(context.Background())
 		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
 	case err := <-c.protoErrorChan:
 		// Shutdown the connection and return the error

@@ -16,6 +16,7 @@ package ouroboros
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -133,4 +134,51 @@ func TestCloseBeforeHandshakeCreatesNone(t *testing.T) {
 	c.protocolMu.RLock()
 	defer c.protocolMu.RUnlock()
 	require.Nil(t, c.handshake, "setup created a handshake protocol after the teardown")
+}
+
+// TestDialReturnsAfterTeardownOnClose checks that when a Close from another
+// goroutine ends the handshake wait, Dial returns only once the teardown has joined the
+// handshake protocol's loops, so its FinishedFunc does not write
+// handshakeVersion after Dial has returned. The test holds the teardown at
+// its last step and checks that Dial is still waiting.
+func TestDialReturnsAfterTeardownOnClose(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	c, peer, result := dialSilentPeer(t, time.Minute, func(c *Connection) {
+		// shutdown takes trackMu after it has joined the protocol loops
+		// and before it closes connClosedChan.
+		c.trackMu.Lock()
+	})
+	defer func() { _ = peer.conn.Close() }()
+	unlocked := false
+	unlock := func() {
+		if !unlocked {
+			unlocked = true
+			c.trackMu.Unlock()
+		}
+	}
+	defer unlock()
+	select {
+	case <-peer.proposed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("setup did not send the handshake proposal")
+	}
+	c.requestClose()
+	select {
+	case err := <-result:
+		t.Fatalf("Dial returned before the teardown finished: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	unlock()
+	var err error
+	select {
+	case err = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("setup did not return after the teardown")
+	}
+	require.True(t, errors.Is(err, io.EOF), "setup did not report the shutdown: %v", err)
+	select {
+	case <-c.connClosedChan:
+	default:
+		t.Fatal("Dial returned before the teardown finished")
+	}
 }
