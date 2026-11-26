@@ -15,6 +15,7 @@
 package localstatequery_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync/atomic"
@@ -108,10 +109,10 @@ func newWireCacheHarness(
 	require.NotNil(t, h.server)
 	t.Cleanup(func() {
 		if h.client != nil {
-			_ = h.client.Close()
+			_ = h.client.Close(context.Background())
 		}
 		if h.server != nil {
-			_ = h.server.Close()
+			_ = h.server.Close(context.Background())
 		}
 		goleak.VerifyNone(t)
 	})
@@ -206,7 +207,7 @@ func TestCurrentEraCacheRejectsAfterShutdown(t *testing.T) {
 	client := h.client.LocalStateQuery().Client
 	_, err := client.GetCurrentEra()
 	require.NoError(t, err)
-	require.NoError(t, h.client.Close())
+	require.NoError(t, h.client.Close(context.Background()))
 	select {
 	case <-client.DoneChan():
 	case <-time.After(5 * time.Second):

@@ -15,6 +15,7 @@
 package localmessagenotification
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 var errReplayCacheCapacityExceeded = errors.New(
@@ -119,7 +121,15 @@ func (c *Client) Start() {
 }
 
 // Stop transitions the protocol to the Done state
-func (c *Client) Stop() error {
+//
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
@@ -128,8 +138,11 @@ func (c *Client) Stop() error {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		msg := NewMsgClientDone()
-		c.stopErr = c.SendMessage(msg)
+		c.stopErr = stopping.SendDone(ctx, c.Protocol, msg)
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return c.stopErr
 }
 
@@ -211,7 +224,7 @@ func (c *Client) handleReplyMessagesNonBlocking(msg protocol.Message) error {
 	if c.config.ReplyMessagesFunc != nil &&
 		(len(msgReply.Messages) == 0 || len(messages) > 0) {
 		c.config.ReplyMessagesFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.Protocol),
 			messages,
 			msgReply.HasMore,
 		)
@@ -248,7 +261,7 @@ func (c *Client) handleReplyMessagesBlocking(msg protocol.Message) error {
 	}
 	if c.config.ReplyMessagesFunc != nil && len(messages) > 0 {
 		// For blocking replies, hasMore is always false (waiting until at least one message available)
-		c.config.ReplyMessagesFunc(c.callbackContext, messages, false)
+		c.config.ReplyMessagesFunc(c.callbackContext.withOwner(c.Protocol), messages, false)
 	}
 	return nil
 }
@@ -300,7 +313,7 @@ func (c *Client) validateAndReserve(
 			)
 		}
 	}
-	commitAuthentication, err := c.config.Authenticator.PrepareMessages(
+	commitAuthentication, err := c.config.Authenticator.PrepareAdmitted(
 		messages,
 	)
 	if err != nil {

@@ -198,13 +198,17 @@ func BenchmarkBlockPipeline(b *testing.B) {
 		if err := p.Start(ctx); err != nil {
 			b.Fatalf("failed to start pipeline: %v", err)
 		}
-		defer func() { _ = p.Stop() }()
+		defer func() { _ = p.Stop(context.Background()) }()
 
 		b.ResetTimer()
 
-		// Submit blocks
+		// Submit blocks, then fence: Results is bounded and may drop
+		// results this reader is too slow for, so completion comes from
+		// Fence rather than from a result count.
 		var wg sync.WaitGroup
+		submitted := make(chan struct{})
 		wg.Go(func() {
+			defer close(submitted)
 			for i := 0; i < b.N; i++ {
 				blk := blocks[i%len(blocks)]
 				tip := pcommon.Tip{BlockNumber: uint64(i)}
@@ -212,28 +216,31 @@ func BenchmarkBlockPipeline(b *testing.B) {
 					return
 				}
 			}
+			_ = p.Fence(ctx)
 		})
 
-		// Receive results
-		received := 0
 	receiveLoop:
-		for received < b.N {
+		for {
 			select {
 			case item, ok := <-p.Results():
 				if !ok {
 					break receiveLoop
 				}
 				item.Release()
-				received++
 			case err := <-p.Errors():
 				b.Fatalf("pipeline error: %v", err)
+			case <-submitted:
+				break receiveLoop
 			case <-ctx.Done():
 				break receiveLoop
 			}
 		}
+		for _, item := range p.DrainResults() {
+			item.Release()
+		}
 
 		b.StopTimer()
-		_ = p.Stop()
+		_ = p.Stop(context.Background())
 		wg.Wait()
 	})
 }

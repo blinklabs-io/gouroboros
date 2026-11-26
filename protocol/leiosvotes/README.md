@@ -25,15 +25,17 @@ fetch traffic.
 caps this at `MaxRequestNextCount` to keep the receive buffer commitment
 bounded while CIP-0164 remains experimental.
 
-`Vote` carries the stake-based committee vote shape from the current
-CIP-0164 design:
+`Vote` carries the CIP-0164 vote, `[announcing_rb_hash, voter_id,
+vote_signature]`:
 
 | Field | Type | Purpose |
 |-------|------|---------|
-| `SlotNo` | `uint64` | Voting round / announcing RB slot |
-| `EndorserBlockHash` | `common.Blake2b256` | EB hash being endorsed |
-| `VoterId` | `uint64` | Index in the epoch committee |
+| `AnnouncingRbHash` | `common.Blake2b256` | Hash of the ranking block header that announced the EB, and the signed message |
+| `VoterId` | `uint16` | Index in the epoch committee |
 | `VoteSignature` | `[]byte` | 48-byte BLS12-381 MinSig signature |
+
+The vote's election slot is the announcing block's slot, which the consumer
+resolves.
 
 ## State Machine
 
@@ -44,17 +46,26 @@ Busy --Vote, tokens = 1--> Idle
 Idle --Done--> Done
 ```
 
+### Pipelining
+
+A client may send its next `VotesRequestNext` before the current batch is
+delivered (CIP-0164 protocol pipelining), so a server in `Busy` accepts one.
+It holds the request until the batch's last `Vote` returns the protocol to
+`Idle`, then answers it, so batches follow request order. Held requests are
+bounded by the receive queue, the state's pending-message byte limit, and the
+protocol's ingress limit; a client that keeps sending past them fails the
+connection.
+
 ## Optional server responder
 
 Leios votes has no state-machine-valid empty batch response. When
 `RequestNextFunc` is unconfigured, the server enters `Busy`, sends no response,
-and leaves the request pending with its `Busy` timeout disabled. This preserves
-the protocol's agency and lets other mini-protocols on the bearer continue
-without a server-side connection error. The requester retains its own `Busy`
-timeout and may eventually close the connection from its side. Invalid request
-counts, configured callback errors, and transport failures still follow the
-normal protocol-error path; configured servers retain the normal `Busy`
-timeout.
+and leaves the request pending. The server holds agency in `Busy`, so it has no
+`Busy` timeout, configured or not, and the bearer's other mini-protocols
+continue without a server-side connection error. The requester retains its own
+`Busy` timeout and may eventually close the connection from its side. Invalid
+request counts, configured callback errors, and transport failures still follow
+the normal protocol-error path.
 
 ## States
 

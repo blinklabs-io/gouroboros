@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -25,7 +26,7 @@ import (
 
 // Server implements the LocalStateQuery server
 type Server struct {
-	*protocol.Protocol
+	proto                         *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu                    sync.RWMutex
 	protoOptions                  protocol.ProtocolOptions
 	config                        *Config
@@ -97,7 +98,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -106,17 +107,24 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 // ledgerPeerSnapshotQuery returns the GetLedgerPeerSnapshot leaf of a
@@ -281,7 +289,7 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, false)
+	err := s.config.AcquireFunc(s.callbackContext.withOwner(s.ProtocolInstance()), acquireTarget, false)
 	if err != nil {
 		if errors.Is(err, ErrAcquireFailurePointTooOld) {
 			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
@@ -351,7 +359,7 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 		))
 	}
 	// Call the user callback function
-	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
+	result, err := s.config.QueryFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msgQuery.Query)
 	if err != nil {
 		return err
 	}
@@ -389,7 +397,7 @@ func (s *Server) handleRelease() error {
 		return nil
 	}
 	// Call the user callback function
-	return s.config.ReleaseFunc(s.callbackContext)
+	return s.config.ReleaseFunc(s.callbackContext.withOwner(s.ProtocolInstance()))
 }
 
 func (s *Server) handleReAcquire(msg protocol.Message) error {
@@ -418,7 +426,7 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, true)
+	err := s.config.AcquireFunc(s.callbackContext.withOwner(s.ProtocolInstance()), acquireTarget, true)
 	if err != nil {
 		if errors.Is(err, ErrAcquireFailurePointTooOld) {
 			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
@@ -455,7 +463,7 @@ func (s *Server) handleDone() {
 	// that ended cleanly, so the client may start a new run on this
 	// connection. StopForRestart keeps the client's next messages for the
 	// new instance.
-	proto.StopForRestart()
+	_ = proto.StopForRestart(proto.CallbackContext())
 	if !s.initProtocol() {
 		proto.CancelRestart()
 		return

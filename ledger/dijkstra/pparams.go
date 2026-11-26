@@ -67,6 +67,9 @@ func (p *DijkstraProtocolParameters) RewardParams() common.RewardParameters {
 	}
 	return common.RewardParameters{
 		ProtocolVersion:   p.ProtocolVersion,
+		DesiredPools:      uint64(p.NOpt),
+		ExpansionRate:     copyRewardRat(p.Rho),
+		TreasuryRate:      copyRewardRat(p.Tau),
 		MinPoolCost:       p.MinPoolCost,
 		PoolInfluence:     copyRewardRat(p.A0),
 		MaxPledgeLeverage: copyRewardRat(p.MaxPledgeLeverage),
@@ -764,8 +767,8 @@ func (u *DijkstraProtocolParameterUpdate) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
 		return err
 	}
-	var fields map[int]cbor.RawMessage
-	if _, err := cbor.Decode(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[int](cborData)
+	if err != nil {
 		return err
 	}
 	if raw, ok := fields[38]; ok {

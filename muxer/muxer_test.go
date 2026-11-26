@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -345,10 +346,10 @@ func TestMuxerInitialization(t *testing.T) {
 	}
 
 	// Test shutdown behavior
-	m.Stop()
+	_ = m.Stop(context.Background())
 
 	// Should be able to close multiple times without panic
-	m.Stop()
+	_ = m.Stop(context.Background())
 }
 
 // TestProtocolRegistration tests protocol registration and unregistration
@@ -357,7 +358,7 @@ func TestProtocolRegistration(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Test successful registration
 	sendChan, recvChan, doneChan := m.RegisterProtocol(
@@ -385,7 +386,7 @@ func TestProtocolRegistration(t *testing.T) {
 	m.UnregisterProtocol(0x01, muxer.ProtocolRoleInitiator)
 
 	// Test registration after shutdown
-	m.Stop()
+	_ = m.Stop(context.Background())
 	sendChan3, recvChan3, doneChan3 := m.RegisterProtocol(
 		0x02,
 		muxer.ProtocolRoleInitiator,
@@ -402,7 +403,7 @@ func TestMuxerSendReceive(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Register a protocol
 	sendChan, _, _ := m.RegisterProtocol(
@@ -493,7 +494,7 @@ func TestMuxerReportsSegmentDelivery(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			m := muxer.New(test.conn)
-			defer m.Stop()
+			defer m.Stop(context.Background())
 			sendChan, _, _ := m.RegisterProtocol(
 				0x01,
 				muxer.ProtocolRoleInitiator,
@@ -527,7 +528,7 @@ func TestMuxerSendWriteDeadlineFailureDoesNotWrite(t *testing.T) {
 		setErr:   deadlineErr,
 	}
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	segment := muxer.NewSegment(0x01, []byte("test"), false)
 	if segment == nil {
@@ -541,7 +542,7 @@ func TestMuxerSendWriteDeadlineFailureDoesNotWrite(t *testing.T) {
 func TestMuxerSendRefreshesWriteDeadline(t *testing.T) {
 	conn := &trackingWriteDeadlineConn{mockConn: newMockConn()}
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	for i := range 2 {
 		segment := muxer.NewSegment(0x01, []byte("test"), false)
@@ -567,7 +568,7 @@ func TestMuxerSendBlockedWriteHonorsDeadline(t *testing.T) {
 		clamp:             true,
 	}
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	result := make(chan error, 1)
 	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
@@ -607,7 +608,7 @@ func TestMuxerSendBlockedWriteUnblocksOnStop(t *testing.T) {
 	requested := make(chan time.Time, 1)
 	conn := &clampedPipeConn{Conn: local, requestedDeadline: requested}
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	result := make(chan error, 1)
 	segment := muxer.NewSegment(0x01, []byte("blocked"), false)
@@ -622,7 +623,7 @@ func TestMuxerSendBlockedWriteUnblocksOnStop(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("muxer did not start the blocked write")
 	}
-	m.Stop()
+	_ = m.Stop(context.Background())
 	select {
 	case err := <-result:
 		require.ErrorIs(t, err, io.ErrClosedPipe)
@@ -673,7 +674,7 @@ func TestDiffusionModes(t *testing.T) {
 			conn := newMockConn()
 			m := muxer.New(conn)
 			m.SetDiffusionMode(tt.diffusionMode)
-			defer m.Stop()
+			defer m.Stop(context.Background())
 
 			// Register protocols for both roles
 			_, recvInitiator, _ := m.RegisterProtocol(
@@ -745,7 +746,7 @@ func TestErrorHandling(t *testing.T) {
 	t.Run("zero byte payload", func(t *testing.T) {
 		conn := newMockConn()
 		m := muxer.New(conn)
-		defer m.Stop()
+		defer m.Stop(context.Background())
 
 		// Register protocol
 		_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
@@ -780,7 +781,7 @@ func TestErrorHandling(t *testing.T) {
 	t.Run("unknown protocol", func(t *testing.T) {
 		conn := newMockConn()
 		m := muxer.New(conn)
-		defer m.Stop()
+		defer m.Stop(context.Background())
 
 		m.Start()
 
@@ -804,7 +805,7 @@ func TestErrorHandling(t *testing.T) {
 	t.Run("connection closed", func(t *testing.T) {
 		conn := newMockConn()
 		m := muxer.New(conn)
-		defer m.Stop()
+		defer m.Stop(context.Background())
 
 		// Register protocol
 		_, _, _ = m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
@@ -835,7 +836,7 @@ func TestConcurrentAccess(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Register multiple protocols
 	const numProtocols = 10
@@ -895,7 +896,7 @@ func TestConcurrentAccess(t *testing.T) {
 	)
 
 	// Stop the muxer
-	m.Stop()
+	_ = m.Stop(context.Background())
 
 	// Wait for all goroutines to finish
 	wg.Wait()
@@ -956,7 +957,7 @@ func TestStartOnce(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Register a protocol
 	sendChan, _, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleInitiator)
@@ -1009,7 +1010,7 @@ func TestUnregisterProtocolBehavior(t *testing.T) {
 	m.UnregisterProtocol(0x01, muxer.ProtocolRoleInitiator)
 
 	// Stop the muxer
-	m.Stop()
+	_ = m.Stop(context.Background())
 }
 
 // TestMuxerSendAfterStop tests sending after muxer is stopped
@@ -1018,7 +1019,7 @@ func TestMuxerSendAfterStop(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Create a segment
 	segment := muxer.NewSegment(0x01, []byte("test"), false)
@@ -1031,7 +1032,7 @@ func TestMuxerSendAfterStop(t *testing.T) {
 	require.NoError(t, m.Send(segment))
 	require.Equal(t, 1, conn.WriteCalls())
 	m.Start()
-	m.Stop()
+	_ = m.Stop(context.Background())
 
 	// Connection cleanup is asynchronous and can independently make Write
 	// fail. Check attempted writes, including failures on a closed connection,
@@ -1127,7 +1128,7 @@ func TestMultipleProtocolRoles(t *testing.T) {
 
 	conn := newMockConn()
 	m := muxer.New(conn)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	// Register both initiator and responder for same protocol
 	sendInit, recvInit, doneInit := m.RegisterProtocol(
@@ -1162,7 +1163,7 @@ func TestReadBufferBudget(t *testing.T) {
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 	})
 

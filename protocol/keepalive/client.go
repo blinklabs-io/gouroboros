@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ type Client struct {
 	onceStart       sync.Once
 	// scheduleHook is test-only synchronization for the shutdown race.
 	scheduleHook func()
+	// stopHook, when set by a test, runs in Stop once the timer is cleared.
+	stopHook func()
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -146,14 +149,28 @@ func (c *Client) startTimer() {
 }
 
 // Stop stops the keep-alive protocol client and cancels any pending timers.
-func (c *Client) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error {
+	// Signal first: startTimer checks for shutdown under timerMutex, so a
+	// timer callback already running arms no timer once it is cleared.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.timerMutex.Lock()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
 	}
 	c.timerMutex.Unlock()
-	c.Protocol.Stop()
+	if c.stopHook != nil {
+		c.stopHook()
+	}
+	return proto.Stop(ctx)
 }
 
 // messageHandler handles incoming protocol messages for the client.
@@ -199,7 +216,8 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	}
 
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
-		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
+		callbackContext := c.callbackContext.withOwner(c.Protocol)
+		return c.config.KeepAliveResponseFunc(callbackContext, msg.Cookie)
 	}
 	// Call optional notification callback if provided
 	if c.config != nil && c.config.OnKeepAliveResponseReceived != nil {

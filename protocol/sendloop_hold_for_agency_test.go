@@ -70,7 +70,7 @@ func newHeldMessageProtocol(
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 
 	wireChan = make(chan []byte, 100)
 	go func() {
@@ -96,7 +96,7 @@ func newHeldMessageProtocol(
 		InitialState: busy,
 	})
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	return p, errorChan, wireChan, busy, idle, done
 }
 
@@ -425,7 +425,7 @@ func TestSendLoopDefersBatchedMessageBehindUnflushedBacklog(t *testing.T) {
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -482,7 +482,7 @@ func TestSendLoopDefersBatchedMessageBehindUnflushedBacklog(t *testing.T) {
 	}
 
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	require.NoError(t, p.SendMessage(&MessageBase{MessageType: msgTypeA}))
 	select {
@@ -564,7 +564,7 @@ func TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral(t *testing.T) {
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -584,7 +584,7 @@ func TestSendLoopConsumesTokenWhenBatchedMessageBypassesDeferral(t *testing.T) {
 		InitialState: acquiring,
 	})
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	sendAndWait := func(msgType uint8) chan error {
 		result := make(chan error, 1)

@@ -16,6 +16,7 @@ package chainsync
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -95,8 +96,8 @@ func serveRollForward(
 	})
 	clientMuxer := muxer.New(clientConn)
 	serverMuxer := muxer.New(serverConn)
-	t.Cleanup(clientMuxer.Stop)
-	t.Cleanup(serverMuxer.Stop)
+	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
+	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
 	protoId := ProtocolIdNtC
 	fromCbor := NewMsgFromCborNtC
@@ -146,9 +147,9 @@ func serveRollForward(
 	})
 
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	serverMuxer.Start()
 	clientMuxer.Start()
 

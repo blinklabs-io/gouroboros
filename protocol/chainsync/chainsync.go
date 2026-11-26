@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -217,7 +218,9 @@ type Config struct {
 	// one pipeline across peers: each roll-forward waits for its ordered fence,
 	// limiting this client to one in-flight block and allowing one peer's invalid
 	// block to stop work submitted by other clients. Configure buffer sizes when
-	// creating the pipeline.
+	// creating the pipeline. The client does not read the pipeline's Results;
+	// reading them is optional, and an unread Results channel does not delay
+	// roll-forwards.
 	Pipeline *pipeline.BlockPipeline
 
 	// PipelineBufferSize is reserved for future use.
@@ -278,6 +281,27 @@ type CallbackContext struct {
 	ConnectionDoneChan <-chan any
 	Client             *Client
 	Server             *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // Callback function types

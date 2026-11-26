@@ -84,7 +84,7 @@ func runTest(
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -144,7 +144,7 @@ func runTestCollectingConnErrors(
 	}()
 	t.Cleanup(func() {
 		// Ensure failed assertions also release the mock and protocol goroutines.
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 		select {
 		case <-connDone:
 		case <-time.After(10 * time.Second):
@@ -793,8 +793,7 @@ func TestVotesRequestPinsReplyToRequestedCount(t *testing.T) {
 					continue
 				}
 				raw, err := cbor.Encode(lcommon.LeiosVote{
-					SlotNo:  1,
-					VoterId: uint64(idx),
+					VoterId: uint16(idx),
 					VoteSignature: make(
 						[]byte,
 						lcommon.LeiosBlsSignatureSize,
@@ -1277,7 +1276,6 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 	eb1 := testEB(t, 0x01, 1)
 	eb2 := testEB(t, 0x02, 1)
 	vote, err := cbor.Encode(lcommon.LeiosVote{
-		SlotNo:        9,
 		VoterId:       9,
 		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
 	})
@@ -1373,7 +1371,6 @@ func TestMismatchedReplyFailsConnection(t *testing.T) {
 // reply is delivered.
 func TestVotesRequestWithRepeatedIdsAcceptsMatchingReply(t *testing.T) {
 	vote, err := cbor.Encode(lcommon.LeiosVote{
-		SlotNo:        5,
 		VoterId:       1,
 		VoteSignature: make([]byte, lcommon.LeiosBlsSignatureSize),
 	})

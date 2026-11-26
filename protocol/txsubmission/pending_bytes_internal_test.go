@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -79,13 +80,13 @@ func newRawPeerWithConfig(t *testing.T, cfg *Config) *rawPeer {
 	s.Start()
 	t.Cleanup(func() {
 		proto := s.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:
@@ -240,7 +241,7 @@ func TestTxIdsStateRejectsMessageOverLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
-	p.server.SetIngressBackpressure(true)
+	p.server.ProtocolInstance().SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes+1))
 	requireOversizedRejection(t, p.errorChan, LargeMaxPendingMessageBytes)
 }
@@ -255,7 +256,7 @@ func TestTxIdsStateAdmitsMessageAtLargeLimit(t *testing.T) {
 		&Config{InitFunc: func(CallbackContext) error { return nil }},
 	)
 	requestTxIdsIntoBlocking(t, p)
-	p.server.SetIngressBackpressure(true)
+	p.server.ProtocolInstance().SetIngressBackpressure(true)
 	p.send(t, replyTxsOfSize(t, LargeMaxPendingMessageBytes))
 	requireNoOversizedRejection(t, p.errorChan)
 }
@@ -454,6 +455,17 @@ func (p *rawRequestingPeer) waitForOutboundMessage(
 
 func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 	t.Helper()
+	return newRawRequestingPeerAtVersion(t, cfg, 0)
+}
+
+// newRawRequestingPeerAtVersion is newRawRequestingPeer on a connection that
+// negotiated the given node-to-node version.
+func newRawRequestingPeerAtVersion(
+	t *testing.T,
+	cfg *Config,
+	version uint16,
+) *rawRequestingPeer {
+	t.Helper()
 	localConn, peerConn := net.Pipe()
 	m := muxer.New(localConn)
 	m.Start()
@@ -472,6 +484,7 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 		Muxer:     m,
 		ErrorChan: errorChan,
 		Mode:      protocol.ProtocolModeNodeToNode,
+		Version:   version,
 	}, cfg)
 	c.Start()
 	// Init leaves the Init state for Idle, which is where a peer's
@@ -485,13 +498,13 @@ func newRawRequestingPeer(t *testing.T, cfg *Config) *rawRequestingPeer {
 	}
 	t.Cleanup(func() {
 		proto := c.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
 			t.Error("protocol did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:
@@ -596,7 +609,7 @@ func TestRequestTxIdsAtWindowReachesCallback(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -628,7 +641,7 @@ func TestRequestTxIdsWindowClosesAsIdsGoUnacknowledged(t *testing.T) {
 		},
 	})
 	outboundStart := p.outboundRead.count.Load()
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -679,7 +692,7 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 		},
 	})
 	outboundStart := p.outboundRead.count.Load()
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -691,7 +704,7 @@ func TestRequestTxIdsWindowReopensOnAcknowledgement(t *testing.T) {
 		outboundStart,
 		NewMsgReplyTxIds(windowTxIdAndSizes(MaxUnackedTxIds)),
 	)
-	p.send(t, NewMsgRequestTxIds(false, MaxUnackedTxIds, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, MaxUnackedTxIds, MaxUnackedTxIds))
 	select {
 	case req := <-requested:
 		require.Equal(t, uint16(MaxUnackedTxIds), req)
@@ -810,7 +823,7 @@ func TestRequestTxIdsRefusesAnOverReturningCallback(t *testing.T) {
 			return windowTxIdAndSizes(MaxUnackedTxIds), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, 1))
+	p.send(t, NewMsgRequestTxIds(true, 0, 1))
 	select {
 	case err := <-p.errorChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolViolationRequestExceeded)
@@ -844,7 +857,7 @@ func TestRequestTxIdsAcceptsACallbackReplyWithinTheRequest(t *testing.T) {
 			return windowTxIdAndSizes(int(req)), nil
 		},
 	})
-	p.send(t, NewMsgRequestTxIds(false, 0, MaxUnackedTxIds))
+	p.send(t, NewMsgRequestTxIds(true, 0, MaxUnackedTxIds))
 	select {
 	case err := <-p.errorChan:
 		t.Fatalf("a reply within the request was refused: %v", err)
@@ -913,7 +926,7 @@ func TestServerRequestTxIdsRejectsAnOverLongReplyFromThePeer(t *testing.T) {
 	peer := newReplyValidationPeer(t)
 	errChan := make(chan error, 1)
 	go func() {
-		_, err := peer.server.RequestTxIds(false, 1)
+		_, err := peer.server.RequestTxIds(true, 1)
 		errChan <- err
 	}()
 	peer.waitForRequest(t)

@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -64,7 +65,7 @@ func TestPipelinedMessageAdmittedAfterItsOwnStateEnds(t *testing.T) {
 	stateTransitionChan := make(chan protocolStateTransition)
 	p.stateTransitionChan = stateTransitionChan
 	go p.stateLoop(stateTransitionChan)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	requestNext := &MessageBase{MessageType: msgTypeRequestNext}
 	rollForward := &MessageBase{MessageType: msgTypeRollForward}

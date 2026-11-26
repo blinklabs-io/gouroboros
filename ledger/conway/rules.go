@@ -33,6 +33,14 @@ import (
 )
 
 var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
+	// BadInputs runs first. cardano-ledger accumulates every failure, so a
+	// missing input always yields BadInputsUTxO; this list stops at the first
+	// failure, and the rules below resolve collateral and reference inputs
+	// and would otherwise report the same missing input in their own terms.
+	{
+		Id:        common.UtxoValidationRuleBadInputs,
+		Validator: UtxoValidateBadInputsUtxo,
+	},
 	{
 		Id:        common.UtxoValidationRuleCurrentTreasuryValue,
 		Validator: common.UtxoValidateCurrentTreasuryValue,
@@ -157,10 +165,6 @@ var utxoValidationRuleDescriptors = []common.UtxoValidationRuleDescriptor{
 	{
 		Id:        common.UtxoValidationRuleNoCollateralInputs,
 		Validator: UtxoValidateNoCollateralInputs,
-	},
-	{
-		Id:        common.UtxoValidationRuleBadInputs,
-		Validator: UtxoValidateBadInputsUtxo,
 	},
 	// Ensure script witness presence/absence is validated after the
 	// redeemer/script relation.
@@ -300,6 +304,7 @@ func UtxoValidationRuleDescriptors() []common.UtxoValidationRuleDescriptor {
 // remains mutable for compatibility; mutations are not reflected by
 // UtxoValidationRuleDescriptors.
 var UtxoValidationRules = common.ComposeUtxoValidationRules(
+	common.AlwaysUtxoValidationRules(UtxoValidateBadInputsUtxo),
 	common.AlwaysUtxoValidationRules(common.UtxoValidateCurrentTreasuryValue),
 	common.AlwaysUtxoValidationRules(UtxoValidateMetadata),
 	common.Phase2ValidUtxoValidationRules(UtxoValidateProposalProcedures),
@@ -338,7 +343,6 @@ var UtxoValidationRules = common.ComposeUtxoValidationRules(
 		UtxoValidateCollateralContainsNonAda,
 		UtxoValidateCollateralEqBalance,
 		UtxoValidateNoCollateralInputs,
-		UtxoValidateBadInputsUtxo,
 		UtxoValidateScriptWitnesses,
 		UtxoValidateRequiredRedeemers,
 		UtxoValidateValueNotConservedUtxo,
@@ -687,14 +691,16 @@ func govActionTypePurpose(
 // per the cardano-ledger pvCanFollow predicate: either the major version
 // increments by exactly one and the minor version resets to zero, or the
 // major version is unchanged and the minor version increments by exactly
-// one.
+// one. The minor version is 32 bits wide and its successor is computed in
+// 32 bits, so it wraps from the maximum to zero.
 func protocolVersionCanFollow(
 	curMajor, curMinor, newMajor, newMinor uint,
 ) bool {
 	if newMajor == curMajor+1 && newMinor == 0 {
 		return true
 	}
-	return newMajor == curMajor && newMinor == curMinor+1
+	return newMajor == curMajor && curMinor <= math.MaxUint32 &&
+		newMinor == uint(uint32(curMinor)+1)
 }
 
 // txGovProposal is a governance action proposed by the transaction under
@@ -2084,12 +2090,9 @@ func UtxoValidateScriptDataHash(
 	view, err := script.NewTxScriptView(tx, ls)
 	if err != nil {
 		if errors.Is(err, common.ErrInputResolution) {
-			// A spent input that does not resolve is reported by
-			// UtxoValidateBadInputsUtxo, which runs on every transaction in
-			// this same rule list. Reporting it from here would change which
-			// error an invalid transaction produces, and this rule is
-			// registered ahead of that one. A reference input that does not
-			// resolve has no such dedicated rule, so it still surfaces here.
+			// A spent input that does not resolve is left to
+			// UtxoValidateBadInputsUtxo, which runs first in this era's rule
+			// list and reports it as the reference does.
 			return nil
 		}
 		return err
@@ -2372,13 +2375,23 @@ func UtxoValidateNoCollateralInputs(
 	return alonzo.NoCollateralInputsError{}
 }
 
+// UtxoValidateBadInputsUtxo ensures that every spent, collateral and
+// reference input is in the ledger state, the input set of BadInputsUTxO
+// from Babbage on. A reference input that is also spent is checked once;
+// whether that overlap is allowed at all is UtxoValidateDisjointRefInputs'
+// concern.
 func UtxoValidateBadInputsUtxo(
 	tx common.Transaction,
 	slot uint64,
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
-	return shelley.UtxoValidateBadInputsUtxo(tx, slot, ls, pp)
+	return shelley.ValidateBadInputs(
+		ls,
+		tx.Inputs(),
+		tx.Collateral(),
+		tx.ReferenceInputs(),
+	)
 }
 
 type valueConservationStakeState struct {
@@ -3124,10 +3137,8 @@ func UtxoValidateTooManyCollateralInputs(
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
-// protocol parameters. The fee-relevant transaction size is determined by
-// common.TxSizeForFee, which uses the original on-wire CBOR length and
-// subtracts 1 byte for Alonzo+ eras (the IsValid boolean is excluded from
-// the fee computation per the Cardano ledger spec toCBORForSizeComputation).
+// protocol parameters and the transaction size measured by
+// common.TxSizeForFee.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -3338,9 +3349,11 @@ func UtxoValidateDelegation(
 		return nil
 	}
 
-	// Helper to check if pool is registered (in state or in-tx)
-	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
-		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) (bool, error) {
+		if inTxPoolRegs[poolKeyHash] {
+			return true, nil
+		}
+		return common.PoolRegistered(ls, slot, poolKeyHash)
 	}
 
 	// Helper to convert Drep type to credential type. Any type other than
@@ -3500,7 +3513,9 @@ func UtxoValidateDelegation(
 		// Check delegations
 		case *common.StakeDelegationCertificate:
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			// Check if stake credential is registered
@@ -3519,7 +3534,9 @@ func UtxoValidateDelegation(
 
 		case *common.StakeVoteDelegationCertificate:
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			// Check if stake credential is registered
@@ -3535,7 +3552,9 @@ func UtxoValidateDelegation(
 				return err
 			}
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 
@@ -3552,7 +3571,9 @@ func UtxoValidateDelegation(
 				return err
 			}
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			if err := validateDRepTarget(c.Drep); err != nil {
@@ -4330,7 +4351,14 @@ func UtxoValidateUnknownVoters(
 			}
 
 		case common.VoterTypeStakingPoolKeyHash:
-			if !overlay.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
+			registered, err := overlay.poolRegistered(
+				slot,
+				common.PoolKeyHash(voter.Hash),
+			)
+			if err != nil {
+				return err
+			}
+			if !registered {
 				return UnknownVoterError{Voter: *voter}
 			}
 

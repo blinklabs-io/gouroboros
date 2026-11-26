@@ -66,17 +66,17 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 		ErrorChan:    errors,
 		ConnectionId: testConnectionId(),
 	}, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()
 	server.Start()
 	client.Start()
 	t.Cleanup(func() {
-		client.Stop()
-		server.Stop()
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		client.Stop(context.Background())
+		server.Stop(context.Background())
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})
@@ -89,8 +89,13 @@ func TestClientServerObjectDiffusionFlow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, objects, 1)
 	require.True(t, bytes.Equal(object, objects[0]))
+	first := server.ProtocolInstance()
 	require.NoError(t, client.Done(ctx))
-	require.Eventually(t, server.Protocol.IsDone, time.Second, time.Millisecond)
+	// MsgDone ends the run, and the server restarts for the next one.
+	require.Eventually(t, first.IsDone, time.Second, time.Millisecond)
+	require.Eventually(t, func() bool {
+		return server.ProtocolInstance() != first
+	}, time.Second, time.Millisecond)
 }
 
 func TestObjectDiffusionWindowAndAgencyRules(t *testing.T) {
@@ -172,7 +177,7 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 		Muxer:     rightMuxer,
 		ErrorChan: errors,
 	}, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()
@@ -180,10 +185,10 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 	client.Start()
 	t.Cleanup(func() {
 		close(release)
-		client.Stop()
-		server.Stop()
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		client.Stop(context.Background())
+		server.Stop(context.Background())
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})
@@ -197,7 +202,7 @@ func TestClientRequestReturnsOnProtocolShutdown(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("server did not receive the object ID request")
 	}
-	client.Stop()
+	client.Stop(context.Background())
 	select {
 	case err := <-requestDone:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

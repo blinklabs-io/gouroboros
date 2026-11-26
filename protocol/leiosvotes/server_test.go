@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -67,9 +68,9 @@ func TestUnconfiguredRequestRemainsBusyAndPreservesSharedBearer(t *testing.T) {
 	peerSharingServer.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Stop()
-		peerSharingServer.Stop()
-		m.Stop()
+		server.Stop(context.Background())
+		peerSharingServer.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -125,8 +126,8 @@ func TestUnconfiguredInvalidRequestReportsStateError(t *testing.T) {
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Stop()
-		m.Stop()
+		server.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -154,7 +155,7 @@ func TestNewServer(t *testing.T) {
 	)
 
 	require.NotNil(t, server)
-	assert.NotNil(t, server.Protocol)
+	assert.NotNil(t, server.ProtocolInstance())
 	assert.NotNil(t, server.config)
 }
 
@@ -177,7 +178,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	connectionDone := make(chan any)
 	callbackEntered := make(chan struct{})
@@ -196,7 +197,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 		Muxer:              m,
 	}, &cfg)
 	server.Start()
-	defer server.ProtocolInstance().Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	defer func() {
 		select {
 		case <-connectionDone:

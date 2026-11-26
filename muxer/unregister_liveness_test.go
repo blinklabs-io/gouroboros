@@ -16,6 +16,7 @@ package muxer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -56,7 +57,7 @@ func TestUnregisterProtocolWakesBlockedDelivery(t *testing.T) {
 	_, recvChan, _ := m.RegisterProtocol(protocolId, ProtocolRoleResponder)
 	m.Start()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = remoteConn.Close()
 		_ = localConn.Close()
 	})

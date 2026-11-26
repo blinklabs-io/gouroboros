@@ -57,7 +57,7 @@ func TestBlockPipelineOrderedParametersRefresh(t *testing.T) {
 	)
 	p := NewBlockPipeline(options...)
 	require.NoError(t, p.Start(t.Context()))
-	defer p.Stop()
+	defer p.Stop(context.Background())
 	for range 2 {
 		require.NoError(t, p.Submit(t.Context(), block.BlockType,
 			block.Cbor, createTestTip(1, 1)))
@@ -87,7 +87,7 @@ func TestBlockPipelineHeaderOnlyReturnsValidatedOrderedResults(t *testing.T) {
 		WithBlockTypeResolver(resolveTestBlockType), WithEta0(shelleyBlockEta0),
 		WithSlotsPerKesPeriod(129600))
 	require.NoError(t, p.Start(t.Context()))
-	defer p.Stop()
+	defer p.Stop(context.Background())
 	require.NoError(t, p.Submit(t.Context(), block.BlockType,
 		block.Cbor, createTestTip(1, 1)))
 	require.NoError(t, p.Fence(t.Context()))
@@ -161,7 +161,7 @@ func TestOrderedProviderRejectsMissingStateAndBypasses(t *testing.T) {
 			)
 			p := NewBlockPipeline(options...)
 			require.NoError(t, p.Start(t.Context()))
-			defer p.Stop()
+			defer p.Stop(context.Background())
 			block := getValidShelleyBlock(t)
 			require.NoError(
 				t,
@@ -211,7 +211,7 @@ func TestOrderedValidationEnforcesKesLifetime(t *testing.T) {
 			))
 			p := NewBlockPipeline(options...)
 			require.NoError(t, p.Start(t.Context()))
-			defer p.Stop()
+			defer p.Stop(context.Background())
 			block := getValidShelleyBlock(t)
 			require.NoError(t, p.Submit(t.Context(), block.BlockType,
 				block.Cbor, createTestTip(1, 1)))

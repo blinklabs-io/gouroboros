@@ -16,6 +16,7 @@ package handshake_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func ntcV23VersionData() protocol.VersionData {
 
 func closeAndWait(t *testing.T, oConn *ouroboros.Connection) {
 	t.Helper()
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 	select {
 	case <-oConn.ErrorChan():
 	case <-time.After(10 * time.Second):

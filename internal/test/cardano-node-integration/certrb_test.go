@@ -174,7 +174,7 @@ func TestCardanoNodeInlinedCertRbs(t *testing.T) {
 		_ = netConn.Close()
 		t.Fatalf("start Ouroboros connection: %v", err)
 	}
-	t.Cleanup(func() { _ = oConn.Close() })
+	t.Cleanup(func() { _ = oConn.Close(context.Background()) })
 	client := oConn.ChainSync().Client
 
 	tip, err := client.GetCurrentTip()

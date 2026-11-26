@@ -6,9 +6,13 @@ an option passed to a client or server can replace the timeout where noted.
 An entry with a zero timeout or pending-message limit has no framework limit.
 
 The protocol framework applies a state's `PendingMessageByteLimit` while that
-state is active. A state timeout closes the protocol when its agency does not
-make the expected transition before the timeout expires. These are transport
-and state-machine safeguards, not application-level transaction or block
+state is active. A state timeout closes the protocol when the peer holding
+agency does not send its message before the timeout expires. Only the side
+waiting for that message enforces it, as the reference driver does; the side
+holding agency is never timed, however long it takes to send. The waiting
+side's timer starts once its handler for the previous message has returned,
+so the time its own callbacks take never counts against the peer. These are
+transport and state-machine safeguards, not application-level transaction or block
 validation.
 
 ## Connection read buffer allowance
@@ -182,7 +186,9 @@ The base map (`protocol/blockfetch/blockfetch.go`) is:
 | Done | none | 0 |
 
 Client and server instances copy the map and apply their configured
-`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. A pipelining
+`BatchStartTimeout` and `BlockTimeout` to Busy and Streaming. The server holds
+agency in both states, so only the client enforces them. `NewConfig` defaults
+both to 60 seconds, the reference implementation's `longWait`. A pipelining
 client raises its Idle pending-message limit to 2,500,000 bytes so a block can
 arrive during the Idle transition.
 
@@ -249,13 +255,29 @@ ranges. `MaxRequestCount` and `MaxAckCount` (65,535) describe the ranges of the
 
 A request for transaction IDs must leave the peer inside that window. The
 client's `MsgRequestTxIds` handler rejects an acknowledgement larger than what
-it has outstanding, and rejects a request where `unacknowledged - ack + req`
-exceeds `MaxUnackedTxIds`; `Server.RequestTxIds` applies the same condition
-before putting a request on the wire. Both return
-`ErrProtocolViolationRequestExceeded`. This is the reference implementation's
-condition in `Ouroboros.Network.TxSubmission.Outbound`, which throws
-`ProtocolErrorAckedTooManyTxids` and `ProtocolErrorRequestedTooManyTxids`
-respectively.
+it has outstanding with `ErrProtocolViolationRequestExceeded`
+(`ProtocolErrorAckedTooManyTxids` in the reference implementation's
+`Ouroboros.Network.TxSubmission.Outbound`). A request where
+`unacknowledged - ack + req` exceeds `MaxUnackedTxIds` is treated by version:
+
+- Before node-to-node version 16 the window is shared by both sides, and the
+  client rejects the request with `ErrProtocolViolationRequestExceeded`
+  (`ProtocolErrorRequestedTooManyTxids`).
+- From version 16 the window is a local setting the peer cannot know, so the
+  client clamps the request instead (the reference's `TxOutboundV_2`): it
+  calls `RequestTxIdsFunc` with `MaxUnackedTxIds - (unacknowledged - ack)`
+  in place of `req` and refuses a callback reply longer than that. With the
+  window full a non-blocking request is clamped to zero and answered with an
+  empty reply, which the reference also does.
+
+In every version the client rejects, before any clamping, a blocking request
+for no IDs or one that leaves IDs unacknowledged after its acknowledgement,
+with `ErrProtocolViolationInvalidMessage` (`ProtocolErrorRequestedNothing`
+and `ProtocolErrorRequestBlocking`). A blocking request it answers therefore
+always asks for at least one ID that fits, and its reply is never empty.
+
+`Server.RequestTxIds` refuses a request past `MaxUnackedTxIds` before putting
+it on the wire, with `ErrProtocolViolationRequestExceeded`, in every version.
 
 A request for transaction bodies is bounded the same way: `Server.RequestTxs`
 and the client's request handler both reject more than `MaxUnackedTxIds`
@@ -311,15 +333,18 @@ the exported state-map constants above.
 ## Local mini-protocols
 
 These protocols have no static state-map timeout; the client copies the map and
-applies the configured operation timeout where indicated:
+applies the configured operation timeout where indicated. The specification
+sets no node-to-client timeouts, so Local State Query, Local Tx Monitor and
+Local Tx Submission default to none; their `WithAcquireTimeout`,
+`WithQueryTimeout` and `WithTimeout` options opt in:
 
 | Protocol | State/operation | Default |
 | --- | --- | ---: |
-| Local State Query | Acquiring | 5 seconds |
-| Local State Query | Querying | 180 seconds |
-| Local Tx Monitor | Acquiring | 5 seconds |
-| Local Tx Monitor | Busy queries | 30 seconds |
-| Local Tx Submission | Busy submit | 30 seconds |
+| Local State Query | Acquiring | none |
+| Local State Query | Querying | none |
+| Local Tx Monitor | Acquiring | none |
+| Local Tx Monitor | Busy queries | none |
+| Local Tx Submission | Busy submit | none |
 
 The local protocols have no additional queue, pipeline, or pending-message
 byte limits in their state maps. A Local Message Notification client bounds
@@ -340,8 +365,9 @@ The map (`protocol/peersharing/peersharing.go`) is:
 
 `MaxPendingMessageBytes` is 5,760 bytes, the reference implementation's
 `peerSharingProtocolLimits` ingress queue and `byteLimitsPeerSharing` per-state
-limit (4 x 1440, one TCP initial congestion window). The Busy timeout is
-configurable via `WithTimeout`.
+limit (4 x 1440, one TCP initial congestion window). Only the client's copy
+of the map takes `WithTimeout` as its Busy timeout; the server's map always
+uses `BusyTimeout`.
 
 The server clamps a `SharePeers` reply to the smaller of the requested
 `Amount` and `MaxSharedPeers` (230), the largest number of addresses that
@@ -356,7 +382,9 @@ carrying more addresses than it requested.
 | Leios Fetch client | BlockRange | 5 seconds | 64 MiB |
 | Leios Notify client | Quit | 60 seconds | none |
 | Leios Votes client | Busy | 60 seconds | 1,111 |
-| Leios Votes server with a configured request callback | Busy | 60 seconds | none |
+
+The Leios Votes server holds agency in Busy, so it sets no Busy timeout and
+`WithTimeout` applies only to the client.
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
 context, not by a protocol state timeout. Leios Fetch admits at most 65,535

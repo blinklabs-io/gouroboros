@@ -16,6 +16,7 @@ package leiosvotes
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"math"
 	"net"
@@ -48,10 +49,9 @@ func longestHeadVoteMessage(voterId uint64) []byte {
 	var b bytes.Buffer
 	b.Write(longestHead(cbor.CborTypeArray, 2))
 	b.Write(longestHead(0x00, MessageTypeVote))
-	b.Write(longestHead(cbor.CborTypeArray, 4))
-	b.Write(longestHead(0x00, vote.SlotNo))
+	b.Write(longestHead(cbor.CborTypeArray, 3))
 	b.Write(longestHead(cbor.CborTypeByteString, 32))
-	b.Write(vote.EndorserBlockHash.Bytes())
+	b.Write(vote.AnnouncingRbHash.Bytes())
 	b.Write(longestHead(0x00, voterId))
 	b.Write(longestHead(cbor.CborTypeByteString, 48))
 	b.Write(vote.VoteSignature)
@@ -66,12 +66,12 @@ func paddedVoteMessage(t *testing.T, size int) []byte {
 	vote := testVote()
 	prefix, err := cbor.Encode([]any{
 		MessageTypeVote,
-		[]any{vote.SlotNo, vote.EndorserBlockHash, vote.VoterId},
+		[]any{vote.AnnouncingRbHash, vote.VoterId},
 	})
 	require.NoError(t, err)
-	// Widen the vote array from 3 to 4 elements to make room for the
+	// Widen the vote array from 2 to 3 elements to make room for the
 	// signature appended below.
-	prefix[2] = cbor.CborTypeArray | 4
+	prefix[2] = cbor.CborTypeArray | 3
 	signature, err := cbor.Encode(vote.VoteSignature)
 	require.NoError(t, err)
 	var b bytes.Buffer
@@ -91,7 +91,7 @@ func paddedVoteMessage(t *testing.T, size int) []byte {
 // and refused above it before decoding.
 func TestNewMsgFromCborVoteSizeLimit(t *testing.T) {
 	longest := longestHeadVoteMessage(42)
-	require.Len(t, longest, 143)
+	require.Len(t, longest, 134)
 	tests := []struct {
 		name    string
 		data    []byte
@@ -122,7 +122,7 @@ func TestNewMsgFromCborVoteSizeLimit(t *testing.T) {
 			}
 			require.NoError(t, err)
 			vote := msg.(*MsgVote).Vote
-			assert.Equal(t, testVote().SlotNo, vote.SlotNo)
+			assert.Equal(t, testVote().AnnouncingRbHash, vote.AnnouncingRbHash)
 			assert.Equal(t, testVote().VoteSignature, vote.VoteSignature)
 		})
 	}
@@ -194,7 +194,7 @@ func startBudgetTestClient(
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	cfg := NewConfig(
 		WithRequestNextCount(count),
@@ -210,7 +210,13 @@ func startBudgetTestClient(
 	)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() {
+		// The vote callback may still be held here; its own cleanup, which
+		// runs after this one, releases it and waits for it to return.
+		signalOnly, cancel := context.WithCancel(context.Background())
+		cancel()
+		_ = client.Protocol.Stop(signalOnly)
+	})
 	require.NoError(t, client.Sync())
 	assert.Equal(
 		t,
@@ -287,7 +293,7 @@ func TestClientSlowConsumerRejectsPaddedVote(t *testing.T) {
 	writeTestMessages(t, conn, [][]byte{longestHeadVoteMessage(1)})
 	select {
 	case vote := <-votes:
-		require.Equal(t, uint64(1), vote.VoterId)
+		require.Equal(t, uint16(1), vote.VoterId)
 	case <-time.After(5 * time.Second):
 		t.Fatal("first vote was not delivered")
 	}
@@ -329,7 +335,7 @@ func TestClientSlowConsumerReceivesFullBatch(t *testing.T) {
 	for i := range uint64(count) {
 		select {
 		case vote := <-votes:
-			require.Equal(t, i, vote.VoterId)
+			require.Equal(t, uint16(i), vote.VoterId)
 		case err := <-errorChan:
 			t.Fatalf("protocol failed after %d votes: %v", i, err)
 		case <-time.After(5 * time.Second):

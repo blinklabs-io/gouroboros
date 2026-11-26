@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"net"
 	"sync"
 	"testing"
@@ -138,10 +139,10 @@ func newSnapshotPair(t *testing.T, l *snapshotLedger) *Client {
 		}
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
-		serverMuxer.Stop()
-		clientMuxer.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
 	})
 	server.Start()
 	client.Start()

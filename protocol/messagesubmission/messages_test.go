@@ -30,20 +30,20 @@ func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
 		name string
 		kind uint
 	}{
-		{"reply message IDs", MessageTypeReplyMessageIds},
-		{"request messages", MessageTypeRequestMessages},
-		{"reply messages", MessageTypeReplyMessages},
+		{"reply message IDs", MessageTypeV1ReplyMessageIds},
+		{"request messages", MessageTypeV1RequestMessages},
+		{"reply messages", MessageTypeV1ReplyMessages},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			wire := append(
 				[]byte{0x82, byte(tc.kind), 0x99, 0x13, 0x88},
 				bytes.Repeat([]byte{0x80}, 5000)...,
 			)
-			_, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+			_, err := decodeMsgFromCborWithLimit(protocol.ProtocolVersionDMQNtN1, tc.kind, wire, 100)
 			require.Error(t, err)
 			result := testing.Benchmark(func(b *testing.B) {
 				for range b.N {
-					msg, err := decodeMsgFromCborWithLimit(tc.kind, wire, 100)
+					msg, err := decodeMsgFromCborWithLimit(protocol.ProtocolVersionDMQNtN1, tc.kind, wire, 100)
 					if err == nil || msg != nil {
 						b.Fatal("oversized collection accepted")
 					}
@@ -59,38 +59,38 @@ func TestCollectionMessagesRejectConfiguredCountBeforeAllocation(t *testing.T) {
 func TestMsgInitEncoding(t *testing.T) {
 	msg := &MsgInit{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeInit,
+			MessageType: MessageTypeV1Init,
 		},
 	}
 
-	assert.Equal(t, uint8(MessageTypeInit), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1Init), msg.Type())
 	// CBOR encode/decode round-trip
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeInit), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1Init), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeInit), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1Init), parsed.Type())
 }
 
 // TestMsgRequestMessageIdsEncoding tests MsgRequestMessageIds encoding
 func TestMsgRequestMessageIdsEncoding(t *testing.T) {
 	msg := &MsgRequestMessageIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeRequestMessageIds,
+			MessageType: MessageTypeV1RequestMessageIds,
 		},
 		IsBlocking:   true,
 		AckCount:     5,
 		RequestCount: 10,
 	}
 
-	assert.Equal(t, uint8(MessageTypeRequestMessageIds), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1RequestMessageIds), msg.Type())
 	assert.Equal(t, true, msg.IsBlocking)
 	assert.Equal(t, uint16(5), msg.AckCount)
 	assert.Equal(t, uint16(10), msg.RequestCount)
 	// CBOR encode/decode round-trip and field preservation
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeRequestMessageIds), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1RequestMessageIds), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgRequestMessageIds)
 	assert.True(t, ok)
@@ -118,18 +118,18 @@ func TestMsgReplyMessageIdsEncoding(t *testing.T) {
 
 	msg := &MsgReplyMessageIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeReplyMessageIds,
+			MessageType: MessageTypeV1ReplyMessageIds,
 		},
 		Messages: messages,
 	}
 
-	assert.Equal(t, uint8(MessageTypeReplyMessageIds), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1ReplyMessageIds), msg.Type())
 	assert.Equal(t, 2, len(msg.Messages))
 	assert.Equal(t, []byte("id1"), msg.Messages[0].MessageID)
 	// CBOR round-trip and field preservation
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeReplyMessageIds), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1ReplyMessageIds), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgReplyMessageIds)
 	assert.True(t, ok)
@@ -151,17 +151,17 @@ func TestMsgRequestMessagesEncoding(t *testing.T) {
 
 	msg := &MsgRequestMessages{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeRequestMessages,
+			MessageType: MessageTypeV1RequestMessages,
 		},
 		MessageIDs: messageIDs,
 	}
 
-	assert.Equal(t, uint8(MessageTypeRequestMessages), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1RequestMessages), msg.Type())
 	assert.Equal(t, 3, len(msg.MessageIDs))
 	// CBOR round-trip and field preservation
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeRequestMessages), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1RequestMessages), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgRequestMessages)
 	assert.True(t, ok)
@@ -180,7 +180,7 @@ func TestMsgReplyMessagesEncoding(t *testing.T) {
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -197,17 +197,17 @@ func TestMsgReplyMessagesEncoding(t *testing.T) {
 
 	msg := &MsgReplyMessages{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeReplyMessages,
+			MessageType: MessageTypeV1ReplyMessages,
 		},
 		Messages: messages,
 	}
 
-	assert.Equal(t, uint8(MessageTypeReplyMessages), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1ReplyMessages), msg.Type())
 	assert.Equal(t, 1, len(msg.Messages))
 	// CBOR round-trip and field preservation
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeReplyMessages), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1ReplyMessages), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgReplyMessages)
 	assert.True(t, ok)
@@ -224,11 +224,11 @@ func TestMsgReplyMessagesEncoding(t *testing.T) {
 }
 
 func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
-	msg := NewMsgReplyMessages([]pcommon.DmqMessage{
+	msg := NewMsgReplyMessages(protocol.ProtocolVersionDMQNtN1, []pcommon.DmqMessage{
 		{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("id1"),
-				MessageBody: []byte("body1"),
+				MessageBody: paddedTestBody("body1"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -247,7 +247,7 @@ func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
 
-	parsed, err := NewMsgFromCbor(uint(MessageTypeReplyMessages), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1ReplyMessages), data)
 	assert.NoError(t, err)
 	decoded, ok := parsed.(*MsgReplyMessages)
 	require.True(t, ok)
@@ -260,30 +260,30 @@ func TestMsgReplyMessagesLegacyEncodingDecodes(t *testing.T) {
 func TestMsgDoneEncoding(t *testing.T) {
 	msg := &MsgDone{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeDone,
+			MessageType: MessageTypeV1Done,
 		},
 	}
 
-	assert.Equal(t, uint8(MessageTypeDone), msg.Type())
+	assert.Equal(t, uint8(MessageTypeV1Done), msg.Type())
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeDone), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1Done), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeDone), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1Done), parsed.Type())
 }
 
 // TestNewMsgFromCborInit tests parsing MsgInit from CBOR
 func TestNewMsgFromCborInit(t *testing.T) {
 	msg := &MsgInit{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeInit,
+			MessageType: MessageTypeV1Init,
 		},
 	}
 	data, err := cbor.Encode(msg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeInit), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1Init), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeInit), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1Init), parsed.Type())
 }
 
 // TestNewMsgFromCborUnknownType tests handling of unknown message type
@@ -300,18 +300,18 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	// MsgInit
 	initMsg := &MsgInit{
-		MessageBase: protocol.MessageBase{MessageType: MessageTypeInit},
+		MessageBase: protocol.MessageBase{MessageType: MessageTypeV1Init},
 	}
 	data, err := cbor.Encode(initMsg)
 	assert.NoError(t, err)
-	parsed, err := NewMsgFromCbor(uint(MessageTypeInit), data)
+	parsed, err := NewMsgFromCbor(uint(MessageTypeV1Init), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeInit), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1Init), parsed.Type())
 
 	// MsgRequestMessageIds
 	req := &MsgRequestMessageIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeRequestMessageIds,
+			MessageType: MessageTypeV1RequestMessageIds,
 		},
 		IsBlocking:   true,
 		AckCount:     1,
@@ -319,9 +319,9 @@ func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	}
 	data, err = cbor.Encode(req)
 	assert.NoError(t, err)
-	parsed, err = NewMsgFromCbor(uint(MessageTypeRequestMessageIds), data)
+	parsed, err = NewMsgFromCbor(uint(MessageTypeV1RequestMessageIds), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeRequestMessageIds), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1RequestMessageIds), parsed.Type())
 	// Verify decoded values match original
 	if decoded, ok := parsed.(*MsgRequestMessageIds); ok {
 		assert.Equal(t, req.IsBlocking, decoded.IsBlocking)
@@ -341,34 +341,34 @@ func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	}
 	reply := &MsgReplyMessageIds{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeReplyMessageIds,
+			MessageType: MessageTypeV1ReplyMessageIds,
 		},
 		Messages: msgs,
 	}
 	data, err = cbor.Encode(reply)
 	assert.NoError(t, err)
-	parsed, err = NewMsgFromCbor(uint(MessageTypeReplyMessageIds), data)
+	parsed, err = NewMsgFromCbor(uint(MessageTypeV1ReplyMessageIds), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeReplyMessageIds), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1ReplyMessageIds), parsed.Type())
 
 	// MsgRequestMessages
 	reqMsgs := &MsgRequestMessages{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeRequestMessages,
+			MessageType: MessageTypeV1RequestMessages,
 		},
 		MessageIDs: [][]byte{[]byte("id1")},
 	}
 	data, err = cbor.Encode(reqMsgs)
 	assert.NoError(t, err)
-	parsed, err = NewMsgFromCbor(uint(MessageTypeRequestMessages), data)
+	parsed, err = NewMsgFromCbor(uint(MessageTypeV1RequestMessages), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeRequestMessages), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1RequestMessages), parsed.Type())
 
 	// MsgReplyMessages
 	payload := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
 			MessageID:   []byte("id1"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedTestBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2000000000,
 		},
@@ -383,32 +383,32 @@ func TestNewMsgFromCborRoundTrip(t *testing.T) {
 	}
 	replyMsgs := &MsgReplyMessages{
 		MessageBase: protocol.MessageBase{
-			MessageType: MessageTypeReplyMessages,
+			MessageType: MessageTypeV1ReplyMessages,
 		},
 		Messages: []pcommon.DmqMessage{payload},
 	}
 	data, err = cbor.Encode(replyMsgs)
 	assert.NoError(t, err)
-	parsed, err = NewMsgFromCbor(uint(MessageTypeReplyMessages), data)
+	parsed, err = NewMsgFromCbor(uint(MessageTypeV1ReplyMessages), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeReplyMessages), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1ReplyMessages), parsed.Type())
 
 	// MsgDone
 	done := &MsgDone{
-		MessageBase: protocol.MessageBase{MessageType: MessageTypeDone},
+		MessageBase: protocol.MessageBase{MessageType: MessageTypeV1Done},
 	}
 	data, err = cbor.Encode(done)
 	assert.NoError(t, err)
-	parsed, err = NewMsgFromCbor(uint(MessageTypeDone), data)
+	parsed, err = NewMsgFromCbor(uint(MessageTypeV1Done), data)
 	assert.NoError(t, err)
-	assert.Equal(t, uint8(MessageTypeDone), parsed.Type())
+	assert.Equal(t, uint8(MessageTypeV1Done), parsed.Type())
 }
 
 func TestRequestMessagesRejectsDeepIDBeforeTypedDecode(t *testing.T) {
 	item := append(bytes.Repeat([]byte{0x81}, 64), 0)
-	wire := append([]byte{0x82, MessageTypeRequestMessages, 0x81}, item...)
+	wire := append([]byte{0x82, MessageTypeV1RequestMessages, 0x81}, item...)
 
-	_, err := NewMsgFromCbor(MessageTypeRequestMessages, wire)
+	_, err := NewMsgFromCbor(MessageTypeV1RequestMessages, wire)
 	require.ErrorContains(
 		t,
 		err,

@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -62,16 +63,16 @@ func newDirectionFlow(
 		Version:   MessageSubmissionV2MinVersion,
 	}, &serverCfg)
 	f.client.Protocol.EnsureRegistered()
-	f.server.Protocol.EnsureRegistered()
+	f.server.ProtocolInstance().EnsureRegistered()
 	f.clientMuxer.Start()
 	f.serverMuxer.Start()
 	f.client.Start()
 	f.server.Start()
 	t.Cleanup(func() {
-		f.client.Protocol.Stop()
-		f.server.Protocol.Stop()
-		f.clientMuxer.Stop()
-		f.serverMuxer.Stop()
+		f.client.Protocol.Stop(context.Background())
+		f.server.ProtocolInstance().Stop(context.Background())
+		_ = f.clientMuxer.Stop(context.Background())
+		_ = f.serverMuxer.Stop(context.Background())
 		_ = f.clientConn.Close()
 		_ = f.serverConn.Close()
 	})
@@ -132,7 +133,7 @@ func TestMessageIDReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			}
 			require.NoError(
 				t,
-				flow.client.SendMessage(NewMsgReplyMessageIds(entries)),
+				flow.client.SendMessage(NewMsgReplyMessageIds(MessageSubmissionV2MinVersion, entries)),
 			)
 			if tc.valid {
 				select {
@@ -196,9 +197,10 @@ func TestMessageReplyUsesRequestedCountThroughProtocol(t *testing.T) {
 			reply := make([]pcommon.DmqMessage, tc.count)
 			for idx := range reply {
 				reply[idx].MessageID = testMessageID(byte(idx + 1))
+				reply[idx].Payload.MessageBody = paddedTestBody("")
 			}
 			require.NoError(t, flow.client.SendMessage(
-				NewMsgReplyMessages(reply),
+				NewMsgReplyMessages(MessageSubmissionV2MinVersion, reply),
 			))
 			if tc.valid {
 				select {
@@ -350,6 +352,7 @@ func TestClientReplyUsesPeerRequestThroughProtocol(t *testing.T) {
 		reply := make([]pcommon.DmqMessage, 3)
 		for idx := range reply {
 			reply[idx].MessageID = testMessageID(byte(idx + 1))
+			reply[idx].Payload.MessageBody = paddedTestBody("")
 		}
 		require.ErrorContains(
 			t,

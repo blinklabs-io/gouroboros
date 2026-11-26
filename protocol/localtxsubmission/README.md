@@ -61,7 +61,7 @@ The LocalTxSubmission protocol submits transactions to the local node's mempool.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Submit Timeout | 30 seconds | Time to process transaction |
+| Submit Timeout | none | Time to process transaction. The node holds a submission while its mempool is full, so there is no default; `WithTimeout` sets one |
 
 ## Configuration Options
 
@@ -110,3 +110,6 @@ When a transaction is rejected, the `RejectTx` message includes detailed rejecti
 - Rejection provides detailed validation errors
 - The protocol is stateless; each submission is independent
 - Multiple transactions can be submitted sequentially
+- After `Done` the server restarts in Idle, as the reference's inbound
+  governor restarts a responder, so a client can start another run on the
+  same connection

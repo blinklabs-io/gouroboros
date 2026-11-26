@@ -330,7 +330,7 @@ func TestCompressionServerEmitsOptInWireMessage(t *testing.T) {
 					ouroboros.WithBlockFetchConfig(cfg),
 				)
 				require.NoError(t, err)
-				defer conn.Close()
+				defer conn.Close(context.Background())
 				ctx, cancel := context.WithTimeout(
 					context.Background(),
 					testTimeout,

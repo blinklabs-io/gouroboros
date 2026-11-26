@@ -136,8 +136,11 @@ func ValidateProtocolParameterUpdateDomains(
 	data []byte,
 	era ProtocolParameterUpdateEra,
 ) (map[uint64]cbor.RawMessage, error) {
-	var fields map[uint64]cbor.RawMessage
-	if _, err := cbor.Decode(data, &fields); err != nil {
+	fields, _, err := cbor.DecodeMapIncremental[uint64, cbor.RawMessage](
+		data,
+		checkProtocolParameterUpdateKey,
+	)
+	if err != nil {
 		return nil, err
 	}
 	for _, width := range protocolParameterUpdateWidths {
@@ -200,13 +203,21 @@ func ValidateProtocolParameterUpdateDomains(
 		if _, err := cbor.Decode(raw, &version); err != nil {
 			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
-				Reason: "must contain unsigned 16-bit major and minor values",
+				Reason: "must contain unsigned major and minor values",
 			}
 		}
-		if version.Major > math.MaxUint16 || version.Minor > math.MaxUint16 {
+		// The reference ProtVer carries a Word32 minor; its era-bounded
+		// major is far below 16 bits.
+		if version.Major > math.MaxUint16 {
 			return nil, ProtocolParameterUpdateDomainError{
 				Field:  "protocol version",
-				Reason: "major and minor values must fit in 16 bits",
+				Reason: "major value must fit in 16 bits",
+			}
+		}
+		if version.Minor > math.MaxUint32 {
+			return nil, ProtocolParameterUpdateDomainError{
+				Field:  "protocol version",
+				Reason: "minor value must fit in 32 bits",
 			}
 		}
 	}
@@ -268,6 +279,25 @@ func ValidateNonNegativeInterval(value *cbor.Rat, unit bool) error {
 	}
 	if unit && numerator.Cmp(denominator) > 0 {
 		return errors.New("must be between zero and one inclusive")
+	}
+	return nil
+}
+
+// maxProtocolParameterUpdateKey is the highest field key any classic era
+// accepts. Keys are unique, so a map cannot hold more than this many entries
+// without an unknown or duplicate key, which no era accepts.
+const maxProtocolParameterUpdateKey = 24
+
+// checkProtocolParameterUpdateKey refuses a key above every classic era's
+// range while the map is still being read, so an oversized map costs memory
+// only up to the first such key. Each era's own decoder still rejects the
+// keys it does not define.
+func checkProtocolParameterUpdateKey(key uint64) error {
+	if key > maxProtocolParameterUpdateKey {
+		return ProtocolParameterUpdateDomainError{
+			Field:  protocolParameterUpdateFieldName(key),
+			Reason: "unknown field",
+		}
 	}
 	return nil
 }
