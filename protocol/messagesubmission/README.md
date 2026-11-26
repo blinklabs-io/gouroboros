@@ -56,6 +56,13 @@ request with no IDs and still applies the request's acknowledgement.
 dmq-node's V2 requester allows 20 seconds for a blocking answer, so a Client
 with nothing to announce should send it before then.
 
+In V2 the Server's `Done` ends a run, not the Client's protocol. dmq-node
+sends it when it demotes the peer and starts a new run on the same connection
+when it promotes the peer again, and the reference restarts the responder for
+that run. The Client calls `DoneFunc`, forgets the run's outstanding IDs and
+returns to Idle to answer the next request. The Idle timeout does not apply
+until that request arrives.
+
 ## Timeouts
 
 | State | Timeout | Description |

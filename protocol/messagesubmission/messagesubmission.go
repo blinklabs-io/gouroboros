@@ -351,7 +351,8 @@ type Config struct {
 	// wire shape for peers that still expect messageId inside messagePayload.
 	// The default false value uses the current CIP-0137 message shape.
 	LegacyV1MessageEncoding bool
-	// Done callback invoked when peer sends Done
+	// DoneFunc is called when the peer sends Done. In V2 the Client then
+	// returns to Idle for the peer's next run on the connection.
 	DoneFunc func(CallbackContext) error
 }
 
