@@ -142,6 +142,96 @@ func TestStopFromCallbackDoesNotWaitForBusyMutex(t *testing.T) {
 	recv(t, jumpDone, "Jump")
 }
 
+// A callback that calls GetCurrentTip blocks the goroutine that would
+// deliver its answer; Stop must still release it and return, which waiting
+// on DoneChan alone cannot do because DoneChan closes only after that
+// goroutine returns.
+func TestStopReleasesGetCurrentTipCalledFromCallback(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	tipErr := make(chan error, 1)
+	serverCfg := NewConfig(
+		WithFindIntersectFunc(func(
+			_ CallbackContext, points []pcommon.Point,
+		) (pcommon.Point, Tip, error) {
+			if len(points) == 0 {
+				return pcommon.Point{}, Tip{BlockNumber: 3}, ErrIntersectNotFound
+			}
+			return points[0], Tip{BlockNumber: 3}, nil
+		}),
+		WithRequestNextFunc(func(ctx CallbackContext) error {
+			return ctx.Server.RollBackward(
+				pcommon.NewPointOrigin(), Tip{BlockNumber: 3},
+			)
+		}),
+	)
+	var client *Client
+	clientCfg := NewConfig(
+		WithPipelineLimit(1),
+		WithRollBackwardFunc(func(CallbackContext, pcommon.Point, Tip) error {
+			entered <- struct{}{}
+			_, err := client.GetCurrentTip()
+			tipErr <- err
+			return nil
+		}),
+	)
+	client, _ = newTipWorkerPair(t, serverCfg, clientCfg)
+	client.testStopBusyLockTimeout = 10 * time.Millisecond
+
+	require.NoError(t, client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
+	recv(t, entered, "the RollBackward callback")
+	require.Eventually(t, func() bool {
+		return len(client.wantIntersectFoundChan) == 1
+	}, 5*time.Second, time.Millisecond, "GetCurrentTip never sent its request")
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop(context.Background()) }()
+	require.ErrorIs(t, recv(t, tipErr, "GetCurrentTip in the callback"),
+		protocol.ErrProtocolShuttingDown)
+	recv(t, stopDone, "Stop")
+}
+
+// Jump holds busyMutex until the answer whose IntersectFoundFunc is running
+// is delivered, so a GetCurrentTip from that callback waits for the lock
+// rather than for its own answer. Stop must release that wait as well.
+func TestStopReleasesGetCurrentTipWaitingForBusyMutexInCallback(t *testing.T) {
+	entered := make(chan struct{}, 1)
+	tipErr := make(chan error, 1)
+	serverCfg := NewConfig(
+		WithFindIntersectFunc(func(
+			_ CallbackContext, points []pcommon.Point,
+		) (pcommon.Point, Tip, error) {
+			return points[0], Tip{BlockNumber: 3}, nil
+		}),
+	)
+	var client *Client
+	clientCfg := NewConfig(
+		WithIntersectFoundFunc(func(CallbackContext, pcommon.Point, Tip) error {
+			entered <- struct{}{}
+			_, err := client.GetCurrentTip()
+			tipErr <- err
+			return nil
+		}),
+	)
+	client, _ = newTipWorkerPair(t, serverCfg, clientCfg)
+	client.testStopBusyLockTimeout = 10 * time.Millisecond
+
+	jumpDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := client.Jump(
+			[]pcommon.Point{pcommon.NewPoint(5, testPointHash(0x05))},
+		)
+		jumpDone <- err
+	}()
+	recv(t, entered, "IntersectFoundFunc")
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- client.Stop(context.Background()) }()
+	require.ErrorIs(t, recv(t, tipErr, "GetCurrentTip in the callback"),
+		protocol.ErrProtocolShuttingDown)
+	recv(t, stopDone, "Stop")
+	recv(t, jumpDone, "Jump")
+}
+
 // Each reply shape the server may give GetAvailableBlockRange yields the
 // range from that call's own replies, and leaves no request, ready signal or
 // registration behind.

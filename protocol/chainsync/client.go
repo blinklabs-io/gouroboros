@@ -693,7 +693,10 @@ func (c *Client) waitStopped(
 // request is answered, which at the chain tip means until the chain grows.
 // Otherwise it sends MsgFindIntersect with no points and returns the tip in
 // the server's answer, after waiting for any operation that holds the
-// client, such as Jump.
+// client, such as Jump. A callback that runs with no MsgRequestNext
+// unanswered, such as IntersectFoundFunc, must not call GetCurrentTip: the
+// answer is delivered on the goroutine that runs the callbacks, so the call
+// returns only when the client stops, with protocol.ErrProtocolShuttingDown.
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	proto, _, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
@@ -713,6 +716,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// DoneChan closes only after the receive loop returns. A call from a
+	// callback blocks that loop, so StopChan is what releases it.
+	stopChan := proto.StopChan()
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
@@ -720,7 +726,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 	go func() {
 		defer close(requestWorkerDone)
-		c.busyMutex.Lock()
+		// The holder may be waiting for an answer that a callback calling
+		// GetCurrentTip blocks, so the lock wait must end on StopChan too.
+		if err := c.lockBusy(
+			context.Background(), stopChan, context.Background(),
+		); err != nil {
+			requestErrorChan <- err
+			return
+		}
 		defer c.busyMutex.Unlock()
 
 		c.lifecycleMutex.Lock()
@@ -756,6 +769,7 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		}
 		select {
 		case <-doneChan:
+		case <-stopChan:
 		case result := <-resultChan:
 			if result.error != nil &&
 				!errors.Is(result.error, ErrIntersectNotFound) {
@@ -775,6 +789,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	// MsgRequestNext, may be older than the one the server answers with.
 	select {
 	case <-doneChan:
+		done.Store(true)
+		return nil, protocol.ErrProtocolShuttingDown
+	case <-stopChan:
 		done.Store(true)
 		return nil, protocol.ErrProtocolShuttingDown
 	case tip := <-requestResultChan:
