@@ -1000,7 +1000,15 @@ func (c *Connection) setupConnection() error {
 	if c.beforeHandshakeHook != nil {
 		c.beforeHandshakeHook()
 	}
+	// shutdown reads c.handshake under protocolMu. Publishing it there,
+	// after checking doneChan, orders the two: shutdown either finds the
+	// handshake and stops it, or setup finds doneChan closed and creates
+	// none, instead of starting one that nothing stops.
+	if err := c.lockProtocolSetup(); err != nil {
+		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
+	}
 	c.handshake = handshake.New(protoOptions, &handshakeConfig)
+	c.protocolMu.Unlock()
 	if c.server {
 		c.handshake.Server.Start()
 	} else {

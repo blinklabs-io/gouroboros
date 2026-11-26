@@ -110,3 +110,27 @@ func TestHandshakeTimeoutTearsDownOnce(t *testing.T) {
 	// A second Close finds everything torn down and returns at once.
 	require.NoError(t, c.Close(context.Background()))
 }
+
+// TestCloseBeforeHandshakeCreatesNone checks that a Close landing after the
+// muxer is created and before the handshake protocol is tears the
+// connection down without it, and setup does not create and start one
+// afterwards. Shutdown reads c.handshake under protocolMu; a handshake
+// published without it, after shutdown has read none, is a data race and
+// an instance nothing stops.
+func TestCloseBeforeHandshakeCreatesNone(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	c, peer, result := dialSilentPeer(t, time.Minute, func(c *Connection) {
+		require.NoError(t, c.Close(context.Background()))
+	})
+	defer func() { _ = peer.conn.Close() }()
+	var err error
+	select {
+	case err = <-result:
+	case <-time.After(5 * time.Second):
+		t.Fatal("setup did not return after Close")
+	}
+	require.ErrorIs(t, err, io.EOF, "setup did not report the shutdown: %v", err)
+	c.protocolMu.RLock()
+	defer c.protocolMu.RUnlock()
+	require.Nil(t, c.handshake, "setup created a handshake protocol after the teardown")
+}
