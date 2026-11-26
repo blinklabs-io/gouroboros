@@ -233,9 +233,11 @@ func WithLocalDisabled(disabled bool) PeerSharingOptionFunc {
 	}
 }
 
-// WithRemoteDisabled records that the remote peer advertised NoPeerSharing
-// during the handshake. The client uses this to refuse to send ShareRequest
-// messages with ErrRemotePeerSharingDisabled.
+// WithRemoteDisabled records that the handshake negotiated NoPeerSharing,
+// which it does when either side advertised it. The client uses this to
+// refuse to send ShareRequest messages with ErrRemotePeerSharingDisabled, and
+// the server answers incoming ShareRequest messages with an empty SharePeers
+// response, as it does for WithLocalDisabled.
 func WithRemoteDisabled(disabled bool) PeerSharingOptionFunc {
 	return func(c *Config) {
 		c.RemoteDisabled = disabled
