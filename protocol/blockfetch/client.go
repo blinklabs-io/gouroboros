@@ -415,6 +415,11 @@ func (c *Client) releaseBusyOnProtocolDone(
 // Start begins the Block Fetch client protocol. Safe to call multiple times.
 // After a Stop that gave up on the connection (see Stop), Start does nothing:
 // the server may still answer the abandoned ranges.
+//
+// Starting again after Stop waits until the previous protocol instance and
+// every goroutine the client started for it have returned, so no callback of
+// that instance runs once Start returns. Start must therefore not be called
+// from one of the client's callbacks.
 func (c *Client) Start() {
 	for {
 		c.lifecycleMutex.Lock()
@@ -447,6 +452,10 @@ func (c *Client) Start() {
 
 			oldProto := c.Protocol
 			oldProtoStarted := c.protoStarted
+			var oldGroup *goroutineGroup
+			if prevState == clientStateStopped {
+				oldGroup = c.goroutines
+			}
 			var oldDone <-chan struct{}
 			// Only wait for old protocol if it was actually started.
 			// If Stop() was called during clientStateStarting before Protocol.Start(),
@@ -461,6 +470,13 @@ func (c *Client) Start() {
 			if oldDone != nil {
 				_ = oldProto.Stop(context.Background())
 				<-oldDone
+			}
+			// A Stop whose context ended, or one still joining on another
+			// goroutine, can leave a range deadline watcher of the old
+			// instance in RangeDoneFunc. No callback of the old instance may
+			// run once the new one is started.
+			if oldGroup != nil {
+				_ = oldGroup.closeAndWait(context.Background())
 			}
 
 			c.lifecycleMutex.Lock()
