@@ -15,6 +15,7 @@
 package handshake
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -37,10 +38,16 @@ const (
 	maxRefusalSupportedVersions = MaxPendingMessageBytes - 7
 )
 
-func validateVersionMapMessage(data []byte) error {
+// decodeVersionMapMessage checks the version map of a MsgProposeVersions or
+// MsgQueryReply and returns the entries whose key is a version number a
+// uint16 can hold. Any other key, a larger or negative integer, a string or
+// a tagged item, is no version gOuroboros knows; the reference skips a key
+// its version codec does not recognise (decodeVersions), so it is skipped
+// here too, after checking its value is a complete item.
+func decodeVersionMapMessage(data []byte) (map[uint16]cbor.RawMessage, error) {
 	collection, err := handshakeSecondField(data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	count, headerSize, indefinite, err := handshakeCollectionInfo(
 		collection,
@@ -48,11 +55,12 @@ func validateVersionMapMessage(data []byte) error {
 		"handshake versions",
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !indefinite && count > maxHandshakeVersions {
-		return tooManyHandshakeVersions(count)
+		return nil, tooManyHandshakeVersions(count)
 	}
+	versions := make(map[uint16]cbor.RawMessage)
 	pos := int(headerSize)
 	// Recognised versions must ascend, as the reference codec enforces on
 	// decode (decodeVersions); a version it does not recognise is skipped
@@ -65,37 +73,51 @@ func validateVersionMapMessage(data []byte) error {
 		position := pos
 		if indefinite {
 			if position >= len(collection) {
-				return errors.New("unterminated handshake version map")
+				return nil, errors.New("unterminated handshake version map")
 			}
 			if collection[position] == 0xff {
-				return nil
+				return versions, nil
 			}
 			if idx >= maxHandshakeVersions {
-				return tooManyHandshakeVersions(idx + 1)
+				return nil, tooManyHandshakeVersions(idx + 1)
 			}
 		}
-		versionValue, consumed, err := decodeHandshakeUnsigned(
-			collection[position:],
-			uint64(^uint16(0)),
-			"handshake version",
-		)
+		head, ok, err := cborwalk.ReadHead(collection, position)
 		if err != nil {
-			return fmt.Errorf("decode handshake version %d: %w", idx, err)
+			return nil, fmt.Errorf("decode handshake version %d: %w", idx, err)
+		}
+		if !ok {
+			return nil, fmt.Errorf("decode handshake version %d: truncated", idx)
+		}
+		representable := head.Major == 0 && !head.Indefinite &&
+			!head.IsBreak && head.Argument <= uint64(^uint16(0))
+		if !representable {
+			keyLength, err := cborwalk.ItemLength(collection[position:])
+			if err != nil {
+				return nil, fmt.Errorf("decode handshake version %d: %w", idx, err)
+			}
+			pos += keyLength
+			valueLength, err := cborwalk.ItemLength(collection[pos:])
+			if err != nil {
+				return nil, fmt.Errorf("decode handshake version data %d: %w", idx, err)
+			}
+			pos += valueLength
+			continue
 		}
 		version := uint16(
-			versionValue,
+			head.Argument,
 		) // #nosec G115 -- bounded to uint16 above
-		pos += consumed
+		pos += head.EncodedSize
 		byteIndex := version >> 3
 		bit := byte(1 << (version & 7))
 		if seen[byteIndex]&bit != 0 {
-			return fmt.Errorf("duplicate handshake version %d", version)
+			return nil, fmt.Errorf("duplicate handshake version %d", version)
 		}
 		seen[byteIndex] |= bit
 		versionInfo := protocol.GetProtocolVersion(version)
 		if versionInfo.NewVersionDataFromCborFunc != nil {
 			if haveRecognised && version < previous {
-				return fmt.Errorf(
+				return nil, fmt.Errorf(
 					"handshake version %d out of order after %d",
 					version,
 					previous,
@@ -104,13 +126,14 @@ func validateVersionMapMessage(data []byte) error {
 			previous = version
 			haveRecognised = true
 		}
-		if length, err := cborwalk.ItemLength(collection[pos:]); err != nil {
-			return fmt.Errorf("decode handshake version data %d: %w", idx, err)
-		} else {
-			pos += length
+		length, err := cborwalk.ItemLength(collection[pos:])
+		if err != nil {
+			return nil, fmt.Errorf("decode handshake version data %d: %w", idx, err)
 		}
+		versions[version] = cbor.RawMessage(bytes.Clone(collection[pos : pos+length]))
+		pos += length
 	}
-	return nil
+	return versions, nil
 }
 
 func validateRefusalMessage(data []byte) error {

@@ -120,9 +120,11 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			msgType,
 		)
 	}
+	var versions map[uint16]cbor.RawMessage
 	switch msgType {
 	case MessageTypeProposeVersions, MessageTypeQueryReply:
-		if err := validateVersionMapMessage(data); err != nil {
+		var err error
+		if versions, err = decodeVersionMapMessage(data); err != nil {
 			return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 		}
 	case MessageTypeRefuse:
@@ -137,14 +139,36 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	if err := cborpreflight.ValidateItemDepth(data, 4, "handshake message"); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
 	}
-	if _, err := cbor.DecodeUntrustedExact(data, ret); err != nil {
+	// A version map can hold keys a map[uint16] cannot, which are skipped:
+	// decode the map as raw bytes and use the entries kept above.
+	target := any(ret)
+	if versions != nil {
+		target = &rawVersionMapMessage{}
+	}
+	if _, err := cbor.DecodeUntrustedExact(data, target); err != nil {
 		return nil, fmt.Errorf("%s: decode error: %w", ProtocolName, err)
+	}
+	switch m := ret.(type) {
+	case *MsgProposeVersions:
+		m.MessageType = MessageTypeProposeVersions
+		m.VersionMap = versions
+	case *MsgQueryReply:
+		m.MessageType = MessageTypeQueryReply
+		m.VersionMap = versions
 	}
 	if ret != nil {
 		// Store the raw message CBOR
 		ret.SetCbor(data)
 	}
 	return ret, nil
+}
+
+// rawVersionMapMessage is a MsgProposeVersions or MsgQueryReply with its
+// version map left undecoded.
+type rawVersionMapMessage struct {
+	cbor.StructAsArray
+	MessageType uint8
+	VersionMap  cbor.RawMessage
 }
 
 type MsgProposeVersions struct {
