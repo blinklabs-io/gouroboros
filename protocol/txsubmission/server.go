@@ -514,7 +514,9 @@ func (s *Server) handleDone() error {
 	}
 	s.stopping = true
 	s.pendingTxIds = nil
-	callbackContext := s.callbackContext.withOwner(s.ProtocolInstance())
+	// p, not ProtocolInstance: protocolMu is taken before stateMu, and Stop
+	// waiting for protocolMu blocks a new reader.
+	callbackContext := s.callbackContext.withOwner(p)
 	resultChan := s.requestTxIdsResultChan
 	s.stateMu.Unlock()
 	p.Logger().
@@ -549,7 +551,9 @@ func (s *Server) handleDone() error {
 func (s *Server) handleInit() error {
 	p := s.ProtocolInstance()
 	s.stateMu.Lock()
-	callbackContext := s.callbackContext.withOwner(s.ProtocolInstance())
+	// p, not ProtocolInstance: protocolMu is taken before stateMu, and Stop
+	// waiting for protocolMu blocks a new reader.
+	callbackContext := s.callbackContext.withOwner(p)
 	s.stateMu.Unlock()
 	p.Logger().
 		Debug("init",
