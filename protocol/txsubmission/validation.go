@@ -166,14 +166,17 @@ func reconcileTxIds(
 			protocol.ErrProtocolViolationRequestExceeded,
 		)
 	}
-	seen := make(map[TxId]struct{}, len(remaining)+len(reply))
-	for _, txIdAndSize := range remaining {
-		seen[txIdAndSize.TxId] = struct{}{}
-	}
+	// A reply may name an ID that is still outstanding: the outbound
+	// announces mempool entries after the last index it sent, and a
+	// transaction removed and added back (a fork switch) has a new index.
+	// The reference inbound keeps both entries and acknowledges by count.
+	// One reply comes from one mempool snapshot, so it never names an ID
+	// twice, and one that does is refused.
+	seen := make(map[TxId]struct{}, len(reply))
 	for _, txIdAndSize := range reply {
 		if _, ok := seen[txIdAndSize.TxId]; ok {
 			return nil, invalidTxSubmissionMessage(
-				"reply repeats outstanding transaction ID %x",
+				"reply repeats transaction ID %x",
 				txIdAndSize.TxId.TxId,
 			)
 		}
