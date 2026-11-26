@@ -237,7 +237,7 @@ func TestCloseWaitsForErrorForwardersBeforeCallerClosesChannel(t *testing.T) {
 		defer close(forwarderDone)
 		close(forwarderStarted)
 		<-releaseForwarder
-		conn.forwardError(errors.New("late connection error"))
+		conn.closeWithError(errors.New("late connection error"))
 	})
 	requireChannelSignal(
 		t,
