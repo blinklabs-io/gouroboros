@@ -76,7 +76,7 @@ messagesubmission.NewConfig(
     messagesubmission.WithReplyMessageIdsFunc(replyIdsCallback),
     messagesubmission.WithReplyMessagesFunc(replyMsgsCallback),
     messagesubmission.WithMaxQueueSize(100),
-    messagesubmission.WithMaxUnacknowledgedMessageIDs(100),
+    messagesubmission.WithMaxUnacknowledgedMessageIDs(132),
     messagesubmission.WithInitTimeout(30 * time.Second),
     messagesubmission.WithIdleTimeout(300 * time.Second),
     messagesubmission.WithMessageIdsBlockingTimeout(30 * time.Second),
@@ -86,8 +86,10 @@ messagesubmission.NewConfig(
 )
 ```
 
-`MaxUnacknowledgedMessageIDs` defaults to 100. Both roles reject a request that
-would make the IDs awaiting acknowledgement exceed this limit.
+`MaxUnacknowledgedMessageIDs` defaults to 132, dmq-node's window. Both roles
+reject a request that would make the IDs awaiting acknowledgement exceed this
+limit. The window is not negotiated, and dmq-node's requester fills its own,
+so a Client configured below 132 refuses requests a dmq-node peer may send.
 Non-blocking ID requests must leave at least one ID outstanding after applying
 their acknowledgement count.
 
