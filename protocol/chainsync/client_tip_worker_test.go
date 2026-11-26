@@ -74,6 +74,74 @@ func newTipWorkerPair(
 	return client, clientErrors
 }
 
+// A query holds busyMutex while the peer is silent; Stop stops waiting for
+// the lock once its ctx is done.
+func TestStopReturnsOnCtxWhileBusyMutexHeld(t *testing.T) {
+	client, cleanup := newStartedTestClient(t, nil)
+	defer cleanup()
+	client.testStopBusyLockTimeout = tipWorkerBusyLockTimeout
+	requestSent := make(chan struct{})
+	client.testIntersectRequestSent = func() { close(requestSent) }
+	rangeDone := make(chan error, 1)
+	go func() {
+		_, _, err := client.GetAvailableBlockRange(nil)
+		rangeDone <- err
+	}()
+	recv(t, requestSent, "the range query's MsgFindIntersect")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := client.Stop(ctx)
+	elapsed := time.Since(start)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, elapsed, tipWorkerBusyLockTimeout/2,
+		"Stop kept waiting for busyMutex after its ctx was done")
+	require.ErrorIs(t, recv(t, rangeDone, "the range query"),
+		protocol.ErrProtocolShuttingDown)
+}
+
+// Jump holds busyMutex until the answer whose callback is running is
+// delivered, so a Stop from that callback must not wait for the lock.
+func TestStopFromCallbackDoesNotWaitForBusyMutex(t *testing.T) {
+	type stopResult struct {
+		err     error
+		elapsed time.Duration
+	}
+	stopped := make(chan stopResult, 1)
+	serverCfg := NewConfig(
+		WithFindIntersectFunc(func(
+			_ CallbackContext, points []pcommon.Point,
+		) (pcommon.Point, Tip, error) {
+			return points[0], Tip{BlockNumber: 9}, nil
+		}),
+	)
+	clientCfg := NewConfig(
+		WithIntersectFoundFunc(func(
+			ctx CallbackContext, _ pcommon.Point, _ Tip,
+		) error {
+			start := time.Now()
+			err := ctx.Client.Stop(ctx.Context())
+			stopped <- stopResult{err, time.Since(start)}
+			return nil
+		}),
+	)
+	client, _ := newTipWorkerPair(t, serverCfg, clientCfg)
+
+	jumpDone := make(chan error, 1)
+	go func() {
+		_, _, _, err := client.Jump(
+			[]pcommon.Point{pcommon.NewPoint(5, testPointHash(0x05))},
+		)
+		jumpDone <- err
+	}()
+	res := recv(t, stopped, "Stop called from IntersectFoundFunc")
+	require.NoError(t, res.err)
+	require.Less(t, res.elapsed, tipWorkerBusyLockTimeout/2,
+		"Stop from a callback waited for busyMutex held by Jump")
+	recv(t, jumpDone, "Jump")
+}
+
 // Each reply shape the server may give GetAvailableBlockRange yields the
 // range from that call's own replies, and leaves no request, ready signal or
 // registration behind.

@@ -520,17 +520,29 @@ func (c *Client) stopRunning(
 	if c.testStopBusyLockTimeout > 0 {
 		busyLockTimeout = c.testStopBusyLockTimeout
 	}
-	deadline := time.Now().Add(busyLockTimeout)
-	busyLocked := false
-	for {
-		if c.busyMutex.TryLock() {
-			busyLocked = true
-			break
+	// The holder may be waiting for a reply that only this callback's
+	// goroutine can deliver, so a Stop from a callback does not wait for
+	// it; nor does a Stop whose ctx is done.
+	busyLocked := c.busyMutex.TryLock()
+	if !busyLocked && protocol.CallbackOwner(ctx) != proto {
+		deadline := time.NewTimer(busyLockTimeout)
+		defer deadline.Stop()
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				break wait
+			case <-deadline.C:
+				break wait
+			case <-ticker.C:
+				if c.busyMutex.TryLock() {
+					busyLocked = true
+					break wait
+				}
+			}
 		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 
 	return c.finishStop(
