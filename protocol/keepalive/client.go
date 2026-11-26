@@ -26,7 +26,11 @@ import (
 // Client implements the keep-alive protocol client, responsible for sending keep-alive messages and handling responses.
 type Client struct {
 	*protocol.Protocol
-	config          *Config
+	config *Config
+	// period is config.Period, or the default when that is not positive:
+	// a zero period re-arms the timer at once, pinging as fast as the
+	// server answers.
+	period          time.Duration
 	cookie          uint16
 	inFlight        bool
 	cookieMutex     sync.Mutex
@@ -48,7 +52,11 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config: cfg,
+		period: cfg.Period,
 		cookie: cfg.Cookie,
+	}
+	if c.period <= 0 {
+		c.period = DefaultKeepAlivePeriod * time.Second
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -145,7 +153,7 @@ func (c *Client) startTimer() {
 		c.timer.Stop()
 	}
 	// Create new timer
-	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
+	c.timer = time.AfterFunc(c.period, c.sendKeepAlive)
 }
 
 // Stop stops the keep-alive protocol client and cancels any pending timers.

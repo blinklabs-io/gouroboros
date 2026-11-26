@@ -16,9 +16,12 @@ package keepalive
 
 import (
 	"context"
+	"net"
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/connection"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	"github.com/stretchr/testify/require"
 )
@@ -81,4 +84,77 @@ func TestSendKeepAliveTransitions(t *testing.T) {
 		require.Nil(t, timer, "a stopping client armed a timer")
 		require.False(t, client.inFlight, "a refused ping stayed in flight")
 	})
+}
+
+// newPingCountingPair connects a client with cfg to a keep-alive server
+// over two muxers and returns the client and a channel that receives the
+// cookie of every ping the server reads.
+func newPingCountingPair(t *testing.T, cfg *Config) (*Client, <-chan uint16) {
+	t.Helper()
+	connA, connB := net.Pipe()
+	clientMuxer := muxer.New(connA)
+	serverMuxer := muxer.New(connB)
+	pings := make(chan uint16, 1024)
+	connId := connection.ConnectionId{
+		LocalAddr:  connA.LocalAddr(),
+		RemoteAddr: connA.RemoteAddr(),
+	}
+	serverCfg := NewConfig(WithOnKeepAliveReceived(
+		func(_ connection.ConnectionId, cookie uint16) {
+			select {
+			case pings <- cookie:
+			default:
+			}
+		},
+	))
+	server := NewServer(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        serverMuxer,
+		Mode:         protocol.ProtocolModeNodeToNode,
+	}, &serverCfg)
+	client := NewClient(protocol.ProtocolOptions{
+		ConnectionId: connId,
+		Muxer:        clientMuxer,
+		Mode:         protocol.ProtocolModeNodeToNode,
+	}, cfg)
+	server.Start()
+	serverMuxer.Start()
+	clientMuxer.Start()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = client.Stop(ctx)
+		_ = server.Stop(ctx)
+		_ = clientMuxer.Stop(ctx)
+		_ = serverMuxer.Stop(ctx)
+		_ = connA.Close()
+		_ = connB.Close()
+	})
+	client.Start()
+	return client, pings
+}
+
+// TestZeroPeriodDoesNotFloodPeer checks that a Config without a Period does
+// not re-arm the timer at once after every answer, which would ping the
+// server as fast as it can answer.
+func TestZeroPeriodDoesNotFloodPeer(t *testing.T) {
+	_, pings := newPingCountingPair(t, &Config{})
+	select {
+	case <-pings:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the client did not send its first ping")
+	}
+	select {
+	case cookie := <-pings:
+		t.Fatalf("a second ping (cookie %d) followed at once: the zero Period was used", cookie)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestDefaultPeriodBelowServerLimit checks that the default ping period is
+// below the server's limit on the next ping, so a server never hangs up on
+// a client that keeps answering.
+func TestDefaultPeriodBelowServerLimit(t *testing.T) {
+	require.Less(t, DefaultKeepAlivePeriod*time.Second, ClientTimeout)
+	require.Less(t, NewClient(protocol.ProtocolOptions{}, &Config{}).period, ClientTimeout)
 }
