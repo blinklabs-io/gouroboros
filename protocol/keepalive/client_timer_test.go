@@ -151,6 +151,28 @@ func TestZeroPeriodDoesNotFloodPeer(t *testing.T) {
 	}
 }
 
+// TestZeroTimeoutTimesTheAnswer checks that a Config without a Timeout still
+// times the server's answer. Without that, a silent server is never noticed
+// and the ping left in flight stops every later one.
+func TestZeroTimeoutTimesTheAnswer(t *testing.T) {
+	tests := []struct {
+		name    string
+		timeout time.Duration
+		want    time.Duration
+	}{
+		{name: "zero", timeout: 0, want: DefaultKeepAliveTimeout * time.Second},
+		{name: "negative", timeout: -time.Second, want: DefaultKeepAliveTimeout * time.Second},
+		{name: "configured", timeout: 3 * time.Second, want: 3 * time.Second},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			entry := clientStateMap(tc.timeout)[StateServer]
+			require.Equal(t, tc.want, entry.Timeout)
+			require.Equal(t, ClientTimeout, clientStateMap(tc.timeout)[StateClient].Timeout)
+		})
+	}
+}
+
 // TestDefaultPeriodBelowServerLimit checks that the default ping period is
 // below the server's limit on the next ping, so a server never hangs up on
 // a client that keeps answering.

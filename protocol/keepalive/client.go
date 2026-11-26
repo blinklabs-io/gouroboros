@@ -62,12 +62,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	// Update state map with timeout
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateServer]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateServer] = entry
-	}
+	stateMap := clientStateMap(c.config.Timeout)
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -84,6 +79,22 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// clientStateMap returns StateMap with timeout as the client's limit on the
+// server's answer, or the default for a timeout that is not positive: the
+// engine arms no timer for a zero one, so a silent server would never be
+// noticed, and the in-flight ping would stop every later one.
+func clientStateMap(timeout time.Duration) protocol.StateMap {
+	if timeout <= 0 {
+		timeout = DefaultKeepAliveTimeout * time.Second
+	}
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[StateServer]; ok {
+		entry.Timeout = timeout
+		stateMap[StateServer] = entry
+	}
+	return stateMap
 }
 
 // Start begins the keep-alive protocol client and starts sending keep-alive messages at the configured interval.
