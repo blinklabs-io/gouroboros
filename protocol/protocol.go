@@ -781,7 +781,8 @@ func (p *Protocol) IsStopping() bool {
 // close should not be treated as an error. This includes:
 // - Protocol stop/done channel is closed
 // - Current state has AgencyNone (terminal Done state after receiving Done message)
-// - Current state is the initial state (no messages exchanged yet)
+// - Current state is the initial state and no pipelined request is still
+// awaiting its reply
 func (p *Protocol) IsInTerminalOrIdleState() bool {
 	// Check if done channel is closed
 	select {
@@ -789,15 +790,19 @@ func (p *Protocol) IsInTerminalOrIdleState() bool {
 		return true
 	default:
 	}
-	// Check current state
-	currentState := p.getCurrentState()
+	currentState, _, unanswered, _ := p.currentInboundSnapshot()
 	// Return true if current state has AgencyNone (terminal state)
 	if entry, exists := p.config.StateMap[currentState]; exists {
 		if entry.Agency == AgencyNone {
 			return true
 		}
 	}
-	// Return true if current state is the initial state (no messages sent yet)
+	// A pipelined request's transition is deferred until its turn, so the
+	// current state can return to the initial one while the peer still owes
+	// that request's reply.
+	if unanswered {
+		return false
+	}
 	return currentState == p.config.InitialState
 }
 
