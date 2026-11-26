@@ -176,7 +176,8 @@ func (c *Client) Acquire() error {
 	return c.acquire()
 }
 
-// Release releases the previously acquired mempool snapshot
+// Release releases the previously acquired mempool snapshot. It returns
+// ErrNotAcquired, without sending anything, when no snapshot is acquired.
 func (c *Client) Release() error {
 	c.Protocol.Logger().
 		Debug("calling Release()",
@@ -306,6 +307,11 @@ func (c *Client) GetSizes() (uint32, uint32, uint32, error) {
 		return 0, 0, 0, protocol.ErrProtocolShuttingDown
 	}
 }
+
+// ErrNotAcquired is returned by Release when no mempool snapshot is
+// acquired. Nothing is sent: MsgRelease is legal only while a snapshot is
+// held, and sending it from Idle would close the connection.
+var ErrNotAcquired = errors.New("local-tx-monitor: no mempool snapshot acquired")
 
 // ErrGetMeasuresUnsupported is returned by GetMeasures when the negotiated
 // node-to-client version is older than 20, which has no MsgGetMeasures.
@@ -477,6 +483,9 @@ func (c *Client) acquire() error {
 }
 
 func (c *Client) release() error {
+	if !c.acquired {
+		return ErrNotAcquired
+	}
 	msg := NewMsgRelease()
 	if err := c.SendMessage(msg); err != nil {
 		return err
