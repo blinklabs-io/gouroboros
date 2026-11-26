@@ -22,7 +22,9 @@ import (
 
 // agreedVersionData returns the version data both sides agree on, the
 // reference acceptableVersion local remote: the server sends it back in
-// MsgAcceptVersion, and a client in a simultaneous open ends with it. The
+// MsgAcceptVersion, the client agrees its own data with the data in that
+// message and ends with the result, and a client in a simultaneous open
+// ends with it. The
 // network magic is the local one, already checked equal; the diffusion mode
 // is initiator-only if either side is; peer sharing and Peras support hold
 // only if both sides offer them; query is set if either side asks. Every
