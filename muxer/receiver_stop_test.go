@@ -36,6 +36,21 @@ func newPipeMuxer(t *testing.T) (*Muxer, net.Conn) {
 	return m, remote
 }
 
+func requireClosedSoon(t *testing.T, ch <-chan *Segment, what string) {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		case <-timeout:
+			t.Fatalf("%s was not closed", what)
+		}
+	}
+}
+
 // Stop returns only after the read loop has finished, including the sweep
 // that stops every receiver. The test holds the lock that sweep takes, so the
 // read loop cannot finish while it is held.
@@ -60,6 +75,26 @@ func TestStopWaitsForReadLoopSweep(t *testing.T) {
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel2()
 	require.NoError(t, m.Stop(ctx2))
+}
+
+// A second RegisterProtocol of a role that is still registered replaces its
+// receiver.
+// The replaced receiver's forwarder must be stopped, or Stop waits for it
+// for ever.
+func TestReregisterLiveRoleStopsReplacedReceiver(t *testing.T) {
+	m, _ := newPipeMuxer(t)
+	_, first, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
+	require.NotNil(t, first)
+	_, second, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
+	require.NotNil(t, second)
+	requireClosedSoon(t, first, "the replaced receiver channel")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, m.Stop(ctx))
+	requireClosedSoon(t, second, "the current receiver channel")
+	_, open := <-m.ErrorChan()
+	require.False(t, open, "ErrorChan is closed once Stop has joined")
 }
 
 // forward parks in cond.Wait while its queue is empty; each change that makes
