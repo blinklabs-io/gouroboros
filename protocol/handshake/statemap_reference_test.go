@@ -34,37 +34,37 @@ import (
 
 // Receive outcomes besides the state the receiver moves to.
 const (
-	// modelViolation: the receiver refuses the message and reports a
+	// refViolation: the receiver refuses the message and reports a
 	// protocol error, which tears the connection down.
-	modelViolation = "Violation"
-	// modelWaits: the receiver holds agency, so it does not read the
+	refViolation = "Violation"
+	// refWaits: the receiver holds agency, so it does not read the
 	// message yet.
-	modelWaits = "Waits"
-	// modelError: the run ends, but the client rejects the server's answer.
-	modelError = "Error"
+	refWaits = "Waits"
+	// refError: the run ends, but the client rejects the server's answer.
+	refError = "Error"
 )
 
-// modelKind is a kind of message a peer can send.
-type modelKind string
+// refKind is a kind of message a peer can send.
+type refKind string
 
 const (
-	kindPropose    modelKind = "MsgProposeVersions"
-	kindAccept     modelKind = "MsgAcceptVersion"
-	kindRefuse     modelKind = "MsgRefuse"
-	kindQueryReply modelKind = "MsgQueryReply"
-	kindOversized  modelKind = "Oversized"
+	kindPropose    refKind = "MsgProposeVersions"
+	kindAccept     refKind = "MsgAcceptVersion"
+	kindRefuse     refKind = "MsgRefuse"
+	kindQueryReply refKind = "MsgQueryReply"
+	kindOversized  refKind = "Oversized"
 )
 
-// modelReceiveRow is one cell of the handshake receive table: what a role in
+// refReceiveRow is one cell of the handshake receive table: what a role in
 // a given state does with a kind of message from its peer.
-type modelReceiveRow struct {
+type refReceiveRow struct {
 	role    protocol.ProtocolRole
 	state   protocol.State
-	kind    modelKind
+	kind    refKind
 	outcome string
 }
 
-// handshakeModelReceive is the receive table of the handshake mini-protocol
+// handshakeReferenceReceive is the receive table of the handshake mini-protocol
 // from the Ouroboros network specification and, where they differ, the
 // reference implementation. It is the full role x state x kind product. Both
 // sides use the same one-version table, which does not ask for a query, so
@@ -81,37 +81,37 @@ type modelReceiveRow struct {
 //   - After the handshake the connection no longer runs mini-protocol 0, so
 //     a further handshake message is for an unknown mini-protocol and tears
 //     the connection down (network-mux Network/Mux/Ingress.hs).
-var handshakeModelReceive = []modelReceiveRow{
+var handshakeReferenceReceive = []refReceiveRow{
 	{protocol.ProtocolRoleServer, statePropose, kindPropose, "Confirm"},
-	{protocol.ProtocolRoleServer, statePropose, kindAccept, modelViolation},
-	{protocol.ProtocolRoleServer, statePropose, kindRefuse, modelViolation},
-	{protocol.ProtocolRoleServer, statePropose, kindQueryReply, modelViolation},
-	{protocol.ProtocolRoleServer, statePropose, kindOversized, modelViolation},
-	{protocol.ProtocolRoleServer, stateConfirm, kindPropose, modelWaits},
-	{protocol.ProtocolRoleServer, stateConfirm, kindAccept, modelWaits},
-	{protocol.ProtocolRoleServer, stateConfirm, kindRefuse, modelWaits},
-	{protocol.ProtocolRoleServer, stateConfirm, kindQueryReply, modelWaits},
-	{protocol.ProtocolRoleServer, stateConfirm, kindOversized, modelWaits},
-	{protocol.ProtocolRoleServer, stateDone, kindPropose, modelViolation},
-	{protocol.ProtocolRoleServer, stateDone, kindAccept, modelViolation},
-	{protocol.ProtocolRoleServer, stateDone, kindRefuse, modelViolation},
-	{protocol.ProtocolRoleServer, stateDone, kindQueryReply, modelViolation},
-	{protocol.ProtocolRoleServer, stateDone, kindOversized, modelViolation},
-	{protocol.ProtocolRoleClient, statePropose, kindPropose, modelWaits},
-	{protocol.ProtocolRoleClient, statePropose, kindAccept, modelWaits},
-	{protocol.ProtocolRoleClient, statePropose, kindRefuse, modelWaits},
-	{protocol.ProtocolRoleClient, statePropose, kindQueryReply, modelWaits},
-	{protocol.ProtocolRoleClient, statePropose, kindOversized, modelWaits},
+	{protocol.ProtocolRoleServer, statePropose, kindAccept, refViolation},
+	{protocol.ProtocolRoleServer, statePropose, kindRefuse, refViolation},
+	{protocol.ProtocolRoleServer, statePropose, kindQueryReply, refViolation},
+	{protocol.ProtocolRoleServer, statePropose, kindOversized, refViolation},
+	{protocol.ProtocolRoleServer, stateConfirm, kindPropose, refWaits},
+	{protocol.ProtocolRoleServer, stateConfirm, kindAccept, refWaits},
+	{protocol.ProtocolRoleServer, stateConfirm, kindRefuse, refWaits},
+	{protocol.ProtocolRoleServer, stateConfirm, kindQueryReply, refWaits},
+	{protocol.ProtocolRoleServer, stateConfirm, kindOversized, refWaits},
+	{protocol.ProtocolRoleServer, stateDone, kindPropose, refViolation},
+	{protocol.ProtocolRoleServer, stateDone, kindAccept, refViolation},
+	{protocol.ProtocolRoleServer, stateDone, kindRefuse, refViolation},
+	{protocol.ProtocolRoleServer, stateDone, kindQueryReply, refViolation},
+	{protocol.ProtocolRoleServer, stateDone, kindOversized, refViolation},
+	{protocol.ProtocolRoleClient, statePropose, kindPropose, refWaits},
+	{protocol.ProtocolRoleClient, statePropose, kindAccept, refWaits},
+	{protocol.ProtocolRoleClient, statePropose, kindRefuse, refWaits},
+	{protocol.ProtocolRoleClient, statePropose, kindQueryReply, refWaits},
+	{protocol.ProtocolRoleClient, statePropose, kindOversized, refWaits},
 	{protocol.ProtocolRoleClient, stateConfirm, kindPropose, "Done"},
 	{protocol.ProtocolRoleClient, stateConfirm, kindAccept, "Done"},
 	{protocol.ProtocolRoleClient, stateConfirm, kindRefuse, "Done"},
 	{protocol.ProtocolRoleClient, stateConfirm, kindQueryReply, "Done"},
-	{protocol.ProtocolRoleClient, stateConfirm, kindOversized, modelViolation},
-	{protocol.ProtocolRoleClient, stateDone, kindPropose, modelViolation},
-	{protocol.ProtocolRoleClient, stateDone, kindAccept, modelViolation},
-	{protocol.ProtocolRoleClient, stateDone, kindRefuse, modelViolation},
-	{protocol.ProtocolRoleClient, stateDone, kindQueryReply, modelViolation},
-	{protocol.ProtocolRoleClient, stateDone, kindOversized, modelViolation},
+	{protocol.ProtocolRoleClient, stateConfirm, kindOversized, refViolation},
+	{protocol.ProtocolRoleClient, stateDone, kindPropose, refViolation},
+	{protocol.ProtocolRoleClient, stateDone, kindAccept, refViolation},
+	{protocol.ProtocolRoleClient, stateDone, kindRefuse, refViolation},
+	{protocol.ProtocolRoleClient, stateDone, kindQueryReply, refViolation},
+	{protocol.ProtocolRoleClient, stateDone, kindOversized, refViolation},
 }
 
 // gouroborosOutcome maps a cell of the reference table onto what gOuroboros
@@ -123,35 +123,35 @@ var handshakeModelReceive = []modelReceiveRow{
 //     server only answers a query, so this is stricter, not incompatible.
 //   - After Done, the protocol is stopped and the muxer drops further
 //     handshake segments instead of closing the connection.
-func gouroborosOutcome(row modelReceiveRow) string {
+func gouroborosOutcome(row refReceiveRow) string {
 	switch {
-	case row.outcome == modelWaits:
-		return modelViolation
+	case row.outcome == refWaits:
+		return refViolation
 	case row.role == protocol.ProtocolRoleClient && row.state == stateConfirm &&
 		row.kind == kindQueryReply:
-		return modelError
+		return refError
 	case row.state == stateDone:
-		return modelDropped
+		return refDropped
 	}
 	return row.outcome
 }
 
-// modelDropped is gOuroboros's outcome for a handshake message after Done:
+// refDropped is gOuroboros's outcome for a handshake message after Done:
 // nothing is reported and nothing is sent.
-const modelDropped = "Dropped"
+const refDropped = "Dropped"
 
-func modelRoleName(role protocol.ProtocolRole) string {
+func refRoleName(role protocol.ProtocolRole) string {
 	if role == protocol.ProtocolRoleClient {
 		return "client"
 	}
 	return "server"
 }
 
-func (r modelReceiveRow) name() string {
-	return fmt.Sprintf("%s/in%s/%s", modelRoleName(r.role), r.state, r.kind)
+func (r refReceiveRow) name() string {
+	return fmt.Sprintf("%s/in%s/%s", refRoleName(r.role), r.state, r.kind)
 }
 
-func modelKindType(kind modelKind) uint8 {
+func refKindType(kind refKind) uint8 {
 	switch kind {
 	case kindPropose, kindOversized:
 		return MessageTypeProposeVersions
@@ -172,7 +172,7 @@ func modelKindType(kind modelKind) uint8 {
 func stateMapReceive(
 	t *testing.T,
 	stateMap protocol.StateMap,
-	row modelReceiveRow,
+	row refReceiveRow,
 ) string {
 	t.Helper()
 	entry, ok := stateMap[row.state]
@@ -182,43 +182,43 @@ func stateMapReceive(
 		peerAgency = protocol.AgencyClient
 	}
 	if entry.Agency != peerAgency {
-		return modelViolation
+		return refViolation
 	}
 	if row.kind == kindOversized {
 		require.Equal(t, MaxPendingMessageBytes, entry.PendingMessageByteLimit)
-		return modelViolation
+		return refViolation
 	}
 	for _, transition := range entry.Transitions {
-		if transition.MsgType == modelKindType(row.kind) {
+		if transition.MsgType == refKindType(row.kind) {
 			return transition.NewState.String()
 		}
 	}
-	return modelViolation
+	return refViolation
 }
 
 // stateMapOutcome is the reference outcome as far as the state map decides
 // it: a client's Error ends in Done.
-func stateMapOutcome(row modelReceiveRow) string {
+func stateMapOutcome(row refReceiveRow) string {
 	outcome := gouroborosOutcome(row)
-	if outcome == modelError {
+	if outcome == refError {
 		return stateDone.String()
 	}
 	return outcome
 }
 
-var modelStateMaps = map[string]protocol.StateMap{
+var refStateMaps = map[string]protocol.StateMap{
 	"NtN": StateMapNtN,
 	"NtC": StateMapNtC,
 }
 
-// TestStateMapMatchesModel checks the within-run cells of the receive table
+// TestStateMapMatchesReference checks the within-run cells of the receive table
 // against both state maps, including the cells no running client or server
 // can be driven into, and pins the shape the table depends on. The Done rows
 // are about what happens after the protocol stops, which the running tests
 // cover.
-func TestStateMapMatchesModel(t *testing.T) {
+func TestStateMapMatchesReference(t *testing.T) {
 	t.Parallel()
-	for mode, stateMap := range modelStateMaps {
+	for mode, stateMap := range refStateMaps {
 		require.Len(t, stateMap, 3, "%s: exactly Propose, Confirm and Done", mode)
 		require.Equal(t, protocol.AgencyClient, stateMap[statePropose].Agency, mode)
 		require.Equal(t, protocol.AgencyServer, stateMap[stateConfirm].Agency, mode)
@@ -230,7 +230,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 					"%s %s transitions are decided by message type alone", mode, state)
 			}
 		}
-		for _, row := range handshakeModelReceive {
+		for _, row := range handshakeReferenceReceive {
 			if row.state == stateDone {
 				continue
 			}
@@ -246,7 +246,7 @@ func TestStateMapMatchesModel(t *testing.T) {
 // Confirm, in both state maps.
 func TestDoneCannotBeLeft(t *testing.T) {
 	t.Parallel()
-	for mode, stateMap := range modelStateMaps {
+	for mode, stateMap := range refStateMaps {
 		require.Empty(t, stateMap[stateDone].Transitions, mode)
 		for state, entry := range stateMap {
 			for _, transition := range entry.Transitions {
@@ -289,24 +289,24 @@ func TestStateMapLimitsMatchSpec(t *testing.T) {
 		"the default Config.Timeout overrides the waiting side's state timeout")
 }
 
-// modelVersion and modelTable are the one-version table of the receive
+// refVersion and refTable are the one-version table of the receive
 // table, for each mode.
-func modelVersion(mode protocol.ProtocolMode) uint16 {
+func refVersion(mode protocol.ProtocolMode) uint16 {
 	if mode == protocol.ProtocolModeNodeToClient {
 		return 16 + protocol.ProtocolVersionNtCOffset
 	}
 	return 14
 }
 
-func modelTable(mode protocol.ProtocolMode) protocol.ProtocolVersionMap {
+func refTable(mode protocol.ProtocolMode) protocol.ProtocolVersionMap {
 	full := protocol.GetProtocolVersionMap(mode, 42, protocol.DiffusionModeInitiatorOnly, false, false)
-	v := modelVersion(mode)
+	v := refVersion(mode)
 	return protocol.ProtocolVersionMap{v: full[v]}
 }
 
-// modelHarness runs one handshake role over a muxer and plays the other side
+// refHarness runs one handshake role over a muxer and plays the other side
 // of the connection by hand.
-type modelHarness struct {
+type refHarness struct {
 	conn     net.Conn
 	errs     chan error
 	payload  chan []byte
@@ -315,15 +315,15 @@ type modelHarness struct {
 	finished chan uint16
 }
 
-func newModelHarness(
+func newReferenceHarness(
 	t *testing.T,
 	role protocol.ProtocolRole,
 	mode protocol.ProtocolMode,
-) (*modelHarness, protocol.ProtocolOptions) {
+) (*refHarness, protocol.ProtocolOptions) {
 	t.Helper()
 	connA, connB := net.Pipe()
 	m := muxer.New(connA)
-	h := &modelHarness{
+	h := &refHarness{
 		conn:     connB,
 		errs:     make(chan error, 8),
 		payload:  make(chan []byte, 8),
@@ -352,9 +352,9 @@ func newModelHarness(
 	return h, opts
 }
 
-func (h *modelHarness) config() *Config {
+func (h *refHarness) config() *Config {
 	cfg := NewConfig(
-		WithProtocolVersionMap(modelTable(h.mode)),
+		WithProtocolVersionMap(refTable(h.mode)),
 		WithFinishedFunc(func(_ CallbackContext, v uint16, _ protocol.VersionData) error {
 			h.finished <- v
 			return nil
@@ -363,7 +363,7 @@ func (h *modelHarness) config() *Config {
 	return &cfg
 }
 
-func (h *modelHarness) readPeer() {
+func (h *refHarness) readPeer() {
 	defer close(h.payload)
 	for {
 		var header muxer.SegmentHeader
@@ -382,7 +382,7 @@ func (h *modelHarness) readPeer() {
 // responder when the role under test is the client, and from the initiator
 // when it is the server. A write error is ignored, because the role under
 // test may close the connection on refusing the message.
-func (h *modelHarness) sendRaw(t *testing.T, data []byte) {
+func (h *refHarness) sendRaw(t *testing.T, data []byte) {
 	t.Helper()
 	segment := muxer.NewSegment(ProtocolId, data, h.role == protocol.ProtocolRoleClient)
 	require.NotNil(t, segment)
@@ -393,17 +393,17 @@ func (h *modelHarness) sendRaw(t *testing.T, data []byte) {
 	_, _ = h.conn.Write(buf.Bytes())
 }
 
-func (h *modelHarness) send(t *testing.T, msg protocol.Message) {
+func (h *refHarness) send(t *testing.T, msg protocol.Message) {
 	t.Helper()
 	data, err := cbor.Encode(msg)
 	require.NoError(t, err)
 	h.sendRaw(t, data)
 }
 
-func (h *modelHarness) sendKind(t *testing.T, kind modelKind) {
+func (h *refHarness) sendKind(t *testing.T, kind refKind) {
 	t.Helper()
-	table := modelTable(h.mode)
-	v := modelVersion(h.mode)
+	table := refTable(h.mode)
+	v := refVersion(h.mode)
 	switch kind {
 	case kindPropose:
 		h.send(t, NewMsgProposeVersions(table))
@@ -424,7 +424,7 @@ func (h *modelHarness) sendKind(t *testing.T, kind modelKind) {
 }
 
 // receive returns the next message the role under test sent to the peer.
-func (h *modelHarness) receive(t *testing.T) protocol.Message {
+func (h *refHarness) receive(t *testing.T) protocol.Message {
 	t.Helper()
 	select {
 	case data, ok := <-h.payload:
@@ -442,7 +442,7 @@ func (h *modelHarness) receive(t *testing.T) protocol.Message {
 	return nil
 }
 
-func (h *modelHarness) requireError(t *testing.T, contains string) error {
+func (h *refHarness) requireError(t *testing.T, contains string) error {
 	t.Helper()
 	select {
 	case err := <-h.errs:
@@ -456,7 +456,7 @@ func (h *modelHarness) requireError(t *testing.T, contains string) error {
 	return nil
 }
 
-func (h *modelHarness) requireFinished(t *testing.T, version uint16) {
+func (h *refHarness) requireFinished(t *testing.T, version uint16) {
 	t.Helper()
 	select {
 	case v := <-h.finished:
@@ -470,7 +470,7 @@ func (h *modelHarness) requireFinished(t *testing.T, version uint16) {
 
 // requireQuiet checks that, for a short while, the role under test neither
 // reports an error, sends anything, nor closes the connection.
-func (h *modelHarness) requireQuiet(t *testing.T) {
+func (h *refHarness) requireQuiet(t *testing.T) {
 	t.Helper()
 	select {
 	case err := <-h.errs:
@@ -498,16 +498,16 @@ const (
 // state. A client cannot rest in Propose, since Start sends its proposal at
 // once, and a server cannot rest in Confirm, since it answers inside its
 // message handler; the caller skips those cells.
-func driveToState(t *testing.T, row modelReceiveRow, mode protocol.ProtocolMode) *modelHarness {
+func driveToState(t *testing.T, row refReceiveRow, mode protocol.ProtocolMode) *refHarness {
 	t.Helper()
-	h, opts := newModelHarness(t, row.role, mode)
-	v := modelVersion(mode)
+	h, opts := newReferenceHarness(t, row.role, mode)
+	v := refVersion(mode)
 	if row.role == protocol.ProtocolRoleServer {
 		server := NewServer(opts, h.config())
 		server.Start()
 		t.Cleanup(func() { _ = server.Stop(context.Background()) })
 		if row.state == stateDone {
-			h.send(t, NewMsgProposeVersions(modelTable(mode)))
+			h.send(t, NewMsgProposeVersions(refTable(mode)))
 			accept, ok := h.receive(t).(*MsgAcceptVersion)
 			require.True(t, ok, "server must accept the shared version")
 			require.Equal(t, v, accept.Version)
@@ -528,16 +528,16 @@ func driveToState(t *testing.T, row modelReceiveRow, mode protocol.ProtocolMode)
 	return h
 }
 
-// TestReceiveMatchesModel drives a running client or server into each cell
+// TestReceiveMatchesReference drives a running client or server into each cell
 // of the receive table it can rest in, sends the cell's message, and checks
 // the outcome against gouroborosOutcome.
-func TestReceiveMatchesModel(t *testing.T) {
+func TestReceiveMatchesReference(t *testing.T) {
 	t.Parallel()
 	for modeName, mode := range map[string]protocol.ProtocolMode{
 		"NtN": protocol.ProtocolModeNodeToNode,
 		"NtC": protocol.ProtocolModeNodeToClient,
 	} {
-		for _, row := range handshakeModelReceive {
+		for _, row := range handshakeReferenceReceive {
 			if row.role == protocol.ProtocolRoleServer && row.state == stateConfirm ||
 				row.role == protocol.ProtocolRoleClient && row.state == statePropose {
 				continue
@@ -550,14 +550,14 @@ func TestReceiveMatchesModel(t *testing.T) {
 				case "Confirm":
 					accept, ok := h.receive(t).(*MsgAcceptVersion)
 					require.True(t, ok, "MsgProposeVersions must be answered")
-					require.Equal(t, modelVersion(mode), accept.Version)
+					require.Equal(t, refVersion(mode), accept.Version)
 				case "Done":
-					checkClientDone(t, h, row.kind, modelVersion(mode))
-				case modelError:
+					checkClientDone(t, h, row.kind, refVersion(mode))
+				case refError:
 					h.requireError(t, errUnsolicitedQuery)
-				case modelViolation:
+				case refViolation:
 					h.requireError(t, violationError(row))
-				case modelDropped:
+				case refDropped:
 					h.requireQuiet(t)
 				default:
 					t.Fatalf("no check for outcome %q", outcome)
@@ -568,7 +568,7 @@ func TestReceiveMatchesModel(t *testing.T) {
 }
 
 // checkClientDone checks how a client in Confirm ends on a legal answer.
-func checkClientDone(t *testing.T, h *modelHarness, kind modelKind, version uint16) {
+func checkClientDone(t *testing.T, h *refHarness, kind refKind, version uint16) {
 	t.Helper()
 	switch kind {
 	case kindAccept, kindPropose:
@@ -585,11 +585,11 @@ func checkClientDone(t *testing.T, h *modelHarness, kind modelKind, version uint
 	}
 }
 
-func violationError(row modelReceiveRow) string {
+func violationError(row refReceiveRow) string {
 	switch {
 	case row.kind == kindOversized:
 		return errOversized
-	case row.outcome == modelWaits:
+	case row.outcome == refWaits:
 		return errWithoutPeerAgency
 	default:
 		return errNotAllowed
@@ -612,7 +612,7 @@ func TestClientConfirmTimeoutMatchesSpec(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			h, opts := newModelHarness(t, protocol.ProtocolRoleClient, test.mode)
+			h, opts := newReferenceHarness(t, protocol.ProtocolRoleClient, test.mode)
 			cfg := h.config()
 			cfg.Timeout = 50 * time.Millisecond
 			client := NewClient(opts, cfg)
@@ -629,8 +629,8 @@ func TestClientConfirmTimeoutMatchesSpec(t *testing.T) {
 	}
 }
 
-// modelData is node-to-node version data for versions 13 to 15.
-func modelData(magic uint32, query bool) protocol.VersionData {
+// refData is node-to-node version data for versions 13 to 15.
+func refData(magic uint32, query bool) protocol.VersionData {
 	return protocol.VersionDataNtN13andUp{
 		VersionDataNtN11to12: protocol.VersionDataNtN11to12{
 			CborNetworkMagic: magic,
@@ -639,9 +639,9 @@ func modelData(magic uint32, query bool) protocol.VersionData {
 	}
 }
 
-// modelRawTable encodes a proposal; a nil entry stands for version data the
+// refRawTable encodes a proposal; a nil entry stands for version data the
 // server cannot decode.
-func modelRawTable(t *testing.T, table map[uint16]protocol.VersionData) map[uint16]cbor.RawMessage {
+func refRawTable(t *testing.T, table map[uint16]protocol.VersionData) map[uint16]cbor.RawMessage {
 	t.Helper()
 	raw := make(map[uint16]cbor.RawMessage, len(table))
 	for v, data := range table {
@@ -656,48 +656,48 @@ func modelRawTable(t *testing.T, table map[uint16]protocol.VersionData) map[uint
 	return raw
 }
 
-// modelAnswer is the server's answer in the negotiation table: the message
+// refAnswer is the server's answer in the negotiation table: the message
 // type, the accepted or refused version, and the refusal reason.
-type modelAnswer struct {
+type refAnswer struct {
 	msgType uint8
 	version uint16
 	reason  uint64
 }
 
-func (a modelAnswer) String() string {
+func (a refAnswer) String() string {
 	return fmt.Sprintf("type %d version %d reason %d", a.msgType, a.version, a.reason)
 }
 
-// TestServerNegotiationMatchesModel checks the server's answer against the
+// TestServerNegotiationMatchesReference checks the server's answer against the
 // specification's server algorithm and acceptOrRefuse in the reference
 // (Handshake/Client.hs, Server.hs): the highest common version, then
 // VersionMismatch, HandshakeDecodeError or Refused, and a query reply only when
 // the version would have been accepted. Rows where gOuroboros answers otherwise
 // would give both answers; there are none.
-func TestServerNegotiationMatchesModel(t *testing.T) {
+func TestServerNegotiationMatchesReference(t *testing.T) {
 	t.Parallel()
-	accept := func(v uint16) modelAnswer { return modelAnswer{MessageTypeAcceptVersion, v, 0} }
-	refuse := func(reason uint64, v uint16) modelAnswer { return modelAnswer{MessageTypeRefuse, v, reason} }
-	query := modelAnswer{msgType: MessageTypeQueryReply}
-	server := map[uint16]protocol.VersionData{13: modelData(42, false), 14: modelData(42, false)}
+	accept := func(v uint16) refAnswer { return refAnswer{MessageTypeAcceptVersion, v, 0} }
+	refuse := func(reason uint64, v uint16) refAnswer { return refAnswer{MessageTypeRefuse, v, reason} }
+	query := refAnswer{msgType: MessageTypeQueryReply}
+	server := map[uint16]protocol.VersionData{13: refData(42, false), 14: refData(42, false)}
 	for _, test := range []struct {
 		name      string
 		proposal  map[uint16]protocol.VersionData
 		server    map[uint16]protocol.VersionData
-		reference modelAnswer
+		reference refAnswer
 		// gouroboros is set only where gOuroboros differs from the reference.
-		gouroboros *modelAnswer
+		gouroboros *refAnswer
 	}{
-		{"highest common", map[uint16]protocol.VersionData{13: modelData(42, false), 14: modelData(42, false)}, server, accept(14), nil},
-		{"highest common below proposed", map[uint16]protocol.VersionData{14: modelData(42, false), 15: modelData(42, false)}, server, accept(14), nil},
-		{"no common version", map[uint16]protocol.VersionData{15: modelData(42, false)}, server, refuse(RefuseReasonVersionMismatch, 0), nil},
-		{"highest common undecodable", map[uint16]protocol.VersionData{13: modelData(42, false), 14: nil}, server, refuse(RefuseReasonDecodeError, 14), nil},
-		{"magic mismatch", map[uint16]protocol.VersionData{14: modelData(43, false)}, server, refuse(RefuseReasonRefused, 14), nil},
-		{"lower version magic ignored", map[uint16]protocol.VersionData{13: modelData(43, false), 14: modelData(42, false)}, server, accept(14), nil},
-		{"query", map[uint16]protocol.VersionData{14: modelData(42, true)}, server, query, nil},
-		{"query without common version", map[uint16]protocol.VersionData{15: modelData(42, true)}, server, refuse(RefuseReasonVersionMismatch, 0), nil},
-		{"query with magic mismatch", map[uint16]protocol.VersionData{14: modelData(43, true)}, server, refuse(RefuseReasonRefused, 14), nil},
-		{"query on a version not chosen", map[uint16]protocol.VersionData{13: modelData(42, true), 14: modelData(42, false)}, server, accept(14), nil},
+		{"highest common", map[uint16]protocol.VersionData{13: refData(42, false), 14: refData(42, false)}, server, accept(14), nil},
+		{"highest common below proposed", map[uint16]protocol.VersionData{14: refData(42, false), 15: refData(42, false)}, server, accept(14), nil},
+		{"no common version", map[uint16]protocol.VersionData{15: refData(42, false)}, server, refuse(RefuseReasonVersionMismatch, 0), nil},
+		{"highest common undecodable", map[uint16]protocol.VersionData{13: refData(42, false), 14: nil}, server, refuse(RefuseReasonDecodeError, 14), nil},
+		{"magic mismatch", map[uint16]protocol.VersionData{14: refData(43, false)}, server, refuse(RefuseReasonRefused, 14), nil},
+		{"lower version magic ignored", map[uint16]protocol.VersionData{13: refData(43, false), 14: refData(42, false)}, server, accept(14), nil},
+		{"query", map[uint16]protocol.VersionData{14: refData(42, true)}, server, query, nil},
+		{"query without common version", map[uint16]protocol.VersionData{15: refData(42, true)}, server, refuse(RefuseReasonVersionMismatch, 0), nil},
+		{"query with magic mismatch", map[uint16]protocol.VersionData{14: refData(43, true)}, server, refuse(RefuseReasonRefused, 14), nil},
+		{"query on a version not chosen", map[uint16]protocol.VersionData{13: refData(42, true), 14: refData(42, false)}, server, accept(14), nil},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -705,7 +705,7 @@ func TestServerNegotiationMatchesModel(t *testing.T) {
 			if test.gouroboros != nil {
 				want = *test.gouroboros
 			}
-			h, opts := newModelHarness(t, protocol.ProtocolRoleServer, protocol.ProtocolModeNodeToNode)
+			h, opts := newReferenceHarness(t, protocol.ProtocolRoleServer, protocol.ProtocolModeNodeToNode)
 			cfg := h.config()
 			cfg.ProtocolVersionMap = test.server
 			s := NewServer(opts, cfg)
@@ -713,9 +713,9 @@ func TestServerNegotiationMatchesModel(t *testing.T) {
 			t.Cleanup(func() { _ = s.Stop(context.Background()) })
 			h.send(t, &MsgProposeVersions{
 				MessageBase: protocol.MessageBase{MessageType: MessageTypeProposeVersions},
-				VersionMap:  modelRawTable(t, test.proposal),
+				VersionMap:  refRawTable(t, test.proposal),
 			})
-			require.Equal(t, want.String(), modelAnswerOf(t, h.receiveAnswer(t)).String())
+			require.Equal(t, want.String(), refAnswerOf(t, h.receiveAnswer(t)).String())
 		})
 	}
 }
@@ -723,7 +723,7 @@ func TestServerNegotiationMatchesModel(t *testing.T) {
 // receiveAnswer returns the server's answer. Unlike receive, it ignores
 // errors: the server reports a refusal or a query as a terminal error once
 // the answer is on the wire, and that error may be seen first.
-func (h *modelHarness) receiveAnswer(t *testing.T) protocol.Message {
+func (h *refHarness) receiveAnswer(t *testing.T) protocol.Message {
 	t.Helper()
 	select {
 	case data, ok := <-h.payload:
@@ -739,18 +739,18 @@ func (h *modelHarness) receiveAnswer(t *testing.T) protocol.Message {
 	return nil
 }
 
-func modelAnswerOf(t *testing.T, msg protocol.Message) modelAnswer {
+func refAnswerOf(t *testing.T, msg protocol.Message) refAnswer {
 	t.Helper()
 	switch m := msg.(type) {
 	case *MsgAcceptVersion:
-		return modelAnswer{MessageTypeAcceptVersion, m.Version, 0}
+		return refAnswer{MessageTypeAcceptVersion, m.Version, 0}
 	case *MsgQueryReply:
-		return modelAnswer{msgType: MessageTypeQueryReply}
+		return refAnswer{msgType: MessageTypeQueryReply}
 	case *MsgRefuse:
 		require.NotEmpty(t, m.Reason)
 		reason, ok := m.Reason[0].(uint64)
 		require.True(t, ok)
-		answer := modelAnswer{msgType: MessageTypeRefuse, reason: reason}
+		answer := refAnswer{msgType: MessageTypeRefuse, reason: reason}
 		if reason != RefuseReasonVersionMismatch {
 			v, ok := m.Reason[1].(uint64)
 			require.True(t, ok)
@@ -759,5 +759,5 @@ func modelAnswerOf(t *testing.T, msg protocol.Message) modelAnswer {
 		return answer
 	}
 	t.Fatalf("unexpected answer %T", msg)
-	return modelAnswer{}
+	return refAnswer{}
 }
