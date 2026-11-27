@@ -353,9 +353,8 @@ func TestStopWaitsForDeadlineWatcher(t *testing.T) {
 
 // A Start can install a new protocol instance while a running Stop waits for
 // the old one with lifecycleMutex released. That Stop then resolves only the
-// old instance's ranges and releases only the busy lock taken before it:
-// a range queued on the new instance, and the new instance's busy lock,
-// are left alone.
+// old instance's ranges: a range queued on the new instance, and the new
+// instance's busy lock, are left alone.
 func TestStopLeavesRestartedInstanceRequests(t *testing.T) {
 	p := newIdlePeer(t, &Config{
 		RequestPipelining:   true,
