@@ -859,7 +859,7 @@ func (p *Protocol) WaitForStateExit(ctx context.Context, state State) error {
 			return ErrProtocolShuttingDown
 		case <-p.doneChan:
 			return ErrProtocolShuttingDown
-		case <-p.muxerDoneChan:
+		case <-p.muxerDone():
 			return ErrProtocolShuttingDown
 		}
 	}
