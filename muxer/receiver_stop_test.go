@@ -16,7 +16,10 @@ package muxer
 
 import (
 	"context"
+	"encoding/binary"
+	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -78,16 +81,35 @@ func TestStopWaitsForReadLoopSweep(t *testing.T) {
 }
 
 // A second RegisterProtocol of a role that is still registered replaces its
-// receiver.
+// receiver and sender.
 // The replaced receiver's forwarder must be stopped, or Stop waits for it
-// for ever.
+// for ever, and a segment queued on the replaced send channel must not reach
+// the wire.
 func TestReregisterLiveRoleStopsReplacedReceiver(t *testing.T) {
-	m, _ := newPipeMuxer(t)
-	_, first, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
+	m, remote := newPipeMuxer(t)
+	firstSend, first, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
 	require.NotNil(t, first)
-	_, second, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
+	secondSend, second, _ := m.RegisterProtocol(1, ProtocolRoleInitiator)
 	require.NotNil(t, second)
 	requireClosedSoon(t, first, "the replaced receiver channel")
+
+	// One segment is header plus a one-byte payload; the payload names the
+	// send channel it was queued on.
+	headerSize := binary.Size(SegmentHeader{})
+	wire := make([]byte, headerSize+1)
+	firstSend <- NewSegment(1, []byte{1}, false)
+	require.NoError(t, remote.SetReadDeadline(
+		time.Now().Add(200*time.Millisecond),
+	))
+	_, err := io.ReadFull(remote, wire)
+	require.ErrorIs(t, err, os.ErrDeadlineExceeded,
+		"a segment queued on the replaced send channel reached the wire")
+	secondSend <- NewSegment(1, []byte{2}, false)
+	require.NoError(t, remote.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = io.ReadFull(remote, wire)
+	require.NoError(t, err)
+	require.Equal(t, byte(2), wire[headerSize],
+		"the segment on the wire is not the current sender's")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
