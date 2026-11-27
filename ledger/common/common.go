@@ -2469,6 +2469,14 @@ func ExtractTransactionOffsets(
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
 	}
 
+	return extractTransactionOffsets(cborData, blockArray, arrayHeaderSize)
+}
+
+func extractTransactionOffsets(
+	cborData []byte,
+	blockArray []cbor.RawMessage,
+	arrayHeaderSize uint32,
+) (*BlockTransactionOffsets, error) {
 	// Detect Dijkstra blocks. Unlike pre-Dijkstra eras, these are a 2-element
 	// array [header, block_body] where transactions live inline inside
 	// block_body rather than as parallel top-level segments, so they must be

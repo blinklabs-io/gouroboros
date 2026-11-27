@@ -18,7 +18,6 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,7 +32,7 @@ func TestExtractTransactionOffsetsReturnsInvalidTransactions(t *testing.T) {
 	blockCbor, err := cbor.Encode(block)
 	require.NoError(t, err)
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 	require.NoError(t, err)
 	require.Len(t, offsets.Transactions, 2)
 	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
@@ -52,7 +51,7 @@ func TestExtractTransactionOffsetsPreservesDuplicateInvalidTransactions(
 	blockCbor, err := cbor.Encode(block)
 	require.NoError(t, err)
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 	require.NoError(t, err)
 	require.Equal(t, []uint{1, 1}, offsets.InvalidTransactions)
 }

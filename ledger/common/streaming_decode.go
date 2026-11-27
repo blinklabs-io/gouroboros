@@ -49,12 +49,10 @@ type BlockOutputOffsets struct {
 	Outputs []OutputLocation
 }
 
-// StreamingBlockDecoder decodes blocks while capturing CBOR byte offsets.
-// This is more efficient than decoding and extracting offsets separately.
+// StreamingBlockDecoder extracts CBOR offsets using the shared block walker.
 type StreamingBlockDecoder struct {
-	data    []byte
-	stream  *cbor.StreamDecoder
-	offsets *BlockTransactionOffsets
+	data   []byte
+	stream *cbor.StreamDecoder
 }
 
 const (
@@ -145,273 +143,17 @@ func NewStreamingBlockDecoder(data []byte) (*StreamingBlockDecoder, error) {
 		return nil, fmt.Errorf("create stream decoder: %w", err)
 	}
 
-	return &StreamingBlockDecoder{
-		data:   data,
-		stream: stream,
-		offsets: &BlockTransactionOffsets{
-			Transactions: nil, // Will be allocated when we know the count
-		},
-	}, nil
+	return &StreamingBlockDecoder{data: data, stream: stream}, nil
 }
 
-// DecodeWithOffsets decodes the block and extracts all CBOR offsets in a single pass.
-// This is the main entry point for streaming block decoding.
-//
-// The function:
-// 1. Parses the block array structure
-// 2. Extracts transaction body, witness, and metadata positions
-// 3. Extracts output positions within each transaction body
-// 4. Returns offsets for efficient later extraction
-//
-// Note: The actual Block struct is created by calling the appropriate era-specific
-// decoder on the raw data. This function focuses on offset extraction.
+// DecodeWithOffsets extracts the same transaction and component offsets as
+// ExtractTransactionOffsets, including transaction validity and nested bodies.
 func (d *StreamingBlockDecoder) DecodeWithOffsets() (*BlockTransactionOffsets, error) {
 	blockArray, arrayHeaderSize, err := decodeBlockArray(d.data, d.stream)
 	if err != nil {
 		return nil, fmt.Errorf("decode block array: %w", err)
 	}
-	if len(blockArray) < 3 {
-		// Byron EBB or other minimal block format
-		// Return empty slice instead of nil to prevent nil pointer dereference
-		d.offsets.Transactions = []TransactionLocation{}
-		return d.offsets, nil
-	}
-
-	// Detect Byron-era blocks and handle them separately.
-	// Byron blocks have 3 elements: [header, body, extra]
-	if isByronBlock(blockArray) {
-		offsets, err := extractByronTransactionOffsets(d.data, blockArray)
-		if err != nil {
-			return nil, fmt.Errorf("extract Byron transaction offsets: %w", err)
-		}
-		d.offsets = offsets
-		return d.offsets, nil
-	}
-
-	// Track positions as we walk through the block
-	// #nosec G115 -- Cardano block components are well under 4GiB
-	pos := arrayHeaderSize
-
-	// Skip header (blockArray[0])
-	// #nosec G115 -- block header <<4GiB
-	headerLen := uint32(len(blockArray[0]))
-	pos += headerLen
-
-	// Extract transaction bodies array (blockArray[1])
-	txBodiesOffset := pos
-	// #nosec G115 -- tx bodies <<4GiB
-	txBodiesLen := uint32(len(blockArray[1]))
-
-	// Extract witness sets array (blockArray[2])
-	witnessesOffset := txBodiesOffset + txBodiesLen
-	// #nosec G115 -- witnesses <<4GiB
-	witnessesLen := uint32(len(blockArray[2]))
-
-	// Extract metadata map offset (blockArray[3] if present)
-	var metadataOffset uint32
-	if len(blockArray) > 3 {
-		metadataOffset = witnessesOffset + witnessesLen
-	}
-
-	// Parse transaction bodies to get individual positions
-	var txBodiesRaw []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(blockArray[1]), &txBodiesRaw); err != nil {
-		return nil, fmt.Errorf("decode transaction bodies: %w", err)
-	}
-	_, bodiesArrayHeader, _ := cborArrayInfo(blockArray[1])
-	if bodiesArrayHeader == 0 {
-		return nil, errors.New("invalid transaction bodies array header")
-	}
-
-	// Parse witness sets
-	var witnessesRaw []cbor.RawMessage
-	if _, err := cbor.Decode([]byte(blockArray[2]), &witnessesRaw); err != nil {
-		return nil, fmt.Errorf("decode witness sets: %w", err)
-	}
-	_, witnessArrayHeader, _ := cborArrayInfo(blockArray[2])
-	if witnessArrayHeader == 0 {
-		return nil, errors.New("invalid witness sets array header")
-	}
-
-	// Validate that transaction bodies and witness sets have matching lengths
-	if len(txBodiesRaw) != len(witnessesRaw) {
-		return nil, fmt.Errorf(
-			"mismatched transaction bodies (%d) and witness sets (%d)",
-			len(txBodiesRaw),
-			len(witnessesRaw),
-		)
-	}
-
-	// Parse metadata map for per-transaction metadata positions
-	metadataByTxIdx := make(map[uint32]struct {
-		offset uint32
-		length uint32
-	})
-	if len(blockArray) > 3 && len(blockArray[3]) > 1 {
-		_ = extractMetadataOffsets(
-			[]byte(blockArray[3]),
-			metadataOffset,
-			metadataByTxIdx,
-		)
-	}
-
-	// Allocate transaction locations
-	d.offsets.Transactions = make([]TransactionLocation, len(txBodiesRaw))
-
-	// Calculate individual transaction body offsets
-	bodyPos := txBodiesOffset + bodiesArrayHeader
-
-	for i, rawBody := range txBodiesRaw {
-		// #nosec G115 -- tx body <<4GiB
-		bodyLen := uint32(len(rawBody))
-		d.offsets.Transactions[i].Body = ByteRange{
-			Offset: bodyPos,
-			Length: bodyLen,
-		}
-
-		// Extract output offsets from this transaction body
-		d.extractOutputOffsets(i, []byte(rawBody), bodyPos)
-
-		bodyPos += bodyLen
-	}
-
-	// Calculate individual witness set offsets
-	witnessPos := witnessesOffset + witnessArrayHeader
-
-	for i, rawWitness := range witnessesRaw {
-		// #nosec G115 -- witness set <<4GiB
-		witnessLen := uint32(len(rawWitness))
-		if i < len(d.offsets.Transactions) {
-			d.offsets.Transactions[i].Witness = ByteRange{
-				Offset: witnessPos,
-				Length: witnessLen,
-			}
-
-			// Extract datum, redeemer, and script offsets
-			extractWitnessComponentOffsets(
-				[]byte(rawWitness),
-				witnessPos,
-				&d.offsets.Transactions[i],
-			)
-		}
-		witnessPos += witnessLen
-	}
-
-	// Assign metadata offsets
-	for i := range d.offsets.Transactions {
-		// #nosec G115 -- tx index <<4 billion
-		if meta, ok := metadataByTxIdx[uint32(i)]; ok {
-			d.offsets.Transactions[i].Metadata = ByteRange{
-				Offset: meta.offset,
-				Length: meta.length,
-			}
-		}
-	}
-
-	return d.offsets, nil
-}
-
-// extractOutputOffsets parses a transaction body to find output CBOR positions.
-// This uses streaming decode to track positions of each output within the body.
-func (d *StreamingBlockDecoder) extractOutputOffsets(
-	txIndex int,
-	bodyData []byte,
-	bodyOffset uint32,
-) {
-	// Transaction body is a CBOR map with numeric keys
-	// Key 1 contains the outputs array
-	// We need to find the outputs array and get positions of each output
-
-	if len(bodyData) < 2 {
-		return
-	}
-
-	// Parse the transaction body map
-	count, headerSize, indefinite := cborMapInfo(bodyData)
-	if count < 0 && !indefinite {
-		return
-	}
-
-	// Create a stream decoder for the body content (after map header)
-	bodyStream, err := cbor.NewStreamDecoder(bodyData[headerSize:])
-	if err != nil {
-		return
-	}
-
-	// Scan through map key-value pairs looking for key 1 (outputs)
-	for i := 0; indefinite || i < count; i++ {
-		// Check for break byte in indefinite maps
-		if indefinite {
-			pos := bodyStream.Position()
-			checkPos := int(headerSize) + pos
-			if checkPos >= len(bodyData) || bodyData[checkPos] == 0xff {
-				break
-			}
-		}
-
-		// Decode map key
-		var key uint64
-		keyStart, keyLen, err := bodyStream.Decode(&key)
-		if err != nil {
-			return
-		}
-		_ = keyStart
-		_ = keyLen
-
-		if key == 1 {
-			// Found the outputs array - decode it with position tracking
-			valueStart := bodyStream.Position()
-
-			// Decode outputs as array of RawMessage
-			var outputsRaw []cbor.RawMessage
-			_, _, err := bodyStream.Decode(&outputsRaw)
-			if err != nil {
-				return
-			}
-
-			// Calculate the absolute offset of the outputs array
-			// #nosec G115 -- Cardano tx body offsets are well under 4GiB
-			outputsArrayOffset := bodyOffset + uint32(
-				headerSize,
-			) + uint32(
-				valueStart,
-			)
-			_, outputsArrayHeader, _ := cborArrayInfo(
-				bodyData[int(headerSize)+valueStart:],
-			)
-			if outputsArrayHeader == 0 {
-				return
-			}
-
-			// Track position within outputs array
-			outputPos := outputsArrayOffset + outputsArrayHeader
-
-			// Record each output's position
-			if d.offsets.Transactions[txIndex].Outputs == nil {
-				d.offsets.Transactions[txIndex].Outputs = make(
-					[]ByteRange,
-					len(outputsRaw),
-				)
-			}
-
-			for j, rawOutput := range outputsRaw {
-				// #nosec G115 -- Cardano outputs are <<4GiB
-				outputLen := uint32(len(rawOutput))
-				d.offsets.Transactions[txIndex].Outputs[j] = ByteRange{
-					Offset: outputPos,
-					Length: outputLen,
-				}
-				outputPos += outputLen
-			}
-
-			return // Found outputs, done with this body
-		}
-
-		// Skip the value for this key
-		if _, _, err := bodyStream.Skip(); err != nil {
-			return
-		}
-	}
+	return extractTransactionOffsets(d.data, blockArray, arrayHeaderSize)
 }
 
 // DecodeBlockWithOffsets decodes a block and extracts CBOR offsets.
@@ -447,6 +189,14 @@ func DecodeBlockWithOffsets(
 	block, err := decodeBlock(blockType, data)
 	if err != nil {
 		return nil, fmt.Errorf("decode block: %w", err)
+	}
+
+	if count := len(block.Transactions()); count != len(offsets.Transactions) {
+		return nil, fmt.Errorf(
+			"transaction count mismatch: decoded %d transactions, extracted %d offsets",
+			count,
+			len(offsets.Transactions),
+		)
 	}
 
 	return &BlockWithOffsets{

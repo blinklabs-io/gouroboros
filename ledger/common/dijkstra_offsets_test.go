@@ -207,7 +207,7 @@ func TestExtractTransactionOffsetsDijkstraBlockShapes(t *testing.T) {
 				require.Len(t, block.Transactions(), testCase.numTx)
 			}
 
-			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 			require.NoError(t, err)
 			require.NotNil(t, offsets)
 			require.Len(t, offsets.Transactions, testCase.numTx)
@@ -305,7 +305,7 @@ func TestExtractTransactionOffsetsDijkstraSubTransactionComponents(
 	})
 	block := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
 
-	offsets, err := common.ExtractTransactionOffsets(block)
+	offsets, err := extractOffsetsWithStreamingParity(t, block)
 	require.NoError(t, err)
 	require.Len(t, offsets.Transactions, 1)
 	require.Len(t, offsets.Transactions[0].SubTransactions, 1)
@@ -362,7 +362,7 @@ func TestExtractTransactionOffsetsDijkstraRejectsMalformedSubTransaction(
 	})
 	block := []byte(encodeCbor(t, []cbor.RawMessage{header, blockBody}))
 
-	_, err := common.ExtractTransactionOffsets(block)
+	_, err := extractOffsetsWithStreamingParity(t, block)
 	require.ErrorContains(
 		t,
 		err,
@@ -389,7 +389,7 @@ func TestExtractTransactionOffsetsDijkstraReturnsInvalidTransactions(
 		encodeCbor(t, body),
 	}))
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 	require.NoError(t, err)
 	require.Len(t, offsets.Transactions, 2)
 	require.Equal(t, []uint{1}, offsets.InvalidTransactions)
@@ -414,7 +414,7 @@ func TestExtractTransactionOffsetsDijkstraRejectsDuplicateInvalidTransactions(
 		encodeCbor(t, body),
 	}))
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 	require.ErrorContains(t, err, "duplicate member in set")
 	require.Nil(t, offsets)
 }
@@ -466,7 +466,7 @@ func TestExtractTransactionOffsetsDijkstraMalformed(t *testing.T) {
 				header,
 				encodeCbor(t, testCase.body),
 			}))
-			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 			require.Error(t, err)
 			assert.Nil(t, offsets)
 		})
@@ -502,7 +502,7 @@ func TestExtractTransactionOffsetsTwoElementNonDijkstra(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			blockCbor, err := cbor.Encode(testCase.block)
 			require.NoError(t, err)
-			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 			require.NoError(t, err)
 			require.NotNil(t, offsets)
 			assert.Empty(t, offsets.Transactions)
@@ -537,7 +537,7 @@ func TestExtractTransactionOffsetsDijkstraBlockTransactionValidity(
 				decodedValidity = append(decodedValidity, tx.IsValid())
 			}
 
-			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 			require.NoError(t, err)
 			require.Len(t, offsets.Transactions, testCase.numTx)
 			assert.Equal(t, testCase.wantInvalid, offsets.InvalidTransactions)
@@ -583,7 +583,7 @@ func TestExtractTransactionOffsetsDijkstraRejectsNonBoolIsValid(t *testing.T) {
 			var block dijkstra.DijkstraBlock
 			require.Error(t, block.UnmarshalCBOR(blockCbor))
 
-			offsets, err := common.ExtractTransactionOffsets(blockCbor)
+			offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 			require.ErrorContains(t, err, "transaction 0 is_valid")
 			require.Nil(t, offsets)
 		})
@@ -607,7 +607,7 @@ func TestExtractTransactionOffsetsDijkstraRejectsBlockTransactionWithoutIsValid(
 	var block dijkstra.DijkstraBlock
 	require.Error(t, block.UnmarshalCBOR(blockCbor))
 
-	offsets, err := common.ExtractTransactionOffsets(blockCbor)
+	offsets, err := extractOffsetsWithStreamingParity(t, blockCbor)
 	require.ErrorContains(
 		t,
 		err,
