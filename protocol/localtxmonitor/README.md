@@ -180,6 +180,8 @@ node also reports `ex_units_memory`, `ex_units_steps` and
 - NextTx iterates through all transactions in snapshot
 - HasTx checks for specific transaction by ID; the ID must be 32 bytes
 - Release snapshot when done to free resources
+- `Release` with no snapshot acquired returns `ErrNotAcquired` and sends
+  nothing, since `MsgRelease` is legal only in Acquired
 - After `Done` the server restarts in Idle, as the reference's inbound
   governor restarts a responder, so a client can start another run on the
   same connection
