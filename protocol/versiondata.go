@@ -14,7 +14,11 @@
 
 package protocol
 
-import "github.com/blinklabs-io/gouroboros/cbor"
+import (
+	"fmt"
+
+	"github.com/blinklabs-io/gouroboros/cbor"
+)
 
 // Diffusion modes
 const (
@@ -167,8 +171,20 @@ type VersionDataNtN13andUp struct {
 
 func NewVersionDataNtN13andUpFromCbor(cborData []byte) (VersionData, error) {
 	var v VersionDataNtN13andUp
-	_, err := cbor.Decode(cborData, &v)
-	return v, err
+	if _, err := cbor.Decode(cborData, &v); err != nil {
+		return v, err
+	}
+	return v, checkPeerSharingMode(v.CborPeerSharing)
+}
+
+// checkPeerSharingMode refuses a peer sharing mode other than none or
+// public, the only two from node-to-node version 13 on. The reference
+// decoder fails on any other value, so a server refuses it with DecodeError.
+func checkPeerSharingMode(mode uint) error {
+	if mode > PeerSharingModePeerSharingPublic {
+		return fmt.Errorf("peer sharing mode %d out of range", mode)
+	}
+	return nil
 }
 
 func (v VersionDataNtN13andUp) PeerSharing() bool {
@@ -193,8 +209,10 @@ type VersionDataNtN16andUp struct {
 // NewVersionDataNtN16andUpFromCbor decodes node-to-node version 16 data.
 func NewVersionDataNtN16andUpFromCbor(cborData []byte) (VersionData, error) {
 	var v VersionDataNtN16andUp
-	_, err := cbor.Decode(cborData, &v)
-	return v, err
+	if _, err := cbor.Decode(cborData, &v); err != nil {
+		return v, err
+	}
+	return v, checkPeerSharingMode(v.CborPeerSharing)
 }
 
 func (v VersionDataNtN16andUp) NetworkMagic() uint32 {
