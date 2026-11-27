@@ -108,7 +108,7 @@ disables peer sharing is `NoPeerSharing`.
 
 | Local advertised | Remote advertised | Client may send `ShareRequest`? | Server honours incoming `ShareRequest`? |
 |---|---|---|---|
-| any | NoPeerSharing | no — `ErrRemotePeerSharingDisabled` | yes (if local advertised active) |
+| any | NoPeerSharing | no — `ErrRemotePeerSharingDisabled` | empty `SharePeers` response; the negotiated mode is `NoPeerSharing` |
 | NoPeerSharing | active | no — would be a self-protocol violation; client should not be calling `GetPeers` | empty `SharePeers` response |
 | active | active | yes | yes |
 
@@ -139,7 +139,7 @@ Protocol-level option helpers (in
 | `WithShareRequestFunc(fn)` | Required server-side callback. `fn(ctx, amount)` is invoked when a peer asks for up to `amount` peers; the returned slice (possibly nil) is sent back as `SharePeers`. |
 | `WithTimeout(d)` | Overrides how long the client waits in Busy for `SharePeers` (default `BusyTimeout`, 60s). |
 | `WithLocalDisabled(bool)` | Internal: set by the connection layer when the local node advertised NoPeerSharing. Exposed for tests. |
-| `WithRemoteDisabled(bool)` | Internal: set by the connection layer when the remote peer advertised NoPeerSharing. Exposed for tests. |
+| `WithRemoteDisabled(bool)` | Internal: set by the connection layer when the negotiated mode is NoPeerSharing (either side advertised it). Exposed for tests. |
 
 `ShareRequestFunc` selects which peers to publish. The server clamps whatever
 the callback returns to the smaller of the requested `Amount` and

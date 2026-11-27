@@ -126,8 +126,12 @@ func (s *Server) handleShareRequest(
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 			"local_disabled", s.config != nil && s.config.LocalDisabled,
+			"remote_disabled", s.config != nil && s.config.RemoteDisabled,
 		)
-	if s.config != nil && s.config.LocalDisabled {
+	// The negotiated mode is NoPeerSharing when either side advertised it,
+	// and RemoteDisabled carries that outcome, so a peer that advertised
+	// NoPeerSharing and asks anyway is not given peers either.
+	if s.config != nil && (s.config.LocalDisabled || s.config.RemoteDisabled) {
 		proto.Logger().
 			Debug("peer sharing request violates negotiated mode",
 				"component", "network",
@@ -135,8 +139,8 @@ func (s *Server) handleShareRequest(
 				"role", "server",
 				"connection_id", s.callbackContext.ConnectionId.String(),
 			)
-		// A peer that sends ShareRequest after we advertised NoPeerSharing is
-		// not following the handshake negotiation. Still answer with an empty
+		// A peer that sends ShareRequest when NoPeerSharing was negotiated
+		// is not following the handshake negotiation. Still answer with an empty
 		// response so an invalid optional request cannot tear down the bearer.
 		return proto.SendMessage(NewMsgSharePeers([]PeerAddress{}))
 	}
