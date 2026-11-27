@@ -363,8 +363,11 @@ func TestSimultaneousOpenEndsOnlyAfterProposalWritten(t *testing.T) {
 	require.Equal(t, []uint16{14}, mismatch.SupportedVersions)
 }
 
+// errInjectedWrite is the error failingConn fails its first write with.
+var errInjectedWrite = errors.New("write failed")
+
 // failingConn holds its first write until release is closed, then fails it
-// without writing.
+// with errInjectedWrite without writing.
 type failingConn struct {
 	net.Conn
 	writing chan struct{}
@@ -380,15 +383,17 @@ func (c *failingConn) Write(b []byte) (int, error) {
 		failed = true
 	})
 	if failed {
-		return 0, errors.New("write failed")
+		return 0, errInjectedWrite
 	}
 	return c.Conn.Write(b)
 }
 
 // TestSimultaneousOpenProposalWriteFailureStops checks a client whose
-// proposal write fails while it handles the peer's proposal still stops.
+// proposal write fails while it handles the peer's proposal stops by itself.
 // The handler waits for the write's outcome, and Stop waits for the handler,
 // so the outcome must be published before the failed send stops the client.
+// The client is not stopped by the test until it is done: a Stop racing the
+// failed write would end the send with ErrProtocolShuttingDown instead.
 func TestSimultaneousOpenProposalWriteFailureStops(t *testing.T) {
 	leftConn, rightConn := net.Pipe()
 	failing := &failingConn{
@@ -398,6 +403,7 @@ func TestSimultaneousOpenProposalWriteFailureStops(t *testing.T) {
 	}
 	left := startSimOpenSide(t, leftConn, simOpenTable(t, 1, 14))
 	protoMuxer := muxer.New(failing)
+	errorChan := make(chan error, 4)
 	config := handshake.NewConfig(
 		handshake.WithProtocolVersionMap(simOpenTable(t, 1, 14)),
 		handshake.WithFinishedFunc(func(
@@ -414,7 +420,7 @@ func TestSimultaneousOpenProposalWriteFailureStops(t *testing.T) {
 			RemoteAddr: &net.TCPAddr{},
 		},
 		Muxer:     protoMuxer,
-		ErrorChan: make(chan error, 4),
+		ErrorChan: errorChan,
 		Mode:      protocol.ProtocolModeNodeToNode,
 	}, &config)
 	client.Start()
@@ -428,6 +434,20 @@ func TestSimultaneousOpenProposalWriteFailureStops(t *testing.T) {
 	// handler for the held write.
 	time.Sleep(100 * time.Millisecond)
 	close(failing.release)
+	// The failed write is reported before anything stops the client.
+	select {
+	case err := <-errorChan:
+		require.ErrorIs(t, err, errInjectedWrite)
+	case err := <-protoMuxer.ErrorChan():
+		require.ErrorIs(t, err, errInjectedWrite)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the proposal write failure was not reported")
+	}
+	select {
+	case <-client.DoneChan():
+	case <-time.After(5 * time.Second):
+		t.Fatal("client did not stop after its proposal write failed")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, client.Stop(ctx), "client did not stop")
