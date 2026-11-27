@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -95,6 +96,47 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 	panic("unreachable")
 }
 
+// harnessTip is far ahead of every block the harnesses serve, so the client
+// keeps its full window outstanding.
+var harnessTip = Tip{
+	Point:       pcommon.NewPoint(1000, testPointHash(0xff)),
+	BlockNumber: 1000,
+}
+
+// rollForwardTo answers request n with block n.
+func rollForwardTo(t *testing.T, ctx CallbackContext, n int, tip Tip) error {
+	t.Helper()
+	return ctx.Server.RollForward(
+		ledger.BlockTypeConway,
+		tipWindowBlock(t, uint64(n)),
+		tip,
+	)
+}
+
+// deliver returns the client callback that records each delivered block as
+// "rb:n" on rollbacks, stopping the sync where stop says so.
+func (h *reintersectHarness) deliver(
+	stop func(n uint64) bool,
+) RollForwardRawFunc {
+	return func(
+		_ CallbackContext,
+		blockType uint,
+		blockCbor []byte,
+		_ Tip,
+	) error {
+		n, ok := blockBlockNumber(blockType, blockCbor)
+		if !ok {
+			return errors.New("no block number in roll forward")
+		}
+		h.log("rb:%d", n)
+		h.rollbacks <- n
+		if stop(n) {
+			return ErrStopSyncProcess
+		}
+		return nil
+	}
+}
+
 func newReintersectHarness(t *testing.T) *reintersectHarness {
 	t.Helper()
 	h := &reintersectHarness{
@@ -117,7 +159,7 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 		_ = clientMuxer.Stop(context.Background())
 		_ = serverMuxer.Stop(context.Background())
 	})
-	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
+	tip := harnessTip
 
 	var reqCount int
 	server := NewServer(
@@ -155,10 +197,7 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 				case <-h.stop:
 					return nil
 				}
-				return ctx.Server.RollBackward(
-					pcommon.NewPoint(uint64(n), testPointHash(byte(n))),
-					tip,
-				)
+				return rollForwardTo(t, ctx, n, tip)
 			},
 		},
 	)
@@ -171,18 +210,9 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 		},
 		&Config{
 			PipelineLimit: 3,
-			RollBackwardFunc: func(
-				_ CallbackContext,
-				point pcommon.Point,
-				_ Tip,
-			) error {
-				h.log("rb:%d", point.Slot)
-				h.rollbacks <- point.Slot
-				if h.stopSync.Load() || point.Slot == h.stopAtSlot.Load() {
-					return ErrStopSyncProcess
-				}
-				return nil
-			},
+			RollForwardRawFunc: h.deliver(func(n uint64) bool {
+				return h.stopSync.Load() || n == h.stopAtSlot.Load()
+			}),
 		},
 	)
 	server.Start()

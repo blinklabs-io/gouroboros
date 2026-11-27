@@ -70,6 +70,11 @@ type Client struct {
 	syncLoopDone chan struct{}
 	// syncStopRequests counts callbacks that returned ErrStopSyncProcess.
 	syncStopRequests int
+	// The client's position for the sync window, from the last reply
+	// delivered; see windowTarget. Guarded by lifecycleMutex.
+	windowPlacement  windowPlacement
+	windowPosBlock   uint64
+	windowTipBlock   uint64
 	awaitReplyCtx    context.Context
 	awaitReplyCancel context.CancelFunc
 	protoOptions     protocol.ProtocolOptions
@@ -91,12 +96,19 @@ type Client struct {
 	testAwaitReplyBeforeFence       func()
 	testQuiesceBeforeLoopStopClose  func()
 	testRollForwardBeforeAnswered   func()
+	testTipAfterSyncCheck           func()
 
 	// want* only processes one request per message reply received from the server. If the message
 	// request fails, it is the responsibility of the caller to clear the channel.
 	wantCurrentTipChan     chan chan<- Tip
 	wantFirstBlockChan     chan chan<- clientPointResult
 	wantIntersectFoundChan chan intersectRequest
+
+	// lastTip is the server's tip from the last reply handled on the
+	// current protocol instance; haveLastTip is false until one arrives.
+	// Guarded by lifecycleMutex.
+	lastTip     Tip
+	haveLastTip bool
 }
 
 type clientPointResult struct {
@@ -364,6 +376,7 @@ func (c *Client) Start() {
 				// the client stopped (stoppedWithoutDone).
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
+				c.haveLastTip = false
 			}
 
 			proto := c.ProtocolInstance()
@@ -507,17 +520,29 @@ func (c *Client) stopRunning(
 	if c.testStopBusyLockTimeout > 0 {
 		busyLockTimeout = c.testStopBusyLockTimeout
 	}
-	deadline := time.Now().Add(busyLockTimeout)
-	busyLocked := false
-	for {
-		if c.busyMutex.TryLock() {
-			busyLocked = true
-			break
+	// The holder may be waiting for a reply that only this callback's
+	// goroutine can deliver, so a Stop from a callback does not wait for
+	// it; nor does a Stop whose ctx is done.
+	busyLocked := c.busyMutex.TryLock()
+	if !busyLocked && protocol.CallbackOwner(ctx) != proto {
+		deadline := time.NewTimer(busyLockTimeout)
+		defer deadline.Stop()
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+	wait:
+		for {
+			select {
+			case <-ctx.Done():
+				break wait
+			case <-deadline.C:
+				break wait
+			case <-ticker.C:
+				if c.busyMutex.TryLock() {
+					busyLocked = true
+					break wait
+				}
+			}
 		}
-		if time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
 	}
 
 	return c.finishStop(
@@ -659,13 +684,31 @@ func (c *Client) waitStopped(
 	}
 }
 
-// GetCurrentTip returns the current chain tip
+// GetCurrentTip returns the server's current chain tip.
+//
+// While a MsgRequestNext is unanswered, as during a Sync, it returns the tip
+// carried by the last reply the client handled, without a round trip: every
+// MsgRollForward, MsgRollBackward and intersect answer carries the server's
+// tip, and MsgFindIntersect could not be sent until every outstanding
+// request is answered, which at the chain tip means until the chain grows.
+// Otherwise it sends MsgFindIntersect with no points and returns the tip in
+// the server's answer, after waiting for any operation that holds the
+// client, such as Jump. A callback that runs with no MsgRequestNext
+// unanswered, such as IntersectFoundFunc, must not call GetCurrentTip: the
+// answer is delivered on the goroutine that runs the callbacks, so the call
+// returns only when the client stops, with protocol.ErrProtocolShuttingDown.
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	proto, _, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
 		return nil, err
 	}
 	defer endOperation()
+	if tip, ok := c.tipDuringSync(); ok {
+		return &tip, nil
+	}
+	if c.testTipAfterSyncCheck != nil {
+		c.testTipAfterSyncCheck()
+	}
 	proto.Logger().
 		Debug("calling GetCurrentTip()",
 			"component", "network",
@@ -673,6 +716,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	// DoneChan closes only after the receive loop returns. A call from a
+	// callback blocks that loop, so StopChan is what releases it.
+	stopChan := proto.StopChan()
 	done := atomic.Bool{}
 	requestResultChan := make(chan Tip, 1)
 	requestErrorChan := make(chan error, 1)
@@ -680,7 +726,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 
 	go func() {
 		defer close(requestWorkerDone)
-		c.busyMutex.Lock()
+		// The holder may be waiting for an answer that a callback calling
+		// GetCurrentTip blocks, so the lock wait must end on StopChan too.
+		if err := c.lockBusy(
+			context.Background(), stopChan, context.Background(),
+		); err != nil {
+			requestErrorChan <- err
+			return
+		}
 		defer c.busyMutex.Unlock()
 
 		c.lifecycleMutex.Lock()
@@ -691,6 +744,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			case requestErrorChan <- protocol.ErrProtocolShuttingDown:
 			default:
 			}
+			return
+		}
+		// A sync loop may have sent a MsgRequestNext since the check
+		// above. With busyMutex held none can be sent until this returns,
+		// so the protocol stays idle for MsgFindIntersect if none is
+		// unanswered now.
+		if tip, ok := c.tipDuringSync(); ok {
+			requestResultChan <- tip
 			return
 		}
 
@@ -708,6 +769,7 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 		}
 		select {
 		case <-doneChan:
+		case <-stopChan:
 		case result := <-resultChan:
 			if result.error != nil &&
 				!errors.Is(result.error, ErrIntersectNotFound) {
@@ -729,6 +791,9 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	case <-doneChan:
 		done.Store(true)
 		return nil, protocol.ErrProtocolShuttingDown
+	case <-stopChan:
+		done.Store(true)
+		return nil, protocol.ErrProtocolShuttingDown
 	case tip := <-requestResultChan:
 		proto.Logger().
 			Debug(
@@ -742,6 +807,18 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	case err := <-requestErrorChan:
 		return nil, err
 	}
+}
+
+// tipDuringSync returns the last reply's tip if a MsgRequestNext is
+// unanswered. Every MsgRequestNext follows an intersect answer on the same
+// protocol instance, so a tip is then always known.
+func (c *Client) tipDuringSync() (Tip, bool) {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	if c.outstandingRequestNext == 0 || !c.haveLastTip {
+		return Tip{}, false
+	}
+	return c.lastTip, true
 }
 
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
@@ -1379,6 +1456,7 @@ func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 	proto := c.ProtocolInstance()
 	readyForNextBlockChan := c.readyForNextBlockChan
 	doneChan := proto.DoneChan()
+	c.windowPlacement = windowUnplaced
 	// Reserve the sync-loop wait-group slot before Stop can begin waiting. The
 	// reservation is released below if the request cannot be queued.
 	c.syncLoopWaitGroup.Add(1)
@@ -1462,11 +1540,11 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		// One reply was consumed: top the window back up so PipelineLimit
-		// requests stay outstanding. Sending only after the window empties
-		// leaves the link idle for a round trip per batch.
+		// One reply was consumed: top the window back up. Sending only
+		// after the window empties leaves the link idle for a round trip
+		// per batch.
 		inFlight--
-		msgCount := max(c.config.PipelineLimit, 1) - inFlight
+		msgCount := c.windowTarget() - inFlight
 		if msgCount <= 0 {
 			c.lifecycleMutex.Unlock()
 			c.busyMutex.Unlock()
@@ -1500,7 +1578,13 @@ func (c *Client) syncLoop(
 	}
 }
 
+// sendCurrentTip records the tip a reply carries, then hands it to a waiting
+// GetAvailableBlockRange.
 func (c *Client) sendCurrentTip(tip Tip) {
+	c.lifecycleMutex.Lock()
+	c.lastTip = tip
+	c.haveLastTip = true
+	c.lifecycleMutex.Unlock()
 	select {
 	case ch := <-c.wantCurrentTipChan:
 		ch <- tip
@@ -1736,6 +1820,9 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		)
 	}
 	var callbackErr error
+	var tip Tip
+	var blockNumber uint64
+	var measured bool
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 
@@ -1761,6 +1848,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		}
 		c.sendCurrentTip(msg.Tip)
+		tip = msg.Tip
+		blockNumber, measured = headerBlockNumber(blockType, blockHeaderBytes)
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			// Decode header
 			var err error
@@ -1815,6 +1904,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
+		tip = msg.Tip
+		blockNumber, measured = blockBlockNumber(msg.BlockType(), msg.BlockCbor())
 
 		// Pipeline path. GetAvailableBlockRange (firstBlockChan set) takes the
 		// normal path below instead, which reports the first block.
@@ -1860,6 +1951,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 			// Signal ready only after ordered acceptance.
 			c.lifecycleMutex.Lock()
+			c.placeWindow(blockNumber, measured, tip)
 			if c.readyForNextBlockChan != nil {
 				select {
 				case c.readyForNextBlockChan <- true:
@@ -1946,6 +2038,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	}
 	// Signal that we're ready for the next block
 	c.lifecycleMutex.Lock()
+	c.placeWindow(blockNumber, measured, tip)
 	if c.readyForNextBlockChan != nil {
 		select {
 		case c.readyForNextBlockChan <- true:
@@ -2042,6 +2135,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	}
 	// Signal that we're ready for the next block
 	c.lifecycleMutex.Lock()
+	c.unplaceWindow(msgRollBackward.Tip)
 	if c.readyForNextBlockChan != nil {
 		select {
 		case c.readyForNextBlockChan <- true:
