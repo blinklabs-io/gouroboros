@@ -42,6 +42,7 @@ type Segment struct {
 	SegmentHeader
 	Payload      []byte
 	deliveryChan chan<- error
+	writtenFunc  func()
 }
 
 // SetDeliveryChan registers a channel that receives the result of writing the
@@ -51,7 +52,18 @@ func (s *Segment) SetDeliveryChan(deliveryChan chan<- error) {
 	s.deliveryChan = deliveryChan
 }
 
+// SetWrittenFunc registers fn to run once the segment has been written to the
+// underlying connection. It does not run for a segment whose write failed or
+// that was dropped because its protocol was unregistered. fn runs on the
+// muxer's send goroutine for the segment's protocol, so it must not block.
+func (s *Segment) SetWrittenFunc(fn func()) {
+	s.writtenFunc = fn
+}
+
 func (s *Segment) reportDelivery(err error) {
+	if err == nil && s.writtenFunc != nil {
+		s.writtenFunc()
+	}
 	if s.deliveryChan == nil {
 		return
 	}

@@ -118,6 +118,7 @@ type Protocol struct {
 	stopped                  bool
 	pendingBytesMu           sync.Mutex
 	pendingSendBytes         int
+	unwrittenSendBytes       int // taken off the queue, not yet written
 	pendingRecvBytes         int
 	pendingPipelinedRequests int
 	pendingPipelinedReplies  int
@@ -810,8 +811,9 @@ func (p *Protocol) IsInTerminalOrIdleState() bool {
 	return currentState == p.config.InitialState
 }
 
-// WaitSendQueueDrained blocks until the send queue has been drained (best-effort) or the protocol
-// begins shutting down, or the timeout expires.
+// WaitSendQueueDrained blocks until every message queued before the call has
+// been written to the connection, and reports true, or until the protocol
+// begins shutting down or the timeout expires, and reports false.
 func (p *Protocol) WaitSendQueueDrained(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -825,7 +827,7 @@ func (p *Protocol) WaitSendQueueDrained(timeout time.Duration) bool {
 		}
 
 		p.pendingBytesMu.Lock()
-		pending := p.pendingSendBytes
+		pending := p.pendingSendBytes + p.unwrittenSendBytes
 		p.pendingBytesMu.Unlock()
 		queueLen := 0
 		if p.sendQueueChan != nil {
@@ -1630,6 +1632,7 @@ waitSendReadyChan:
 			// After sending, decrement pendingSendBytes
 			p.pendingBytesMu.Lock()
 			p.pendingSendBytes -= len(data)
+			p.unwrittenSendBytes += len(data)
 			if p.pendingSendBytes < 0 {
 				p.Logger().Warn(
 					"negative pendingSendBytes reset",
@@ -1707,6 +1710,11 @@ waitSendReadyChan:
 			if deliveryChan != nil && segmentPayloadLength == payloadBuf.Len() {
 				segment.SetDeliveryChan(deliveryChan)
 			}
+			segment.SetWrittenFunc(func() {
+				p.pendingBytesMu.Lock()
+				p.unwrittenSendBytes -= segmentPayloadLength
+				p.pendingBytesMu.Unlock()
+			})
 			select {
 			case <-p.stopChan:
 				return
