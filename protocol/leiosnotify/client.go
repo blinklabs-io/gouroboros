@@ -15,12 +15,14 @@
 package leiosnotify
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 type Client struct {
@@ -31,9 +33,13 @@ type Client struct {
 	notificationChan     chan protocol.Message
 	pipelinedRequestNext int
 	notificationRunning  bool
-	quitting             atomic.Bool
-	onceStart            sync.Once
-	onceStop             sync.Once
+	// sendMutex is held from the check of quitting through the sends it
+	// allows, and by Stop while it sets quitting and sends MsgQuit, so no
+	// request can follow MsgQuit onto the wire.
+	sendMutex sync.Mutex
+	quitting  atomic.Bool
+	onceStart sync.Once
+	onceStop  sync.Once
 }
 
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
@@ -83,7 +89,14 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) Stop() error {
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	var err error
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
@@ -92,11 +105,14 @@ func (c *Client) Stop() error {
 				"protocol", ProtocolName,
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
-		// Once quitting, the notification loop sends no further requests,
-		// which the protocol no longer allows
+		c.sendMutex.Lock()
+		defer c.sendMutex.Unlock()
 		c.quitting.Store(true)
-		err = c.SendMessage(NewMsgQuit())
+		err = stopping.SendDone(ctx, c.Protocol, NewMsgQuit())
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return err
 }
 
@@ -110,22 +126,30 @@ func (c *Client) Sync() error {
 	}
 	c.busyMutex.Lock()
 	defer c.busyMutex.Unlock()
+	// After Stop the loop stays parked until the protocol ends, so the
+	// shutdown is checked first.
+	if c.quitting.Load() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	if c.notificationRunning {
 		return errors.New("notification loop is already running")
 	}
-	msg := NewMsgNotificationRequestNext()
-	if err := c.SendMessage(msg); err != nil {
+	if err := c.sendRequests(1); err != nil {
 		return err
 	}
 	// Reset pipelined message counter
 	c.pipelinedRequestNext = 0
+	// The loop cannot start once the protocol's goroutines have been joined
+	// or the connection has begun to close.
+	if !c.startNotificationLoop() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	c.notificationRunning = true
-	c.startNotificationLoop()
 	return nil
 }
 
-func (c *Client) startNotificationLoop() {
-	go c.RunLoop("notification loop", c.notificationLoop)
+func (c *Client) startNotificationLoop() bool {
+	return c.RunLoop("notification loop", c.notificationLoop)
 }
 
 func (c *Client) notificationLoop() {
@@ -142,7 +166,7 @@ func (c *Client) notificationLoop() {
 				// Channel is closed, which means we're shutting down
 				return
 			}
-			err := c.config.NotificationFunc(c.callbackContext, msg)
+			err := c.config.NotificationFunc(c.callbackContext.withOwner(c.Protocol), msg)
 			if err != nil {
 				if errors.Is(err, ErrStopNotificationProcess) {
 					c.drainPipelinedMessages()
@@ -165,20 +189,32 @@ func (c *Client) notificationLoop() {
 		// Request the next notification(s)
 		msgCount := max(c.config.PipelineLimit, 1)
 		c.busyMutex.Unlock()
-		if c.quitting.Load() {
-			return
-		}
-		for range msgCount {
-			msg := NewMsgNotificationRequestNext()
-			if err := c.SendMessage(msg); err != nil {
+		if err := c.sendRequests(msgCount); err != nil {
+			if !errors.Is(err, protocol.ErrProtocolShuttingDown) {
 				c.SendError(err)
-				return
 			}
+			return
 		}
 		c.busyMutex.Lock()
 		c.pipelinedRequestNext = msgCount - 1
 		c.busyMutex.Unlock()
 	}
+}
+
+// sendRequests sends count notification requests, or none once Stop has sent
+// MsgQuit, after which the protocol allows no request.
+func (c *Client) sendRequests(count int) error {
+	c.sendMutex.Lock()
+	defer c.sendMutex.Unlock()
+	if c.quitting.Load() {
+		return protocol.ErrProtocolShuttingDown
+	}
+	for range count {
+		if err := c.SendMessage(NewMsgNotificationRequestNext()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // drainPipelinedMessages consumes remaining pipelined notification messages
@@ -214,7 +250,12 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		c.handleVotesOffer(msg)
 	case MessageTypeCanceled:
 		// Answers a request that was outstanding when this client quit. It
-		// carries no notification, so there is nothing to deliver.
+		// carries no notification, so there is nothing to deliver. Before
+		// MsgQuit it is refused: the notification loop counts on an answer
+		// to every request, so a canceled one would stall it.
+		if !c.quitting.Load() {
+			err = ErrUnexpectedCanceled
+		}
 	case MessageTypeDone:
 		// The server has acknowledged MsgQuit and the protocol is over
 	default:

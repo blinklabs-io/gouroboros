@@ -30,8 +30,9 @@ import (
 type growingArray[T any] []T
 
 func (a *growingArray[T]) UnmarshalCBOR(data []byte) error {
-	// A null or undefined decodes to a nil slice, as it does for a plain []T.
-	if len(data) == 1 && (data[0] == 0xf6 || data[0] == 0xf7) {
+	// A null or undefined, tagged or not, decodes to a nil slice, as it does
+	// for a plain []T.
+	if d := cbor.SkipTags(data); len(d) == 1 && (d[0] == 0xf6 || d[0] == 0xf7) {
 		*a = nil
 		return nil
 	}

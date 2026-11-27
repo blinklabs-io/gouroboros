@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net"
@@ -52,7 +53,7 @@ func TestWithDMQ(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	oConn, err := ouroboros.New(ouroboros.WithDMQ(true))
 	require.NoError(t, err)
-	defer oConn.Close()
+	defer oConn.Close(context.Background())
 	// Before setupConnection runs (no underlying conn supplied yet) the
 	// DMQ protocol handles are nil. The accessors must still be callable.
 	assert.Nil(
@@ -79,7 +80,7 @@ func TestDialFailClose(t *testing.T) {
 		t.Fatalf("did not get expected failure on Dial()")
 	}
 	// Close connection
-	oConn.Close()
+	oConn.Close(context.Background())
 }
 
 func TestDoubleClose(t *testing.T) {
@@ -108,11 +109,11 @@ func TestDoubleClose(t *testing.T) {
 		panic(fmt.Sprintf("unexpected Ouroboros connection error: %s", err))
 	}()
 	// Close connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Connection object: %s", err)
 	}
 	// Close connection again
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf(
 			"unexpected error when closing Connection object again: %s",
 			err,
@@ -248,7 +249,7 @@ func TestNonPositiveHandshakeTimeoutUsesDefault(t *testing.T) {
 				ouroboros.WithHandshakeTimeout(timeout),
 			)
 			require.NoError(t, err)
-			require.NoError(t, conn.Close())
+			require.NoError(t, conn.Close(context.Background()))
 		})
 	}
 }
@@ -327,7 +328,7 @@ func TestPerasVotesHandshakeNegotiation(t *testing.T) {
 			}
 			t.Cleanup(func() {
 				for _, conn := range connections {
-					_ = conn.Close()
+					_ = conn.Close(context.Background())
 				}
 			})
 			for _, conn := range connections {
@@ -411,8 +412,8 @@ func TestServerPeerSharingClientRefusesWhenLocallyDisabled(t *testing.T) {
 	}
 	// Deferred so the connections close before goleak.VerifyNone runs.
 	defer func() {
-		_ = local.Close()
-		_ = remote.Close()
+		_ = local.Close(context.Background())
+		_ = remote.Close(context.Background())
 	}()
 
 	ps := local.PeerSharing()
@@ -472,7 +473,7 @@ func TestLeiosProtocolsRequireExplicitConfig(t *testing.T) {
 			}
 			conn, err := ouroboros.NewConnection(options...)
 			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, conn.Close()) })
+			t.Cleanup(func() { require.NoError(t, conn.Close(context.Background())) })
 
 			version, _ := conn.ProtocolVersion()
 			require.Equal(t, ouroboros_mock.MockProtocolVersionNtN, version)
@@ -506,7 +507,7 @@ func TestConnectionRejectsUnconfiguredLeiosProtocolFromPeer(t *testing.T) {
 		ouroboros.WithDelayProtocolStart(true),
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn.Close()) })
+	t.Cleanup(func() { require.NoError(t, conn.Close(context.Background())) })
 	require.Nil(t, conn.LeiosFetch())
 
 	select {
@@ -678,7 +679,7 @@ func TestConnectionProtocolGettersAfterSetup(t *testing.T) {
 	assert.NotNil(t, id.LocalAddr)
 	assert.NotNil(t, id.RemoteAddr)
 
-	err = conn.Close()
+	err = conn.Close(context.Background())
 	assert.NoError(t, err)
 }
 
@@ -712,7 +713,7 @@ func TestConnectionProtocolVersion(t *testing.T) {
 		"Protocol version should be non-zero after handshake",
 	)
 
-	err = conn.Close()
+	err = conn.Close(context.Background())
 	assert.NoError(t, err)
 }
 
@@ -784,7 +785,7 @@ func TestConnectionQueryMode(t *testing.T) {
 	)
 	assert.NotEmpty(t, versionMap, "QueryReplyVersionMap should not be empty")
 
-	err = conn.Close()
+	err = conn.Close(context.Background())
 	assert.NoError(t, err)
 
 	// Wait for connection shutdown
@@ -974,5 +975,5 @@ func TestErrorOnUngracefulClose(t *testing.T) {
 	}
 
 	release()
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 }

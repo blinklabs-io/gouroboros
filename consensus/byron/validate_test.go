@@ -143,7 +143,7 @@ func TestValidateByronMainBlockHeaderUsesConfiguredEpochLength(t *testing.T) {
 	require.ErrorContains(
 		t,
 		err,
-		"slot must be greater than or equal to previous slot",
+		"slot must be greater than previous slot",
 	)
 }
 
@@ -219,22 +219,31 @@ func TestValidateSlotOrdering(t *testing.T) {
 			expectError: true,
 		},
 		{
-			name: "slot equal for non-EBB",
+			name: "slot equal for main after main (invalid)",
 			input: &ValidateHeaderInput{
 				Slot:     100,
 				PrevSlot: 100,
 				IsEBB:    false,
 			},
+			expectError: true,
+		},
+		{
+			name: "main block can share the previous EBB's slot",
+			input: &ValidateHeaderInput{
+				Slot:      testByronSlotsPerEpoch,
+				PrevSlot:  testByronSlotsPerEpoch,
+				PrevIsEBB: true,
+			},
 			expectError: false,
 		},
 		{
-			name: "EBB can have equal slot",
+			name: "EBB cannot share the previous block's slot",
 			input: &ValidateHeaderInput{
 				Slot:     testByronSlotsPerEpoch,
 				PrevSlot: testByronSlotsPerEpoch,
 				IsEBB:    true,
 			},
-			expectError: false,
+			expectError: true,
 		},
 		{
 			name: "EBB at non-epoch-boundary (invalid)",
@@ -314,11 +323,21 @@ func TestValidateBlockNumber(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "EBB can have next block number",
+			name: "EBB after a main block cannot take the next number",
 			input: &ValidateHeaderInput{
 				BlockNumber:     101,
 				PrevBlockNumber: 100,
 				IsEBB:           true,
+			},
+			expectError: true,
+		},
+		{
+			name: "EBB after an EBB takes the next block number",
+			input: &ValidateHeaderInput{
+				BlockNumber:     101,
+				PrevBlockNumber: 100,
+				IsEBB:           true,
+				PrevIsEBB:       true,
 			},
 			expectError: false,
 		},
@@ -1456,7 +1475,7 @@ func TestValidateHeaderRejectsEmptyGenesisIssuerSet(t *testing.T) {
 	)
 }
 
-func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
+func TestValidateHeaderAcceptsNonRoundRobinPBFTSigner(t *testing.T) {
 	header, config, issuer := realPBFTHeaderFixture(t)
 	dummy := common.Blake2b224Hash([]byte("other genesis issuer"))
 	if header.SlotNumber()%2 == 0 {
@@ -1489,7 +1508,7 @@ func TestValidateHeaderAcceptsSameSlotNonRoundRobinPBFTSigner(t *testing.T) {
 		IssuerPubKey:    header.ConsensusData.PubKey[:32],
 		HeaderCbor:      header.Cbor(),
 		BlockSig:        header.ConsensusData.BlockSig,
-		PrevSlot:        header.SlotNumber(),
+		PrevSlot:        header.SlotNumber() - 1,
 		PrevBlockNumber: header.BlockNumber() - 1,
 		PrevHeaderHash:  previousHash,
 		PBFTState:       &state,
@@ -1539,7 +1558,7 @@ func TestValidateHeaderRejectsCorrectlySignedInactivePBFTDelegate(
 		IssuerPubKey:    header.ConsensusData.PubKey[:32],
 		HeaderCbor:      header.Cbor(),
 		BlockSig:        header.ConsensusData.BlockSig,
-		PrevSlot:        header.SlotNumber(),
+		PrevSlot:        header.SlotNumber() - 1,
 		PrevBlockNumber: header.BlockNumber() - 1,
 		PrevHeaderHash:  previousHash,
 	}
@@ -1724,6 +1743,33 @@ func TestSlotToEpoch(t *testing.T) {
 			)
 		}
 	}
+}
+
+// TestSlotToEpochStopsAtByronEnd uses mainnet's Byron to Shelley boundary:
+// Byron epochs of 21600 slots end at slot 4492800, where Shelley epoch 208
+// starts with 432000-slot epochs. Slot 4514400 is still in epoch 208, but
+// the Byron formula gives 209.
+func TestSlotToEpochStopsAtByronEnd(t *testing.T) {
+	end := uint64(4492800)
+	config := &ByronConfig{SlotsPerEpoch: 21600, EndSlot: &end}
+
+	epoch, err := config.SlotToEpochChecked(end - 1)
+	require.NoError(t, err)
+	require.Equal(t, uint64(207), epoch)
+
+	for _, slot := range []uint64{end, end + 21600} {
+		_, err = config.SlotToEpochChecked(slot)
+		require.ErrorIs(t, err, ErrSlotAfterByron, "slot %d", slot)
+		require.Zero(t, config.SlotToEpoch(slot), "slot %d", slot)
+	}
+
+	config.EndSlot = nil
+	epoch, err = config.SlotToEpochChecked(end + 21600)
+	require.NoError(t, err)
+	require.Equal(t, uint64(209), epoch)
+
+	_, err = (&ByronConfig{}).SlotToEpochChecked(1)
+	require.Error(t, err)
 }
 
 func TestEpochFirstSlot(t *testing.T) {

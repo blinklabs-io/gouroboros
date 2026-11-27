@@ -56,6 +56,9 @@ type TransactionBody interface {
 	Inputs() []TransactionInput
 	Outputs() []TransactionOutput
 	TTL() uint64
+	// ProtocolParameterUpdates returns the update's target epoch and
+	// proposals, or a nil map when the transaction carries no update. An
+	// update with no proposals returns an empty, non-nil map.
 	ProtocolParameterUpdates() (uint64, map[Blake2b224]ProtocolParameterUpdate)
 	ValidityIntervalStart() uint64
 	ReferenceInputs() []TransactionInput
@@ -133,8 +136,7 @@ func transactionBodyFieldPresent(cborData []byte, field uint) bool {
 	if len(cborData) == 0 {
 		return false
 	}
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err == nil {
+	if bodyFields, _, err := cbor.DecodeRawMap[uint](cborData); err == nil {
 		_, present := bodyFields[field]
 		return present
 	}
@@ -143,7 +145,8 @@ func transactionBodyFieldPresent(cborData []byte, field uint) bool {
 		len(txFields) == 0 {
 		return false
 	}
-	if _, err := cbor.DecodeLedgerMap(txFields[0], &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](txFields[0])
+	if err != nil {
 		return false
 	}
 	_, present := bodyFields[field]
@@ -376,8 +379,8 @@ func ValidateMapFields(
 	unsupportedFields []uint,
 	positiveFields ...uint,
 ) error {
-	var fields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &fields); err != nil {
+	fields, _, err := cbor.DecodeRawMap[uint](cborData)
+	if err != nil {
 		return err
 	}
 	for _, field := range requiredFields {
@@ -456,8 +459,8 @@ func (b *TransactionBodyBase) SetCborReference(cborData []byte) {
 func decodeTransactionBodyFieldPresence(
 	cborData []byte,
 ) (transactionBodyFieldPresence, error) {
-	var bodyFields map[uint]cbor.RawMessage
-	if _, err := cbor.DecodeLedgerMap(cborData, &bodyFields); err != nil {
+	bodyFields, _, err := cbor.DecodeRawMap[uint](cborData)
+	if err != nil {
 		return transactionBodyFieldPresence{}, err
 	}
 	_, upperBoundPresent := bodyFields[3]
@@ -720,6 +723,29 @@ func (b *TransactionBodyBase) Id() Blake2b256 {
 	return b.hash.Get(func() Blake2b256 {
 		return Blake2b256Hash(b.Cbor())
 	})
+}
+
+// TransactionBodyId returns a transaction id: the Blake2b-256 hash of the
+// body's stored CBOR, or, when base holds none, of the bytes encode returns.
+// Era transaction bodies pass their own MarshalCBOR as encode, because base
+// alone cannot encode the era-specific body that embeds it. A body with no
+// stored CBOR is one built in code or cleared with SetCbor(nil) after a
+// mutation; its id is not memoized, since its fields may still change. A body
+// that cannot be encoded has no transaction id. Id cannot report an error, so
+// such a body gets the zero hash: the hash of empty input would look like a
+// real id.
+func TransactionBodyId(
+	base *TransactionBodyBase,
+	encode func() ([]byte, error),
+) Blake2b256 {
+	if base.Cbor() != nil {
+		return base.Id()
+	}
+	data, err := encode()
+	if err != nil {
+		return Blake2b256{}
+	}
+	return Blake2b256Hash(data)
 }
 
 func (b *TransactionBodyBase) Inputs() []TransactionInput {

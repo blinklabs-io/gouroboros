@@ -16,6 +16,7 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -112,38 +113,43 @@ func MustReplyTimeoutFunc() time.Duration {
 // StateMapNtN is the N2N ChainSync state machine with timeouts per spec Table 3.8.
 var StateMapNtN = protocol.StateMap{
 	stateIdle: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyClient,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IdleTimeout,
-		Transitions:             idleTransitions,
+		Agency:                   protocol.AgencyClient,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IdleTimeout,
+		Transitions:              idleTransitions,
 	},
 	stateCanAwait: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 CanAwaitTimeout,
-		Transitions:             canAwaitTransitions,
-		AllowPipelinedSend:      true,
-		PipelinedMessageTypes:   []uint8{MessageTypeRequestNext},
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  CanAwaitTimeout,
+		Transitions:              canAwaitTransitions,
+		AllowPipelinedSend:       true,
+		PipelinedMessageTypes:    []uint8{MessageTypeRequestNext},
 	},
 	stateIntersect: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		Timeout:                 IntersectTimeout,
-		Transitions:             intersectTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		Timeout:                  IntersectTimeout,
+		Transitions:              intersectTransitions,
 	},
 	stateMustReply: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyServer,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
-		TimeoutFunc:             MustReplyTimeoutFunc,
-		Transitions:             mustReplyTransitions,
+		Agency:                   protocol.AgencyServer,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
+		TimeoutFunc:              MustReplyTimeoutFunc,
+		Transitions:              mustReplyTransitions,
 		// A client pipelines RequestNext against its own view of CanAwait,
 		// which lags the server's: the server may already have sent
 		// AwaitReply when the request arrives.
 		PipelinedMessageTypes: []uint8{MessageTypeRequestNext},
 	},
 	stateDone: protocol.StateMapEntry{
-		Agency:                  protocol.AgencyNone,
-		PendingMessageByteLimit: MaxPendingMessageBytes,
+		Agency:                   protocol.AgencyNone,
+		PendingMessageByteLimit:  SmallMaxPendingMessageBytes,
+		PendingReceiveByteBudget: MaxPendingMessageBytes,
 	},
 }
 
@@ -212,7 +218,9 @@ type Config struct {
 	// one pipeline across peers: each roll-forward waits for its ordered fence,
 	// limiting this client to one in-flight block and allowing one peer's invalid
 	// block to stop work submitted by other clients. Configure buffer sizes when
-	// creating the pipeline.
+	// creating the pipeline. The client does not read the pipeline's Results;
+	// reading them is optional, and an unread Results channel does not delay
+	// roll-forwards.
 	Pipeline *pipeline.BlockPipeline
 
 	// PipelineBufferSize is reserved for future use.
@@ -234,6 +242,13 @@ const (
 	DefaultPipelineDrainTimeout = 30 * time.Second
 )
 
+// SmallMaxPendingMessageBytes is the node-to-node size limit of every
+// chain-sync state, which bounds each message received in it. The
+// specification's chain-sync size table and the reference's
+// byteLimitsChainSync both give 65535 bytes. MaxPendingMessageBytes, the
+// ingress queue, is a separate and larger limit.
+const SmallMaxPendingMessageBytes = 65535
+
 // PendingReceiveBytesNtC is the most received, not yet handled, node-to-client
 // ChainSync message bytes a connection holds. The reference node-to-client
 // policy has no limit, so this is an implementation bound, not a
@@ -244,12 +259,16 @@ const (
 const PendingReceiveBytesNtC = 8 * 1024 * 1024
 
 // Protocol state timeout constants per Ouroboros Network Specification (Table 3.8).
+//
+// The server waits in MustReply until it has a new block, so a short MustReply
+// bound disconnects honest peers during a streak of empty slots, and a random
+// pick keeps every peer from timing out at once.
 const (
 	IdleTimeout         = 3673 * time.Second  // Timeout for client to send next request
 	CanAwaitTimeout     = 10 * time.Second    // Timeout for server to provide next block or await
 	IntersectTimeout    = 10 * time.Second    // Timeout for server to respond to intersect request
-	MustReplyTimeoutMin = 135 * time.Second   // Minimum random timeout for MustReply state
-	MustReplyTimeoutMax = 269 * time.Second   // Maximum random timeout for MustReply state
+	MustReplyTimeoutMin = 601 * time.Second   // Minimum random timeout for MustReply state
+	MustReplyTimeoutMax = 911 * time.Second   // Maximum random timeout for MustReply state
 	MustReplyTimeout    = MustReplyTimeoutMax // Fixed timeout for backward compatibility
 )
 
@@ -262,6 +281,27 @@ type CallbackContext struct {
 	ConnectionDoneChan <-chan any
 	Client             *Client
 	Server             *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // Callback function types
@@ -458,7 +498,9 @@ func WithByronSlotsPerEpoch(slotsPerEpoch uint64) ChainSyncOptionFunc {
 	}
 }
 
-// WithPipelineLimit specifies the maximum number of block requests to pipeline
+// WithPipelineLimit specifies the maximum number of block requests to
+// pipeline. The client pipelines fewer near the server's tip: one per block it
+// is behind, so at the tip a single request is outstanding.
 func WithPipelineLimit(limit int) ChainSyncOptionFunc {
 	return func(c *Config) {
 		if limit < 0 {

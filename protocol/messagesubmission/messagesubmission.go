@@ -16,6 +16,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -35,15 +36,18 @@ const (
 const (
 	InitTimeout                  = 30 * time.Second  // Timeout for client to send Init
 	IdleTimeout                  = 300 * time.Second // Timeout for server to send RequestMessageIds when idle
-	MessageIdsBlockingTimeout    = 30 * time.Second  // Timeout for client to reply to blocking RequestMessageIds
-	MessageIdsNonblockingTimeout = 0 * time.Second   // Non-blocking doesn't timeout (server sends when ready)
+	MessageIdsBlockingTimeout    = 30 * time.Second  // Timeout for client to reply to a V2 blocking RequestMessageIds; V1 is untimed
+	MessageIdsNonblockingTimeout = 10 * time.Second  // Timeout for client to reply to non-blocking RequestMessageIds, which it answers at once
 	MessagesTimeout              = 30 * time.Second  // Timeout for client to reply with messages
 	DoneTimeout                  = 10 * time.Second  // Timeout for Done state cleanup
 )
 
 // DefaultMaxUnacknowledgedMessageIDs bounds the number of message IDs that may
-// be outstanding for a peer when no explicit limit is configured.
-const DefaultMaxUnacknowledgedMessageIDs = 100
+// be outstanding for a peer when no explicit limit is configured. It is
+// dmq-node's window (maxUnacknowledgedTxIds, 4 * 33, in DMQ/Policy.hs): its
+// requester fills that window, and the window is not negotiated, so a
+// smaller one refuses requests a dmq-node peer is entitled to send.
+const DefaultMaxUnacknowledgedMessageIDs = 132
 
 const defaultMaxQueueSize = 100
 
@@ -91,9 +95,10 @@ var (
 	// isMessageSubmissionV2.
 	MessageSubmissionV2MinVersion uint16 = 15
 
-	// stateMapV1 is the V1 state map.
-	// Includes StInit; MsgDone can be sent by client from
-	// StMessageIdsBlocking.
+	// stateMapV1 is the V1 state map: tx-submission's (ouroboros-network
+	// TxSubmission2/Type.hs). The Client, which has the messages, is the
+	// initiator and holds agency in StInit and while answering; MsgDone is
+	// its alternative to answering a blocking request.
 	stateMapV1 = protocol.StateMap{
 		protocolStateInit: protocol.StateMapEntry{
 			Agency:                  protocol.AgencyClient,
@@ -101,7 +106,7 @@ var (
 			Timeout:                 InitTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeInit,
+					MsgType:  MessageTypeV1Init,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -112,7 +117,7 @@ var (
 			Timeout:                 IdleTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV1RequestMessageIds,
 					NewState: protocolStateMessageIdsBlock,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -120,7 +125,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV1RequestMessageIds,
 					NewState: protocolStateMessageIdsNonBlk,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -128,7 +133,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessages,
+					MsgType:  MessageTypeV1RequestMessages,
 					NewState: protocolStateMessages,
 				},
 			},
@@ -136,14 +141,17 @@ var (
 		protocolStateMessageIdsBlock: protocol.StateMapEntry{
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
-			Timeout:                 MessageIdsBlockingTimeout,
+			// Untimed, as tx-submission's StTxIds StBlocking is: the
+			// outbound waits until it has an ID and has no empty answer,
+			// so a limit here drops a peer that has nothing new.
+			Timeout: 0,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV1ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 				{
-					MsgType:  MessageTypeDone,
+					MsgType:  MessageTypeV1Done,
 					NewState: protocolStateDone,
 				},
 			},
@@ -152,9 +160,17 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV1ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -163,9 +179,16 @@ var (
 			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV1RequestMessageIds,
+				MessageTypeV1RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessages,
+					MsgType:  MessageTypeV1ReplyMessages,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -176,17 +199,20 @@ var (
 		},
 	}
 
-	// stateMapV2 is the V2 state map (CIP-0137 V2).
-	// No StInit state; protocol starts directly in StIdle.
-	// MsgDone can only be sent by the server (inbound side) from StIdle.
+	// stateMapV2 is the V2 state map (dmq-node
+	// DMQ/Protocol/SigSubmissionV2/Type.hs). There is no StInit. The side
+	// that wants messages is the initiator and holds agency in StIdle, so
+	// AgencyClient here is the initiator's agency: the Server type runs with
+	// the initiator role in V2 and the Client type with the responder role.
+	// Only the requesting side sends MsgDone, from StIdle.
 	stateMapV2 = protocol.StateMap{
 		protocolStateIdle: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyServer,
+			Agency:                  protocol.AgencyClient,
 			PendingMessageByteLimit: 0,
 			Timeout:                 IdleTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV2RequestMessageIds,
 					NewState: protocolStateMessageIdsBlock,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -194,7 +220,7 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessageIds,
+					MsgType:  MessageTypeV2RequestMessageIds,
 					NewState: protocolStateMessageIdsNonBlk,
 					MatchFunc: func(_ any, msg protocol.Message) bool {
 						msgReq := msg.(*MsgRequestMessageIds)
@@ -202,44 +228,63 @@ var (
 					},
 				},
 				{
-					MsgType:  MessageTypeRequestMessages,
+					MsgType:  MessageTypeV2RequestMessages,
 					NewState: protocolStateMessages,
 				},
 				{
-					MsgType:  MessageTypeDone,
+					MsgType:  MessageTypeV2Done,
 					NewState: protocolStateDone,
 				},
 			},
 		},
 		protocolStateMessageIdsBlock: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsBlockingTimeout,
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV2ReplyMessageIds,
+					NewState: protocolStateIdle,
+				},
+				{
+					MsgType:  MessageTypeV2ReplyNoMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
 		},
 		protocolStateMessageIdsNonBlk: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessageIdsNonblockingTimeout,
+			// dmq-node's requester pipelines a request for messages behind
+			// an unanswered non-blocking request for ids; the outbound side
+			// holds it until it has replied. A blocking request is never
+			// pipelined, so MessageIdsBlocking declares none.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessageIds,
+					MsgType:  MessageTypeV2ReplyMessageIds,
 					NewState: protocolStateIdle,
 				},
 			},
 		},
 		protocolStateMessages: protocol.StateMapEntry{
-			Agency:                  protocol.AgencyClient,
+			Agency:                  protocol.AgencyServer,
 			PendingMessageByteLimit: 0,
 			Timeout:                 MessagesTimeout,
+			// dmq-node's requester pipelines its next request for ids or
+			// for messages behind an unanswered request for messages; the
+			// outbound side holds it until it has replied.
+			PipelinedMessageTypes: []uint8{
+				MessageTypeV2RequestMessageIds,
+				MessageTypeV2RequestMessages,
+			},
 			Transitions: []protocol.StateTransition{
 				{
-					MsgType:  MessageTypeReplyMessages,
+					MsgType:  MessageTypeV2ReplyMessages,
 					NewState: protocolStateIdle,
 				},
 			},
@@ -250,6 +295,57 @@ var (
 		},
 	}
 )
+
+// stateMapFor returns the state map of the negotiated version, with cfg's
+// timeouts in the states they name, and its initial state. The engine arms a
+// state's timer only on the side waiting for the peer there, so the Client
+// and the Server install the same map: the Server is timed by the replies to
+// its requests, the Client by Idle.
+//
+// A V1 blocking request for IDs keeps the map's own timeout:
+// tx-submission's outbound answers it only once it has an ID, so
+// MessageIdsBlockingTimeout bounds only the V2 one. Init is the initial
+// state, which the engine never times, and Done has no agency, so
+// InitTimeout and DoneTimeout bound nothing.
+func stateMapFor(
+	version uint16,
+	cfg *Config,
+) (protocol.StateMap, protocol.State) {
+	isV2 := isMessageSubmissionV2(version)
+	base, initial := stateMapV1, protocolStateInit
+	if isV2 {
+		base, initial = stateMapV2, protocolStateIdle
+	}
+	timeouts := map[protocol.State]time.Duration{
+		protocolStateIdle:             cfg.IdleTimeout,
+		protocolStateMessageIdsNonBlk: cfg.MessageIdsNonblockingTimeout,
+		protocolStateMessages:         cfg.MessagesTimeout,
+	}
+	if isV2 {
+		timeouts[protocolStateMessageIdsBlock] = cfg.MessageIdsBlockingTimeout
+	}
+	stateMap := base.Copy()
+	for state, timeout := range timeouts {
+		entry := stateMap[state]
+		entry.Timeout = timeout
+		stateMap[state] = entry
+	}
+	return stateMap, initial
+}
+
+// roleFor maps a side to its connection role. In V1 the Client (which has the
+// messages) is the initiator, as tx-submission's outbound is. In V2 the
+// Server (which wants them) is the initiator, as dmq-node runs its V2 inbound
+// as the initiator (DMQ/NodeToNode.hs aSigSubmissionV2Client).
+func roleFor(version uint16, side protocol.ProtocolRole) protocol.ProtocolRole {
+	if !isMessageSubmissionV2(version) {
+		return side
+	}
+	if side == protocol.ProtocolRoleClient {
+		return protocol.ProtocolRoleServer
+	}
+	return protocol.ProtocolRoleClient
+}
 
 func isMessageSubmissionV2(version uint16) bool {
 	return version == protocol.ProtocolVersionDMQNtN2 ||
@@ -272,7 +368,9 @@ type Config struct {
 	ReplyMessageIdsFunc ReplyMessageIdsFunc
 	ReplyMessagesFunc   ReplyMessagesFunc
 
-	// Client timeouts (use defaults from state machine constants if not set)
+	// State timeouts; zero selects the package default. Each bounds the
+	// wait of the side without agency in the state it names; see the
+	// With...Timeout options.
 	InitTimeout                  time.Duration
 	IdleTimeout                  time.Duration
 	MessageIdsBlockingTimeout    time.Duration
@@ -298,7 +396,8 @@ type Config struct {
 	// wire shape for peers that still expect messageId inside messagePayload.
 	// The default false value uses the current CIP-0137 message shape.
 	LegacyV1MessageEncoding bool
-	// Done callback invoked when peer sends Done
+	// DoneFunc is called when the peer sends Done. In V2 the Client then
+	// returns to Idle for the peer's next run on the connection.
 	DoneFunc func(CallbackContext) error
 }
 
@@ -307,6 +406,27 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // Callback function types
@@ -385,6 +505,9 @@ func normalizeConfig(cfg *Config) Config {
 	if ret.MessageIdsBlockingTimeout == 0 {
 		ret.MessageIdsBlockingTimeout = MessageIdsBlockingTimeout
 	}
+	if ret.MessageIdsNonblockingTimeout == 0 {
+		ret.MessageIdsNonblockingTimeout = MessageIdsNonblockingTimeout
+	}
 	if ret.MessagesTimeout == 0 {
 		ret.MessagesTimeout = MessagesTimeout
 	}
@@ -455,21 +578,26 @@ func WithMaxReplayEntries(maxReplayEntries int) MessageSubmissionOptionFunc {
 	}
 }
 
-// WithInitTimeout specifies the timeout for the Init state
+// WithInitTimeout sets Config.InitTimeout. It has no effect: Init is the
+// initial state, which is never timed, and the reference waits for MsgInit
+// without a limit.
 func WithInitTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.InitTimeout = timeout
 	}
 }
 
-// WithIdleTimeout specifies the timeout for the Idle state
+// WithIdleTimeout bounds how long the side without agency in Idle waits for
+// the next request: the Client. A V2 Client does not time its first Idle.
 func WithIdleTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.IdleTimeout = timeout
 	}
 }
 
-// WithMessageIdsBlockingTimeout specifies the timeout for blocking MessageIds requests
+// WithMessageIdsBlockingTimeout bounds how long a Server waits for the reply
+// to a V2 blocking request for message IDs. It does not apply to V1, whose
+// outbound answers a blocking request only once it has an ID.
 func WithMessageIdsBlockingTimeout(
 	timeout time.Duration,
 ) MessageSubmissionOptionFunc {
@@ -478,7 +606,8 @@ func WithMessageIdsBlockingTimeout(
 	}
 }
 
-// WithMessageIdsNonblockingTimeout specifies the timeout for non-blocking MessageIds requests
+// WithMessageIdsNonblockingTimeout bounds how long a Server waits for the
+// reply to a non-blocking request for message IDs. Zero selects the default.
 func WithMessageIdsNonblockingTimeout(
 	timeout time.Duration,
 ) MessageSubmissionOptionFunc {
@@ -487,14 +616,16 @@ func WithMessageIdsNonblockingTimeout(
 	}
 }
 
-// WithMessagesTimeout specifies the timeout for the Messages state
+// WithMessagesTimeout bounds how long a Server waits for the reply to a
+// request for messages.
 func WithMessagesTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.MessagesTimeout = timeout
 	}
 }
 
-// WithDoneTimeout specifies the timeout for the Done state
+// WithDoneTimeout sets Config.DoneTimeout. It has no effect: Done is
+// terminal and nothing waits in it.
 func WithDoneTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.DoneTimeout = timeout

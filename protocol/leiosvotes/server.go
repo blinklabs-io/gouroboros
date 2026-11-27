@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -22,11 +23,14 @@ import (
 )
 
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	callbackContext CallbackContext
 	config          *Config
 	protocolMu      sync.RWMutex
 	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
@@ -44,21 +48,10 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
+	// The server holds agency in Busy, so it never times that state; the
+	// client times the wait for its votes.
 	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateBusy]; ok {
-		// An unconfigured responder has no valid message that can complete a
-		// pending request. Leave its Busy timeout disabled so the optional
-		// protocol cannot turn that request into a bearer-level error.
-		if s.config != nil && s.config.RequestNextFunc != nil {
-			timeout := DefaultTimeout
-			if s.config.Timeout != 0 {
-				timeout = s.config.Timeout
-			}
-			entry.Timeout = timeout
-		}
-		stateMap[StateBusy] = entry
-	}
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -75,14 +68,36 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
-	s.Protocol = p
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
+	s.proto = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -104,7 +119,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 func (s *Server) handleRequestNext(msg protocol.Message) error {
 	msgRequestNext := msg.(*MsgVotesRequestNext)
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("votes request next",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -125,7 +140,7 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		return nil
 	}
 	votes, err := s.config.RequestNextFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgRequestNext.Count,
 	)
 	if err != nil {
@@ -139,7 +154,7 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 		)
 	}
 	for _, vote := range votes {
-		if err := s.SendMessage(NewMsgVote(vote)); err != nil {
+		if err := s.ProtocolInstance().SendMessage(NewMsgVote(vote)); err != nil {
 			return err
 		}
 	}
@@ -147,14 +162,18 @@ func (s *Server) handleRequestNext(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("client done",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

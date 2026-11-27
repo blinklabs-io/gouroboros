@@ -443,8 +443,8 @@ func TestSetTypeMarshalCBORPreservesOriginalBytes(t *testing.T) {
 // rational itself or one of its items.
 func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 	// Each header declares array(1000000), followed by one-byte items (0).
-	// The nested case wraps the array in a second tag (55799) to check the
-	// count is read through every leading tag. The indefinite cases declare
+	// The nested case wraps the array in a second tag (55799), which is
+	// refused before the array is read. The indefinite cases declare
 	// no count. The numerator cases have the right count of two but put the
 	// million items in the numerator, which must be an integer.
 	tests := map[string]struct {
@@ -460,7 +460,7 @@ func TestRatRejectsOversizedArrayBeforeDecoding(t *testing.T) {
 			header: []byte{
 				0xd8, 0x1e, 0xd9, 0xd9, 0xf7, 0x9a, 0x00, 0x0f, 0x42, 0x40,
 			},
-			wantErr: "got 1000000 elements",
+			wantErr: "more than one tag",
 		},
 		"indefinite": {
 			header:  []byte{0xd8, 0x1e, 0x9f},

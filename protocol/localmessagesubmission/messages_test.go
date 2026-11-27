@@ -37,7 +37,7 @@ func TestMsgSubmitMessageType(t *testing.T) {
 		Message: pcommon.DmqMessage{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("test-id"),
-				MessageBody: []byte("test-body"),
+				MessageBody: paddedTestBody("test-body"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -65,7 +65,7 @@ func TestMsgSubmitMessageCBORRoundTrip(t *testing.T) {
 		Message: pcommon.DmqMessage{
 			Payload: pcommon.DmqMessagePayload{
 				MessageID:   []byte("test-id"),
-				MessageBody: []byte("test-body"),
+				MessageBody: paddedTestBody("test-body"),
 				KESPeriod:   100,
 				ExpiresAt:   2000000000,
 			},
@@ -275,4 +275,13 @@ func TestNewMsgFromCborUnknownType(t *testing.T) {
 	_, err := NewMsgFromCbor(99, []byte{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown message type")
+}
+
+// paddedTestBody pads body to the minimum DMQ message body size.
+func paddedTestBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < pcommon.MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

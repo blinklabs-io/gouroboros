@@ -23,6 +23,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testLeiosKeyAge honours every key registered in epoch 0: mainnet's KES
+// parameters give a maximum key age of 21 epochs.
+var testLeiosKeyAge = common.DijkstraLeiosKeyAgeContext{
+	Epoch:             1,
+	MarkEpochLength:   432000,
+	MaxKESEvolutions:  62,
+	SlotsPerKESPeriod: 129600,
+}
+
 func TestVerifyDijkstraCertificate(t *testing.T) {
 	secret := big.NewInt(17)
 	key := makeLeiosTestKey(t, secret)
@@ -30,8 +39,8 @@ func TestVerifyDijkstraCertificate(t *testing.T) {
 	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    100,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 100,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 60, Key: key},
 			{Stake: 40},
@@ -136,8 +145,8 @@ func TestVerifyDijkstraCertificateForDomain(t *testing.T) {
 	message := messageHash[:]
 	signature := signLeiosTestMessage(t, secret, message, leiosSignatureDST)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    1,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 1,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 1, Key: legacyKey},
 		},
@@ -182,8 +191,8 @@ func TestVerifyDijkstraCertificateForMessage(t *testing.T) {
 		t, secret, framed, leiosSignatureDST,
 	)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    1,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 1,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 1, Key: key},
 		},
@@ -224,4 +233,49 @@ func TestVerifyDijkstraCertificateForMessage(t *testing.T) {
 	require.ErrorAs(t, err, &configErr)
 	require.NotNil(t, configErr)
 	require.Equal(t, common.ValidationErrorTypeConfiguration, configErr.Type)
+}
+
+// The committee is the top committeeSize pools, or every pool when fewer are
+// registered (selectLeiosCommittee), and verifyLeiosCert sizes the signer
+// bitfield by the committee's own seat count.
+func TestVerifyDijkstraCertificateCommitteeSmallerThanParameter(t *testing.T) {
+	t.Parallel()
+	secrets := []*big.Int{big.NewInt(29), big.NewInt(31)}
+	hash := common.Blake2b256Hash([]byte("announcing ranking block"))
+	signature := signLeiosTestMessage(
+		t,
+		new(big.Int).Add(secrets[0], secrets[1]),
+		hash[:],
+		leiosSignatureDST,
+	)
+	context := common.DijkstraLeiosCertificateContext{
+		KeyAge:              testLeiosKeyAge,
+		AnnouncingBlockHash: hash,
+		TotalActiveStake:    2,
+		Committee: []common.DijkstraLeiosCommitteeMember{
+			{Stake: 1, Key: makeLeiosTestKey(t, secrets[0])},
+			{Stake: 1, Key: makeLeiosTestKey(t, secrets[1])},
+		},
+	}
+	quorum := big.NewRat(3, 4)
+
+	t.Run("bitfield sized by the seated committee", func(t *testing.T) {
+		require.NoError(t, VerifyDijkstraCertificate(
+			[]byte{0xc0}, signature, 900, quorum, context,
+		))
+	})
+	t.Run("bitfield sized by the parameter", func(t *testing.T) {
+		signers := make([]byte, common.LeiosSignerBitfieldSize(900))
+		signers[0] = 0xc0
+		err := VerifyDijkstraCertificate(
+			signers, signature, 900, quorum, context,
+		)
+		require.ErrorIs(t, err, ErrMalformedCommittee)
+	})
+	t.Run("committee larger than the parameter", func(t *testing.T) {
+		err := VerifyDijkstraCertificate(
+			[]byte{0xc0}, signature, 1, quorum, context,
+		)
+		require.ErrorIs(t, err, ErrMalformedCommittee)
+	})
 }

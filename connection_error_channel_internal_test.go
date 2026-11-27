@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -85,7 +86,7 @@ func newErrorForwardingTestConnection(
 	)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = conn.Close()
+		_ = conn.Close(context.Background())
 		_ = mockConn.Close()
 	})
 	return conn, transport
@@ -236,7 +237,7 @@ func TestCloseWaitsForErrorForwardersBeforeCallerClosesChannel(t *testing.T) {
 		defer close(forwarderDone)
 		close(forwarderStarted)
 		<-releaseForwarder
-		conn.forwardError(errors.New("late connection error"))
+		conn.closeWithError(errors.New("late connection error"))
 	})
 	requireChannelSignal(
 		t,
@@ -246,7 +247,7 @@ func TestCloseWaitsForErrorForwardersBeforeCallerClosesChannel(t *testing.T) {
 
 	closeResult := make(chan error, 1)
 	go func() {
-		closeResult <- conn.Close()
+		closeResult <- conn.Close(context.Background())
 	}()
 	requireChannelSignal(t, conn.doneChan, "connection shutdown did not start")
 	select {

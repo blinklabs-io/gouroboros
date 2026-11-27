@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -248,12 +249,10 @@ func TestGetAvailableBlockRangeDiscardsStopSignalsOfStoppedSync(
 	}
 }
 
-// newRangeTestClient connects a Client to a Server that answers every odd
-// MsgRequestNext with a rollback to the intersection and every even one with
-// a block, which is the exchange GetAvailableBlockRange expects.
-func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
+// rangeTestBlockCbor encodes a Babbage block at slot 50 whose header decodes
+// with block validation skipped.
+func rangeTestBlockCbor(t *testing.T) []byte {
 	t.Helper()
-	intersect := pcommon.NewPoint(10, testPointHash(0x0b))
 	block := ledger.BabbageBlock{BlockHeader: &ledger.BabbageBlockHeader{}}
 	block.BlockHeader.Body.BlockNumber = 50
 	block.BlockHeader.Body.Slot = 50
@@ -267,6 +266,16 @@ func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
 	block.BlockHeader.Signature = make([]byte, 448)
 	blockCbor, err := cbor.Encode(block)
 	require.NoError(t, err)
+	return blockCbor
+}
+
+// newRangeTestClient connects a Client to a Server that answers every odd
+// MsgRequestNext with a rollback to the intersection and every even one with
+// a block, which is the exchange GetAvailableBlockRange expects.
+func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
+	t.Helper()
+	intersect := pcommon.NewPoint(10, testPointHash(0x0b))
+	blockCbor := rangeTestBlockCbor(t)
 	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
 
 	clientConn, serverConn := net.Pipe()
@@ -275,8 +284,8 @@ func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	errs := make(chan error, 8)
 	var requests int
@@ -317,7 +326,7 @@ func newRangeTestClient(t *testing.T) (*Client, []pcommon.Point) {
 	client.Start()
 	serverMuxer.Start()
 	clientMuxer.Start()
-	t.Cleanup(func() { _ = client.Stop() })
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	return client, []pcommon.Point{intersect}
 }
 

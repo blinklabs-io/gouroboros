@@ -28,14 +28,14 @@ import (
 func TestClientStopReleasesSnapshotAndWaitsForDone(t *testing.T) {
 	client, peer, errors := startAcquiredTestClient(t)
 	stopped := make(chan error, 1)
-	go func() { stopped <- client.Stop() }()
+	go func() { stopped <- client.Stop(context.Background()) }()
 	requireQueryTestMessageType(t, peer, MessageTypeRelease)
 	var header muxer.SegmentHeader
 	require.NoError(t, binary.Read(peer, binary.BigEndian, &header))
 	select {
 	case err := <-stopped:
 		t.Fatalf("Stop returned before Done payload delivery: %v", err)
-	case <-time.After(20 * time.Millisecond):
+	default:
 	}
 	payload := make([]byte, header.PayloadLength)
 	_, err := io.ReadFull(peer, payload)
@@ -48,15 +48,12 @@ func TestClientStopReleasesSnapshotAndWaitsForDone(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Stop did not return after delivery")
 	}
-	require.NoError(t, client.Stop())
-	require.Eventually(t, func() bool {
-		select {
-		case <-client.DoneChan():
-			return true
-		default:
-			return false
-		}
-	}, time.Second, time.Millisecond)
+	require.NoError(t, client.Stop(context.Background()))
+	select {
+	case <-client.DoneChan():
+	default:
+		t.Fatal("Stop returned before the protocol stopped")
+	}
 	select {
 	case err := <-errors:
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -70,7 +67,7 @@ func TestClientStopReportsDeliveryFailure(t *testing.T) {
 			t.Run(stage+"/"+failure, func(t *testing.T) {
 				client, peer, _ := startAcquiredTestClient(t)
 				stopped := make(chan error, 1)
-				go func() { stopped <- client.Stop() }()
+				go func() { stopped <- client.Stop(context.Background()) }()
 				if stage == "done" {
 					requireQueryTestMessageType(t, peer, MessageTypeRelease)
 				}
@@ -85,7 +82,7 @@ func TestClientStopReportsDeliveryFailure(t *testing.T) {
 					if failure == "timeout" {
 						require.ErrorIs(t, err, context.DeadlineExceeded)
 					}
-					require.Equal(t, err, client.Stop())
+					require.NoError(t, client.Stop(context.Background()))
 				case <-time.After(2 * time.Second):
 					t.Fatal("Stop did not report failed delivery")
 				}

@@ -71,7 +71,11 @@ func TestBabbageTransactionBodyIdSetCborInvalidatesOnlyCopy(t *testing.T) {
 			}
 
 			setCbor(&copyBody, nil)
-			if got, want := copyBody.Id(), common.Blake2b256Hash(nil); got != want {
+			encoded, err := copyBody.MarshalCBOR()
+			if err != nil {
+				t.Fatalf("encode body without stored CBOR: %v", err)
+			}
+			if got, want := copyBody.Id(), common.Blake2b256Hash(encoded); got != want {
 				t.Fatalf("nil CBOR hash mismatch: got %x, want %x", got, want)
 			}
 		})

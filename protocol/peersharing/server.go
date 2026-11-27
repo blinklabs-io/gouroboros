@@ -15,6 +15,7 @@
 package peersharing
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -23,11 +24,14 @@ import (
 
 // Server implements the PeerSharing server
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer returns a new PeerSharing server object
@@ -45,7 +49,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -61,14 +65,36 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
-	s.Protocol = p
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
+	s.proto = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) handleMessage(msg protocol.Message) error {
@@ -100,8 +126,12 @@ func (s *Server) handleShareRequest(
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 			"local_disabled", s.config != nil && s.config.LocalDisabled,
+			"remote_disabled", s.config != nil && s.config.RemoteDisabled,
 		)
-	if s.config != nil && s.config.LocalDisabled {
+	// The negotiated mode is NoPeerSharing when either side advertised it,
+	// and RemoteDisabled carries that outcome, so a peer that advertised
+	// NoPeerSharing and asks anyway is not given peers either.
+	if s.config != nil && (s.config.LocalDisabled || s.config.RemoteDisabled) {
 		proto.Logger().
 			Debug("peer sharing request violates negotiated mode",
 				"component", "network",
@@ -109,8 +139,8 @@ func (s *Server) handleShareRequest(
 				"role", "server",
 				"connection_id", s.callbackContext.ConnectionId.String(),
 			)
-		// A peer that sends ShareRequest after we advertised NoPeerSharing is
-		// not following the handshake negotiation. Still answer with an empty
+		// A peer that sends ShareRequest when NoPeerSharing was negotiated
+		// is not following the handshake negotiation. Still answer with an empty
 		// response so an invalid optional request cannot tear down the bearer.
 		return proto.SendMessage(NewMsgSharePeers([]PeerAddress{}))
 	}
@@ -121,7 +151,7 @@ func (s *Server) handleShareRequest(
 	}
 	msgShareRequest := msg.(*MsgShareRequest)
 	peers, err := s.config.ShareRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		int(msgShareRequest.Amount),
 	)
 	if err != nil {
@@ -162,7 +192,10 @@ func (s *Server) handleDone(proto *protocol.Protocol) {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	proto.StopForRestart()
-	s.initProtocol()
+	_ = proto.StopForRestart(proto.CallbackContext())
+	if !s.initProtocol() {
+		proto.CancelRestart()
+		return
+	}
 	s.Start()
 }

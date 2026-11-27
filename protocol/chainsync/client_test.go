@@ -15,6 +15,7 @@
 package chainsync_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -96,7 +97,7 @@ func runTest(
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -308,7 +309,7 @@ func TestClientStartStopStart(t *testing.T) {
 			client.Start()
 			client.Start()
 			// Stop should work
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected error when stopping client: %s", err)
 			}
 			// Start again after stop should work (#597)
@@ -391,7 +392,7 @@ func TestUseCase_GetCurrentTip_Stop_Start_GetCurrentTip(t *testing.T) {
 				)
 			}
 
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected error when stopping client: %s", err)
 			}
 			client.Start()
@@ -521,24 +522,13 @@ func TestSyncPipelining(t *testing.T) {
 			ProtocolId:  chainsync.ProtocolIdNtC,
 			MessageType: chainsync.MessageTypeRequestNext,
 		},
-		// Fourth block
+		// Fourth block, the server's tip. The window never reached past
+		// it, and the callback stops the sync here, so nothing more is
+		// requested.
 		ouroboros_mock.ConversationEntryOutput{
 			ProtocolId: chainsync.ProtocolIdNtC,
 			IsResponse: true,
 			Messages:   []protocol.Message{makeRollForward(3)},
-		},
-		// Fifth RequestNext, fourth of pipelined batch
-		ouroboros_mock.ConversationEntryInput{
-			ProtocolId:  chainsync.ProtocolIdNtC,
-			MessageType: chainsync.MessageTypeRequestNext,
-		},
-		// Signal that we're at tip
-		ouroboros_mock.ConversationEntryOutput{
-			ProtocolId: chainsync.ProtocolIdNtC,
-			IsResponse: true,
-			Messages: []protocol.Message{
-				chainsync.NewMsgAwaitReply(),
-			},
 		},
 	}
 
@@ -695,7 +685,7 @@ func TestSyncCallbacksExposeExactTipIntersection(t *testing.T) {
 					t.Fatalf("timed out waiting for %s callback", want)
 				}
 			}
-			require.NoError(t, oConn.ChainSync().Client.Stop())
+			require.NoError(t, oConn.ChainSync().Client.Stop(context.Background()))
 		},
 		ouroboros.WithChainSyncConfig(chainsync.Config{
 			SkipBlockValidation: true,
@@ -816,7 +806,7 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 					&expectedTip1,
 				)
 			}
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected stop error: %s", err)
 			}
 			client.Start()
@@ -832,7 +822,7 @@ func TestUseCase_MultiCycle_GetCurrentTip_Stop_Start(t *testing.T) {
 					&expectedTip2,
 				)
 			}
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected stop error: %s", err)
 			}
 			client.Start()
@@ -895,7 +885,7 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	// Close the connection first (simulating remote close)
 	require.NoError(
 		t,
-		oConn.Close(),
+		oConn.Close(context.Background()),
 		"unexpected error when closing connection",
 	)
 
@@ -909,7 +899,7 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	// Now Stop() should not return an error even though connection is closed
 	require.NoError(
 		t,
-		client.Stop(),
+		client.Stop(context.Background()),
 		"Stop() should not return error after connection close",
 	)
 

@@ -15,8 +15,10 @@
 package localstatequery
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -24,7 +26,9 @@ import (
 
 // Server implements the LocalStateQuery server
 type Server struct {
-	*protocol.Protocol
+	proto                         *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
+	protocolMu                    sync.RWMutex
+	protoOptions                  protocol.ProtocolOptions
 	config                        *Config
 	callbackContext               CallbackContext
 	enableGetChainBlockNo         bool
@@ -33,6 +37,9 @@ type Server struct {
 	enableGetLedgerPeerSnapshot   bool
 	enableLedgerPeerKind          bool
 	version                       uint16
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer returns a new LocalStateQuery server object
@@ -42,25 +49,12 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		cfg = &tmpCfg
 	}
 	s := &Server{
-		config: cfg,
+		config:       cfg,
+		protoOptions: protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
-	}
-	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleServer,
-		MessageHandlerFunc:  s.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            StateMap,
-		InitialState:        stateIdle,
-		MaxReadBufferSize:   cfg.MaxReadBufferSize,
 	}
 	s.version = protoOptions.Version
 	// Enable version-dependent features
@@ -77,8 +71,60 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	if (protoOptions.Version - protocol.ProtocolVersionNtCOffset) >= 23 {
 		s.enableLedgerPeerKind = true
 	}
-	s.Protocol = protocol.New(protoConfig)
+	s.initProtocol()
 	return s
+}
+
+// initProtocol installs a new protocol instance for the next run, unless the
+// server was stopped. It reports whether it installed one.
+func (s *Server) initProtocol() bool {
+	protoConfig := protocol.ProtocolConfig{
+		Name:                ProtocolName,
+		ProtocolId:          ProtocolId,
+		Muxer:               s.protoOptions.Muxer,
+		Logger:              s.protoOptions.Logger,
+		ErrorChan:           s.protoOptions.ErrorChan,
+		Mode:                s.protoOptions.Mode,
+		Role:                protocol.ProtocolRoleServer,
+		MessageHandlerFunc:  s.messageHandler,
+		MessageFromCborFunc: NewMsgFromCbor,
+		StateMap:            StateMap,
+		InitialState:        stateIdle,
+		MaxReadBufferSize:   s.config.MaxReadBufferSize,
+	}
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.proto = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 // ledgerPeerSnapshotQuery returns the GetLedgerPeerSnapshot leaf of a
@@ -218,7 +264,8 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleAcquire(msg protocol.Message) error {
-	s.Protocol.Logger().
+	proto := s.ProtocolInstance()
+	proto.Logger().
 		Debug("acquire",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -242,16 +289,16 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, false)
+	err := s.config.AcquireFunc(s.callbackContext.withOwner(s.ProtocolInstance()), acquireTarget, false)
 	if err != nil {
 		if errors.Is(err, ErrAcquireFailurePointTooOld) {
 			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
-			if err := s.SendMessage(respMsg); err != nil {
+			if err := proto.SendMessage(respMsg); err != nil {
 				return err
 			}
 		} else if errors.Is(err, ErrAcquireFailurePointNotOnChain) {
 			respMsg := NewMsgFailure(AcquireFailurePointNotOnChain)
-			if err := s.SendMessage(respMsg); err != nil {
+			if err := proto.SendMessage(respMsg); err != nil {
 				return err
 			}
 		} else {
@@ -260,14 +307,15 @@ func (s *Server) handleAcquire(msg protocol.Message) error {
 		return nil
 	}
 	respMsg := NewMsgAcquired()
-	if err := s.SendMessage(respMsg); err != nil {
+	if err := proto.SendMessage(respMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleQuery(msg protocol.Message) error {
-	s.Protocol.Logger().
+	proto := s.ProtocolInstance()
+	proto.Logger().
 		Debug("query",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -311,7 +359,7 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 		))
 	}
 	// Call the user callback function
-	result, err := s.config.QueryFunc(s.callbackContext, msgQuery.Query)
+	result, err := s.config.QueryFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msgQuery.Query)
 	if err != nil {
 		return err
 	}
@@ -328,31 +376,33 @@ func (s *Server) handleQuery(msg protocol.Message) error {
 		return err
 	}
 	respMsg := NewMsgResult(resultCbor)
-	if err := s.SendMessage(respMsg); err != nil {
+	if err := proto.SendMessage(respMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleRelease() error {
-	s.Protocol.Logger().
+	proto := s.ProtocolInstance()
+	proto.Logger().
 		Debug("release",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// MsgRelease is always legal from Acquired; without a callback there is
+	// simply nothing for the application to free.
 	if s.config.ReleaseFunc == nil {
-		return errors.New(
-			"received local-state-query Release message but no callback function is defined",
-		)
+		return nil
 	}
 	// Call the user callback function
-	return s.config.ReleaseFunc(s.callbackContext)
+	return s.config.ReleaseFunc(s.callbackContext.withOwner(s.ProtocolInstance()))
 }
 
 func (s *Server) handleReAcquire(msg protocol.Message) error {
-	s.Protocol.Logger().
+	proto := s.ProtocolInstance()
+	proto.Logger().
 		Debug("reacquire",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -376,16 +426,16 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 		acquireTarget = AcquireImmutableTip{}
 	}
 	// Call the user callback function
-	err := s.config.AcquireFunc(s.callbackContext, acquireTarget, true)
+	err := s.config.AcquireFunc(s.callbackContext.withOwner(s.ProtocolInstance()), acquireTarget, true)
 	if err != nil {
 		if errors.Is(err, ErrAcquireFailurePointTooOld) {
 			respMsg := NewMsgFailure(AcquireFailurePointTooOld)
-			if err := s.SendMessage(respMsg); err != nil {
+			if err := proto.SendMessage(respMsg); err != nil {
 				return err
 			}
 		} else if errors.Is(err, ErrAcquireFailurePointNotOnChain) {
 			respMsg := NewMsgFailure(AcquireFailurePointNotOnChain)
-			if err := s.SendMessage(respMsg); err != nil {
+			if err := proto.SendMessage(respMsg); err != nil {
 				return err
 			}
 		} else {
@@ -394,18 +444,29 @@ func (s *Server) handleReAcquire(msg protocol.Message) error {
 		return nil
 	}
 	respMsg := NewMsgAcquired()
-	if err := s.SendMessage(respMsg); err != nil {
+	if err := proto.SendMessage(respMsg); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	proto := s.ProtocolInstance()
+	proto.Logger().
 		Debug("done",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	// The reference's inbound governor restarts a node-to-client responder
+	// that ended cleanly, so the client may start a new run on this
+	// connection. StopForRestart keeps the client's next messages for the
+	// new instance.
+	_ = proto.StopForRestart(proto.CallbackContext())
+	if !s.initProtocol() {
+		proto.CancelRestart()
+		return
+	}
+	s.ProtocolInstance().Start()
 }

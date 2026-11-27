@@ -397,3 +397,21 @@ func TestExtractTransactionOffsetsDijkstraUsesWireOffsets(t *testing.T) {
 		blockCbor[scriptRange.Offset:scriptRange.Offset+scriptRange.Length],
 	)
 }
+
+func extractOffsetsWithStreamingParity(
+	t *testing.T,
+	data []byte,
+) (*common.BlockTransactionOffsets, error) {
+	t.Helper()
+	expected, expectedErr := common.ExtractTransactionOffsets(data)
+	decoder, err := common.NewStreamingBlockDecoder(data)
+	require.NoError(t, err)
+	actual, actualErr := decoder.DecodeWithOffsets()
+	if expectedErr != nil {
+		require.Error(t, actualErr)
+	} else {
+		require.NoError(t, actualErr)
+		require.Equal(t, expected, actual)
+	}
+	return expected, expectedErr
+}

@@ -16,6 +16,8 @@ package protocol
 
 import (
 	"bytes"
+	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -276,6 +278,7 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 		muxerRecvChan:        segments,
 		recvQueueChan:        make(chan inboundMessage, 2),
 		recvStateChangedChan: make(chan struct{}, 1),
+		handlerDoneChan:      make(chan struct{}),
 		sendReadyChan:        make(chan bool, 1),
 		currentState:         busy,
 	}
@@ -284,7 +287,7 @@ func TestReadLoopConsumesPeerAgencyBeforeNextCoalescedReply(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	select {
 	case msg := <-handled:
@@ -360,6 +363,7 @@ func TestInboundAdmissionWaitCannotUseLaterPipelinedRequest(t *testing.T) {
 		sendDoneChan:           make(chan struct{}),
 		muxerDoneChan:          make(chan bool),
 		recvStateChangedChan:   make(chan struct{}, 1),
+		handlerDoneChan:        make(chan struct{}),
 		currentState:           busy,
 		currentStateGeneration: 1,
 		peerAgencyReserved:     true,
@@ -367,7 +371,7 @@ func TestInboundAdmissionWaitCannotUseLaterPipelinedRequest(t *testing.T) {
 	transitions := make(chan protocolStateTransition)
 	p.stateTransitionChan = transitions
 	go p.stateLoop(transitions)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	select {
 	case <-p.recvStateChangedChan:
 	case <-time.After(time.Second):
@@ -473,6 +477,7 @@ func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 		stopChan:                 make(chan struct{}),
 		sendReadyChan:            make(chan bool, 1),
 		recvStateChangedChan:     make(chan struct{}, 1),
+		handlerDoneChan:          make(chan struct{}),
 		currentState:             streaming,
 		peerAgencyReserved:       true,
 		pendingPipelinedRequests: 1,
@@ -481,7 +486,7 @@ func TestInboundPipelinedReplyPreservesStreamingAgency(t *testing.T) {
 	stateTransitions := make(chan protocolStateTransition)
 	p.stateTransitionChan = stateTransitions
 	go p.stateLoop(stateTransitions)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	err := p.transitionInboundState(
 		&MessageBase{MessageType: replyType},
@@ -544,6 +549,7 @@ func TestPipelinedRequestTransitionConsumesAdmissionSlot(t *testing.T) {
 				stopChan:                 make(chan struct{}),
 				sendReadyChan:            make(chan bool, 1),
 				recvStateChangedChan:     make(chan struct{}, 1),
+				handlerDoneChan:          make(chan struct{}),
 				currentState:             idle,
 				pendingPipelinedRequests: 1,
 				pendingPipelinedReplies:  pendingReplies,
@@ -551,7 +557,7 @@ func TestPipelinedRequestTransitionConsumesAdmissionSlot(t *testing.T) {
 			stateTransitions := make(chan protocolStateTransition)
 			p.stateTransitionChan = stateTransitions
 			go p.stateLoop(stateTransitions)
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 			err := p.transitionPipelinedRequestState(
 				&MessageBase{MessageType: requestType},
@@ -695,7 +701,7 @@ func newReadLoopTestProtocol(
 		currentState:             state,
 		pendingPipelinedRequests: pendingPipelinedRequests,
 	}
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	go p.readLoop()
 	return p, errorChan
 }
@@ -790,6 +796,7 @@ func newRoundTripTestProtocol(
 		muxerDoneChan:        make(chan bool),
 		recvDoneChan:         make(chan struct{}),
 		recvStateChangedChan: make(chan struct{}, 1),
+		handlerDoneChan:      make(chan struct{}),
 		sendReadyChan:        make(chan bool, 1),
 		currentState:         idle,
 	}
@@ -828,7 +835,7 @@ func TestInboundAdmissionWaitSurvivesPipelinedRoundTrip(t *testing.T) {
 			transitions := make(chan protocolStateTransition)
 			p.stateTransitionChan = transitions
 			go p.stateLoop(transitions)
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 			select {
 			case <-p.recvStateChangedChan:
 			case <-time.After(time.Second):
@@ -934,7 +941,7 @@ func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	for i := range requests {
 		select {
@@ -948,14 +955,27 @@ func TestReadLoopAdmitsPipelinedRequestsAcrossRoundTrips(t *testing.T) {
 }
 
 // Without a pipelining declaration, a request the client sent before the
-// server answered the previous one was sent without agency, whichever state
-// the read loop observes when it is checked.
+// server answered the previous one was sent without agency. The handler holds
+// the reply back until the refusal is read, so the state stays in the
+// server-agency state the first request moved it to: a refusal is the only
+// outcome, whichever state the read loop snapshotted for the second request.
+// Without the hold, the read loop could snapshot the state after the reply
+// and then admit the second request as a legitimate one.
+//
+// The refusal can stop the protocol before the first handler runs: stateLoop
+// publishes Busy before requestStateTransition returns to recvLoop, which
+// then returns ErrProtocolShuttingDown instead of calling the handler. So the
+// test reads the refusal without waiting for the handler, and checks what the
+// refusal does prove: the first request's transition was applied, and the
+// second request never reached the handler.
 func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
+	t.Parallel()
 	const (
 		requestType = uint8(0)
 		replyType   = uint8(1)
+		timeout     = 5 * time.Second
 	)
-	p, _, _ := newRoundTripTestProtocol(requestType, replyType)
+	p, _, busy := newRoundTripTestProtocol(requestType, replyType)
 	errorChan := make(chan error, 1)
 	p.config.ErrorChan = errorChan
 	p.config.MessageFromCborFunc = func(
@@ -965,8 +985,12 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 		return &MessageBase{MessageType: uint8(messageType)}, nil
 	}
 	handled := make(chan struct{}, 2)
+	releaseReply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseReply) }) }
 	p.config.MessageHandlerFunc = func(Message) error {
 		handled <- struct{}{}
+		<-releaseReply
 		return p.transitionState(&MessageBase{MessageType: replyType})
 	}
 	segment := muxer.NewSegment(
@@ -984,13 +1008,115 @@ func TestReadLoopRejectsUndeclaredRequestAcrossRoundTrip(t *testing.T) {
 	go p.stateLoop(stateTransitions)
 	go p.recvLoop()
 	go p.readLoop()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+	// Runs on every exit, before the cleanup that stops the protocol, so a
+	// failed assertion cannot leave the handler blocked.
+	defer release()
 
 	select {
 	case err := <-errorChan:
 		require.ErrorContains(t, err, "without peer agency")
-	case <-time.After(time.Second):
+	case <-time.After(timeout):
 		t.Fatal("readLoop admitted a request sent without agency")
 	}
-	require.Len(t, handled, 1)
+	require.Equal(
+		t,
+		busy,
+		p.getCurrentState(),
+		"first request's transition was not applied, or its reply was",
+	)
+	release()
+	select {
+	case <-p.recvDoneChan:
+	case <-time.After(timeout):
+		t.Fatal("receive loop kept running after the refusal")
+	}
+	require.LessOrEqual(
+		t,
+		len(handled),
+		1,
+		"second request must not be handled",
+	)
+}
+
+// A request whose first byte arrives while the server holds agency was sent
+// without it, even when the reply returns agency to the client before the
+// rest of the request arrives. The read loop snapshots the state when the
+// request starts, so it must refuse the request rather than admit it against
+// the state the reply moved to.
+func TestReadLoopRejectsRequestStartedBeforeReply(t *testing.T) {
+	t.Parallel()
+	const (
+		requestType = uint8(0)
+		replyType   = uint8(1)
+		timeout     = 5 * time.Second
+	)
+	p, idle, _ := newRoundTripTestProtocol(requestType, replyType)
+	errorChan := make(chan error, 1)
+	p.config.ErrorChan = errorChan
+	p.config.MessageFromCborFunc = func(
+		messageType uint,
+		_ []byte,
+	) (Message, error) {
+		return &MessageBase{MessageType: uint8(messageType)}, nil
+	}
+	handled := make(chan struct{}, 2)
+	releaseReply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseReply) }) }
+	p.config.MessageHandlerFunc = func(Message) error {
+		handled <- struct{}{}
+		<-releaseReply
+		return p.transitionState(&MessageBase{MessageType: replyType})
+	}
+	// Unbuffered, so a completed send means the read loop took the segment.
+	segments := make(chan *muxer.Segment)
+	p.muxerRecvChan = segments
+	p.recvQueueChan = make(chan inboundMessage, 2)
+	stateTransitions := make(chan protocolStateTransition)
+	p.stateTransitionChan = stateTransitions
+	go p.stateLoop(stateTransitions)
+	go p.recvLoop()
+	go p.readLoop()
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
+	defer release()
+	send := func(payload []byte) {
+		segment := muxer.NewSegment(1, payload, false)
+		require.NotNil(t, segment)
+		select {
+		case segments <- segment:
+		case <-time.After(timeout):
+			t.Fatal("readLoop did not take a segment")
+		}
+	}
+
+	send([]byte{0x81, requestType})
+	select {
+	case <-handled:
+	case <-time.After(timeout):
+		t.Fatal("first request was not handled")
+	}
+	// The handler is holding the reply, so the server has agency when the
+	// second request's array header arrives.
+	send([]byte{0x81})
+	// One batch takes at most 1+maxSegmentsPerBatch segments, so the last of
+	// these is taken only after the batch holding the header was scanned and
+	// the state snapshotted.
+	for range maxSegmentsPerBatch + 1 {
+		send(nil)
+	}
+	release()
+	deadline := time.Now().Add(timeout)
+	for p.getCurrentState() != idle {
+		require.True(t, time.Now().Before(deadline), "reply did not return to Idle")
+		time.Sleep(time.Millisecond)
+	}
+	send([]byte{requestType})
+	select {
+	case err := <-errorChan:
+		require.ErrorContains(t, err, "without peer agency")
+	case <-time.After(timeout):
+		t.Fatal("readLoop admitted a request that started before the reply")
+	}
+	require.Empty(t, handled, "second request must not be handled")
 }

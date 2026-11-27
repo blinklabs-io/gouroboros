@@ -52,19 +52,22 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 			stateMap[statePropose] = entry
 		}
 	}
+	onReceived, onIncomplete := startupCallbacks(protoOptions.Muxer)
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleServer,
-		MessageHandlerFunc:  s.handleMessage,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        statePropose,
-		InitialStateTimeout: protoOptions.Mode == protocol.ProtocolModeNodeToNode,
+		Name:                  ProtocolName,
+		ProtocolId:            ProtocolId,
+		Muxer:                 protoOptions.Muxer,
+		Logger:                protoOptions.Logger,
+		ErrorChan:             protoOptions.ErrorChan,
+		Mode:                  protoOptions.Mode,
+		Role:                  protocol.ProtocolRoleServer,
+		MessageHandlerFunc:    s.handleMessage,
+		MessageFromCborFunc:   NewMsgFromCbor,
+		MessageReceivedFunc:   onReceived,
+		MessageIncompleteFunc: onIncomplete,
+		StateMap:              stateMap,
+		InitialState:          statePropose,
+		InitialStateTimeout:   protoOptions.Mode == protocol.ProtocolModeNodeToNode,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
@@ -100,26 +103,8 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	}
 	msgProposeVersions := msg.(*MsgProposeVersions)
 
-	// Query and refusal responses must reach the transport before returning
-	// a terminal error, which stops the protocol and can discard queued sends.
-	for proposedVersion, versionDataCbor := range msgProposeVersions.VersionMap {
-		versionInfo := protocol.GetProtocolVersion(proposedVersion)
-		if versionInfo.NewVersionDataFromCborFunc != nil {
-			proposedVersionData, err := versionInfo.NewVersionDataFromCborFunc(
-				versionDataCbor,
-			)
-			if err == nil && proposedVersionData != nil &&
-				proposedVersionData.Query() {
-				msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
-				if err := s.SendMessageAndWait(msgQueryReply); err != nil {
-					return err
-				}
-				return errors.New(
-					"handshake query mode: connection terminated after query reply",
-				)
-			}
-		}
-	}
+	// Refusal responses must reach the transport before returning a terminal
+	// error, which stops the protocol and can discard queued sends.
 
 	// Compute intersection of supported and proposed protocol versions
 	var versionIntersect []uint16
@@ -223,15 +208,35 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 			errMsg,
 		)
 	}
-	// Accept the proposed version
-	// We send our version data in the response and the proposed version data in the callback
-	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, versionData)
+	// A query is answered only for a proposal that would be accepted, and
+	// only when the agreed data asks for one: the reference server runs the
+	// whole negotiation first, so a query with no common version or a
+	// different network magic is refused like any other proposal. The reply,
+	// like a refusal, must reach the transport before the terminal error.
+	if proposedVersionData.Query() || versionData.Query() {
+		msgQueryReply := NewMsgQueryReply(s.config.ProtocolVersionMap)
+		if err := s.SendMessageAndWait(msgQueryReply); err != nil {
+			return err
+		}
+		return errors.New(
+			"handshake query mode: connection terminated after query reply",
+		)
+	}
+	// Both MsgAcceptVersion and the callback carry the agreed data, as the
+	// reference server does, so the connection derives the same diffusion
+	// mode as its peer.
+	agreedData := agreedVersionData(
+		proposedVersion,
+		versionData,
+		proposedVersionData,
+	)
+	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, agreedData)
 	if err := s.SendMessageAndWait(msgAcceptVersion); err != nil {
 		return err
 	}
 	return s.config.FinishedFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 		proposedVersion,
-		proposedVersionData,
+		agreedData,
 	)
 }

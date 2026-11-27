@@ -39,6 +39,15 @@ func (c VRFCert) MarshalCBOR() ([]byte, error) {
 }
 
 func (c *VRFCert) UnmarshalCBOR(cborData []byte) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(cborData); !indefinite && n >= 0 &&
+		n != 2 {
+		return fmt.Errorf(
+			"peras VRF certificate must have 2 fields, got %d",
+			n,
+		)
+	}
 	var fields []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return fmt.Errorf("decode Peras VRF certificate: %w", err)
@@ -105,6 +114,12 @@ func (v Vote) MarshalCBOR() ([]byte, error) {
 }
 
 func (v *Vote) UnmarshalCBOR(cborData []byte) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(cborData); !indefinite && n >= 0 &&
+		n != 8 {
+		return fmt.Errorf("peras vote must have 8 fields, got %d", n)
+	}
 	var fields []cbor.RawMessage
 	if _, err := cbor.Decode(cborData, &fields); err != nil {
 		return fmt.Errorf("decode Peras vote: %w", err)

@@ -149,72 +149,56 @@ func TestBlockItem_NewBlockItem(t *testing.T) {
 	assert.False(t, item.ReceivedAt().IsZero())
 }
 
-func TestBlockPipelineRawCborBudgetReturnsWhenResultIsDelivered(t *testing.T) {
-	raw := getValidBlockCbor(t)
-	p := NewBlockPipeline(
-		WithTrustedDecodeOnly(),
+func TestBlockPipelineRawCborBudgetReturnsWhenResultIsCommitted(t *testing.T) {
+	shelley := getValidShelleyBlock(t)
+	raw := shelley.Cbor
+	p := NewBlockPipeline(append(
+		validatedTestPipelineOptions(t, func(*BlockItem) error { return nil }),
 		WithMaxRawCborBytes(2*uint64(len(raw))),
-	)
-	forwardGate := make(chan struct{})
-	var releaseForward sync.Once
-	p.testResultsForward = func() { <-forwardGate }
+	)...)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() {
-		releaseForward.Do(func() { close(forwardGate) })
-		require.NoError(t, p.Stop())
-	})
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 	err := p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		make([]byte, len(raw)+1),
 		createTestTip(0, 0),
 	)
 	require.ErrorIs(t, err, ErrRawCborBudgetExceeded)
 	require.NoError(t, p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		raw,
 		createTestTip(0, 0),
 	))
-	require.Eventually(t, func() bool {
-		return len(p.resultsQueue) == 1
-	}, time.Second, time.Millisecond)
-	p.rawBudgetMu.Lock()
-	require.Equal(t, uint64(2*len(raw)), p.rawBytesInUse)
-	p.rawBudgetMu.Unlock()
-	blockedCtx, blockedCancel := context.WithTimeout(ctx, 10*time.Millisecond)
-	defer blockedCancel()
-	require.ErrorIs(t, p.Submit(
-		blockedCtx,
-		uint(ledger.BlockTypeConway),
-		raw,
-		createTestTip(1, 1),
-	), context.DeadlineExceeded)
-	releaseForward.Do(func() { close(forwardGate) })
-
-	first := <-p.Results()
-	require.Equal(t, raw, first.RawCbor())
-	require.NotNil(t, first.Block())
-
+	require.NoError(t, p.Fence(ctx))
 	require.Eventually(t, func() bool {
 		p.rawBudgetMu.Lock()
 		defer p.rawBudgetMu.Unlock()
 		return p.rawBytesInUse == 0
-	}, time.Second, time.Millisecond)
+	}, time.Second, time.Millisecond, "the unread result returned admission")
+
 	require.NoError(t, p.Submit(
 		ctx,
-		uint(ledger.BlockTypeConway),
+		shelley.BlockType,
 		raw,
-		createTestTip(2, 2),
+		createTestTip(1, 1),
 	))
+	require.NoError(t, p.Fence(ctx))
+	// The result bound holds one block, so the newer result replaced the
+	// unread older one.
+	require.Eventually(t, func() bool {
+		return p.Stats().ResultsDropped == 1
+	}, time.Second, time.Millisecond)
 	second := <-p.Results()
+	require.Equal(t, uint64(1), second.SequenceNumber())
 	require.Equal(t, raw, second.RawCbor())
-	first.Release()
-	first.Release()
-	require.Nil(t, first.RawCbor())
+	require.NotNil(t, second.Block())
 	second.Release()
+	second.Release()
+	require.Nil(t, second.RawCbor())
 }
 
 func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(
@@ -228,7 +212,7 @@ func TestBlockPipelineDrainResultsTransfersOwnershipWithoutBlocking(
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	require.Empty(t, p.DrainResults(), "nothing is ready before a submit")
 	require.NoError(t, p.Submit(
@@ -270,7 +254,7 @@ func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	require.NoError(t, p.Start(ctx))
-	t.Cleanup(func() { require.NoError(t, p.Stop()) })
+	t.Cleanup(func() { require.NoError(t, p.Stop(context.Background())) })
 
 	for sequence := 0; sequence < resultCount; sequence++ {
 		require.NoError(t, p.Submit(
@@ -280,11 +264,14 @@ func TestBlockPipelineDrainResultsReturnsQueuedResultsInOrder(t *testing.T) {
 			createTestTip(uint64(sequence), uint64(sequence)),
 		))
 	}
-	require.Eventually(t, func() bool {
-		return len(p.resultsQueue) == resultCount-1
-	}, 5*time.Second, time.Millisecond)
+	require.NoError(t, p.Fence(ctx))
 
-	results := p.DrainResults()
+	// Fence returns once blocks commit, which can precede their handoff.
+	var results []*BlockItem
+	require.Eventually(t, func() bool {
+		results = append(results, p.DrainResults()...)
+		return len(results) >= resultCount
+	}, 5*time.Second, time.Millisecond)
 	require.Len(t, results, resultCount)
 	for sequence, item := range results {
 		require.Equal(t, uint64(sequence), item.SequenceNumber())
@@ -312,7 +299,7 @@ func TestBlockPipelineStopPreservesCallerOwnedResult(t *testing.T) {
 		defer p.rawBudgetMu.Unlock()
 		return p.rawBytesInUse == 0
 	}, time.Second, time.Millisecond, "receipt returns the reservation")
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	require.NotNil(t, result.RawCbor())
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
@@ -340,7 +327,7 @@ func TestBlockPipelineStopReleasesBufferedResult(t *testing.T) {
 		return p.applyStage.PendingCount() == 0
 	}, time.Second, time.Millisecond)
 
-	require.NoError(t, p.Stop())
+	require.NoError(t, p.Stop(context.Background()))
 	p.rawBudgetMu.Lock()
 	require.Zero(t, p.rawBytesInUse)
 	p.rawBudgetMu.Unlock()
@@ -1187,13 +1174,13 @@ func TestBlockPipeline_Start_WiresRequireValidation(t *testing.T) {
 		WithVerifyConfigProvider(validatingTestVerifyConfigProvider(t)),
 		WithApplyFunc(func(*BlockItem) error { return nil }))
 	require.NoError(t, p.Start(context.Background()))
-	defer p.Stop()
+	defer p.Stop(context.Background())
 	assert.True(t, p.applyStage.requireValidation)
 
 	// Trusted decode-only mode bypasses the apply stage deliberately.
 	p2 := NewBlockPipeline(WithTrustedDecodeOnly())
 	require.NoError(t, p2.Start(context.Background()))
-	defer p2.Stop()
+	defer p2.Stop(context.Background())
 	assert.False(t, p2.applyStage.requireValidation)
 }
 
@@ -1214,7 +1201,7 @@ func TestBlockPipelineFenceWaitsForBlockedApply(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	require.NoError(
@@ -1302,7 +1289,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
 		require.NoError(t, p.Start(context.Background()))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		submitCtx, cancelSubmit := context.WithCancel(context.Background())
 		cancelSubmit()
@@ -1337,7 +1324,7 @@ func TestBlockPipelineSubmitCancellationPrecedence(t *testing.T) {
 		var gateAcquisitions atomic.Uint64
 		p.testSubmitLocked = func() { gateAcquisitions.Add(1) }
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		// Wait for every worker started with the canceled parent to exit before
 		// proving that Submit cannot commit work into their abandoned queue.
@@ -1375,7 +1362,7 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(context.Background()))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		fenceCtx, cancelFence := context.WithCancel(context.Background())
 		cancelFence()
@@ -1408,7 +1395,7 @@ func TestBlockPipelineFenceCancellationPrecedence(t *testing.T) {
 		var boundaryCaptures atomic.Uint64
 		p.testFenceBoundary = func(uint64) { boundaryCaptures.Add(1) }
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		p.decodePool.Stop()
 		p.applyRunner.Stop()
@@ -1460,6 +1447,9 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	config.ChainContextValidator = acceptTestChainContext
 	config.VerifyConfig = validatingTestVerifyConfig(t)
 	config.VerifyConfigProvider = validatingTestVerifyConfigProvider(t)
+	// The test counts every result, so a slow reader must not lose one to
+	// the one-result bound.
+	config.LosslessResults = true
 	var appliedSequences []uint64
 	var appliedMu sync.Mutex
 	readyToEnqueue := make(chan struct{})
@@ -1496,7 +1486,7 @@ func TestBlockPipelineFenceIgnoresCanceledBackpressuredSubmission(
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	shelley := getValidShelleyBlock(t)
@@ -1654,7 +1644,7 @@ func TestBlockPipelineWaitForDrainWaitsForInFlightValidation(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	shelley := getValidShelleyBlock(t)
@@ -1740,7 +1730,7 @@ func TestBlockPipelineSubmitBoundsOutOfOrderApplyBuffer(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	rawCbor := shelley.Cbor
@@ -1851,7 +1841,7 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
 		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(context.Background()))
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 		require.NoError(t, p.WaitForDrain(context.Background()))
 	})
 
@@ -1872,7 +1862,7 @@ func TestBlockPipelineWaitForDrainLifecycle(t *testing.T) {
 		require.NoError(t, p.Start(context.Background()))
 		defer func() {
 			release()
-			require.NoError(t, p.Stop())
+			require.NoError(t, p.Stop(context.Background()))
 		}()
 		shelley := getValidShelleyBlock(t)
 		require.NoError(
@@ -1915,7 +1905,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	rawCbor := getValidBlockCbor(t)
@@ -1935,7 +1925,7 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	}
 
 	stopDone := make(chan error, 1)
-	go func() { stopDone <- p.Stop() }()
+	go func() { stopDone <- p.Stop(context.Background()) }()
 	select {
 	case <-p.ctx.Done():
 	case <-time.After(time.Second):
@@ -1962,6 +1952,87 @@ func TestBlockPipelineWaitForDrainConcurrentStopWithSubmitGateHeld(
 	}
 }
 
+// A drain that succeeds because Stop has begun is still a rollback boundary:
+// it must not return while ApplyFunc is committing a block accepted before it.
+func TestBlockPipelineWaitForDrainDuringStopWaitsForApply(t *testing.T) {
+	applyStarted := make(chan struct{})
+	releaseApply := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() {
+		releaseOnce.Do(func() { close(releaseApply) })
+	}
+	var applyReturned atomic.Bool
+	p := NewBlockPipeline(validatedTestPipelineOptions(t,
+		func(*BlockItem) error {
+			close(applyStarted)
+			<-releaseApply
+			applyReturned.Store(true)
+			return nil
+		},
+	)...)
+	require.NoError(t, p.Start(context.Background()))
+	defer release()
+	shelley := getValidShelleyBlock(t)
+	require.NoError(
+		t,
+		p.Submit(
+			context.Background(),
+			shelley.BlockType,
+			shelley.Cbor,
+			createTestTip(1000, 500),
+		),
+	)
+	select {
+	case <-applyStarted:
+	case <-time.After(time.Second):
+		t.Fatal("pipeline apply did not start")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- p.Stop(context.Background()) }()
+	// Stop publishes stopping before it cancels the pipeline context.
+	select {
+	case <-p.ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not cancel the pipeline context")
+	}
+
+	type drainResult struct {
+		err           error
+		applyReturned bool
+	}
+	drainDone := make(chan drainResult, 1)
+	go func() {
+		err := p.WaitForDrain(context.Background())
+		drainDone <- drainResult{err: err, applyReturned: applyReturned.Load()}
+	}()
+	select {
+	case result := <-drainDone:
+		require.NoError(t, result.err)
+		require.True(
+			t,
+			result.applyReturned,
+			"WaitForDrain returned while ApplyFunc was still committing",
+		)
+	case <-time.After(100 * time.Millisecond):
+		release()
+		select {
+		case result := <-drainDone:
+			require.NoError(t, result.err)
+			require.True(t, result.applyReturned)
+		case <-time.After(time.Second):
+			t.Fatal("WaitForDrain did not return after ApplyFunc finished")
+		}
+	}
+	release()
+	select {
+	case err := <-stopDone:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return")
+	}
+}
+
 func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 	t *testing.T,
 ) {
@@ -1970,7 +2041,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 		cancelParent()
 		p := NewBlockPipeline(WithTrustedDecodeOnly())
 		require.NoError(t, p.Start(parentCtx))
-		defer func() { require.NoError(t, p.Stop()) }()
+		defer func() { require.NoError(t, p.Stop(context.Background())) }()
 
 		require.ErrorIs(
 			t,
@@ -1996,7 +2067,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithoutPendingWork(
 		require.NoError(t, p.Start(parentCtx))
 		defer func() {
 			release()
-			require.NoError(t, p.Stop())
+			require.NoError(t, p.Stop(context.Background()))
 		}()
 
 		drainDone := make(chan error, 1)
@@ -2058,7 +2129,7 @@ func TestBlockPipelineWaitForDrainParentCancellationWithInFlightWork(
 	defer func() {
 		releaseApplyFunc()
 		releaseBoundaryFunc()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 	shelley := getValidShelleyBlock(t)
 	require.NoError(
@@ -2115,7 +2186,7 @@ func TestBlockPipelineWaitForDrainPrefersCallerContext(t *testing.T) {
 	require.NoError(t, p.Start(context.Background()))
 	defer func() {
 		release()
-		require.NoError(t, p.Stop())
+		require.NoError(t, p.Stop(context.Background()))
 	}()
 
 	drainCtx, cancelDrain := context.WithCancel(context.Background())
@@ -2358,7 +2429,7 @@ func TestBlockPipeline_StartStop(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Stop pipeline
-	err = p.Stop()
+	err = p.Stop(context.Background())
 	assert.NoError(t, err)
 
 	// Submit after stop should fail
@@ -2966,7 +3037,7 @@ func TestBlockPipeline_SubmitStopRaceCondition(t *testing.T) {
 			defer wg.Done()
 			// Small random delay to create race conditions
 			time.Sleep(time.Duration(iteration%5) * time.Microsecond)
-			_ = p.Stop()
+			_ = p.Stop(context.Background())
 		}()
 
 		wg.Wait()
@@ -3208,7 +3279,7 @@ func TestBlockPipeline_ValidationDisabled(t *testing.T) {
 		}
 	}
 
-	err = pipeline.Stop()
+	err = pipeline.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify trusted decode-only stats.
@@ -3285,7 +3356,7 @@ func TestBlockPipeline_MetricsRecorded(t *testing.T) {
 	}
 
 	// Stop the pipeline
-	err = pipeline.Stop()
+	err = pipeline.Stop(context.Background())
 	require.NoError(t, err)
 
 	// Verify metrics

@@ -16,6 +16,7 @@ package localstatequery_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -107,7 +108,7 @@ func runTest(
 		close(ouroborosErrChan)
 	}()
 	t.Cleanup(func() {
-		if err := oConn.Close(); err != nil {
+		if err := oConn.Close(context.Background()); err != nil {
 			t.Errorf("unexpected error when closing Ouroboros object: %s", err)
 		}
 		select {

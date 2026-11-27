@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -42,7 +43,7 @@ func TestUnregisterRemovesBothProtocolDirections(t *testing.T) {
 	m.protocolReceiversMutex.Unlock()
 	require.False(t, receiverExists)
 	require.False(t, senderExists)
-	m.Stop()
+	_ = m.Stop(context.Background())
 	require.Eventually(t, func() bool {
 		select {
 		case <-m.doneChan:

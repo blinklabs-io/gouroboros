@@ -70,8 +70,8 @@ func newGatedClient(
 		}
 		_ = local.Close()
 		_ = peer.Close()
-		_ = client.Stop()
-		m.Stop()
+		_ = client.Stop(context.Background())
+		_ = m.Stop(context.Background())
 	})
 	m.Start()
 	client.Start()
@@ -81,7 +81,7 @@ func newGatedClient(
 func TestClientStopWaitsForDoneDelivery(t *testing.T) {
 	client, gate, peer, _ := newGatedClient(t)
 	stopped := make(chan error, 1)
-	go func() { stopped <- client.Stop() }()
+	go func() { stopped <- client.Stop(context.Background()) }()
 	select {
 	case <-gate.started:
 	case <-time.After(2 * time.Second):
@@ -113,7 +113,7 @@ func TestClientStopWaitsForDoneDelivery(t *testing.T) {
 func TestClientStopBoundsBlockedDoneDelivery(t *testing.T) {
 	client, gate, _, _ := newGatedClient(t)
 	stopped := make(chan error, 1)
-	go func() { stopped <- client.Stop() }()
+	go func() { stopped <- client.Stop(context.Background()) }()
 	select {
 	case <-gate.started:
 	case <-time.After(2 * time.Second):

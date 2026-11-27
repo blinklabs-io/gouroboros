@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -95,7 +96,7 @@ func TestNewServer(t *testing.T) {
 	server := NewServer(protoOptions, &cfg)
 
 	require.NotNil(t, server)
-	assert.NotNil(t, server.Protocol)
+	assert.NotNil(t, server.ProtocolInstance())
 	assert.NotNil(t, server.config)
 }
 
@@ -138,7 +139,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	connectionDone := make(chan any)
 	testCleanup := make(chan struct{})
@@ -164,7 +165,7 @@ func TestStartedServerCallbackObservesConnectionShutdown(t *testing.T) {
 		Muxer:              m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	defer close(testCleanup)
 	m.Start()
 
@@ -234,7 +235,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	response := NewMsgBlockAnnouncement(
 		testAnnouncementEra,
@@ -262,7 +263,7 @@ func TestHandleRequestNextReportsSuccessfulSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -295,7 +296,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(leiosNotifyFailWriteConn{Conn: connA})
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	cfg := NewConfig(
 		WithRequestNextFunc(func(CallbackContext) (protocol.Message, error) {
 			return NewMsgBlockAnnouncement(
@@ -316,7 +317,7 @@ func TestHandleRequestNextReportsFailedSend(t *testing.T) {
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -344,7 +345,7 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	requestCalled := make(chan struct{})
 	releaseRequest := make(chan struct{})
@@ -386,7 +387,10 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for request callback")
 	}
-	server.Protocol.Stop()
+	// The request callback is held, so this Stop only signals.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = server.ProtocolInstance().Stop(signalOnly)
 	close(releaseRequest)
 
 	select {
@@ -395,6 +399,18 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for shutdown delivery callback")
 	}
+}
+
+// stopServerAtEnd stops server when the test ends and requires the stop to
+// join it. A request left pending holds a goroutine until the server stops,
+// and one that outlives its test is reported by goleak in a later test.
+func stopServerAtEnd(t *testing.T, server *Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, server.Stop(ctx))
+	})
 }
 
 func TestHandleRequestNext_NilCallback(t *testing.T) {
@@ -409,6 +425,7 @@ func TestHandleRequestNext_NilCallback(t *testing.T) {
 		callbackContext: CallbackContext{ConnectionId: connId},
 	}
 	server.initProtocol()
+	stopServerAtEnd(t, server)
 
 	err := server.handleRequestNext()
 
@@ -433,7 +450,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	defer connB.Close()
 
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 
 	cfg := NewConfig()
 	server := NewServer(
@@ -444,7 +461,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 		&cfg,
 	)
 	server.Start()
-	defer server.Protocol.Stop()
+	defer server.ProtocolInstance().Stop(context.Background())
 	m.Start()
 
 	requestData, err := cbor.Encode(NewMsgNotificationRequestNext())
@@ -456,7 +473,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 	)
 
 	require.Eventually(t, func() bool {
-		return !server.IsInTerminalOrIdleState()
+		return !server.ProtocolInstance().IsInTerminalOrIdleState()
 	}, time.Second, 10*time.Millisecond, "server should remain in Busy")
 	assert.False(t, server.IsDone(), "pending request must not close protocol")
 	assert.Equal(t, connId, server.callbackContext.ConnectionId)
@@ -466,7 +483,7 @@ func TestNilCallbackRequestStaysPendingAndConnectionUsable(t *testing.T) {
 		testAnnouncementEra,
 		cbor.RawMessage{0x82, 0x01, 0x02},
 	)
-	require.NoError(t, server.SendMessage(response))
+	require.NoError(t, server.ProtocolInstance().SendMessage(response))
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
 	require.NoError(t, err)
@@ -492,6 +509,7 @@ func TestHandleRequestNext_NilConfig(t *testing.T) {
 		callbackContext: CallbackContext{ConnectionId: connId},
 	}
 	server.initProtocol()
+	stopServerAtEnd(t, server)
 
 	err := server.handleRequestNext()
 
@@ -718,13 +736,19 @@ func newQuitTestServer(
 		_ = connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	server := NewServer(protocol.ProtocolOptions{
 		ConnectionId: connId,
 		Muxer:        m,
 	}, &cfg)
 	server.Start()
-	t.Cleanup(func() { server.ProtocolInstance().Stop() })
+	t.Cleanup(func() {
+		// A test may still hold a request source here, released by a
+		// cleanup that runs after this one, so this Stop only signals.
+		signalOnly, cancel := context.WithCancel(context.Background())
+		cancel()
+		_ = server.ProtocolInstance().Stop(signalOnly)
+	})
 	m.Start()
 	return server, connB
 }
@@ -821,6 +845,12 @@ func TestServerCancelsRequestOutstandingAtQuit(t *testing.T) {
 	}
 }
 
+// The server answers every request pipelined behind MsgQuit with MsgCanceled
+// and asks the notification source only for the first. The client writes the
+// rest once the source holds the first. Each later request is handled only
+// after the one before it is answered, which is after the quit signal fires,
+// so none of them reaches the source. Without that wait the read loop can read
+// MsgQuit before the first handler runs, and the source is not asked at all.
 func TestServerCancelsEveryPipelinedRequest(t *testing.T) {
 	const pipelined = 1000
 	var sourceCalls atomic.Int32
@@ -836,8 +866,14 @@ func TestServerCancelsEveryPipelinedRequest(t *testing.T) {
 		}),
 	))
 
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	select {
+	case <-sourceStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("source was not asked for the first request")
+	}
 	go func() {
-		for range pipelined {
+		for range pipelined - 1 {
 			writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
 		}
 		writeQuitTestMessage(t, conn, NewMsgQuit())

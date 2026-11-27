@@ -151,8 +151,8 @@ type (
 // 1. Streaming pass: Extracts byte offsets for all transactions, outputs, witnesses, and metadata
 // 2. Era-specific decode: Decodes the block using the appropriate era decoder
 //
-// Both passes are fast since the block data is in CPU cache. This approach maintains
-// clean separation between offset extraction (era-agnostic) and block decoding (era-specific).
+// Offset extraction uses the same walker as ExtractTransactionOffsets.
+// A transaction-count mismatch between the two passes returns an error.
 //
 // Parameters:
 //   - blockType: The block type ID (e.g., BlockTypeConway)
@@ -167,34 +167,20 @@ func NewBlockFromCborWithOffsets(
 	data []byte,
 	config ...common.VerifyConfig,
 ) (*BlockWithOffsets, error) {
-	// Use the streaming decoder to extract offsets
-	decoder, err := common.NewStreamingBlockDecoder(data)
-	if err != nil {
-		return nil, fmt.Errorf("create streaming decoder: %w", err)
-	}
-
-	offsets, err := decoder.DecodeWithOffsets()
-	if err != nil {
-		return nil, fmt.Errorf("extract offsets: %w", err)
-	}
-
-	// Decode the block using the standard decoder
-	block, err := NewBlockFromCbor(blockType, data, config...)
-	if err != nil {
-		return nil, fmt.Errorf("decode block: %w", err)
-	}
-
-	return &BlockWithOffsets{
-		Block:   block,
-		Offsets: offsets,
-	}, nil
+	return common.DecodeBlockWithOffsets(
+		blockType,
+		data,
+		func(blockType uint, data []byte) (common.Block, error) {
+			return NewBlockFromCbor(blockType, data, config...)
+		},
+	)
 }
 
 // ExtractTransactionOffsets extracts byte offsets for all transactions in a block.
 // This is a convenience alias for common.ExtractTransactionOffsets.
 //
 // Use NewBlockFromCborWithOffsets when you also need to decode the block,
-// as it is more efficient than decoding and extracting offsets separately.
+// so the decoded transaction count is checked against the extracted offsets.
 func ExtractTransactionOffsets(
 	cborData []byte,
 ) (*BlockTransactionOffsets, error) {

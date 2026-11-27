@@ -15,6 +15,8 @@
 package messagesubmission
 
 import (
+	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -29,17 +31,25 @@ var errReplayCacheCapacityExceeded = errors.New(
 	"dmq: message submission replay cache capacity exceeded",
 )
 
-// Server implements the MessageSubmission server
+// Server is the side of a MessageSubmission session that wants messages and
+// requests them. In V1 it is the connection's responder; in V2 it is the
+// initiator and sends the first message.
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	config          *Config
 	callbackContext CallbackContext
 	protoVersion    uint16
+	protoOptions    protocol.ProtocolOptions
+	protocolMu      sync.RWMutex
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 
 	// Server-side state for message queue management
 	lock              sync.Mutex
 	messageQueue      []*pcommon.DmqMessage
 	pendingMessageIDs [][]byte
+	requestedIDs      map[string]struct{}
 	pendingIDRequest  *messageIDRequest
 	pendingMsgRequest *messageRequest
 	// deliveredIDs maps each message ID handed to ReplyMessagesFunc to its
@@ -57,70 +67,108 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 		config:            &normalizedCfg,
 		messageQueue:      make([]*pcommon.DmqMessage, 0),
 		pendingMessageIDs: [][]byte{},
+		requestedIDs:      map[string]struct{}{},
 		deliveredIDs:      make(map[string]uint32),
 		now:               time.Now,
 		protoVersion:      protoOptions.Version,
+		protoOptions:      protoOptions,
 	}
 	s.callbackContext = CallbackContext{
 		Server:       s,
 		ConnectionId: protoOptions.ConnectionId,
 	}
 
-	// Select state map and initial state based on negotiated version
-	isV2 := isMessageSubmissionV2(protoOptions.Version)
-	var baseStateMap protocol.StateMap
-	var initialState protocol.State
-	if isV2 {
-		baseStateMap = stateMapV2
-		initialState = protocolStateIdle
-	} else {
-		baseStateMap = stateMapV1
-		initialState = protocolStateInit
-	}
+	s.initProtocol()
+	return s
+}
 
+// initProtocol installs a new protocol instance for the next run, with the
+// negotiated version's state map, unless the server was stopped. It reports
+// whether it installed one.
+func (s *Server) initProtocol() bool {
+	stateMap, initialState := stateMapFor(s.protoOptions.Version, s.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:               ProtocolName,
 		ProtocolId:         ProtocolID,
-		Muxer:              protoOptions.Muxer,
-		Logger:             protoOptions.Logger,
-		ErrorChan:          protoOptions.ErrorChan,
-		Mode:               protoOptions.Mode,
-		Role:               protocol.ProtocolRoleServer,
+		Muxer:              s.protoOptions.Muxer,
+		Logger:             s.protoOptions.Logger,
+		ErrorChan:          s.protoOptions.ErrorChan,
+		Mode:               s.protoOptions.Mode,
+		Role:               roleFor(s.protoOptions.Version, protocol.ProtocolRoleServer),
 		MessageHandlerFunc: s.messageHandler,
 		MessageFromCborFunc: func(msgType uint, data []byte) (protocol.Message, error) {
 			return decodeMsgFromCborWithLimit(
+				s.protoOptions.Version,
 				msgType,
 				data,
 				s.collectionLimit(msgType),
 			)
 		},
-		StateMap:     baseStateMap,
+		StateMap:     stateMap,
 		InitialState: initialState,
 	}
-	s.Protocol = protocol.New(protoConfig)
-	return s
+	p := protocol.New(protoConfig)
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	if s.stopped {
+		return false
+	}
+	s.proto = p
+	return true
+}
+
+// ProtocolInstance returns the protocol instance of the current run. The
+// server replaces it after each MsgDone from the client.
+func (s *Server) ProtocolInstance() *protocol.Protocol {
+	s.protocolMu.RLock()
+	defer s.protocolMu.RUnlock()
+	return s.proto
+}
+
+// Start starts the protocol instance of the current run.
+func (s *Server) Start() {
+	s.ProtocolInstance().Start()
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 // collectionLimit bounds an inbound collection before it is decoded. A reply
 // can never be larger than the correlated request that admits it, and with no
 // request outstanding only an empty collection can reach the reply validator.
 func (s *Server) collectionLimit(msgType uint) int {
+	kind, _ := kindOf(s.protoVersion, msgType)
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	switch msgType {
-	case MessageTypeReplyMessageIds:
+	switch kind {
+	case kindReplyMessageIds:
 		if s.pendingIDRequest == nil {
 			return 0
 		}
 		return s.pendingIDRequest.requested
-	case MessageTypeReplyMessages:
+	case kindReplyMessages:
 		if s.pendingMsgRequest == nil {
 			return 0
 		}
 		return len(s.pendingMsgRequest.ids)
-	default:
-		return configuredMessageIDLimit(s.config)
+	case kindInit, kindRequestMessageIds, kindReplyNoMessageIds,
+		kindRequestMessages, kindDone:
 	}
+	return configuredMessageIDLimit(s.config)
 }
 
 // AddMessage adds a message to the outbound queue
@@ -146,7 +194,7 @@ func (s *Server) AddMessage(msg *pcommon.DmqMessage) error {
 
 	s.messageQueue = append(s.messageQueue, msg)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("message added to queue",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -197,8 +245,8 @@ func (s *Server) requestMessageIDs(
 	}
 	s.pendingIDRequest = request
 	s.lock.Unlock()
-	if err := s.SendMessage(
-		NewMsgRequestMessageIds(blocking, ackCount, requestCount),
+	if err := s.ProtocolInstance().SendMessage(
+		NewMsgRequestMessageIds(s.protoVersion, blocking, ackCount, requestCount),
 	); err != nil {
 		s.lock.Lock()
 		if s.pendingIDRequest == request {
@@ -218,20 +266,31 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 		s.lock.Unlock()
 		return errors.New("a request is already in flight")
 	}
+	// V2 asks for a body at most once while its ID is unacknowledged. V1 is
+	// tx-submission, whose reference outbound refuses a repeat only within
+	// one request, so a V1 server may ask again for a body the peer omitted.
+	alreadyRequested := s.requestedIDs
+	if !isMessageSubmissionV2(s.protoVersion) {
+		alreadyRequested = nil
+	}
 	request, err := requestedMessagesAreOutstanding(
 		s.pendingMessageIDs,
+		alreadyRequested,
 		messageIDs,
 	)
 	if err != nil {
 		s.lock.Unlock()
 		return err
 	}
+	previousRequested := s.requestedIDs
+	s.requestedIDs = withRequestedIDs(s.requestedIDs, request)
 	s.pendingMsgRequest = request
 	s.lock.Unlock()
-	if err := s.SendMessage(NewMsgRequestMessages(messageIDs)); err != nil {
+	if err := s.ProtocolInstance().SendMessage(NewMsgRequestMessages(s.protoVersion, messageIDs)); err != nil {
 		s.lock.Lock()
 		if s.pendingMsgRequest == request {
 			s.pendingMsgRequest = nil
+			s.requestedIDs = previousRequested
 		}
 		s.lock.Unlock()
 		return err
@@ -239,12 +298,11 @@ func (s *Server) RequestMessages(messageIDs [][]byte) error {
 	return nil
 }
 
-// Done sends MsgDone to terminate the protocol from the server side.
-// In V1, this can be sent from StIdle. In V2, this is the only way
-// to end the protocol (the client cannot send MsgDone).
+// Done sends MsgDone from StIdle to end a V2 session. In V1 only the Client
+// ends the session, so the state map refuses this.
 func (s *Server) Done() error {
-	msg := NewMsgDone()
-	return s.SendMessage(msg)
+	msg := NewMsgDone(s.protoVersion)
+	return s.ProtocolInstance().SendMessage(msg)
 }
 
 // GetAvailableMessages returns messages from the outbound queue up to maxCount
@@ -296,7 +354,7 @@ func (s *Server) GetAvailableMessageIDs(count int) []pcommon.MessageIDAndSize {
 		if len(ids) < count {
 			messageCbor, err := cbor.Encode(*msg)
 			if err != nil {
-				s.Protocol.Logger().
+				s.ProtocolInstance().Logger().
 					Warn("failed to encode message for size calculation",
 						"component", "network",
 						"protocol", ProtocolName,
@@ -353,14 +411,16 @@ func (s *Server) GetMessagesByIDs(ids [][]byte) []pcommon.DmqMessage {
 
 func (s *Server) messageHandler(msg protocol.Message) error {
 	var err error
-	switch msg.Type() {
-	case MessageTypeInit:
+	switch msg.(type) {
+	case *MsgInit:
 		err = s.handleInit()
-	case MessageTypeReplyMessageIds:
+	case *MsgReplyMessageIds:
 		err = s.handleReplyMessageIds(msg)
-	case MessageTypeReplyMessages:
+	case *MsgReplyNoMessageIds:
+		err = s.handleReplyNoMessageIds()
+	case *MsgReplyMessages:
 		err = s.handleReplyMessages(msg)
-	case MessageTypeDone:
+	case *MsgDone:
 		err = s.handleDone()
 	default:
 		err = fmt.Errorf(
@@ -374,7 +434,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 
 //nolint:unparam
 func (s *Server) handleInit() error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received init message",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -388,7 +448,7 @@ func (s *Server) handleInit() error {
 func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessageIds)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received reply message IDs",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -414,22 +474,66 @@ func (s *Server) handleReplyMessageIds(msg protocol.Message) error {
 		s.lock.Unlock()
 		return err
 	}
+	s.requestedIDs = forgetAcknowledgedIDs(
+		s.requestedIDs,
+		s.pendingMessageIDs,
+		s.pendingIDRequest.ack,
+	)
 	s.pendingMessageIDs = next
 	s.pendingIDRequest = nil
 	s.lock.Unlock()
 
 	// Invoke callback
 	if s.config.ReplyMessageIdsFunc != nil {
-		s.config.ReplyMessageIdsFunc(s.callbackContext, msgReply.Messages)
+		s.config.ReplyMessageIdsFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msgReply.Messages)
 	}
 
+	return nil
+}
+
+// handleReplyNoMessageIds applies the acknowledgement of the blocking request
+// it answers, as dmq-node's inbound treats it as an empty reply
+// (DMQ/Protocol/SigSubmissionV2/Inbound.hs). The application sees an empty
+// ID reply.
+func (s *Server) handleReplyNoMessageIds() error {
+	s.lock.Lock()
+	if s.pendingIDRequest == nil {
+		s.lock.Unlock()
+		return invalidMessageSubmissionMessage(
+			"received empty message ID reply without an outstanding request",
+		)
+	}
+	next, err := acknowledgeMessageIDs(
+		s.pendingMessageIDs,
+		*s.pendingIDRequest,
+		s.config.MaxUnacknowledgedMessageIDs,
+	)
+	if err != nil {
+		s.lock.Unlock()
+		return err
+	}
+	s.requestedIDs = forgetAcknowledgedIDs(
+		s.requestedIDs,
+		s.pendingMessageIDs,
+		s.pendingIDRequest.ack,
+	)
+	s.pendingMessageIDs = next
+	s.pendingIDRequest = nil
+	s.lock.Unlock()
+
+	if s.config.ReplyMessageIdsFunc != nil {
+		s.config.ReplyMessageIdsFunc(
+			s.callbackContext.withOwner(s.ProtocolInstance()),
+			[]pcommon.MessageIDAndSize{},
+		)
+	}
 	return nil
 }
 
 func (s *Server) handleReplyMessages(msg protocol.Message) error {
 	msgReply := msg.(*MsgReplyMessages)
 
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("received reply messages",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -450,37 +554,41 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 		return err
 	}
 
+	// Each message is judged on its own, as dmq-node's mempool writer does:
+	// the valid ones are accepted even when another one in the reply ends
+	// the connection, which happens only once they have been delivered.
+	var fatal error
+	checked := make([]pcommon.DmqMessage, 0, len(fresh))
 	for i := range fresh {
-		if err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i]); err != nil {
-			s.Protocol.Logger().
-				Warn("message validation failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
+		err := s.config.TTLValidator.ValidateMessageTTL(&fresh[i])
+		if err == nil {
+			checked = append(checked, fresh[i])
+			continue
+		}
+		s.logRejectedMessage(fresh[i], err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
 		}
 	}
-	commitAuthentication := func() error { return nil }
-	if len(fresh) > 0 {
+	refuse := func(msg pcommon.DmqMessage, err error) {
+		s.logRejectedMessage(msg, err)
+		if fatal == nil && !droppedQuietly(err) {
+			fatal = err
+		}
+	}
+	errs := make([]error, len(checked))
+	commitAuthentication := func() []error { return make([]error, len(checked)) }
+	if len(checked) > 0 {
 		if s.config.Authenticator == nil {
 			return errors.New("dmq: message authenticator not configured")
 		}
-		commitAuthentication, err = s.config.Authenticator.PrepareMessages(
-			fresh,
+		errs, commitAuthentication = s.config.Authenticator.PrepareEach(
+			checked,
 		)
-		if err != nil {
-			s.Protocol.Logger().
-				Warn("message authentication failed",
-					"component", "network",
-					"protocol", ProtocolName,
-					"role", "server",
-					"connection_id", s.callbackContext.ConnectionId.String(),
-					"error", err,
-				)
-			return err
+		for i, err := range errs {
+			if err != nil {
+				refuse(checked[i], err)
+			}
 		}
 	}
 	s.lock.Lock()
@@ -490,32 +598,87 @@ func (s *Server) handleReplyMessages(msg protocol.Message) error {
 			"message request changed while validating its reply",
 		)
 	}
-	if err := commitAuthentication(); err != nil {
-		s.lock.Unlock()
-		return err
+	// A message refused at commit, such as one whose pool had another
+	// message accepted meanwhile, is refused alone, as at verification.
+	commitErrs := commitAuthentication()
+	accepted := make([]pcommon.DmqMessage, 0, len(checked))
+	for i := range checked {
+		if errs[i] != nil {
+			continue
+		}
+		if commitErrs[i] != nil {
+			refuse(checked[i], commitErrs[i])
+			continue
+		}
+		accepted = append(accepted, checked[i])
 	}
-	for i := range fresh {
-		s.deliveredIDs[string(fresh[i].ID())] = fresh[i].Payload.ExpiresAt
+	for i := range accepted {
+		s.deliveredIDs[string(accepted[i].ID())] = accepted[i].Payload.ExpiresAt
 	}
 	s.pendingMsgRequest = nil
 	s.lock.Unlock()
 
 	if s.config.ReplyMessagesFunc != nil {
-		s.config.ReplyMessagesFunc(s.callbackContext, fresh)
+		s.config.ReplyMessagesFunc(s.callbackContext.withOwner(s.ProtocolInstance()), accepted)
 	}
 
-	return nil
+	return fatal
 }
 
+// droppedQuietly reports whether a message refused with err is dropped
+// without ending the connection. dmq-node only traces SigExpired,
+// PoolNotEligible, UnrecognizedPool and NotInitialized from a node-to-node
+// peer and throws for every other validation error (app/Main.hs 210-219).
+func droppedQuietly(err error) bool {
+	return errors.Is(err, pcommon.ErrMessageExpired) ||
+		errors.Is(err, pcommon.ErrPoolNotInStakeDistribution) ||
+		errors.Is(err, pcommon.ErrStakeDistributionUnavailable)
+}
+
+func (s *Server) logRejectedMessage(msg pcommon.DmqMessage, err error) {
+	s.ProtocolInstance().Logger().
+		Warn("message validation failed",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "server",
+			"connection_id", s.callbackContext.ConnectionId.String(),
+			"message_id", hex.EncodeToString(msg.ID()),
+			"error", err,
+		)
+}
+
+// handleDone restarts the server in its initial state after the client's
+// MsgDone. dmq-node runs its node-to-node responders under the inbound
+// governor, which restarts a responder that ended cleanly, so the client may
+// start a new run on the connection. The outstanding IDs, the record of
+// which were requested, and the requests belong to the run and are dropped;
+// the outbound queue and the delivered IDs belong to the connection and are
+// kept.
+//
 //nolint:unparam
 func (s *Server) handleDone() error {
-	s.Protocol.Logger().
+	old := s.ProtocolInstance()
+	old.Logger().
 		Debug("received done message",
 			"component", "network",
 			"protocol", ProtocolName,
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return nil
+	}
+	s.Start()
+	// The run's request stays recorded until the new instance has started,
+	// so a request for the next run cannot reach an unstarted instance.
+	s.lock.Lock()
+	s.pendingMessageIDs = [][]byte{}
+	s.requestedIDs = map[string]struct{}{}
+	s.pendingIDRequest = nil
+	s.pendingMsgRequest = nil
+	s.lock.Unlock()
 	return nil
 }
 

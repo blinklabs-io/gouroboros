@@ -234,6 +234,12 @@ func TestDRepDelegationsResult(t *testing.T) {
 	dup := spacedHex(t, "81 a2 81 02 d9 0102 80 81 02 d9 0102 80")
 	_, err = cbor.Decode(dup, &result)
 	require.ErrorContains(t, err, "duplicate DRep")
+
+	for _, set := range []string{"d9 0102 f6", "d9 0102 f7"} {
+		null := spacedHex(t, "81 a1 81 02 "+set)
+		_, err = cbor.Decode(null, &result)
+		require.ErrorContains(t, err, "null or undefined", "delegators %s", set)
+	}
 }
 
 // TestShelleyQueryVersionGates pins the node-to-client versions that carry

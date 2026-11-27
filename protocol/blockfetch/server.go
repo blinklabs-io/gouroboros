@@ -15,6 +15,7 @@
 package blockfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -25,11 +26,14 @@ import (
 
 // Server implements the Block Fetch protocol server, which serves blocks to clients.
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config                  // Protocol configuration
 	callbackContext CallbackContext          // Callback context for server
 	protoOptions    protocol.ProtocolOptions // Protocol options
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 // NewServer creates a new Block Fetch protocol server with the given options and configuration.
@@ -47,7 +51,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	stateMap := serverStateMap(s.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -68,8 +72,13 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
-	s.Protocol = p
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
+	s.proto = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 // serverStateMap returns an instance-owned state map so server timeout
@@ -96,7 +105,24 @@ func serverStateMap(cfg *Config) protocol.StateMap {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 // NoBlocks sends a NoBlocks message to the client, indicating no blocks are available.
@@ -207,7 +233,7 @@ func (s *Server) handleRequestRange(msg protocol.Message) error {
 	}
 	msgRequestRange := msg.(*MsgRequestRange)
 	return s.config.RequestRangeFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgRequestRange.Start,
 		msgRequestRange.End,
 	)
@@ -225,7 +251,11 @@ func (s *Server) handleClientDone() {
 			)
 	}
 	// Restart protocol
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

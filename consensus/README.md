@@ -146,15 +146,26 @@ chain selection because they do not know the current tip.
 ### Block Validation (`validate.go`)
 
 - `HeaderValidator` - Validates block headers for consensus correctness
-- Validation checks:
-  1. Slot strictly increases from previous block
-  2. Block number is previous + 1
-  3. Previous hash matches
-  4. VRF proof is valid for the claimed slot
-  5. Issuer authorization satisfies either the finite E34 Praos predicate or
-     a configured Tachys schedule
-  6. KES period is within valid range
-  7. KES signature is valid
+- Validation checks, in the reference validator's order so that the first
+  error is the one it reports:
+  0. Required inputs: `Envelope` always, `Overlay` for TPraos; a missing
+     input is the only error returned
+  1. The envelope: block number is previous + 1, slot strictly increases,
+     previous hash matches, protocol version, header size and body size
+     within their limits; the first header (`PrevIsOrigin`) has block
+     number 0, any slot, and the genesis as its previous hash
+  2. CPraos: the KES side, then the VRF side; TPraos: the VRF side, then the
+     KES side
+  - KES side: KES period within the operational certificate's range,
+    operational certificate signature, KES signature, counter
+  - VRF side: VRF key matches the leader snapshot, TPraos nonce VRF proof,
+    leader VRF proof, then issuer authorization (the finite E34 Praos
+    predicate or a configured Tachys schedule), skipped when the VRF key or
+    leader proof failed
+  - TPraos overlay (decentralisation above 0): a non-active overlay slot
+    fails with `ErrNotActiveSlot` and skips the VRF side; an active overlay
+    slot checks the scheduled genesis delegate's cold key and VRF key and
+    both VRF proofs, with no issuer authorization
 - `ValidationError` - Detailed error types with context for debugging
 
 ### Network Configurations (`consensus.go`)

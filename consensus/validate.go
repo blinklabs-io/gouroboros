@@ -118,6 +118,11 @@ type ValidateHeaderInput struct {
 	PrevSlot        uint64
 	PrevBlockNumber uint64
 	PrevHeaderHash  []byte
+	// PrevIsOrigin reports that the header is the first on the chain, with
+	// no previous header. Its block number must then be 0, any slot is
+	// allowed, PrevHash must be empty or the zero hash (the genesis), and
+	// PrevSlot, PrevBlockNumber and PrevHeaderHash are ignored.
+	PrevIsOrigin bool
 
 	// Epoch nonce for VRF verification
 	EpochNonce []byte
@@ -128,8 +133,17 @@ type ValidateHeaderInput struct {
 
 	// RegisteredVrfKeyHash is the VRF hash in the active leader distribution
 	// for Slot. It must come from the same snapshot as PoolStake and TotalStake,
-	// not the current pool registration. Required for full header validation.
+	// not the current pool registration. Required for full header validation,
+	// except in a TPraos overlay slot, which no pool may lead.
 	RegisteredVrfKeyHash []byte
+
+	// Envelope carries the protocol version limit and the header and body
+	// size limits. Required in every mode.
+	Envelope *EnvelopeInput
+
+	// Overlay carries the TPraos overlay schedule inputs. Required for
+	// ConsensusModeTPraos; ignored for ConsensusModeCPraos.
+	Overlay *TPraosOverlayInput
 }
 
 // ValidateResult contains the result of header validation.
@@ -142,96 +156,112 @@ type ValidateResult struct {
 
 // ValidateHeader performs full consensus validation of a block header.
 //
-// Validation checks:
-//  1. Slot strictly increases from previous block
-//  2. Block number is previous + 1
-//  3. PrevHash matches hash of previous header
-//  4. VRF proof is valid
-//  5. Verified VRF output satisfies finite E34 eligibility and pool policy
-//  6. TPraos-only: nonce VRF proof is valid (no-op for CPraos)
-//  7. KES period is within valid range
-//  8. KES signature is valid
-//  9. OpCert signature is valid (cold key signed the hot key)
-//  10. OpCert counter is consistent with authoritative pool state
-//  11. VRF key matches the active leader snapshot hash
+// If an input the mode requires is missing (Envelope always, Overlay for
+// ConsensusModeTPraos), the result holds a single error wrapping
+// ErrMissingHeaderInput and no other check runs.
+//
+// Otherwise every check runs and every failure is returned in Errors, in
+// the order the reference validator checks them, so the first error is the
+// one the reference would report:
+//
+//  1. The envelope: block number is previous + 1, slot strictly increases,
+//     PrevHash matches the previous header's hash, and the protocol
+//     version, header size and body size are within their limits. With
+//     PrevIsOrigin the block number must be 0, any slot is allowed, and
+//     PrevHash must name the genesis.
+//  2. CPraos: the KES side, then the VRF side. TPraos: the VRF side, then
+//     the KES side.
+//
+// The KES side checks that the KES period is within the operational
+// certificate's validity, the cold key's signature over the operational
+// certificate, the KES signature, and the operational certificate counter
+// against authoritative pool state. The VRF side checks that the VRF key
+// matches the active leader snapshot hash, the TPraos-only nonce VRF proof,
+// the leader VRF proof, and finally that the verified output satisfies
+// finite E34 eligibility and pool policy. Eligibility is not checked when
+// the VRF key or the leader VRF proof failed.
+//
+// TPraos only: a header in a non-active overlay slot fails with
+// ErrNotActiveSlot and its VRF side is not checked. In an active overlay
+// slot the VRF side checks that the issuer is the scheduled genesis
+// delegate and the VRF key is that delegate's, then both VRF proofs; it
+// checks no eligibility.
 func (v *HeaderValidator) ValidateHeader(
 	input *ValidateHeaderInput,
 ) *ValidateResult {
+	if err := v.checkRequiredInputs(input); err != nil {
+		return &ValidateResult{Errors: []error{err}}
+	}
 	result := &ValidateResult{
 		Valid:  true,
 		Errors: make([]error, 0),
 	}
-
-	// 1. Validate slot ordering
-	if err := v.validateSlotOrdering(input); err != nil {
+	failed := func(err error) bool {
+		if err == nil {
+			return false
+		}
 		result.Valid = false
 		result.Errors = append(result.Errors, err)
+		return true
 	}
 
-	// 2. Validate block number
-	if err := v.validateBlockNumber(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
+	failed(v.validateBlockNumber(input))
+	failed(v.validateSlotOrdering(input))
+	failed(v.validatePrevHash(input))
+
+	for _, err := range validateEnvelopeLimits(input.Envelope) {
+		failed(err)
 	}
 
-	// 3. Validate prev hash
-	if err := v.validatePrevHash(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 4. Validate VRF proof
-	vrfOutput, err := v.validateVRFProof(input)
-	if err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	} else {
-		result.VrfOutput = vrfOutput
-	}
-
-	// 5. Validate leadership eligibility
-	if vrfOutput != nil {
-		if err := v.validateLeadership(input, vrfOutput); err != nil {
-			result.Valid = false
-			result.Errors = append(result.Errors, err)
+	overlay := v.overlaySlotFor(input)
+	var nextOpCertSequence uint64
+	kesSide := func() {
+		failed(v.validateKESPeriod(input))
+		failed(v.validateOpCertSignature(input))
+		failed(v.validateKESSignature(input))
+		next, err := v.validateOpCertSequence(input)
+		if !failed(err) {
+			nextOpCertSequence = next
 		}
 	}
-
-	// 6. Validate TPraos-only nonce VRF proof (no-op for CPraos)
-	if err := v.validateNonceVRFProof(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
+	// A non-active overlay slot fails outright and runs no VRF check; an
+	// active one belongs to a genesis delegate, which has no stake, so
+	// leadership is not checked (Rules/Overlay.hs overlayTransition).
+	vrfSide := func() {
+		var keyFailed bool
+		switch overlay.kind {
+		case overlaySlotNonActive:
+			failed(fmt.Errorf("%w: slot %d", ErrNotActiveSlot, input.Slot))
+			return
+		case overlaySlotActive:
+			failed(validateGenesisColdKey(input, overlay.delegation))
+			keyFailed = failed(
+				validateGenesisVRFKey(input, overlay.delegation),
+			)
+		case overlaySlotPraos:
+			keyFailed = failed(v.validateVRFKeyRegistration(input))
+		}
+		failed(v.validateNonceVRFProof(input))
+		vrfOutput, err := v.validateVRFProof(input)
+		if failed(err) {
+			return
+		}
+		result.VrfOutput = vrfOutput
+		if !keyFailed && overlay.kind == overlaySlotPraos {
+			failed(v.validateLeadership(input, vrfOutput))
+		}
+	}
+	// The reference's order differs by protocol: Praos validates the KES
+	// side first (PolyPraos.updateChainDepStatePolyPraos), TPraos the VRF
+	// side, in the OVERLAY rule, before the OCERT rule.
+	if v.mode == ConsensusModeTPraos {
+		vrfSide()
+		kesSide()
+	} else {
+		kesSide()
+		vrfSide()
 	}
 
-	// 7. Validate KES period
-	if err := v.validateKESPeriod(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 8. Validate KES signature
-	if err := v.validateKESSignature(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 9. Validate OpCert signature (cold key signed the hot key)
-	if err := v.validateOpCertSignature(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	// 10. Validate the OpCert counter against authoritative pool state.
-	nextOpCertSequence, err := v.validateOpCertSequence(input)
-	if err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
-
-	if err := v.validateVRFKeyRegistration(input); err != nil {
-		result.Valid = false
-		result.Errors = append(result.Errors, err)
-	}
 	if result.Valid {
 		result.NextOpCertCounter = &nextOpCertSequence
 	}
@@ -267,10 +297,14 @@ func (v *HeaderValidator) validateOpCertSequence(
 	return current, nil
 }
 
-// validateSlotOrdering checks that the slot strictly increases.
+// validateSlotOrdering checks that the slot strictly increases. The first
+// header on a chain may have any slot.
 func (v *HeaderValidator) validateSlotOrdering(
 	input *ValidateHeaderInput,
 ) error {
+	if input.PrevIsOrigin {
+		return nil
+	}
 	if input.Slot <= input.PrevSlot {
 		return fmt.Errorf(
 			"slot must be greater than previous slot: current=%d, previous=%d",
@@ -281,11 +315,15 @@ func (v *HeaderValidator) validateSlotOrdering(
 	return nil
 }
 
-// validateBlockNumber checks that block number is previous + 1.
+// validateBlockNumber checks that block number is previous + 1, or 0 for the
+// first header on a chain.
 func (v *HeaderValidator) validateBlockNumber(
 	input *ValidateHeaderInput,
 ) error {
 	expectedBlockNumber := input.PrevBlockNumber + 1
+	if input.PrevIsOrigin {
+		expectedBlockNumber = 0
+	}
 	if input.BlockNumber != expectedBlockNumber {
 		return fmt.Errorf(
 			"block number must be previous + 1: current=%d, expected=%d",
@@ -296,8 +334,20 @@ func (v *HeaderValidator) validateBlockNumber(
 	return nil
 }
 
-// validatePrevHash checks that prev hash matches.
+// validatePrevHash checks that prev hash matches. The first header on a
+// chain must name the genesis as its predecessor: the reference's
+// validateEnvelope accepts only GenesisHash after Origin, which a Shelley
+// header encodes as null and gOuroboros decodes as the zero hash.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
+	if input.PrevIsOrigin {
+		if !isGenesisPrevHash(input.PrevHash) {
+			return fmt.Errorf(
+				"first header must follow the genesis, got previous hash %x",
+				input.PrevHash,
+			)
+		}
+		return nil
+	}
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
 		return errors.New(
 			"previous header hash is required for non-genesis blocks",
@@ -312,6 +362,23 @@ func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 		)
 	}
 	return nil
+}
+
+// isGenesisPrevHash reports whether prevHash is the genesis representation:
+// absent, or the 32-byte zero hash a null predecessor decodes to.
+func isGenesisPrevHash(prevHash []byte) bool {
+	if len(prevHash) == 0 {
+		return true
+	}
+	if len(prevHash) != 32 {
+		return false
+	}
+	for _, b := range prevHash {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyCertifiedVRF verifies a VRF certificate (proof + output) against the
@@ -381,20 +448,21 @@ func (v *HeaderValidator) verifyCertifiedVRF(
 	// blake2b-256(slot || nonce) (Ouroboros.Consensus.Protocol.Praos.VRF.
 	// mkInputVRF).
 	// Slot numbers in Cardano are far below int64 max (mainnet ~100M, max ~9.2 quintillion)
+	nonce, err := epochNonceFromBytes(epochNonce)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"invalid %sVRF input parameters at slot %d: %w",
+			label,
+			slot,
+			err,
+		)
+	}
 	var vrfInput []byte
-	var err error
 	switch v.mode {
 	case ConsensusModeTPraos:
-		vrfInput, err = vrf.MkSeedTPraos(
-			int64(slot), //nolint:gosec
-			epochNonce,
-			seed,
-		)
+		vrfInput, err = vrf.MkSeedTPraosFromNonce(slot, nonce, seed)
 	case ConsensusModeCPraos:
-		vrfInput, err = vrf.MkInputVrf(
-			int64(slot), //nolint:gosec
-			epochNonce,
-		)
+		vrfInput, err = vrf.MkInputVrfFromNonce(slot, nonce)
 	default:
 		return nil, fmt.Errorf("unknown consensus mode: %d", v.mode)
 	}
@@ -590,18 +658,15 @@ func (v *HeaderValidator) validateKESSignature(
 		)
 	}
 
-	// Calculate evolution period
+	// A certificate that starts after the current period is rejected by
+	// validateKESPeriod. As in the reference, the signature is still
+	// verified, at evolution 0, so that a bad signature is also reported
+	// and the period error is not reported twice.
 	currentKESPeriod := input.Slot / v.slotsPerKESPeriod
-	opCertKESPeriod := input.OpCertKesPeriod
-	// Guard against underflow if OpCert KES period is in the future
-	if currentKESPeriod < opCertKESPeriod {
-		return fmt.Errorf(
-			"operational certificate KES period is in the future: current=%d, opcert=%d",
-			currentKESPeriod,
-			opCertKESPeriod,
-		)
+	var evolutionPeriod uint64
+	if currentKESPeriod >= input.OpCertKesPeriod {
+		evolutionPeriod = currentKESPeriod - input.OpCertKesPeriod
 	}
-	evolutionPeriod := currentKESPeriod - opCertKESPeriod
 
 	// Verify KES signature
 	valid := kes.VerifySignedKES(

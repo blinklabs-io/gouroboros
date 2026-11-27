@@ -15,6 +15,7 @@
 package leiosvotes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -35,8 +36,8 @@ const (
 	DefaultPipelineLimit           = 1
 	DefaultTimeout                 = 60 * time.Second
 	// MaxVoteMessageBytes is the largest encoded Vote message a client
-	// admits. A vote holds two unsigned integers, a 32-byte hash and a
-	// 48-byte signature, so a Vote message is at most 143 bytes even with
+	// admits. A vote holds a 32-byte hash, an unsigned integer and a 48-byte
+	// signature, so a Vote message is at most 134 bytes even with
 	// every CBOR head in its longest form. The limit leaves headroom above
 	// that and refuses votes padded further, such as with indefinite-length
 	// chunks.
@@ -84,6 +85,11 @@ var StateMap = protocol.StateMap{
 	},
 	StateBusy: protocol.StateMapEntry{
 		Agency: protocol.AgencyServer,
+		// A client sends its next request before the previous batch is
+		// delivered (CIP-0164 protocol pipelining), so a server accepts
+		// VotesRequestNext here and answers it once the batch returns the
+		// state to Idle.
+		PipelinedMessageTypes: []uint8{MessageTypeVotesRequestNext},
 		Transitions: []protocol.StateTransition{
 			{
 				MsgType:   MessageTypeVote,
@@ -157,6 +163,27 @@ type CallbackContext struct {
 	ConnectionDoneChan <-chan any
 	Client             *Client
 	Server             *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 type (

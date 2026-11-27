@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -26,7 +27,8 @@ import (
 
 func TestLocalTxMonitorStopPreservesConnection(t *testing.T) {
 	for _, name := range []string{
-		"idle", "acquire_release", "acquire", "get_sizes", "next_tx", "has_tx",
+		"idle", "acquire_release", "acquire", "get_sizes", "get_measures",
+		"next_tx", "has_tx",
 	} {
 		t.Run(name, func(t *testing.T) {
 			local, remote := net.Pipe()
@@ -63,10 +65,10 @@ func TestLocalTxMonitorStopPreservesConnection(t *testing.T) {
 				ouroboros.WithHandshakeTimeout(time.Second),
 			)
 			require.NoError(t, err)
-			defer client.Close()
+			defer client.Close(context.Background())
 			server := <-serverResult
 			require.NoError(t, server.err)
-			defer server.conn.Close()
+			defer server.conn.Close(context.Background())
 			monitor := client.LocalTxMonitor().Client
 			switch name {
 			case "acquire", "acquire_release":
@@ -77,6 +79,9 @@ func TestLocalTxMonitorStopPreservesConnection(t *testing.T) {
 			case "get_sizes":
 				_, _, _, err := monitor.GetSizes()
 				require.NoError(t, err)
+			case "get_measures":
+				_, err := monitor.GetMeasures()
+				require.NoError(t, err)
 			case "next_tx":
 				_, err := monitor.NextTx()
 				require.NoError(t, err)
@@ -84,13 +89,21 @@ func TestLocalTxMonitorStopPreservesConnection(t *testing.T) {
 				_, err := monitor.HasTxForEra(6, make([]byte, 32))
 				require.NoError(t, err)
 			}
-			require.NoError(t, monitor.Stop())
-			require.NoError(t, monitor.Stop())
-			require.Eventually(
+			require.NoError(t, monitor.Stop(context.Background()))
+			require.NoError(t, monitor.Stop(context.Background()))
+			select {
+			case err := <-client.ErrorChan():
+				t.Fatalf("unexpected connection error: %v", err)
+			default:
+			}
+			select {
+			case <-client.Muxer().DoneChan():
+				t.Fatal("connection closed")
+			default:
+			}
+			require.NoError(
 				t,
-				server.conn.LocalTxMonitor().Server.IsDone,
-				time.Second,
-				time.Millisecond,
+				client.LocalTxSubmission().Client.Stop(context.Background()),
 			)
 			select {
 			case err := <-client.ErrorChan():
@@ -102,14 +115,6 @@ func TestLocalTxMonitorStopPreservesConnection(t *testing.T) {
 				t.Fatal("connection closed")
 			default:
 			}
-			require.NoError(t, client.LocalTxSubmission().Client.Stop())
-			require.Eventually(
-				t,
-				server.conn.LocalTxSubmission().Server.IsDone,
-				time.Second,
-				time.Millisecond,
-			)
-
 		})
 	}
 }

@@ -47,21 +47,29 @@ func TestNtCStateMapBoundsPendingReceiveBytes(t *testing.T) {
 	}
 }
 
-// TestNtNStateMapKeepsMessageLimitWithoutReceiveBudget checks the
-// node-to-node map is unchanged: its pending-message limit already bounds
-// both message size and queued bytes.
-func TestNtNStateMapKeepsMessageLimitWithoutReceiveBudget(t *testing.T) {
+// TestNtNStateMapSeparatesMessageLimitFromReceiveBudget checks the
+// node-to-node map. Each state's message size limit is 65535 bytes, as the
+// specification's chain-sync size table and the reference's
+// byteLimitsChainSync give; the bytes queued while a state is active are
+// bounded separately by the 462000-byte ingress queue size.
+func TestNtNStateMapSeparatesMessageLimitFromReceiveBudget(t *testing.T) {
 	t.Parallel()
 
 	require.NotEmpty(t, chainsync.StateMapNtN)
 	for state, entry := range chainsync.StateMapNtN {
 		require.Equalf(
 			t,
-			chainsync.MaxPendingMessageBytes,
+			65535,
 			entry.PendingMessageByteLimit,
-			"state %s",
+			"state %s message size limit",
 			state,
 		)
-		require.Zerof(t, entry.PendingReceiveByteBudget, "state %s", state)
+		require.Equalf(
+			t,
+			chainsync.MaxPendingMessageBytes,
+			entry.PendingReceiveByteBudget,
+			"state %s pending receive budget",
+			state,
+		)
 	}
 }

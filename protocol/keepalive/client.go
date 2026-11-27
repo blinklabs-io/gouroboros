@@ -15,6 +15,7 @@
 package keepalive
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -25,7 +26,11 @@ import (
 // Client implements the keep-alive protocol client, responsible for sending keep-alive messages and handling responses.
 type Client struct {
 	*protocol.Protocol
-	config          *Config
+	config *Config
+	// period is config.Period, or the default when that is not positive:
+	// a zero period re-arms the timer at once, pinging as fast as the
+	// server answers.
+	period          time.Duration
 	cookie          uint16
 	inFlight        bool
 	cookieMutex     sync.Mutex
@@ -35,6 +40,8 @@ type Client struct {
 	onceStart       sync.Once
 	// scheduleHook is test-only synchronization for the shutdown race.
 	scheduleHook func()
+	// stopHook, when set by a test, runs in Stop once the timer is cleared.
+	stopHook func()
 }
 
 // NewClient creates and returns a new keep-alive protocol client with the given options and configuration.
@@ -45,18 +52,17 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c := &Client{
 		config: cfg,
+		period: cfg.Period,
 		cookie: cfg.Cookie,
+	}
+	if c.period <= 0 {
+		c.period = DefaultKeepAlivePeriod * time.Second
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
 	}
-	// Update state map with timeout
-	stateMap := StateMap.Copy()
-	if entry, ok := stateMap[StateServer]; ok {
-		entry.Timeout = c.config.Timeout
-		stateMap[StateServer] = entry
-	}
+	stateMap := clientStateMap(c.config.Timeout)
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
@@ -73,6 +79,22 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// clientStateMap returns StateMap with timeout as the client's limit on the
+// server's answer, or the default for a timeout that is not positive: the
+// engine arms no timer for a zero one, so a silent server would never be
+// noticed, and the in-flight ping would stop every later one.
+func clientStateMap(timeout time.Duration) protocol.StateMap {
+	if timeout <= 0 {
+		timeout = DefaultKeepAliveTimeout * time.Second
+	}
+	stateMap := StateMap.Copy()
+	if entry, ok := stateMap[StateServer]; ok {
+		entry.Timeout = timeout
+		stateMap[StateServer] = entry
+	}
+	return stateMap
 }
 
 // Start begins the keep-alive protocol client and starts sending keep-alive messages at the configured interval.
@@ -142,18 +164,32 @@ func (c *Client) startTimer() {
 		c.timer.Stop()
 	}
 	// Create new timer
-	c.timer = time.AfterFunc(c.config.Period, c.sendKeepAlive)
+	c.timer = time.AfterFunc(c.period, c.sendKeepAlive)
 }
 
 // Stop stops the keep-alive protocol client and cancels any pending timers.
-func (c *Client) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error {
+	// Signal first: startTimer checks for shutdown under timerMutex, so a
+	// timer callback already running arms no timer once it is cleared.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.timerMutex.Lock()
 	if c.timer != nil {
 		c.timer.Stop()
 		c.timer = nil
 	}
 	c.timerMutex.Unlock()
-	c.Protocol.Stop()
+	if c.stopHook != nil {
+		c.stopHook()
+	}
+	return proto.Stop(ctx)
 }
 
 // messageHandler handles incoming protocol messages for the client.
@@ -199,7 +235,8 @@ func (c *Client) handleKeepAliveResponse(msgGeneric protocol.Message) error {
 	}
 
 	if c.config != nil && c.config.KeepAliveResponseFunc != nil {
-		return c.config.KeepAliveResponseFunc(c.callbackContext, msg.Cookie)
+		callbackContext := c.callbackContext.withOwner(c.Protocol)
+		return c.config.KeepAliveResponseFunc(callbackContext, msg.Cookie)
 	}
 	// Call optional notification callback if provided
 	if c.config != nil && c.config.OnKeepAliveResponseReceived != nil {

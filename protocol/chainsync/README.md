@@ -110,7 +110,7 @@ NtC mode has no timeouts per Ouroboros spec Table 3.9.
 | Idle | 3673 seconds | Client must send next request |
 | CanAwait | 10 seconds | Server must provide block or await |
 | Intersect | 10 seconds | Server must respond to intersect |
-| MustReply | random(135-269 seconds) | Server must provide block |
+| MustReply | random(601-911 seconds) | Server must provide block |
 
 ## Limits
 
@@ -125,6 +125,16 @@ NtC mode has no timeouts per Ouroboros spec Table 3.9.
 ## Pipelining
 
 ChainSync supports request pipelining for improved throughput. The client can send multiple `RequestNext` messages before receiving responses. The pipeline count tracks outstanding requests.
+
+The client keeps one `RequestNext` outstanding per block it is behind the
+server's tip, up to `PipelineLimit`, from the block number of the last
+delivered header and the tip's block number. At the tip one request is
+outstanding, so `Reintersect` and `StopAfterDrain` wait for at most the next
+block. After a `RollBackward`, whose point has no block number, the window is
+one request until the next `RollForward`. Requests sent before the rollback are
+not retracted: `Reintersect` and `StopAfterDrain` wait for each of them, and no
+new request is sent until they are answered. Byron deliveries are not measured
+and keep the full window.
 
 ## Configuration Options
 

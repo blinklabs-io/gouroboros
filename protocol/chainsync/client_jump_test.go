@@ -16,6 +16,7 @@ package chainsync
 
 import (
 	"bytes"
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -61,7 +62,7 @@ func (h *reintersectHarness) requireNoStreaming(window time.Duration) {
 }
 
 func jumpTestTip() Tip {
-	return Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
+	return harnessTip
 }
 
 func TestJumpWithoutSyncFindsIntersectionsAndDoesNotStream(t *testing.T) {
@@ -307,7 +308,7 @@ func TestJumpStopDuringJump(t *testing.T) {
 	done := h.jumpAsync([]pcommon.Point{h.findPoint})
 	recv(t, h.finds, "held jump")
 	stopped := make(chan error, 1)
-	go func() { stopped <- h.client.Stop() }()
+	go func() { stopped <- h.client.Stop(context.Background()) }()
 	res := recv(t, done, "Jump result after Stop")
 	require.ErrorIs(t, res.err, protocol.ErrProtocolShuttingDown)
 	recv(t, stopped, "Stop")
@@ -316,7 +317,7 @@ func TestJumpStopDuringJump(t *testing.T) {
 func TestJumpAfterStopReturnsErrProtocolShuttingDown(t *testing.T) {
 	t.Parallel()
 	h := newReintersectHarness(t)
-	require.NoError(t, h.client.Stop())
+	require.NoError(t, h.client.Stop(context.Background()))
 
 	_, _, _, err := h.client.Jump([]pcommon.Point{h.findPoint})
 	require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

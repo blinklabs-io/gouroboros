@@ -399,6 +399,9 @@ func pruneZeroAssets[T int64 | uint64 | *big.Int](
 }
 
 func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
+	if err := checkMultiAssetQuantityHeads(data); err != nil {
+		return err
+	}
 	var decoded map[Blake2b224]map[cbor.ByteString]T
 	duplicateMapKeys := false
 	if _, err := cbor.Decode(data, &decoded); err != nil {
@@ -446,6 +449,80 @@ func (m *MultiAsset[T]) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	return nil
+}
+
+// checkMultiAssetQuantityHeads rejects an asset quantity that is not a CBOR
+// major type 0 or 1 integer. cardano-ledger decodes output quantities with
+// decodeWord64 and mint quantities with decodeIntegerBounded64
+// (eras/mary/impl/src/Cardano/Ledger/Mary/Value.hs), and both refuse a tag-2
+// or tag-3 bignum that the big.Int decoder would accept. The quantities are
+// read pair by pair from the wire: a tag head need not be minimal, so no
+// byte search finds every bignum, and before protocol version 9 a decoded
+// map keeps only the last of duplicate asset names, while the reference
+// decodes every entry.
+func checkMultiAssetQuantityHeads(data []byte) error {
+	return forEachRawMapValue(data, func(assets []byte) error {
+		return forEachRawMapValue(assets, func(quantity []byte) error {
+			// 0x20 is major type 1, the negative integers.
+			if len(quantity) == 0 ||
+				quantity[0]&cbor.CborTypeMask > 0x20 {
+				return errors.New(
+					"multiasset quantity must be a CBOR integer",
+				)
+			}
+			return nil
+		})
+	})
+}
+
+// forEachRawMapValue calls fn with the encoded bytes of every value of the
+// CBOR map in data, in wire order and including the values of repeated keys.
+// It stops at the first error fn returns. A malformed map ends the walk
+// without an error: the typed decode that follows reports it.
+func forEachRawMapValue(data []byte, fn func([]byte) error) error {
+	count, headerSize, indefinite := cbor.MapInfo(data)
+	if count < 0 || int(headerSize) > len(data) {
+		return nil
+	}
+	body := data[headerSize:]
+	sd, err := cbor.NewStreamDecoder(body)
+	if err != nil {
+		return err
+	}
+	for i := 0; indefinite || i < count; i++ {
+		value, ok := nextRawMapValue(sd, body, indefinite)
+		if !ok {
+			return nil
+		}
+		if err := fn(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// nextRawMapValue skips the next key of a map body and returns its value's
+// encoded bytes; ok is false at an indefinite map's break or on malformed
+// input.
+func nextRawMapValue(
+	sd *cbor.StreamDecoder,
+	body []byte,
+	indefinite bool,
+) ([]byte, bool) {
+	if indefinite {
+		pos := sd.Position()
+		if pos >= len(body) || body[pos] == 0xff {
+			return nil, false
+		}
+	}
+	if _, _, err := sd.Skip(); err != nil {
+		return nil, false
+	}
+	offset, length, err := sd.Skip()
+	if err != nil {
+		return nil, false
+	}
+	return sd.RawBytes(offset, length), true
 }
 
 func validateMultiAssetCompactRepresentationSize[T int64 | uint64 | *big.Int](
@@ -2392,6 +2469,14 @@ func ExtractTransactionOffsets(
 		return nil, fmt.Errorf("failed to decode block array: %w", err)
 	}
 
+	return extractTransactionOffsets(cborData, blockArray, arrayHeaderSize)
+}
+
+func extractTransactionOffsets(
+	cborData []byte,
+	blockArray []cbor.RawMessage,
+	arrayHeaderSize uint32,
+) (*BlockTransactionOffsets, error) {
 	// Detect Dijkstra blocks. Unlike pre-Dijkstra eras, these are a 2-element
 	// array [header, block_body] where transactions live inline inside
 	// block_body rather than as parallel top-level segments, so they must be
