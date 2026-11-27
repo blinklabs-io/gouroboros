@@ -222,7 +222,11 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 	// Both MsgAcceptVersion and the callback carry the agreed data, as the
 	// reference server does, so the connection derives the same diffusion
 	// mode as its peer.
-	agreedData := agreedVersionData(versionData, proposedVersionData)
+	agreedData := agreedVersionData(
+		proposedVersion,
+		versionData,
+		proposedVersionData,
+	)
 	msgAcceptVersion := NewMsgAcceptVersion(proposedVersion, agreedData)
 	if err := s.SendMessageAndWait(msgAcceptVersion); err != nil {
 		return err

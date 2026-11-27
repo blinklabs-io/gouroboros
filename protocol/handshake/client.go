@@ -190,10 +190,13 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 			proposedData.NetworkMagic(),
 		)
 	}
+	// End with this side's own agreement of its data with the server's, as
+	// the reference client does, so a server that sends anything but the
+	// agreed data cannot set a flag this side did not offer.
 	return c.config.FinishedFunc(
 		c.callbackContext.withOwner(c.Protocol),
 		msgAcceptVersion.Version,
-		versionData,
+		agreedVersionData(msgAcceptVersion.Version, proposedData, versionData),
 	)
 }
 
