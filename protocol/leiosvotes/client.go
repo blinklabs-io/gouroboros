@@ -191,14 +191,20 @@ func (c *Client) Sync() error {
 			return err
 		}
 	}
-	c.syncRunning = true
 	c.sendMutex.Unlock()
-	c.startVoteLoop(uint64(uint(pipelineLimit)) * c.config.RequestNextCount)
+	// The loop cannot start once the protocol's goroutines have been joined
+	// or the connection has begun to close.
+	if !c.startVoteLoop(
+		uint64(uint(pipelineLimit)) * c.config.RequestNextCount,
+	) {
+		return protocol.ErrProtocolShuttingDown
+	}
+	c.syncRunning = true
 	return nil
 }
 
-func (c *Client) startVoteLoop(outstanding uint64) {
-	c.RunLoop("vote loop", func() {
+func (c *Client) startVoteLoop(outstanding uint64) bool {
+	return c.RunLoop("vote loop", func() {
 		c.voteLoop(outstanding)
 	})
 }
