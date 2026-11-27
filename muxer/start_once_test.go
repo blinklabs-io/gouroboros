@@ -36,7 +36,7 @@ func TestStartOnceGatesFollowingSegments(t *testing.T) {
 			local, peer := net.Pipe()
 			defer peer.Close()
 			m := muxer.New(local)
-			defer m.Stop()
+			defer m.Stop(t.Context())
 			_, startup, _ := m.RegisterProtocol(0, muxer.ProtocolRoleResponder)
 			m.StartOnce()
 			written := make(chan error, 1)
@@ -83,7 +83,7 @@ func TestStartOnceGatesFollowingSegments(t *testing.T) {
 					t.Fatal("held segment was not dispatched after Start")
 				}
 			}
-			m.Stop()
+			m.Stop(t.Context())
 			select {
 			case <-m.ErrorChan():
 			case <-time.After(time.Second):
@@ -98,7 +98,7 @@ func TestStartOverridesPendingStartOnce(t *testing.T) {
 	local, peer := net.Pipe()
 	defer peer.Close()
 	m := muxer.New(local)
-	defer m.Stop()
+	defer m.Stop(t.Context())
 	_, recv, _ := m.RegisterProtocol(1, muxer.ProtocolRoleResponder)
 	m.StartOnce()
 	m.Start()

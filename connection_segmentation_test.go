@@ -108,7 +108,7 @@ func TestSegmentedHandshake(t *testing.T) {
 						ouroboros.WithDelayMuxerStart(true),
 					)
 					require.NoError(t, err)
-					defer conn.Close()
+					defer conn.Close(t.Context())
 					require.NoError(t, <-done)
 					negotiated, _ := conn.ProtocolVersion()
 					require.Equal(t, version, negotiated)
@@ -227,12 +227,12 @@ func TestHandshakeQueryReplyBeforePeerClose(t *testing.T) {
 					ouroboros.WithQueryMode(true),
 				)
 				if conn != nil {
-					defer conn.Close()
+					defer conn.Close(t.Context())
 				}
 				require.NoError(t, <-sent)
 				require.NoError(t, err)
 				require.Len(t, conn.QueryReplyVersionMap(), len(versions))
-				require.NoError(t, conn.Close())
+				require.NoError(t, conn.Close(t.Context()))
 			}
 		})
 	}
@@ -263,7 +263,7 @@ func TestIncompleteHandshakeQueryReplyBeforePeerClose(t *testing.T) {
 		ouroboros.WithQueryMode(true),
 	)
 	if conn != nil {
-		defer conn.Close()
+		defer conn.Close(t.Context())
 	}
 	require.NoError(t, <-sent)
 	require.Error(t, err)
