@@ -62,13 +62,12 @@ func requireNothingSent(t *testing.T, conn net.Conn, errorChan chan error) {
 	t.Helper()
 	require.NoError(t, conn.SetReadDeadline(time.Now().Add(100*time.Millisecond)))
 	_, err := conn.Read(make([]byte, 1))
-	var netErr net.Error
-	require.True(
-		t,
-		errors.Is(err, os.ErrDeadlineExceeded) ||
-			(errors.As(err, &netErr) && netErr.Timeout()),
-		"client sent a message: %v", err,
-	)
+	if !errors.Is(err, os.ErrDeadlineExceeded) {
+		var netErr net.Error
+		if !errors.As(err, &netErr) || netErr == nil || !netErr.Timeout() {
+			t.Fatalf("client sent a message: %v", err)
+		}
+	}
 	select {
 	case err := <-errorChan:
 		t.Fatalf("protocol error: %v", err)
