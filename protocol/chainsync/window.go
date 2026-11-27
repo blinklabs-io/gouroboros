@@ -28,7 +28,9 @@ type windowPlacement int
 const (
 	// windowUnplaced follows a new intersection or a MsgRollBackward, whose
 	// point carries no block number: one request stays outstanding until a
-	// roll forward places the client again.
+	// roll forward places the client again. A request sent before the
+	// rollback cannot be retracted, so none is sent until those are
+	// answered.
 	windowUnplaced windowPlacement = iota
 	// windowPlaced means windowPosBlock holds the block number of the last
 	// header or block delivered.
@@ -43,8 +45,9 @@ const (
 // grows, and Reintersect and StopAfterDrain must wait for every outstanding
 // request, so the window extends at most one request past the server's tip:
 // one per block the client is behind, between 1 and PipelineLimit. This is
-// the reference client's pipelineDecisionMax. The caller holds
-// lifecycleMutex.
+// the reference client's pipelineDecisionMax. Requests already outstanding
+// when the target drops, as on a MsgRollBackward, stay outstanding until
+// answered. The caller holds lifecycleMutex.
 func (c *Client) windowTarget() int {
 	limit := max(c.config.PipelineLimit, 1)
 	switch c.windowPlacement {

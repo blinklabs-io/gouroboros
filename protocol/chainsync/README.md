@@ -130,9 +130,11 @@ The client keeps one `RequestNext` outstanding per block it is behind the
 server's tip, up to `PipelineLimit`, from the block number of the last
 delivered header and the tip's block number. At the tip one request is
 outstanding, so `Reintersect` and `StopAfterDrain` wait for at most the next
-block. After a `RollBackward`, whose point has no block number, one request is
-outstanding until the next `RollForward`. Byron deliveries are not measured and
-keep the full window.
+block. After a `RollBackward`, whose point has no block number, the window is
+one request until the next `RollForward`. Requests sent before the rollback are
+not retracted: `Reintersect` and `StopAfterDrain` wait for each of them, and no
+new request is sent until they are answered. Byron deliveries are not measured
+and keep the full window.
 
 ## Configuration Options
 
