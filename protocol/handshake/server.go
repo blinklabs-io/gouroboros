@@ -52,19 +52,22 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 			stateMap[statePropose] = entry
 		}
 	}
+	onReceived, onIncomplete := startupCallbacks(protoOptions.Muxer)
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleServer,
-		MessageHandlerFunc:  s.handleMessage,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        statePropose,
-		InitialStateTimeout: protoOptions.Mode == protocol.ProtocolModeNodeToNode,
+		Name:                  ProtocolName,
+		ProtocolId:            ProtocolId,
+		Muxer:                 protoOptions.Muxer,
+		Logger:                protoOptions.Logger,
+		ErrorChan:             protoOptions.ErrorChan,
+		Mode:                  protoOptions.Mode,
+		Role:                  protocol.ProtocolRoleServer,
+		MessageHandlerFunc:    s.handleMessage,
+		MessageFromCborFunc:   NewMsgFromCbor,
+		MessageReceivedFunc:   onReceived,
+		MessageIncompleteFunc: onIncomplete,
+		StateMap:              stateMap,
+		InitialState:          statePropose,
+		InitialStateTimeout:   protoOptions.Mode == protocol.ProtocolModeNodeToNode,
 	}
 	s.Protocol = protocol.New(protoConfig)
 	return s
