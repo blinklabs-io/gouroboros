@@ -401,6 +401,18 @@ func TestHandleRequestNextReportsShutdownBeforeDelivery(t *testing.T) {
 	}
 }
 
+// stopServerAtEnd stops server when the test ends and requires the stop to
+// join it. A request left pending holds a goroutine until the server stops,
+// and one that outlives its test is reported by goleak in a later test.
+func stopServerAtEnd(t *testing.T, server *Server) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, server.Stop(ctx))
+	})
+}
+
 func TestHandleRequestNext_NilCallback(t *testing.T) {
 	connId := connection.ConnectionId{
 		LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
@@ -413,6 +425,7 @@ func TestHandleRequestNext_NilCallback(t *testing.T) {
 		callbackContext: CallbackContext{ConnectionId: connId},
 	}
 	server.initProtocol()
+	stopServerAtEnd(t, server)
 
 	err := server.handleRequestNext()
 
@@ -496,6 +509,7 @@ func TestHandleRequestNext_NilConfig(t *testing.T) {
 		callbackContext: CallbackContext{ConnectionId: connId},
 	}
 	server.initProtocol()
+	stopServerAtEnd(t, server)
 
 	err := server.handleRequestNext()
 
