@@ -166,7 +166,9 @@ type ValidateResult struct {
 //
 //  1. The envelope: block number is previous + 1, slot strictly increases,
 //     PrevHash matches the previous header's hash, and the protocol
-//     version, header size and body size are within their limits.
+//     version, header size and body size are within their limits. With
+//     PrevIsOrigin the block number must be 0, any slot is allowed, and
+//     PrevHash must name the genesis.
 //  2. CPraos: the KES side, then the VRF side. TPraos: the VRF side, then
 //     the KES side.
 //

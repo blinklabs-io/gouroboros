@@ -152,7 +152,8 @@ chain selection because they do not know the current tip.
      input is the only error returned
   1. The envelope: block number is previous + 1, slot strictly increases,
      previous hash matches, protocol version, header size and body size
-     within their limits
+     within their limits; the first header (`PrevIsOrigin`) has block
+     number 0, any slot, and the genesis as its previous hash
   2. CPraos: the KES side, then the VRF side; TPraos: the VRF side, then the
      KES side
   - KES side: KES period within the operational certificate's range,
