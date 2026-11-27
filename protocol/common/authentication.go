@@ -343,6 +343,7 @@ func (m *MessageAuthenticator) prepareAll(
 type preparedMessage struct {
 	index int
 	pool  PoolKeyHash
+	id    string
 	issue uint64
 	rate  *rateRecord
 }
@@ -415,6 +416,7 @@ func (m *MessageAuthenticator) prepare(
 		p := preparedMessage{
 			index: i,
 			pool:  poolID,
+			id:    string(messages[i].ID()),
 			issue: messages[i].OperationalCertificate.IssueNumber,
 		}
 		if rateLimit && len(batchAuthenticator.batchAccepted) > records {
@@ -434,6 +436,16 @@ func (m *MessageAuthenticator) prepare(
 		ids := make(map[string]struct{})
 		var passed []preparedMessage
 		for _, p := range prepared {
+			// A message accepted meanwhile by another commit is a
+			// duplicate: valid, and already recorded, so it is neither
+			// refused nor recorded again. This comes before the counter
+			// re-check, which a later message of the pool may since have
+			// raised past it.
+			if _, held := m.acceptedIDs[p.id]; held {
+				p.rate = nil
+				passed = append(passed, p)
+				continue
+			}
 			current, exists := issues[p.pool]
 			if !exists {
 				current, exists = m.kesOpCertCache[p.pool]
@@ -446,14 +458,9 @@ func (m *MessageAuthenticator) prepare(
 				)
 				continue
 			}
-			// A message accepted meanwhile by another commit is a
-			// duplicate: valid, and already recorded, so it is neither
-			// refused nor recorded again.
 			rate := p.rate
 			if rate != nil {
-				_, heldBefore := m.acceptedIDs[rate.id]
-				_, heldInBatch := ids[rate.id]
-				if heldBefore || heldInBatch {
+				if _, heldInBatch := ids[rate.id]; heldInBatch {
 					rate = nil
 				}
 			}
