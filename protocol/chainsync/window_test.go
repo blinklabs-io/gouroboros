@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/internal/testdata"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/stretchr/testify/require"
@@ -77,5 +78,76 @@ func TestWindowBlockNumberUnmeasured(t *testing.T) {
 		)
 		require.True(t, ok)
 		require.Equal(t, n, got)
+	}
+}
+
+// The block number the window reads without decoding agrees with the decoded
+// block for every era, from the block itself (node-to-client) and from the
+// header a node-to-node MsgRollForward carries after a wire round trip.
+func TestWindowBlockNumberEveryEra(t *testing.T) {
+	t.Parallel()
+	type fixture struct {
+		name      string
+		blockType uint
+		block     []byte
+	}
+	var fixtures []fixture
+	for _, b := range testdata.GetTestBlocks() {
+		fixtures = append(fixtures, fixture{b.Name, b.BlockType, b.Cbor})
+	}
+	for _, file := range []string{
+		"musashi_certrb_17403.hex",
+		"musashi_certrb_17512.hex",
+	} {
+		var wrapper []cbor.RawMessage
+		_, err := cbor.Decode(hexDecode(string(readFile(
+			"../../ledger/dijkstra/testdata/"+file,
+		))), &wrapper)
+		require.NoError(t, err)
+		require.Len(t, wrapper, 2)
+		fixtures = append(fixtures, fixture{
+			"Dijkstra " + file, ledger.BlockTypeDijkstra, wrapper[1],
+		})
+	}
+	fixtures = append(fixtures, fixture{
+		"ByronEbb", ledger.BlockTypeByronEbb, hexDecode(string(readFile(
+			"testdata/byron_ebb_testnet_8f8602837f7c6f8b8867dd1cbc1842cf51a27eaed2c70ef48325d00f8efb320f.hex",
+		))),
+	})
+	for _, f := range fixtures {
+		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
+			byron := f.blockType == ledger.BlockTypeByronEbb ||
+				f.blockType == ledger.BlockTypeByronMain
+			got, ok := blockBlockNumber(f.blockType, f.block)
+			era := ledger.BlockToBlockHeaderTypeMap[f.blockType]
+			byronType := uint(0)
+			if f.blockType == ledger.BlockTypeByronMain {
+				byronType = 1
+			}
+			msg, err := NewMsgRollForwardNtN(era, byronType, f.block, Tip{})
+			require.NoError(t, err)
+			data, err := cbor.Encode(msg)
+			require.NoError(t, err)
+			decoded, err := NewMsgFromCborNtN(MessageTypeRollForward, data)
+			require.NoError(t, err)
+			header := decoded.(*MsgRollForwardNtN).WrappedHeader.HeaderCbor()
+			hGot, hOk := headerBlockNumber(f.blockType, header)
+			if byron {
+				require.False(t, ok)
+				require.False(t, hOk)
+				return
+			}
+			blk, err := ledger.NewBlockFromCbor(
+				f.blockType,
+				f.block,
+				common.VerifyConfig{SkipBodyHashValidation: true},
+			)
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.Equal(t, blk.BlockNumber(), got)
+			require.True(t, hOk)
+			require.Equal(t, blk.BlockNumber(), hGot)
+		})
 	}
 }

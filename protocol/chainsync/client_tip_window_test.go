@@ -176,10 +176,6 @@ func newTipWindowPair(
 // tip, not a full window, and Reintersect then needs only the next block to
 // drain. With a full window each outstanding request needs its own new
 // block, so Reintersect waits PipelineLimit blocks.
-//
-// Model: specs/chainsync/ChainSyncTipWindow.tla, invariants WithinOneOfTip
-// and DrainNeedsAtMostOneBlock; ChainSyncTipWindowFullBug.cfg is the full
-// window.
 func TestClientWindowAtServerTip(t *testing.T) {
 	t.Parallel()
 	const limit = 10

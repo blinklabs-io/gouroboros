@@ -17,6 +17,7 @@ package chainsync
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -142,11 +144,26 @@ func windowTip(n uint64) Tip {
 	}
 }
 
+// windowBlock returns a post-Byron block whose header body starts with block
+// number n, which the client reads to size its window.
 func windowBlock(t testing.TB, n uint64) []byte {
 	t.Helper()
-	b, err := cbor.Encode(n)
+	header := []any{[]any{n, n}, []byte{}}
+	b, err := cbor.Encode([]any{header, []any{}, []any{}, map[uint]any{}})
 	require.NoError(t, err)
 	return b
+}
+
+// scriptTip returns the tip of the server's chain for script: its highest
+// roll-forward block number.
+func scriptTip(script []windowEvent) Tip {
+	var n uint64
+	for _, ev := range script {
+		if ev.kind == windowForward {
+			n = max(n, ev.n)
+		}
+	}
+	return windowTip(n)
 }
 
 // newWindowHarness connects a Client to a scripted Server over a link with the
@@ -154,6 +171,7 @@ func windowBlock(t testing.TB, n uint64) []byte {
 // script[i]; once the script is exhausted it answers AwaitReply. onForward, if
 // non-nil, runs inside the client's roll-forward callback before the delivery
 // is recorded; it may block to model a slow consumer or return an error.
+// Every reply carries the script's tip, and blocks are Conway blocks.
 func newWindowHarness(
 	t testing.TB,
 	limit int,
@@ -162,6 +180,22 @@ func newWindowHarness(
 	onForward func(n uint64) error,
 ) *windowHarness {
 	t.Helper()
+	return newWindowHarnessOf(
+		t, ledger.BlockTypeConway, limit, rtt, script, onForward,
+	)
+}
+
+// newWindowHarnessOf is newWindowHarness serving blocks of blockType.
+func newWindowHarnessOf(
+	t testing.TB,
+	blockType uint,
+	limit int,
+	rtt time.Duration,
+	script []windowEvent,
+	onForward func(n uint64) error,
+) *windowHarness {
+	t.Helper()
+	tip := scriptTip(script)
 	h := &windowHarness{minInFlig: 1 << 30, stop: make(chan struct{})}
 	clientRaw, serverRaw := net.Pipe()
 	clientConn := newDelayConn(clientRaw, rtt/2)
@@ -194,7 +228,7 @@ func newWindowHarness(
 				_ CallbackContext,
 				points []pcommon.Point,
 			) (pcommon.Point, Tip, error) {
-				return points[0], windowTip(0), nil
+				return points[0], tip, nil
 			},
 			RequestNextFunc: func(ctx CallbackContext) error {
 				i := int(scriptIdx.Add(1) - 1)
@@ -209,13 +243,13 @@ func newWindowHarness(
 							ev.n,
 							windowHash(ev.n),
 						),
-						windowTip(ev.n),
+						tip,
 					)
 				}
 				return ctx.Server.RollForward(
-					0,
+					blockType,
 					windowBlock(t, ev.n),
-					windowTip(ev.n),
+					tip,
 				)
 			},
 		},
@@ -230,9 +264,9 @@ func newWindowHarness(
 			data []byte,
 			_ Tip,
 		) error {
-			var n uint64
-			if _, err := cbor.Decode(data, &n); err != nil {
-				return err
+			n, ok := firstUintInArrays(data, 3)
+			if !ok {
+				return errors.New("no block number in roll forward")
 			}
 			h.sampleInFlight()
 			if onForward != nil {
@@ -335,9 +369,9 @@ func forwardScript(from, to uint64) []windowEvent {
 }
 
 // TestSyncKeepsWindowFullAtLatency checks that the pipe never runs empty
-// while the server still has blocks: each consumed reply is replaced by a new
-// RequestNext. A batch-and-wait client drops to one unanswered request (the
-// reply being handled) at the end of every batch.
+// while the client is far behind the server's tip: each consumed reply is
+// replaced by a new RequestNext. A batch-and-wait client drops to one
+// unanswered request (the reply being handled) at the end of every batch.
 func TestSyncKeepsWindowFullAtLatency(t *testing.T) {
 	t.Parallel()
 	const (
@@ -345,7 +379,7 @@ func TestSyncKeepsWindowFullAtLatency(t *testing.T) {
 		total = 200
 	)
 	h := newWindowHarness(
-		t, limit, 20*time.Millisecond, forwardScript(1, total), nil,
+		t, limit, 20*time.Millisecond, forwardScript(1, 10*total), nil,
 	)
 	require.NoError(t, h.client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
 	h.waitDelivered(t, total)
@@ -399,37 +433,57 @@ func TestSyncRollbackWithWindowOutstanding(t *testing.T) {
 }
 
 // TestSyncAtTipKeepsWindowBounded checks the window at the chain tip: the
-// server answers one request with AwaitReply and holds the rest, the client
-// keeps exactly PipelineLimit requests outstanding without adding more, and a
-// block that arrives later is delivered and replaced by one new request.
+// client keeps one request outstanding, which the server answers with
+// AwaitReply, and a block that arrives later is delivered and replaced by one
+// new request. Byron blocks carry no block number the client reads, so the
+// client keeps its full window outstanding at a Byron tip.
 func TestSyncAtTipKeepsWindowBounded(t *testing.T) {
 	t.Parallel()
 	const limit = 10
-	h := newWindowHarness(
-		t, limit, 10*time.Millisecond, forwardScript(1, 30), nil,
-	)
-	require.NoError(t, h.client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
-	h.waitDelivered(t, 30)
-	require.Eventually(t, func() bool {
-		return h.atTip.Load() == 1 && h.inFlight() == limit
-	}, 5*time.Second, time.Millisecond, "window did not settle at tip")
-	require.Never(t, func() bool {
-		return h.inFlight() != limit || h.atTip.Load() != 1
-	}, 200*time.Millisecond, time.Millisecond)
+	for _, tc := range []struct {
+		name      string
+		blockType uint
+		atTip     int
+	}{
+		{"Conway", ledger.BlockTypeConway, 1},
+		{"Byron", ledger.BlockTypeByronMain, limit},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newWindowHarnessOf(
+				t, tc.blockType, limit, 10*time.Millisecond,
+				forwardScript(1, 30), nil,
+			)
+			require.NoError(
+				t,
+				h.client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}),
+			)
+			h.waitDelivered(t, 30)
+			require.Eventually(t, func() bool {
+				return h.atTip.Load() == 1 && h.inFlight() == tc.atTip
+			}, 5*time.Second, time.Millisecond, "window did not settle at tip")
+			require.Never(t, func() bool {
+				return h.inFlight() != tc.atTip || h.atTip.Load() != 1
+			}, 200*time.Millisecond, time.Millisecond)
 
-	require.NoError(
-		t,
-		h.server.RollForward(0, windowBlock(t, 31), windowTip(31)),
-	)
-	h.waitDelivered(t, 31)
-	require.Eventually(t, func() bool {
-		return h.atTip.Load() == 2 && h.inFlight() == limit
-	}, 5*time.Second, time.Millisecond, "window did not refill after tip block")
-	require.Never(t, func() bool {
-		return h.inFlight() > limit
-	}, 200*time.Millisecond, time.Millisecond)
-	requireConsecutiveForwards(t, h.delivered(), 1)
-	h.requireNoProtocolError(t)
+			require.NoError(
+				t,
+				h.server.RollForward(
+					tc.blockType, windowBlock(t, 31), windowTip(31),
+				),
+			)
+			h.waitDelivered(t, 31)
+			require.Eventually(t, func() bool {
+				return h.atTip.Load() == 2 && h.inFlight() == tc.atTip
+			}, 5*time.Second, time.Millisecond,
+				"window did not refill after tip block")
+			require.Never(t, func() bool {
+				return h.inFlight() > tc.atTip
+			}, 200*time.Millisecond, time.Millisecond)
+			requireConsecutiveForwards(t, h.delivered(), 1)
+			h.requireNoProtocolError(t)
+		})
+	}
 }
 
 // TestStopDuringWindowDeliversNothingAfterReturn checks that Stop with a full
@@ -452,7 +506,7 @@ func TestStopDuringWindowDeliversNothingAfterReturn(t *testing.T) {
 
 // TestReintersectDrainsFullWindow checks that Reintersect called with a full
 // window of requests in flight drains every reply exactly once, then resumes
-// with a refilled window.
+// with a refilled window while still behind the server's tip.
 func TestReintersectDrainsFullWindow(t *testing.T) {
 	t.Parallel()
 	const (
@@ -460,7 +514,7 @@ func TestReintersectDrainsFullWindow(t *testing.T) {
 		total = 200
 	)
 	h := newWindowHarness(
-		t, limit, 10*time.Millisecond, forwardScript(1, total), nil,
+		t, limit, 10*time.Millisecond, forwardScript(1, 10*total), nil,
 	)
 	require.NoError(t, h.client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
 	h.waitDelivered(t, 30)
