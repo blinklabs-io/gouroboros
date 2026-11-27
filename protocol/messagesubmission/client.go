@@ -71,44 +71,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ConnectionId: protoOptions.ConnectionId,
 	}
 
-	// Select state map and initial state based on negotiated version
-	isV2 := isMessageSubmissionV2(protoOptions.Version)
-	var baseStateMap protocol.StateMap
-	var initialState protocol.State
-	if isV2 {
-		baseStateMap = stateMapV2
-		initialState = protocolStateIdle
-	} else {
-		baseStateMap = stateMapV1
-		initialState = protocolStateInit
-	}
-
-	// Update state map with configurable timeouts
-	stateMapCopy := baseStateMap.Copy()
-	if entry, ok := stateMapCopy[protocolStateInit]; ok {
-		entry.Timeout = c.config.InitTimeout
-		stateMapCopy[protocolStateInit] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateIdle]; ok {
-		entry.Timeout = c.config.IdleTimeout
-		stateMapCopy[protocolStateIdle] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessageIdsBlock]; ok {
-		entry.Timeout = c.config.MessageIdsBlockingTimeout
-		stateMapCopy[protocolStateMessageIdsBlock] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessageIdsNonBlk]; ok {
-		entry.Timeout = c.config.MessageIdsNonblockingTimeout
-		stateMapCopy[protocolStateMessageIdsNonBlk] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessages]; ok {
-		entry.Timeout = c.config.MessagesTimeout
-		stateMapCopy[protocolStateMessages] = entry
-	}
-	// Done state has no timeout
-	if isV2 {
-		stateMapCopy[protocolStateIdle] = restartOnDone(
-			stateMapCopy[protocolStateIdle],
+	stateMap, initialState := stateMapFor(protoOptions.Version, c.config)
+	if isMessageSubmissionV2(protoOptions.Version) {
+		stateMap[protocolStateIdle] = restartOnDone(
+			stateMap[protocolStateIdle],
 			&c.runEnded,
 		)
 	}
@@ -131,7 +97,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 				c.collectionLimit(msgType),
 			)
 		},
-		StateMap:     stateMapCopy,
+		StateMap:     stateMap,
 		InitialState: initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)

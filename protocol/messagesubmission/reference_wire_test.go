@@ -218,6 +218,16 @@ type clientHarness struct {
 // messages) to a scripted dmq-node peer that wants them.
 func newClientHarness(t *testing.T, version uint16) *clientHarness {
 	t.Helper()
+	return newClientHarnessWith(t, version)
+}
+
+// newClientHarnessWith is newClientHarness with extra configuration options.
+func newClientHarnessWith(
+	t *testing.T,
+	version uint16,
+	options ...MessageSubmissionOptionFunc,
+) *clientHarness {
+	t.Helper()
 	peer, m := newReferencePeer(t)
 	h := &clientHarness{
 		peer:       peer,
@@ -241,6 +251,9 @@ func newClientHarness(t *testing.T, version uint16) *clientHarness {
 	cfg.DoneFunc = func(CallbackContext) error {
 		h.done <- struct{}{}
 		return nil
+	}
+	for _, option := range options {
+		option(&cfg)
 	}
 	h.client = NewClient(protocol.ProtocolOptions{
 		Muxer:     m,
@@ -266,6 +279,16 @@ type serverHarness struct {
 // messages) to a scripted dmq-node peer that has them.
 func newServerHarness(t *testing.T, version uint16) *serverHarness {
 	t.Helper()
+	return newServerHarnessWith(t, version)
+}
+
+// newServerHarnessWith is newServerHarness with extra configuration options.
+func newServerHarnessWith(
+	t *testing.T,
+	version uint16,
+	options ...MessageSubmissionOptionFunc,
+) *serverHarness {
+	t.Helper()
 	peer, m := newReferencePeer(t)
 	h := &serverHarness{
 		peer:      peer,
@@ -288,6 +311,9 @@ func newServerHarness(t *testing.T, version uint16) *serverHarness {
 		}),
 		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
 	)
+	for _, option := range options {
+		option(&cfg)
+	}
 	h.server = NewServer(protocol.ProtocolOptions{
 		Muxer:     m,
 		ErrorChan: h.errs,

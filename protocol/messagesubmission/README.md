@@ -74,6 +74,12 @@ until that request arrives.
 | Messages | 30 seconds | Client must reply with messages |
 | Done | 10 seconds | Cleanup timeout |
 
+A timeout bounds the wait of the side without agency, so the Server, which
+sends the requests, is timed by the replies and the Client by Idle. Both
+install the configured timeouts. `WithMessageIdsBlockingTimeout` applies only
+to a V2 blocking request. `WithInitTimeout` and `WithDoneTimeout` have no
+effect: the initial state is never timed and nothing waits in Done.
+
 ## Configuration Options
 
 ```go
