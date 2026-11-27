@@ -1077,16 +1077,13 @@ func parseNativeScriptReference(
 
 // parseNativeScriptChildren decodes a definite or indefinite list of native
 // scripts at the start of data and returns it with its encoded length. CBOR
-// null and undefined decode to an empty list.
+// null and undefined are rejected: the field must be an array.
 func parseNativeScriptChildren(
 	data []byte,
 	depth int,
 ) ([]nativeScriptReference, int, error) {
 	if len(data) == 0 {
 		return nil, 0, errors.New("native script child list is missing")
-	}
-	if data[0] == 0xf6 || data[0] == 0xf7 {
-		return nil, 1, nil
 	}
 	length, headerLength, indefinite := cbor.ArrayInfo(data)
 	if length < 0 {
@@ -1332,6 +1329,15 @@ type NativeScriptPubkey struct {
 
 // UnmarshalCBOR requires the signature hash to match its ledger-defined width.
 func (s *NativeScriptPubkey) UnmarshalCBOR(data []byte) error {
+	// Check the declared length before decoding into a slice, which
+	// allocates in proportion to the declared item count.
+	if n, _, indefinite := cbor.ArrayInfo(data); !indefinite && n >= 0 &&
+		n != 2 {
+		return fmt.Errorf(
+			"native script pubkey must contain 2 fields, got %d",
+			n,
+		)
+	}
 	var fields []cbor.RawMessage
 	if _, err := cbor.Decode(data, &fields); err != nil {
 		return err

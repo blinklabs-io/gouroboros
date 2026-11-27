@@ -21,6 +21,7 @@ package muxer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -141,6 +142,13 @@ type Muxer struct {
 	protocolReceiversMutex sync.Mutex
 	diffusionMode          atomic.Int64
 	onceStop               sync.Once
+	// cleanupDone is closed by the cleanup goroutine once the read loop,
+	// the forwarders and the senders have returned and errorChan is
+	// closed; Stop waits for it.
+	cleanupDone chan struct{}
+	// callbackCtx is the context returned by CallbackContext. Its value
+	// under callbackOwnerKey is this muxer.
+	callbackCtx context.Context
 	// segmentReadTimeout bounds how long the read loop waits for the next
 	// segment before closing the connection. <= 0 disables the deadline
 	// entirely (no timeout, matching real cardano-node's own behavior on a
@@ -164,6 +172,9 @@ type Muxer struct {
 	// protocol role on this connection.
 	ingress *ingressAccount
 	metrics atomic.Pointer[Metrics]
+	// protocolLoops tracks the mini-protocol goroutines; see
+	// StartProtocolLoops.
+	protocolLoops protocolLoops
 	// registerHook, when non-nil, runs in RegisterProtocol between its
 	// first shutdown check and the insertion of the new receiver. It exists
 	// only so a test can run a complete Stop inside that window, which is
@@ -181,7 +192,9 @@ type Muxer struct {
 // Metrics callbacks may call other muxer methods, including RegisterProtocol
 // and UnregisterProtocol. If a callback unregisters a role whose callback is
 // already running, receiver shutdown finishes after those callbacks return.
-// RegisterProtocol returns nil channels once the muxer is stopping.
+// RegisterProtocol returns nil channels once the muxer is stopping. A
+// callback that stops the muxer passes CallbackContext to Stop; any other
+// context makes Stop wait for the goroutine running the callback.
 type Metrics interface {
 	// IngressQueueDepth reports the segment payload bytes received for a
 	// protocol role and not yet delivered to its receive channel. It is
@@ -598,10 +611,12 @@ type segmentChannel struct {
 	// suspended is set while the role's protocol is being restarted: the
 	// queue stays registered and keeps accepting ingress for the next
 	// instance. carry holds bytes the previous instance had already read but
-	// not processed, which precede everything still queued. Both are guarded
-	// by mu.
-	suspended bool
-	carry     []byte
+	// not processed, which precede everything still queued. carryPending is
+	// set while that instance may still be reading, until it hands its carry
+	// over. All three are guarded by mu.
+	suspended    bool
+	carry        []byte
+	carryPending bool
 	// reportMu serializes reporting depthReports, which happens outside mu.
 	reportMu sync.Mutex
 	// callbackMu serializes callback admission with shutdown. Once stopping
@@ -939,12 +954,26 @@ func (s *segmentSender) stop() {
 	})
 }
 
-// suspend marks the channel as awaiting a new protocol instance.
-func (sc *segmentChannel) suspend(carry []byte) {
+// suspend marks the channel as awaiting a new protocol instance. With
+// pending set, the carry is not known yet: it arrives through finishCarry.
+func (sc *segmentChannel) suspend(carry []byte, pending bool) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.suspended = true
 	sc.carry = carry
+	sc.carryPending = pending
+}
+
+// finishCarry hands over the carry a suspend left pending.
+func (sc *segmentChannel) finishCarry(carry []byte) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	if !sc.carryPending {
+		return
+	}
+	sc.carry = carry
+	sc.carryPending = false
+	sc.cond.Broadcast()
 }
 
 // resume reports whether the channel was suspended and is still open, and
@@ -962,6 +991,11 @@ func (sc *segmentChannel) resume() bool {
 func (sc *segmentChannel) takeCarry() []byte {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+	// The previous instance's unread data precedes everything in the
+	// queue, so the next instance must not read before it has it.
+	for sc.carryPending && !sc.closed {
+		sc.cond.Wait()
+	}
 	carry := sc.carry
 	sc.carry = nil
 	return carry
@@ -1057,7 +1091,11 @@ func NewWithSegmentReadTimeout(
 		protocolTombstones: make(map[uint16]map[ProtocolRole]struct{}),
 		segmentReadTimeout: segmentReadTimeout,
 		ingress:            newIngressAccount(),
+		cleanupDone:        make(chan struct{}),
 	}
+	m.callbackCtx = context.WithValue(
+		context.Background(), callbackOwnerKey{}, m,
+	)
 	// Start read goroutine
 	m.waitGroup.Add(1)
 	go m.readLoop()
@@ -1075,6 +1113,7 @@ func NewWithSegmentReadTimeout(
 		m.waitGroup.Wait()
 		// Close ErrorChan to signify to consumer that we're shutting down
 		close(m.errorChan)
+		close(m.cleanupDone)
 	}()
 	return m
 }
@@ -1096,10 +1135,64 @@ func (m *Muxer) StartOnce() {
 	}
 }
 
-// Stop shuts down the muxer
-func (m *Muxer) Stop() {
+// callbackOwnerKey is the context key under which CallbackContext carries
+// its muxer.
+type callbackOwnerKey struct{}
+
+// CallbackContext returns the context a Metrics callback passes to Stop to
+// stop its own muxer, or to the Close of the connection that owns the
+// muxer. It carries no deadline and is never cancelled.
+func (m *Muxer) CallbackContext() context.Context {
+	if m.callbackCtx == nil {
+		return context.Background()
+	}
+	return m.callbackCtx
+}
+
+// CallbackOwner returns the muxer whose CallbackContext ctx is or derives
+// from, or nil when ctx carries none.
+func CallbackOwner(ctx context.Context) *Muxer {
+	if ctx == nil {
+		return nil
+	}
+	m, _ := ctx.Value(callbackOwnerKey{}).(*Muxer)
+	return m
+}
+
+// Stop shuts down the muxer and waits for its goroutines. It closes the
+// connection, which ends a pending read or write on a standard net.Conn, and
+// waits until the read loop, the protocol forwarders, which run the Metrics
+// callbacks, and the segment senders have returned and ErrorChan is closed,
+// or until ctx is done, in which case it returns ctx.Err() and shutdown
+// continues. Loops started with StartProtocolLoops belong to their owners,
+// which join them.
+//
+// When ctx is, or derives from, this muxer's CallbackContext, Stop signals
+// shutdown and returns nil without waiting: the caller is a Metrics callback,
+// running on one of the goroutines Stop would wait for. Shutdown completes
+// once the callback returns.
+func (m *Muxer) Stop(ctx context.Context) error {
+	m.stop()
+	if CallbackOwner(ctx) == m || m.cleanupDone == nil {
+		return nil
+	}
+	// A join that has already happened wins over a done ctx.
+	select {
+	case <-m.cleanupDone:
+		return nil
+	default:
+	}
+	select {
+	case <-m.cleanupDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stop closes doneChan once, which starts the shutdown, and returns.
+func (m *Muxer) stop() {
 	m.onceStop.Do(func() {
-		// Close doneChan to signify that we're shutting down
 		close(m.doneChan)
 	})
 }
@@ -1129,8 +1222,9 @@ func (m *Muxer) sendError(err error) {
 	case m.errorChan <- err:
 	default:
 	}
-	// Stop the muxer on any error
-	m.Stop()
+	// Stop the muxer on any error. This runs on the muxer's own
+	// goroutines, so it only signals.
+	m.stop()
 }
 
 // RegisterProtocol registers the provided protocol ID with the muxer. It returns a channel for sending,
@@ -1291,13 +1385,40 @@ func (m *Muxer) SuspendProtocol(
 	protocolRole ProtocolRole,
 	carry []byte,
 ) bool {
+	return m.suspendProtocol(protocolId, protocolRole, carry, false) != nil
+}
+
+// SuspendProtocolPendingCarry suspends a protocol role as SuspendProtocol
+// does, for a protocol that may still be reading the receiver and so cannot
+// yet say what it read and did not process. It returns the function the
+// protocol calls with that data once it has stopped reading;
+// TakeCarriedIngress waits until then, or until the role is unregistered or
+// the muxer stops. It returns nil, and does nothing, when the role is not
+// registered.
+func (m *Muxer) SuspendProtocolPendingCarry(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+) func(carry []byte) {
+	receiver := m.suspendProtocol(protocolId, protocolRole, nil, true)
+	if receiver == nil {
+		return nil
+	}
+	return receiver.finishCarry
+}
+
+func (m *Muxer) suspendProtocol(
+	protocolId uint16,
+	protocolRole ProtocolRole,
+	carry []byte,
+	pending bool,
+) *segmentChannel {
 	m.protocolReceiversMutex.Lock()
 	receiver := m.protocolReceivers[protocolId][protocolRole]
 	if receiver == nil {
 		m.protocolReceiversMutex.Unlock()
-		return false
+		return nil
 	}
-	receiver.suspend(carry)
+	receiver.suspend(carry, pending)
 	var sender *segmentSender
 	if protocolRoles, ok := m.protocolSenders[protocolId]; ok {
 		sender = protocolRoles[protocolRole]
@@ -1310,12 +1431,13 @@ func (m *Muxer) SuspendProtocol(
 	if sender != nil {
 		sender.stop()
 	}
-	return true
+	return receiver
 }
 
 // TakeCarriedIngress returns, and clears, the data a previous protocol
 // instance passed to SuspendProtocol for this role. It is nil when there is
-// none.
+// none. After SuspendProtocolPendingCarry, it waits until that instance has
+// handed its data over.
 func (m *Muxer) TakeCarriedIngress(
 	protocolId uint16,
 	protocolRole ProtocolRole,

@@ -16,6 +16,7 @@
 package localtxsubmission
 
 import (
+	"context"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -88,6 +89,27 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // Callback function types
@@ -110,9 +132,9 @@ type LocalTxSubmissionOptionFunc func(*Config)
 
 // NewConfig returns a new LocalTxSubmission config object with the provided options
 func NewConfig(options ...LocalTxSubmissionOptionFunc) Config {
-	c := Config{
-		Timeout: 30 * time.Second,
-	}
+	// No default timeout: the specification sets none, and a node holds
+	// MsgSubmitTx until its mempool has room for the transaction.
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -127,7 +149,9 @@ func WithSubmitTxFunc(submitTxFunc SubmitTxFunc) LocalTxSubmissionOptionFunc {
 	}
 }
 
-// WithTimeout specifies the timeout for a TX submit operation when acting as a client
+// WithTimeout specifies the timeout for a TX submit operation when acting as a
+// client. There is none by default: a node may hold a submission while its
+// mempool is full, and the timeout tears down the whole connection.
 func WithTimeout(timeout time.Duration) LocalTxSubmissionOptionFunc {
 	return func(c *Config) {
 		c.Timeout = timeout

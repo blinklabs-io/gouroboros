@@ -95,8 +95,18 @@ message := &DmqMessage{
 }
 
 err := client.SubmitMessage(message)
-// AcceptMessage or RejectMessage via callbacks
+var rejected localmessagesubmission.MessageRejectedError
+if errors.As(err, &rejected) {
+    // The node rejected this message; rejected.Reason says why
+}
 ```
+
+`SubmitMessage` waits for the node's answer and returns it, so concurrent
+calls each get the answer to their own message. Once `Stop` has been called
+it returns `ErrProtocolShuttingDown` without sending. `AcceptMessageFunc` and
+`RejectMessageFunc`, when set, run on the goroutine that called
+`SubmitMessage`, before it returns and after the next submission may start,
+so a callback may itself call `SubmitMessage`.
 
 ## Message Authentication
 

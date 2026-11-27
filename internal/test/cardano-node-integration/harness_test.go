@@ -120,7 +120,7 @@ func dialNode(
 		t.Fatalf("start Ouroboros connection: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 	})
 	return oConn, errors, rollForward
 }

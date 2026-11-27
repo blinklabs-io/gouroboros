@@ -278,7 +278,9 @@ func TestBabbageTransactionBodyRejectsDuplicateTaggedSets(t *testing.T) {
 
 			var body BabbageTransactionBody
 			err = body.UnmarshalCBOR(bodyCbor)
-			require.ErrorContains(t, err, "duplicate member in set")
+			// Before protocol version 9 the tag itself is refused
+			// (decodeSet), ahead of any duplicate check.
+			require.ErrorContains(t, err, "not allowed before Conway")
 		})
 	}
 }

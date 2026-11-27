@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -113,8 +114,8 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 	t.Cleanup(func() {
 		_ = clientConn.Close()
 		_ = serverConn.Close()
-		clientMuxer.Stop()
-		serverMuxer.Stop()
+		_ = clientMuxer.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
 	})
 	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
 
@@ -192,7 +193,7 @@ func newReintersectHarness(t *testing.T) *reintersectHarness {
 	// before the teardown waits on it.
 	t.Cleanup(func() {
 		close(h.stop)
-		_ = h.client.Stop()
+		_ = h.client.Stop(context.Background())
 	})
 	return h
 }
@@ -309,7 +310,7 @@ func TestReintersectStopDuringDrain(t *testing.T) {
 	h.requireQuiet(done, 100*time.Millisecond)
 
 	stopped := make(chan error, 1)
-	go func() { stopped <- h.client.Stop() }()
+	go func() { stopped <- h.client.Stop(context.Background()) }()
 	res := recv(t, done, "Reintersect result after Stop")
 	require.ErrorIs(t, res.err, protocol.ErrProtocolShuttingDown)
 	recv(t, stopped, "Stop")

@@ -211,3 +211,22 @@ func TestNativeScriptOversizedChildListLengthsStayBounded(t *testing.T) {
 		allocated,
 	)
 }
+
+// The child list is an array-valued field in the ledger CDDL, so CBOR null and
+// undefined in its place are malformed rather than an empty list.
+func TestNativeScriptRejectsNullChildList(t *testing.T) {
+	t.Parallel()
+	for name, raw := range map[string][]byte{
+		"all null":         {0x82, 0x01, 0xf6},
+		"all undefined":    {0x82, 0x01, 0xf7},
+		"any null":         {0x82, 0x02, 0xf6},
+		"any undefined":    {0x82, 0x02, 0xf7},
+		"n-of-k null":      {0x83, 0x03, 0x01, 0xf6},
+		"n-of-k undefined": {0x83, 0x03, 0x01, 0xf7},
+	} {
+		var script common.NativeScript
+		assert.Errorf(t, script.UnmarshalCBOR(raw), "%s: %x", name, raw)
+	}
+	var script common.NativeScript
+	require.NoError(t, script.UnmarshalCBOR([]byte{0x82, 0x01, 0x80}))
+}

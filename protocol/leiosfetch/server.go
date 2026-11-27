@@ -15,6 +15,7 @@
 package leiosfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -24,11 +25,14 @@ import (
 )
 
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
@@ -45,7 +49,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	protoConfig := protocol.ProtocolConfig{
 		Name:                ProtocolName,
 		ProtocolId:          ProtocolId,
@@ -61,8 +65,13 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
-	s.Protocol = p
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
+	s.proto = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 func serverMessageFromCbor(
@@ -85,7 +94,24 @@ func serverMessageFromCbor(
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -112,7 +138,7 @@ func (s *Server) messageHandler(msg protocol.Message) error {
 }
 
 func (s *Server) handleBlockRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -127,12 +153,12 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 	}
 	msgBlockRequest := msg.(*MsgBlockRequest)
 	resp, err := s.config.BlockRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockRequest.Point,
 	)
 	if err != nil {
 		if errors.Is(err, ErrBlockNotFound) {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Debug("endorser block not available",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -152,14 +178,14 @@ func (s *Server) handleBlockRequest(msg protocol.Message) error {
 			"received leios-fetch BlockRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block Txs request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -174,13 +200,13 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 	}
 	msgBlockTxsRequest := msg.(*MsgBlockTxsRequest)
 	resp, err := s.config.BlockTxsRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockTxsRequest.Point,
 		msgBlockTxsRequest.Bitmaps,
 	)
 	if err != nil {
 		if errors.Is(err, ErrBlockTxsNotFound) {
-			s.Protocol.Logger().
+			s.ProtocolInstance().Logger().
 				Debug("endorser block transactions not available",
 					"component", "network",
 					"protocol", ProtocolName,
@@ -200,14 +226,14 @@ func (s *Server) handleBlockTxsRequest(msg protocol.Message) error {
 			"received leios-fetch BlockTxsRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleVotesRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("votes request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -215,11 +241,11 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	if s.config == nil || s.config.VotesRequestFunc == nil {
-		return s.SendMessage(NewMsgVotes([]cbor.RawMessage{}))
+		return s.ProtocolInstance().SendMessage(NewMsgVotes([]cbor.RawMessage{}))
 	}
 	msgVotesRequest := msg.(*MsgVotesRequest)
 	resp, err := s.config.VotesRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgVotesRequest.VoteIds,
 	)
 	if err != nil {
@@ -230,14 +256,14 @@ func (s *Server) handleVotesRequest(msg protocol.Message) error {
 			"received leios-fetch VotesRequest message but callback returned nil",
 		)
 	}
-	if err := s.SendMessage(resp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(resp); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("block range request",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -258,7 +284,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 	}
 	msgBlockRangeRequest := msg.(*MsgBlockRangeRequest)
 	err := s.config.BlockRangeRequestFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgBlockRangeRequest.Start,
 		msgBlockRangeRequest.End,
 	)
@@ -269,7 +295,7 @@ func (s *Server) handleBlockRangeRequest(msg protocol.Message) error {
 }
 
 func (s *Server) handleDone() {
-	s.Protocol.Logger().
+	s.ProtocolInstance().Logger().
 		Debug("client done",
 			"component", "network",
 			"protocol", ProtocolName,
@@ -277,7 +303,11 @@ func (s *Server) handleDone() {
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
 	// Restart protocol
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	_ = old.StopForRestart(old.CallbackContext())
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

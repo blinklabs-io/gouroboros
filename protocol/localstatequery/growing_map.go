@@ -30,8 +30,9 @@ import (
 type growingMap[K comparable, V any] map[K]V
 
 func (m *growingMap[K, V]) UnmarshalCBOR(data []byte) error {
-	// A null or undefined decodes to a nil map, as it does for a plain map.
-	if len(data) == 1 && (data[0] == 0xf6 || data[0] == 0xf7) {
+	// A null or undefined, tagged or not, decodes to a nil map, as it does for
+	// a plain map.
+	if d := cbor.SkipTags(data); len(d) == 1 && (d[0] == 0xf6 || d[0] == 0xf7) {
 		*m = nil
 		return nil
 	}
@@ -60,5 +61,20 @@ func (m *growingMap[K, V]) UnmarshalCBOR(data []byte) error {
 		return err
 	}
 	*m = entries
+	return nil
+}
+
+// decodeGrowingMap decodes data into out through growingMap. It serves maps
+// whose value type is an unnamed struct, which a growingMap field cannot name
+// without restating the struct.
+func decodeGrowingMap[M ~map[K]V, K comparable, V any](
+	data []byte,
+	out *M,
+) error {
+	var m growingMap[K, V]
+	if _, err := cbor.Decode(data, &m); err != nil {
+		return err
+	}
+	*out = M(m)
 	return nil
 }

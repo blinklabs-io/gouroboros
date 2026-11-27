@@ -37,8 +37,8 @@ func benchCertificate(
 		b.Fatal(err)
 	}
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    uint64(seats),
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: uint64(seats),
 	}
 	var aggregate bls12381.G1Jac
 	signers := make([]byte, (seats+7)/8)

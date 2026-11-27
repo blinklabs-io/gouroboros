@@ -16,6 +16,7 @@ package leiosnotify
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -152,7 +153,7 @@ func TestSlowConsumerBoundsRetainedNotificationBytes(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() {
 		close(release)
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = peerConn.Close()
 	})

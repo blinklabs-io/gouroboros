@@ -76,7 +76,10 @@ func VerifyDijkstraCertificate(
 // certificate. The signature is checked over the raw announcing block hash;
 // see VerifyDijkstraCertificateForMessage for the prototype encoding.
 // Committee seat keys are pool keys, so their proofs are checked under the
-// same domain the network's POOL rule used at registration.
+// same domain the network's POOL rule used at registration. committeeSize is
+// the committee-size protocol parameter; the committee in context may have
+// fewer seats when fewer pools are registered, and the signer bitfield is
+// sized by the committee's own seats.
 func VerifyDijkstraCertificateForDomain(
 	signers, signature []byte,
 	committeeSize uint16,
@@ -118,11 +121,14 @@ func VerifyDijkstraCertificateForMessage(
 	if err != nil {
 		return err
 	}
-	if uint64(len(context.Committee)) != uint64(committeeSize) {
+	// The committee is the top committeeSize pools, or every pool when
+	// fewer are registered, so it may have fewer seats than the parameter.
+	seats := uint64(len(context.Committee))
+	if seats > uint64(committeeSize) {
 		return fmt.Errorf(
-			"%w: got %d seats, want %d",
+			"%w: got %d seats, want at most %d",
 			ErrMalformedCommittee,
-			len(context.Committee),
+			seats,
 			committeeSize,
 		)
 	}
@@ -140,10 +146,15 @@ func VerifyDijkstraCertificateForMessage(
 			ErrMalformedCommittee,
 		)
 	}
-	if err := common.ValidateLeiosSignerBitfield(
-		signers,
-		uint64(committeeSize),
-	); err != nil {
+	maxKeyAge, err := MaxKeyAgeEpochs(
+		context.KeyAge.MaxKESEvolutions,
+		context.KeyAge.SlotsPerKESPeriod,
+		context.KeyAge.MarkEpochLength,
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrMalformedCommittee, err)
+	}
+	if err := common.ValidateLeiosSignerBitfield(signers, seats); err != nil {
 		return fmt.Errorf("%w: %w", ErrMalformedCommittee, err)
 	}
 
@@ -167,6 +178,15 @@ func VerifyDijkstraCertificateForMessage(
 		}
 		if seat.Key == nil {
 			return fmt.Errorf("%w: seat %d", ErrKeylessSigner, i)
+		}
+		if !keyHonoured(seat.KeyRegisteredIn, context.KeyAge.Epoch, maxKeyAge) {
+			return fmt.Errorf(
+				"%w: seat %d key registered in epoch %d is not honoured in epoch %d",
+				ErrKeylessSigner,
+				i,
+				seat.KeyRegisteredIn,
+				context.KeyAge.Epoch,
+			)
 		}
 		pub, stage, err := verifiedPossessionKey(seat.Key, proofDST)
 		if err != nil {
@@ -231,6 +251,40 @@ func VerifyDijkstraCertificateForMessage(
 		return fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 	return nil
+}
+
+// MaxKeyAgeEpochs returns for how many epochs after its registration a Leios
+// voting key is honoured: the KES key lifetime, maxKESEvolutions *
+// slotsPerKESPeriod slots, rounded up to whole epochs of epochLength slots,
+// plus two epochs of activation delay. It follows cardano-ledger
+// Cardano.Ledger.Dijkstra.Rules.Snap.kesMaxKeyAgeEpochs.
+func MaxKeyAgeEpochs(
+	maxKESEvolutions, slotsPerKESPeriod, epochLength uint64,
+) (uint64, error) {
+	if epochLength == 0 {
+		return 0, errors.New("leios key age: epoch length is zero")
+	}
+	lifetime := new(big.Int).Mul(
+		new(big.Int).SetUint64(maxKESEvolutions),
+		new(big.Int).SetUint64(slotsPerKESPeriod),
+	)
+	length := new(big.Int).SetUint64(epochLength)
+	epochs, rem := new(big.Int).QuoRem(lifetime, length, new(big.Int))
+	if rem.Sign() != 0 {
+		epochs.Add(epochs, big.NewInt(1))
+	}
+	epochs.Add(epochs, big.NewInt(2))
+	if !epochs.IsUint64() {
+		return 0, errors.New("leios key age: exceeds 64 bits")
+	}
+	return epochs.Uint64(), nil
+}
+
+// keyHonoured reports whether a key registered in epoch registeredIn is
+// honoured in epoch epoch: epoch < registeredIn + maxKeyAge, without
+// overflowing.
+func keyHonoured(registeredIn, epoch, maxKeyAge uint64) bool {
+	return epoch < registeredIn || epoch-registeredIn < maxKeyAge
 }
 
 // VerifyPossessionProof checks that a Leios BLS key's proof of possession is

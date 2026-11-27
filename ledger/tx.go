@@ -273,8 +273,8 @@ func decodeTxComponents(
 	if decoder.Position() != len(data) {
 		return nil, nil, errors.New("unexpected trailing CBOR data")
 	}
-	var txBody map[uint]cbor.RawMessage
-	if _, err := cbor.Decode(txArray[0], &txBody); err != nil {
+	txBody, _, err := cbor.DecodeRawMap[uint](txArray[0])
+	if err != nil {
 		return nil, nil, err
 	}
 	return txArray, txBody, nil

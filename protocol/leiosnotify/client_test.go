@@ -15,6 +15,7 @@
 package leiosnotify
 
 import (
+	"context"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -628,7 +629,7 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 	defer connA.Close()
 	defer connB.Close()
 	m := muxer.New(connA)
-	defer m.Stop()
+	defer m.Stop(context.Background())
 	client := NewClient(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
 			LocalAddr:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)},
@@ -637,14 +638,18 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 		Muxer: m,
 	}, nil)
 	client.Start()
-	defer client.Protocol.Stop()
+	defer client.Protocol.Stop(context.Background())
 	m.Start()
 
-	require.NoError(t, client.Stop())
+	// Stop waits for MsgClientQuit to be written, and net.Pipe writes
+	// block until read.
+	stopErr := make(chan error, 1)
+	go func() { stopErr <- client.Stop(context.Background()) }()
 	require.NoError(t, connB.SetReadDeadline(time.Now().Add(2*time.Second)))
 	segment, err := readLeiosNotifyTestSegment(t, connB)
 	require.NoError(t, err)
 	assert.Equal(t, []byte{0x81, MessageTypeQuit}, segment.Payload)
+	require.NoError(t, <-stopErr)
 
 	doneData, err := cbor.Encode(NewMsgDone())
 	require.NoError(t, err)
@@ -662,7 +667,21 @@ func TestClientStopSendsQuitAndEndsOnDone(t *testing.T) {
 	)
 }
 
-func TestClientIgnoresCanceled(t *testing.T) {
+// A server answers a request with MsgCanceled only after the client has sent
+// MsgQuit. The reference client disconnects a peer that cancels earlier; one
+// that did not would wait forever for the notification the canceled request
+// stood for.
+func TestClientRefusesCanceledBeforeQuit(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{}, nil)
+	require.ErrorIs(
+		t,
+		client.messageHandler(NewMsgCanceled()),
+		ErrUnexpectedCanceled,
+	)
+}
+
+func TestClientAcceptsCanceledAfterQuit(t *testing.T) {
+	client := NewClient(protocol.ProtocolOptions{}, nil)
+	client.quitting.Store(true)
 	require.NoError(t, client.messageHandler(NewMsgCanceled()))
 }

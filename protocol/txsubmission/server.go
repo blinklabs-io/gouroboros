@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -24,7 +25,7 @@ import (
 
 // Server implements the TxSubmission server
 type Server struct {
-	*protocol.Protocol
+	proto                  *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu             sync.RWMutex
 	config                 *Config
 	callbackContext        CallbackContext
@@ -38,6 +39,9 @@ type Server struct {
 	pendingTxs             *pendingTxsRequest
 	requestTxIdsResultChan chan requestTxIdsResult
 	requestTxsResultChan   chan requestTxsResult
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
 }
 
 type requestTxIdsResult struct {
@@ -76,7 +80,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	// Copy the global StateMap to avoid mutating shared state.
 	stateMap := StateMap.Copy()
 	protoConfig := protocol.ProtocolConfig{
@@ -95,8 +99,12 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
 	s.stateMu.Lock()
-	s.Protocol = p
+	s.proto = p
 	s.callbackContext.DoneChan = p.DoneChan()
 	s.requestTxIdsResultChan = make(chan requestTxIdsResult, 1)
 	s.requestTxsResultChan = make(chan requestTxsResult, 1)
@@ -107,12 +115,30 @@ func (s *Server) initProtocol() {
 	s.stopping = false
 	s.stateMu.Unlock()
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) Start() {
@@ -126,7 +152,11 @@ func (s *Server) Start() {
 	p.Start()
 }
 
-// RequestTxIds requests the next set of TX identifiers from the remote node's mempool
+// RequestTxIds requests the next set of TX identifiers from the remote node's
+// mempool. Each request acknowledges every identifier the previous reply
+// announced, so nothing is left unacknowledged and the protocol requires a
+// blocking request for at least one identifier: a non-blocking request, or a
+// request for none, is refused without being sent.
 func (s *Server) RequestTxIds(
 	blocking bool,
 	reqCount int,
@@ -135,7 +165,7 @@ func (s *Server) RequestTxIds(
 	defer s.requestMu.Unlock()
 	s.protocolMu.RLock()
 	s.stateMu.Lock()
-	p := s.Protocol
+	p := s.proto
 	p.Logger().
 		Debug(
 			fmt.Sprintf("calling RequestTxIds(blocking: %+v, reqCount: %d)", blocking, reqCount),
@@ -212,6 +242,16 @@ func (s *Server) RequestTxIds(
 		s.protocolMu.RUnlock()
 		return nil, protocol.ErrProtocolViolationRequestExceeded
 	}
+	if err := checkRequestTxIdsStyle(
+		blocking,
+		ackCount,
+		reqCount,
+		unackedCount,
+	); err != nil {
+		s.stateMu.Unlock()
+		s.protocolMu.RUnlock()
+		return nil, err
+	}
 	pending := &pendingTxIdsRequest{
 		blocking:  blocking,
 		requested: reqCount,
@@ -278,7 +318,7 @@ func (s *Server) RequestTxs(txIds []TxId) ([]TxBody, error) {
 	txIds = append([]TxId(nil), txIds...)
 	s.protocolMu.RLock()
 	s.stateMu.Lock()
-	p := s.Protocol
+	p := s.proto
 	if s.stopping {
 		s.stateMu.Unlock()
 		s.protocolMu.RUnlock()
@@ -474,7 +514,9 @@ func (s *Server) handleDone() error {
 	}
 	s.stopping = true
 	s.pendingTxIds = nil
-	callbackContext := s.callbackContext
+	// p, not ProtocolInstance: protocolMu is taken before stateMu, and Stop
+	// waiting for protocolMu blocks a new reader.
+	callbackContext := s.callbackContext.withOwner(p)
 	resultChan := s.requestTxIdsResultChan
 	s.stateMu.Unlock()
 	p.Logger().
@@ -497,8 +539,11 @@ func (s *Server) handleDone() error {
 		}
 	}
 	// Restart protocol
-	p.StopForRestart()
-	s.initProtocol()
+	_ = p.StopForRestart(p.CallbackContext())
+	if !s.initProtocol() {
+		p.CancelRestart()
+		return nil
+	}
 	s.Start()
 	return nil
 }
@@ -506,7 +551,9 @@ func (s *Server) handleDone() error {
 func (s *Server) handleInit() error {
 	p := s.ProtocolInstance()
 	s.stateMu.Lock()
-	callbackContext := s.callbackContext
+	// p, not ProtocolInstance: protocolMu is taken before stateMu, and Stop
+	// waiting for protocolMu blocks a new reader.
+	callbackContext := s.callbackContext.withOwner(p)
 	s.stateMu.Unlock()
 	p.Logger().
 		Debug("init",

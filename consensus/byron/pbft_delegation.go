@@ -352,27 +352,27 @@ func (s *PBFTDelegationState) scheduleCertificate(
 	return nil
 }
 
+// activate follows Activation.hs activateDelegation: a delegate already in
+// the range of the map, the delegator's own entry included, leaves the state
+// unchanged, so re-delegating to the current delegate keeps the old slot.
 func (s *PBFTDelegationState) activate(
 	delegation pbftScheduledDelegation,
 ) {
 	previousSlot := s.delegationSlots[delegation.delegator]
-	if s.delegateIsActiveForOther(
-		delegation.delegator,
-		delegation.delegate,
-	) || (delegation.activationSlot != 0 &&
-		previousSlot >= delegation.activationSlot) {
+	if s.delegateIsActive(delegation.delegate) ||
+		(delegation.activationSlot != 0 &&
+			previousSlot >= delegation.activationSlot) {
 		return
 	}
 	s.activeDelegations[delegation.delegator] = delegation.delegate
 	s.delegationSlots[delegation.delegator] = delegation.activationSlot
 }
 
-func (s *PBFTDelegationState) delegateIsActiveForOther(
-	delegator common.Blake2b224,
+func (s *PBFTDelegationState) delegateIsActive(
 	delegate common.Blake2b224,
 ) bool {
-	for activeDelegator, activeDelegate := range s.activeDelegations {
-		if activeDelegator != delegator && activeDelegate == delegate {
+	for _, activeDelegate := range s.activeDelegations {
+		if activeDelegate == delegate {
 			return true
 		}
 	}

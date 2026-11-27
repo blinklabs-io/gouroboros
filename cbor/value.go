@@ -63,6 +63,21 @@ func (v *Value) MarshalCBOR() ([]byte, error) {
 	return []byte(v.cborData), nil
 }
 
+// UnmarshalCBOR decodes the first CBOR item in data. The default decode mode's
+// MaxArrayElements and MaxMapPairs bound the whole decoded tree, counting every
+// array element and map pair at any depth, not each collection separately. When
+// Value is the destination of Decode, DecodeStrict or another entry point, that
+// entry point's mode supplies the same totals. A Value nested inside another
+// decoded type, such as a struct field or slice element, is decoded through
+// this method and so uses the default mode's totals whatever mode the outer
+// decode used.
+//
+// The content of an alternative (constructor) tag reached directly by this
+// walk, at the top level or inside arrays and maps, is not counted: it is kept
+// as raw bytes in a ConstructorDecoder rather than decoded into the tree, and
+// its fields are limited by whatever mode later decodes them. Beneath any other
+// tag, the tag's decoder materializes the whole content, so collections there
+// are counted, including those inside constructor tags.
 func (v *Value) UnmarshalCBOR(data []byte) error {
 	if len(data) == 0 {
 		return errors.New("empty CBOR data")
@@ -95,6 +110,30 @@ func (v *Value) unmarshalCBOR(
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
 ) (int, error) {
+	return v.unmarshalCBORWithBudget(
+		data,
+		retainCbor,
+		mapKeyDigestOut,
+		keyItems,
+		depth,
+		duplicateKeyPolicy,
+		decMode,
+		nil,
+	)
+}
+
+// unmarshalCBORWithBudget decodes with a budget shared by the whole tree. A
+// nil budget starts a new tree from decMode's limits.
+func (v *Value) unmarshalCBORWithBudget(
+	data []byte,
+	retainCbor bool,
+	mapKeyDigestOut *[sha256.Size]byte,
+	keyItems *int,
+	depth int,
+	duplicateKeyPolicy duplicateMapKeyPolicy,
+	decMode _cbor.DecMode,
+	budget *valueBudget,
+) (int, error) {
 	if len(data) == 0 {
 		return 0, io.ErrUnexpectedEOF
 	}
@@ -103,6 +142,9 @@ func (v *Value) unmarshalCBOR(
 			"exceeded maximum CBOR nesting depth: %d",
 			MaxNestedLevels,
 		)
+	}
+	if budget == nil {
+		budget = newValueBudget(decMode)
 	}
 	if retainCbor {
 		// The custom walker must inherit the caller's limits before allocating.
@@ -133,6 +175,7 @@ func (v *Value) unmarshalCBOR(
 			depth,
 			duplicateKeyPolicy,
 			decMode,
+			budget,
 		)
 	case CborTypeArray:
 		return v.processArray(
@@ -142,6 +185,7 @@ func (v *Value) unmarshalCBOR(
 			depth,
 			duplicateKeyPolicy,
 			decMode,
+			budget,
 		)
 	case CborTypeTextString:
 		var tmpValue string
@@ -213,7 +257,37 @@ func (v *Value) unmarshalCBOR(
 				return 0, err
 			}
 			v.value = tmpConstr
+		} else if tmpTag.Number == CborTagSet {
+			// The library decodes set members as interface values, which
+			// cannot hold a map keyed by an array or a map, so the members
+			// are walked here like any other list, spending the tree's
+			// budget.
+			var members Value
+			if _, err := members.unmarshalCBORWithBudget(
+				tmpTag.Content,
+				false,
+				nil,
+				nil,
+				depth+1,
+				duplicateKeyPolicy,
+				decMode,
+				budget,
+			); err != nil {
+				return 0, err
+			}
+			items, ok := members.value.([]any)
+			if !ok {
+				return 0, errors.New("CBOR set content is not a list")
+			}
+			v.value = Set(items)
 		} else {
+			// The library decodes this content into a tree of its own, so
+			// its collections are charged before anything is decoded.
+			if err := budget.spendCollections(
+				data[:decodedLength],
+			); err != nil {
+				return 0, err
+			}
 			// Fall back to standard CBOR tag parsing for our supported types
 			var tmpTagDecode any
 			if _, err := decodeWithMode(
@@ -243,6 +317,146 @@ func (v *Value) unmarshalCBOR(
 		setMapKeyDigest(mapKeyDigestOut, v.value)
 		return decodedLength, nil
 	}
+}
+
+// valueBudget bounds what one Value decode retains in total. The decode mode's
+// MaxArrayElements and MaxMapPairs limit each collection on its own, which
+// leaves a tree of many collections, each within its limit, free to retain far
+// more decoded memory than the mode intends. Here the same limits cover every
+// array element and every map pair of the whole tree, so a mode chosen for
+// peer data bounds the memory a Value built from that data can hold.
+type valueBudget struct {
+	arrayElements int
+	mapPairs      int
+	maxArray      int
+	maxMap        int
+}
+
+func newValueBudget(decMode _cbor.DecMode) *valueBudget {
+	opts := decMode.DecOptions()
+	return &valueBudget{
+		arrayElements: opts.MaxArrayElements,
+		mapPairs:      opts.MaxMapPairs,
+		maxArray:      opts.MaxArrayElements,
+		maxMap:        opts.MaxMapPairs,
+	}
+}
+
+func (b *valueBudget) spendArrayElement() error {
+	if b.arrayElements <= 0 {
+		return fmt.Errorf(
+			"cbor: decoded value exceeds %d array elements in total",
+			b.maxArray,
+		)
+	}
+	b.arrayElements--
+	return nil
+}
+
+func (b *valueBudget) spendMapPair() error {
+	if b.mapPairs <= 0 {
+		return fmt.Errorf(
+			"cbor: decoded value exceeds %d map pairs in total",
+			b.maxMap,
+		)
+	}
+	b.mapPairs--
+	return nil
+}
+
+// spendCollections charges every array element and map pair inside the first
+// item of data, which the caller has already checked is well-formed. It walks
+// headers only, so it allocates nothing beyond the nesting stack.
+func (b *valueBudget) spendCollections(data []byte) error {
+	type frame struct {
+		// remaining is the children still owed, or -1 until a break.
+		remaining int64
+		major     byte
+		read      int64
+	}
+	stack := []frame{{remaining: 1}}
+	pos := 0
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		if top.remaining == 0 {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if pos >= len(data) {
+			return io.ErrUnexpectedEOF
+		}
+		first := data[pos]
+		pos++
+		if first == 0xff {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if top.remaining > 0 {
+			top.remaining--
+		}
+		switch {
+		case top.major == 4:
+			if err := b.spendArrayElement(); err != nil {
+				return err
+			}
+		case top.major == 5 && top.read%2 == 0:
+			if err := b.spendMapPair(); err != nil {
+				return err
+			}
+		}
+		top.read++
+		major := first >> 5
+		info := first & 0x1f
+		var arg uint64
+		switch {
+		case info < 24:
+			arg = uint64(info)
+		case info <= 27:
+			size := 1 << (info - 24)
+			if len(data)-pos < size {
+				return io.ErrUnexpectedEOF
+			}
+			for _, c := range data[pos : pos+size] {
+				arg = arg<<8 | uint64(c)
+			}
+			pos += size
+		case info != 31:
+			return errors.New("cbor: invalid CBOR header")
+		}
+		indefinite := info == 31
+		// Every child occupies at least one byte, so a declared length past
+		// the remaining data is truncated and cannot overflow below.
+		if major >= 2 && major <= 5 && !indefinite &&
+			arg > uint64(len(data)-pos) { //nolint:gosec
+			return io.ErrUnexpectedEOF
+		}
+		switch major {
+		case 2, 3:
+			if indefinite {
+				stack = append(stack, frame{remaining: -1, major: major})
+			} else {
+				pos += int(arg) //nolint:gosec
+			}
+		case 4, 5:
+			switch {
+			case indefinite:
+				stack = append(stack, frame{remaining: -1, major: major})
+			case major == 5:
+				stack = append(
+					stack,
+					frame{remaining: int64(arg) * 2, major: major}, //nolint:gosec
+				)
+			default:
+				stack = append(
+					stack,
+					frame{remaining: int64(arg), major: major}, //nolint:gosec
+				)
+			}
+		case 6:
+			stack = append(stack, frame{remaining: 1, major: major})
+		}
+	}
+	return nil
 }
 
 // spendMapKeyItem charges one data item to a composite map key's budget. A
@@ -295,6 +509,7 @@ func (v *Value) processMap(
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
+	budget *valueBudget,
 ) (decodedLength int, err error) {
 	// There are certain types that cannot be used as map keys in Go but are valid in CBOR. Trying to
 	// parse CBOR containing a map with keys of one of those types will cause a panic. We setup this
@@ -337,6 +552,9 @@ func (v *Value) processMap(
 		if err := spendMapKeyItem(keyItems); err != nil {
 			return 0, err
 		}
+		if err := budget.spendMapPair(); err != nil {
+			return 0, err
+		}
 		var (
 			key       Value
 			keyDigest [sha256.Size]byte
@@ -347,7 +565,7 @@ func (v *Value) processMap(
 			remaining := MaxMapKeyItems
 			childKeyItems = &remaining
 		}
-		keyLength, keyErr := key.unmarshalCBOR(
+		keyLength, keyErr := key.unmarshalCBORWithBudget(
 			data[position:],
 			false,
 			&keyDigest,
@@ -355,6 +573,7 @@ func (v *Value) processMap(
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
+			budget,
 		)
 		if keyErr != nil {
 			return 0, keyErr
@@ -385,7 +604,7 @@ func (v *Value) processMap(
 		if err := spendMapKeyItem(keyItems); err != nil {
 			return 0, err
 		}
-		valueLength, valueErr := value.unmarshalCBOR(
+		valueLength, valueErr := value.unmarshalCBORWithBudget(
 			data[position:],
 			false,
 			valueDigestOut,
@@ -393,6 +612,7 @@ func (v *Value) processMap(
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
+			budget,
 		)
 		if valueErr != nil {
 			return 0, valueErr
@@ -433,6 +653,7 @@ func (v *Value) processArray(
 	depth int,
 	duplicateKeyPolicy duplicateMapKeyPolicy,
 	decMode _cbor.DecMode,
+	budget *valueBudget,
 ) (int, error) {
 	itemCount, headerLength, indefinite := ArrayInfo(data)
 	if itemCount < 0 {
@@ -466,7 +687,10 @@ func (v *Value) processArray(
 		if err := spendMapKeyItem(keyItems); err != nil {
 			return 0, err
 		}
-		valueLength, err := value.unmarshalCBOR(
+		if err := budget.spendArrayElement(); err != nil {
+			return 0, err
+		}
+		valueLength, err := value.unmarshalCBORWithBudget(
 			data[position:],
 			false,
 			valueDigestOut,
@@ -474,6 +698,7 @@ func (v *Value) processArray(
 			depth+1,
 			duplicateKeyPolicy,
 			decMode,
+			budget,
 		)
 		if err != nil {
 			return 0, err

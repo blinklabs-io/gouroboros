@@ -530,3 +530,232 @@ func TestBlockLedgerStatePoolPendingParameters(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, reregistered, got)
 }
+
+// reapedPoolLedgerState reports a pool whose retirement has taken effect the
+// way PoolState allows: PoolCurrentState still returns the last registration
+// with the retirement epoch, while IsPoolRegistered reports the pool as no
+// longer registered.
+type reapedPoolLedgerState struct {
+	common.LedgerState
+	pool common.PoolKeyHash
+}
+
+func (s reapedPoolLedgerState) IsPoolRegistered(pool common.PoolKeyHash) bool {
+	if pool == s.pool {
+		return false
+	}
+	return s.LedgerState.IsPoolRegistered(pool)
+}
+
+// A registration for a pool that POOLREAP already removed is a new
+// registration (Map.lookup sppId psStakePools is Nothing in poolTransition,
+// eras/shelley/impl/src/Cardano/Ledger/Shelley/Rules/Pool.hs), so the pool is
+// registered with the new parameters for every later transaction in the
+// block, not held back as a deferred re-registration.
+func TestBlockLedgerStateRegistersReapedPoolAsNew(t *testing.T) {
+	pool := common.PoolKeyHash(bytes.Repeat([]byte{0x32}, 28))
+	retiredEpoch := uint64(4)
+	stale := &common.PoolRegistrationCertificate{
+		Operator:   pool,
+		VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x42}, 32)),
+	}
+	base := reapedPoolLedgerState{
+		LedgerState: mockledger.NewLedgerStateBuilder().
+			WithPoolCurrentState(func(
+				p common.PoolKeyHash,
+			) (*common.PoolRegistrationCertificate, *uint64, error) {
+				if p == pool {
+					return stale, &retiredEpoch, nil
+				}
+				return nil, nil, nil
+			}).
+			Build(),
+		pool: pool,
+	}
+	require.False(t, base.IsPoolRegistered(pool))
+	state := common.NewBlockLedgerState(base)
+	registration := &common.PoolRegistrationCertificate{
+		Operator:   pool,
+		VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x43}, 32)),
+	}
+	applyBlockTestTxs(t, state,
+		blockTestTx(t, 0xa4, true).WithCertificates(registration),
+	)
+	require.True(t, state.IsPoolRegistered(pool))
+	reg, retirement, err := state.PoolCurrentState(pool)
+	require.NoError(t, err)
+	require.Same(t, registration, reg)
+	require.Nil(t, retirement)
+}
+
+// With the block's slot known, the view decides new pool versus
+// re-registration with common.PoolRegistered, as every validation rule does,
+// so a provider whose IsPoolRegistered is derived from a stale
+// PoolCurrentState answer (the mock's, here) cannot make a reaped pool's
+// registration a deferred re-registration. A pool whose retirement is still
+// pending is re-registered.
+func TestBlockLedgerStateAtSlotDecidesWithPoolRegistered(t *testing.T) {
+	const currentEpoch = 5
+	for _, test := range []struct {
+		name       string
+		retirement uint64
+		wantNew    bool
+	}{
+		{"reaped", currentEpoch - 1, true},
+		{"retiring", currentEpoch + 1, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			pool := common.PoolKeyHash(bytes.Repeat([]byte{0x33}, 28))
+			retirement := test.retirement
+			stale := &common.PoolRegistrationCertificate{
+				Operator:   pool,
+				VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x44}, 32)),
+			}
+			base := mockledger.NewLedgerStateBuilder().
+				WithPoolCurrentState(func(
+					p common.PoolKeyHash,
+				) (*common.PoolRegistrationCertificate, *uint64, error) {
+					if p == pool {
+						return stale, &retirement, nil
+					}
+					return nil, nil, nil
+				}).
+				WithEpochForSlot(func(uint64) (uint64, error) {
+					return currentEpoch, nil
+				}).
+				Build()
+			require.True(t, base.IsPoolRegistered(pool), "stale provider")
+			state := common.NewBlockLedgerStateAt(base, 1000)
+			registration := &common.PoolRegistrationCertificate{
+				Operator:   pool,
+				VrfKeyHash: common.Blake2b256(bytes.Repeat([]byte{0x45}, 32)),
+			}
+			applyBlockTestTxs(t, state,
+				blockTestTx(t, 0xa5, true).WithCertificates(registration),
+			)
+			reg, retirementAfter, err := state.PoolCurrentState(pool)
+			require.NoError(t, err)
+			require.Nil(t, retirementAfter)
+			if test.wantNew {
+				require.Same(t, registration, reg)
+				return
+			}
+			require.Same(t, stale, reg)
+			pending, err := state.PoolPendingParameters(pool)
+			require.NoError(t, err)
+			require.Same(t, registration, pending)
+		})
+	}
+}
+
+// GOVCERT accepts a hot-key authorization or a resignation from a cold
+// credential that a pending UpdateCommittee proposal would add
+// (isPotentialFutureMember, cardano-ledger Conway/Rules/GovCert.hs 190-205),
+// and LEDGER builds that proposal set from the state the block's earlier
+// transactions left (Conway/Rules/Ledger.hs 390-416). A proposal made earlier
+// in the block therefore counts.
+func TestBlockLedgerStateTreatsInBlockCommitteeProposalAsPotentialMember(
+	t *testing.T,
+) {
+	cold := blockTestCredential(0x71)
+	hot := blockTestCredential(0x72)
+	scriptCold := common.Credential{
+		CredType:   common.CredentialTypeScriptHash,
+		Credential: cold.Credential,
+	}
+	state := common.NewBlockLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	committee, ok := common.CommitteeCredentialStateFor(state)
+	require.True(t, ok)
+	got, err := committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	newMember := cold
+	propose := blockTestTx(t, 0xb1, true).WithProposalProcedures(
+		conway.ConwayProposalProcedure{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &common.UpdateCommitteeGovAction{
+					CredEpochs: map[*common.Credential]uint64{&newMember: 90},
+				},
+			},
+		},
+	)
+	applyBlockTestTxs(t, state, propose)
+
+	got, err = committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, cold.Credential, got.ColdKey)
+	require.Equal(t, uint64(90), got.ExpiryEpoch)
+	require.False(t, got.Resigned)
+	require.Nil(t, got.HotKey)
+	legacy, err := state.CommitteeMember(cold.Credential)
+	require.NoError(t, err)
+	require.NotNil(t, legacy)
+	// The proposal names a key-hash credential, not the script-hash one
+	// with the same bytes.
+	got, err = committee.CommitteeCredentialMember(scriptCold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+
+	authorize := blockTestTx(t, 0xb2, true).WithCertificates(
+		&common.AuthCommitteeHotCertificate{
+			ColdCredential: cold,
+			HotCredential:  hot,
+		},
+	)
+	require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+		authorize, 0, state, &conway.ConwayProtocolParameters{},
+	))
+	applyBlockTestTxs(t, state, authorize)
+	got, err = committee.CommitteeHotCredentialMember(hot)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, cold.Credential, got.ColdKey)
+
+	resign := blockTestTx(t, 0xb3, true).WithCertificates(
+		&common.ResignCommitteeColdCertificate{ColdCredential: cold},
+	)
+	require.NoError(t, conway.UtxoValidateCommitteeCertificates(
+		resign, 0, state, &conway.ConwayProtocolParameters{},
+	))
+	applyBlockTestTxs(t, state, resign)
+	got, err = committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.True(t, got.Resigned)
+}
+
+// A phase-2-invalid transaction records no proposal, so its UpdateCommittee
+// action makes no one a potential member.
+func TestBlockLedgerStateIgnoresInvalidCommitteeProposal(t *testing.T) {
+	cold := blockTestCredential(0x73)
+	state := common.NewBlockLedgerState(
+		mockledger.NewLedgerStateBuilder().Build(),
+	)
+	newMember := cold
+	applyBlockTestTxs(t, state, blockTestTx(t, 0xb4, false).WithProposalProcedures(
+		conway.ConwayProposalProcedure{
+			PPGovAction: conway.ConwayGovAction{
+				Action: &common.UpdateCommitteeGovAction{
+					CredEpochs: map[*common.Credential]uint64{&newMember: 90},
+				},
+			},
+		},
+	))
+	committee, ok := common.CommitteeCredentialStateFor(state)
+	require.True(t, ok)
+	got, err := committee.CommitteeCredentialMember(cold)
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Error(t, conway.UtxoValidateCommitteeCertificates(
+		blockTestTx(t, 0xb5, true).WithCertificates(
+			&common.AuthCommitteeHotCertificate{
+				ColdCredential: cold,
+				HotCredential:  blockTestCredential(0x74),
+			},
+		), 0, state, &conway.ConwayProtocolParameters{},
+	))
+}

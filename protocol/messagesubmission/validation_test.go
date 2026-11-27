@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -108,6 +109,7 @@ func TestRequestedMessagesMustBeOutstandingAndUnique(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := requestedMessagesAreOutstanding(
 				[][]byte{idA, idB},
+				nil,
 				tt.requested,
 			)
 			require.ErrorIs(
@@ -125,6 +127,7 @@ func TestMessageReplyAllowsOmissionAndRequestIndependentOrdering(t *testing.T) {
 	idC := testMessageID(0xc3)
 	request, err := requestedMessagesAreOutstanding(
 		[][]byte{idA, idB, idC},
+		nil,
 		[][]byte{idA, idB, idC},
 	)
 	require.NoError(t, err)
@@ -235,6 +238,7 @@ func TestServerRejectsUnrequestedMessageBeforeAuthenticationAndCallback(
 	}
 
 	err := server.handleReplyMessages(NewMsgReplyMessages(
+		MessageSubmissionV2MinVersion,
 		[]pcommon.DmqMessage{{MessageID: testMessageID(0xb2)}},
 	))
 
@@ -258,7 +262,7 @@ func TestClientRejectsUnannouncedMessageRequestBeforeCallback(t *testing.T) {
 	client.pendingMessageIDs = [][]byte{testMessageID(0xa1)}
 
 	err := client.handleRequestMessages(
-		NewMsgRequestMessages([][]byte{testMessageID(0xb2)}),
+		NewMsgRequestMessages(MessageSubmissionV2MinVersion, [][]byte{testMessageID(0xb2)}),
 	)
 
 	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
@@ -282,7 +286,7 @@ func TestClientRejectsMessageRequestAboveOutstandingWindowBeforeCallback(
 	)
 	client.pendingMessageIDs = [][]byte{testMessageID(0xa1)}
 
-	err := client.handleRequestMessages(NewMsgRequestMessages([][]byte{
+	err := client.handleRequestMessages(NewMsgRequestMessages(MessageSubmissionV2MinVersion, [][]byte{
 		testMessageID(0xa1),
 		testMessageID(0xb2),
 	}))
@@ -332,7 +336,7 @@ func TestClientAdmitsNextIDRequestAfterReplyEnqueue(t *testing.T) {
 	var nextRequestErr error
 	client.testReplyEnqueued = func() {
 		nextRequestErr = client.handleRequestMessageIds(
-			NewMsgRequestMessageIds(false, 0, 1),
+			NewMsgRequestMessageIds(MessageSubmissionV2MinVersion, false, 0, 1),
 		)
 	}
 
@@ -355,7 +359,7 @@ func TestClientAdmitsNextRequestAfterMessageReplyEnqueue(t *testing.T) {
 	var nextRequestErr error
 	client.testReplyEnqueued = func() {
 		nextRequestErr = client.handleRequestMessageIds(
-			NewMsgRequestMessageIds(false, 0, 1),
+			NewMsgRequestMessageIds(MessageSubmissionV2MinVersion, false, 0, 1),
 		)
 	}
 
@@ -373,7 +377,7 @@ func TestClientRestoresIDRequestAfterEnqueueFailure(t *testing.T) {
 	)
 	request := &messageIDRequest{blocking: true, requested: 1}
 	client.pendingIDRequest = request
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessageIds([]pcommon.MessageIDAndSize{
 		{MessageID: testMessageID(0xa1)},
@@ -394,7 +398,7 @@ func TestClientRestoresMessageRequestAfterEnqueueFailure(t *testing.T) {
 		ids: map[string]struct{}{string(id): {}},
 	}
 	client.pendingMsgRequest = request
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessages([]pcommon.DmqMessage{{MessageID: id}})
 
@@ -414,11 +418,11 @@ func TestClientEnqueueFailureDoesNotOverwriteNewerRequest(t *testing.T) {
 	var nextRequest *messageIDRequest
 	client.testReplyPublished = func() {
 		require.NoError(t, client.handleRequestMessageIds(
-			NewMsgRequestMessageIds(false, 0, 1),
+			NewMsgRequestMessageIds(MessageSubmissionV2MinVersion, false, 0, 1),
 		))
 		nextRequest = client.pendingIDRequest
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessageIds([]pcommon.MessageIDAndSize{
 		{MessageID: testMessageID(0xa1)},
@@ -442,11 +446,11 @@ func TestClientMessageEnqueueFailureDoesNotOverwriteNewerRequest(t *testing.T) {
 	var nextRequest *messageIDRequest
 	client.testReplyPublished = func() {
 		require.NoError(t, client.handleRequestMessageIds(
-			NewMsgRequestMessageIds(false, 0, 1),
+			NewMsgRequestMessageIds(MessageSubmissionV2MinVersion, false, 0, 1),
 		))
 		nextRequest = client.pendingIDRequest
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 
 	err := client.ReplyMessages([]pcommon.DmqMessage{{MessageID: id}})
 
@@ -473,6 +477,7 @@ func TestServerRejectsExcessMessageIDsBeforeCallback(t *testing.T) {
 	}
 
 	err := server.handleReplyMessageIds(NewMsgReplyMessageIds(
+		MessageSubmissionV2MinVersion,
 		[]pcommon.MessageIDAndSize{
 			{MessageID: testMessageID(0xa1)},
 			{MessageID: testMessageID(0xb2)},
@@ -505,8 +510,8 @@ func newStartedMessageSubmissionClient(t *testing.T) *Client {
 	m.Start()
 	client.Start()
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		m.Stop()
+		client.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})
@@ -521,12 +526,12 @@ func newStartedMessageSubmissionServer(t *testing.T) *Server {
 	options.Muxer = m
 	options.ErrorChan = make(chan error, 1)
 	server := NewServer(options, nil)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	m.Start()
 	server.Start()
 	t.Cleanup(func() {
-		server.Protocol.Stop()
-		m.Stop()
+		server.ProtocolInstance().Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		_ = localConn.Close()
 	})

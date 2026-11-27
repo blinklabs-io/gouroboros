@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"math/bits"
 	"reflect"
@@ -154,13 +155,17 @@ type cachedLedgerState struct {
 // transactionScopedMemoEntry holds tx itself, not its address, so the
 // transaction stays reachable for as long as the memo does and a later
 // allocation can never be mistaken for it. done is closed once value and err
-// are set, so concurrent callers for the same entry wait for one build.
+// are set, so concurrent callers for the same entry wait for one build. A
+// build that panics sets abandoned instead, and removes the entry, before
+// done is closed: its waiters then build again rather than read the nil
+// value and nil error the panic left.
 type transactionScopedMemoEntry struct {
-	key   any
-	tx    Transaction
-	value any
-	err   error
-	done  chan struct{}
+	key       any
+	tx        Transaction
+	value     any
+	err       error
+	abandoned bool
+	done      chan struct{}
 }
 
 // TransactionScopedMemoizer is implemented by the ledger state that
@@ -173,7 +178,9 @@ type TransactionScopedMemoizer interface {
 	// key and tx, calling build the first time. A transaction is identified
 	// by object, so a distinct transaction value, such as a Dijkstra
 	// sub-transaction, never shares an entry. A transaction that is not a
-	// pointer is never memoized.
+	// pointer is never memoized. If build panics, nothing is recorded: the
+	// panic reaches the caller that ran build, and the next caller for the
+	// same key, including one already waiting, runs build again.
 	TransactionScopedMemo(
 		tx Transaction,
 		key any,
@@ -234,22 +241,66 @@ func (c *cachedLedgerState) TransactionScopedMemo(
 		(key != nil && !reflect.ValueOf(key).Comparable()) {
 		return build()
 	}
-	c.memoMu.Lock()
-	for _, entry := range c.memo {
-		if entry.tx == tx && entry.key == key {
-			c.memoMu.Unlock()
-			<-entry.done
+	for {
+		entry, owner := c.transactionScopedMemoEntry(tx, key)
+		if owner {
+			return c.buildTransactionScopedMemo(entry, build)
+		}
+		<-entry.done
+		if !entry.abandoned {
 			return entry.value, entry.err
+		}
+	}
+}
+
+// transactionScopedMemoEntry returns the entry for tx and key, adding one if
+// there is none; owner reports whether the caller added it and must build it.
+func (c *cachedLedgerState) transactionScopedMemoEntry(
+	tx Transaction,
+	key any,
+) (*transactionScopedMemoEntry, bool) {
+	c.memoMu.Lock()
+	defer c.memoMu.Unlock()
+	for _, entry := range c.memo {
+		if entry != nil && entry.tx == tx && entry.key == key {
+			return entry, false
 		}
 	}
 	entry := &transactionScopedMemoEntry{
 		key: key, tx: tx, done: make(chan struct{}),
 	}
 	c.memo = append(c.memo, entry)
-	c.memoMu.Unlock()
-	defer close(entry.done)
+	return entry, true
+}
+
+func (c *cachedLedgerState) buildTransactionScopedMemo(
+	entry *transactionScopedMemoEntry,
+	build func() (any, error),
+) (any, error) {
+	built := false
+	defer func() {
+		if !built {
+			c.abandonTransactionScopedMemo(entry)
+		}
+		close(entry.done)
+	}()
 	entry.value, entry.err = build()
+	built = true
 	return entry.value, entry.err
+}
+
+func (c *cachedLedgerState) abandonTransactionScopedMemo(
+	entry *transactionScopedMemoEntry,
+) {
+	c.memoMu.Lock()
+	defer c.memoMu.Unlock()
+	entry.abandoned = true
+	for i, candidate := range c.memo {
+		if candidate == entry {
+			c.memo = append(c.memo[:i], c.memo[i+1:]...)
+			return
+		}
+	}
 }
 
 // UnwrapLedgerState implements LedgerStateUnwrapper, so a package that walks
@@ -287,6 +338,17 @@ func UnwrapLedgerState(ledgerState LedgerState) LedgerState {
 	return nil
 }
 
+// LedgerStateCapabilityParent is implemented by a validation-time view that
+// answers a capability resolved through UnwrapLedgerState itself, such as
+// committee membership after earlier certificates, and so must not implement
+// LedgerStateUnwrapper: unwrapping it would bypass those answers. Every other
+// optional capability belongs to the state it wraps, which
+// CapabilityParentLedgerState returns. First-provider lookups such as
+// EpochStateFor continue through it; UnwrapLedgerState stops at the view.
+type LedgerStateCapabilityParent interface {
+	CapabilityParentLedgerState() LedgerState
+}
+
 // ledgerStateCapabilityFor finds the first provider of a narrow state
 // capability without discarding a validation adapter that implements it.
 func ledgerStateCapabilityFor[T any](ledgerState LedgerState) (T, bool) {
@@ -298,11 +360,15 @@ func ledgerStateCapabilityFor[T any](ledgerState LedgerState) (T, bool) {
 			ledgerState = cached.LedgerState
 			continue
 		}
-		unwrapper, ok := ledgerState.(LedgerStateUnwrapper)
+		if unwrapper, ok := ledgerState.(LedgerStateUnwrapper); ok {
+			ledgerState = unwrapper.UnwrapLedgerState()
+			continue
+		}
+		parent, ok := ledgerState.(LedgerStateCapabilityParent)
 		if !ok {
 			break
 		}
-		ledgerState = unwrapper.UnwrapLedgerState()
+		ledgerState = parent.CapabilityParentLedgerState()
 	}
 	var zero T
 	return zero, false
@@ -584,6 +650,12 @@ func VerifyTransactionWithSignatures(
 }
 
 const (
+	// txTypeShelley is the first era measured from the parts of its
+	// three-component transaction.
+	txTypeShelley = 1
+	// txTypeMary is the last era that uses the Shelley transaction size
+	// encoding.
+	txTypeMary = 3
 	// txTypeAlonzo is the first era whose mempool transaction envelope may
 	// carry the IsValid boolean.
 	txTypeAlonzo = 4
@@ -594,6 +666,12 @@ const (
 
 // TxSize returns the size of a transaction as the Cardano ledger spec defines
 // it — the measure used both for fees and for maxTxSize.
+//
+// For Shelley, Allegra and Mary the Haskell sizeShelleyTxF
+// (Shelley/Tx.hs) is the length of a one-byte array header followed by the
+// body, the witness set and the auxiliary data, a missing one as the single
+// null byte. The received outer array may use another valid framing, which
+// does not change the size.
 //
 // For Alonzo through Conway the Haskell toCBORForSizeComputation encodes a
 // canonical 3-element array [body, witnesses, metadata]. Mempool transaction
@@ -626,6 +704,11 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	fullSize := len(cborData)
+	if tx.Type() >= txTypeShelley && tx.Type() <= txTypeMary {
+		if size, ok := shelleyFamilyTransactionSize(cborData); ok {
+			return size, nil
+		}
+	}
 	if tx.Type() >= txTypeAlonzo && tx.Type() <= txTypeConway {
 		if size, ok := alonzoFamilyTransactionSize(cborData); ok {
 			return size, nil
@@ -641,6 +724,17 @@ func TxSize(tx Transaction) (int, error) {
 		}
 	}
 	return fullSize, nil
+}
+
+// shelleyFamilyTransactionSize reports false when cborData is not exactly one
+// three-component array, leaving the caller to use the received length.
+func shelleyFamilyTransactionSize(cborData []byte) (int, bool) {
+	envelope, err := transactionwire.DecodeShelleyFamilyEnvelope(cborData)
+	if err != nil || envelope.WireSize != len(cborData) {
+		return 0, false
+	}
+	return 1 + len(envelope.Body) + len(envelope.WitnessSet) +
+		len(envelope.AuxiliaryData), true
 }
 
 func alonzoFamilyTransactionSize(cborData []byte) (int, bool) {
@@ -1068,15 +1162,14 @@ func ValidateMIRGenesisQuorum(
 	for _, delegate := range delegates {
 		delegateSet[delegate] = struct{}{}
 	}
-	// Only a signature from a currently delegated genesis key counts, and each
+	// Only a witness for a currently delegated genesis key counts, and each
 	// delegate counts once no matter how often it appears in the witness set.
+	// A delegate hash may be a bootstrap address root, which the reference
+	// counts like a vkey hash (genSig is taken over keyHashWitnessesTxWits).
 	signed := make(map[Blake2b224]struct{}, len(delegateSet))
-	if w := tx.Witnesses(); w != nil {
-		for _, vw := range w.Vkey() {
-			hash := Blake2b224Hash(vw.Vkey)
-			if _, ok := delegateSet[hash]; ok {
-				signed[hash] = struct{}{}
-			}
+	for hash := range witnessKeyHashes(tx.Witnesses()) {
+		if _, ok := delegateSet[hash]; ok {
+			signed[hash] = struct{}{}
 		}
 	}
 	if uint(len(signed)) < quorum {
@@ -1097,7 +1190,9 @@ func ValidateClassicProtocolParameterUpdates(
 	pp ProtocolParameters,
 ) error {
 	targetEpoch, updates := tx.ProtocolParameterUpdates()
-	if len(updates) == 0 {
+	// Only an absent update (a nil map) skips the rule. An update whose
+	// proposal map is empty still has its target epoch checked.
+	if updates == nil {
 		return nil
 	}
 	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
@@ -1122,12 +1217,7 @@ func ValidateClassicProtocolParameterUpdates(
 		}
 		delegateSet[genesisKey] = delegateKey
 	}
-	signedDelegates := make(map[Blake2b224]struct{})
-	if w := tx.Witnesses(); w != nil {
-		for _, witness := range w.Vkey() {
-			signedDelegates[Blake2b224Hash(witness.Vkey)] = struct{}{}
-		}
-	}
+	signedDelegates := witnessKeyHashes(tx.Witnesses())
 	for genesisKey := range updates {
 		delegateKey := delegateSet[genesisKey]
 		if _, ok := signedDelegates[delegateKey]; !ok {
@@ -1196,14 +1286,55 @@ func ValidateClassicProtocolParameterUpdates(
 	return nil
 }
 
+// ValidateClassicProtocolParameterUpdateWitnesses requires a witness, vkey
+// or bootstrap root, from the current delegate of every proposing genesis key
+// that is in the genesis delegation map. It is the UTXOW part of PPUP
+// authorization (witsVKeyNeededGenDelegs), which applies to every
+// transaction; a proposing key outside the map needs no witness here,
+// because rejecting it is the PPUP rule's job.
+func ValidateClassicProtocolParameterUpdateWitnesses(
+	tx Transaction,
+	slot uint64,
+	ls LedgerState,
+) error {
+	_, updates := tx.ProtocolParameterUpdates()
+	if len(updates) == 0 {
+		return nil
+	}
+	genesisState, ok := UnwrapLedgerState(ls).(GenesisDelegationState)
+	if !ok {
+		return GenesisDelegationStateUnavailableError{}
+	}
+	signed := witnessKeyHashes(tx.Witnesses())
+	for genesisKey := range updates {
+		delegateKey, ok, err := genesisState.GenesisDelegateForGenesisKey(
+			genesisKey,
+			slot,
+		)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		if _, ok := signed[delegateKey]; !ok {
+			return ProtocolParameterUpdateWitnessError{Delegate: genesisKey}
+		}
+	}
+	return nil
+}
+
 func protocolVersionCanFollow(
 	current ProtocolParametersProtocolVersion,
 	proposed ProtocolParametersProtocolVersion,
 ) bool {
 	majorIncrement := current.Major < ^uint(0) &&
 		proposed.Major == current.Major+1 && proposed.Minor == 0
+	// The minor version is 32 bits wide and its successor is computed in
+	// 32 bits, so it wraps from the maximum to zero.
 	minorIncrement := proposed.Major == current.Major &&
-		current.Minor < ^uint(0) && proposed.Minor == current.Minor+1
+		current.Minor <= math.MaxUint32 &&
+		proposed.Minor == uint(uint32(current.Minor)+1)
 	return majorIncrement || minorIncrement
 }
 

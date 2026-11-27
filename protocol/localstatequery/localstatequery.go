@@ -16,6 +16,7 @@
 package localstatequery
 
 import (
+	"context"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/connection"
@@ -158,6 +159,27 @@ type CallbackContext struct {
 	ConnectionId connection.ConnectionId
 	Client       *Client
 	Server       *Server
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // Callback function types
@@ -181,10 +203,9 @@ type LocalStateQueryOptionFunc func(*Config)
 
 // NewConfig returns a new LocalStateQuery config object with the provided options
 func NewConfig(options ...LocalStateQueryOptionFunc) Config {
-	c := Config{
-		AcquireTimeout: 5 * time.Second,
-		QueryTimeout:   180 * time.Second,
-	}
+	// No default timeouts: the specification sets none for node-to-client
+	// protocols, and the reference defines no time limits for this one.
+	c := Config{}
 	// Apply provided options functions
 	for _, option := range options {
 		option(&c)
@@ -213,14 +234,16 @@ func WithReleaseFunc(releaseFunc ReleaseFunc) LocalStateQueryOptionFunc {
 	}
 }
 
-// WithAcquireTimeout specifies the timeout for the Acquire operation when acting as a client
+// WithAcquireTimeout specifies the timeout for the Acquire operation when
+// acting as a client. There is none by default, as in the reference.
 func WithAcquireTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.AcquireTimeout = timeout
 	}
 }
 
-// WithQueryTimeout specifies the timeout for the Query operation when acting as a client
+// WithQueryTimeout specifies the timeout for the Query operation when acting
+// as a client. There is none by default, as in the reference.
 func WithQueryTimeout(timeout time.Duration) LocalStateQueryOptionFunc {
 	return func(c *Config) {
 		c.QueryTimeout = timeout

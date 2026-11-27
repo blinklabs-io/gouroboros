@@ -15,11 +15,13 @@
 package leiosvotes
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/stopping"
 )
 
 type Client struct {
@@ -94,7 +96,14 @@ func (c *Client) Start() {
 	})
 }
 
-func (c *Client) Stop() error {
+// Stop sends the message that ends the client's run and waits up to 250ms
+// for it to be written, then stops the protocol. It signals shutdown at
+// once. When ctx is the Context of a CallbackContext this client passed to a
+// callback, Stop returns without waiting for the protocol's goroutines,
+// since the goroutine running the callback is one of them. Otherwise it
+// waits until they have returned, or until ctx is done, in which case it
+// returns ctx.Err() and shutdown still proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.onceStop.Do(func() {
 		c.Protocol.Logger().
 			Debug("stopping client protocol",
@@ -105,8 +114,11 @@ func (c *Client) Stop() error {
 		c.sendMutex.Lock()
 		defer c.sendMutex.Unlock()
 		c.stopping = true
-		c.stopErr = c.SendMessage(NewMsgDone())
+		c.stopErr = stopping.SendDone(ctx, c.Protocol, NewMsgDone())
 	})
+	if err := c.Protocol.Stop(ctx); err != nil {
+		return err
+	}
 	return c.stopErr
 }
 
@@ -186,7 +198,7 @@ func (c *Client) Sync() error {
 }
 
 func (c *Client) startVoteLoop(outstanding uint64) {
-	go c.RunLoop("vote loop", func() {
+	c.RunLoop("vote loop", func() {
 		c.voteLoop(outstanding)
 	})
 }
@@ -205,7 +217,7 @@ func (c *Client) voteLoop(outstanding uint64) {
 			if outstanding > 0 {
 				outstanding--
 			}
-			if err := c.config.VoteFunc(c.callbackContext, vote); err != nil {
+			if err := c.config.VoteFunc(c.callbackContext.withOwner(c.Protocol), vote); err != nil {
 				if errors.Is(err, ErrStopVoteProcess) {
 					c.drainVotes(outstanding)
 					return

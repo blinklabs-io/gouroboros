@@ -15,6 +15,7 @@
 package messagesubmission
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -38,9 +39,9 @@ func TestV2StateMapStartsInIdle(t *testing.T) {
 	entry := stateMapV2[protocolStateIdle]
 	assert.Equal(
 		t,
-		protocol.AgencyServer,
+		protocol.AgencyClient,
 		entry.Agency,
-		"StIdle agency must be Server in V2",
+		"StIdle agency must belong to the initiator in V2",
 	)
 }
 
@@ -49,7 +50,7 @@ func TestV2StateMapMsgDoneOnlyFromIdle(t *testing.T) {
 	idleEntry := stateMapV2[protocolStateIdle]
 	hasDoneFromIdle := false
 	for _, tr := range idleEntry.Transitions {
-		if tr.MsgType == MessageTypeDone {
+		if tr.MsgType == MessageTypeV2Done {
 			hasDoneFromIdle = true
 			assert.Equal(
 				t,
@@ -70,7 +71,7 @@ func TestV2StateMapMsgDoneOnlyFromIdle(t *testing.T) {
 	for _, tr := range blockEntry.Transitions {
 		assert.NotEqual(
 			t,
-			uint(MessageTypeDone),
+			uint8(MessageTypeV2Done),
 			tr.MsgType,
 			"StMessageIdsBlocking must not have MsgDone in V2",
 		)
@@ -81,7 +82,7 @@ func TestV2StateMapMsgDoneOnlyFromIdle(t *testing.T) {
 	for _, tr := range nonBlockEntry.Transitions {
 		assert.NotEqual(
 			t,
-			uint(MessageTypeDone),
+			uint8(MessageTypeV2Done),
 			tr.MsgType,
 			"StMessageIdsNonBlocking must not have MsgDone in V2",
 		)
@@ -117,7 +118,7 @@ func TestV1StateMapMsgDoneOnlyFromBlocking(t *testing.T) {
 	for _, tr := range idleEntry.Transitions {
 		assert.NotEqual(
 			t,
-			uint(MessageTypeDone),
+			uint8(MessageTypeV1Done),
 			tr.MsgType,
 			"V1 StIdle must not have MsgDone transition",
 		)
@@ -127,7 +128,7 @@ func TestV1StateMapMsgDoneOnlyFromBlocking(t *testing.T) {
 	blockEntry := stateMapV1[protocolStateMessageIdsBlock]
 	hasDone := false
 	for _, tr := range blockEntry.Transitions {
-		if tr.MsgType == MessageTypeDone {
+		if tr.MsgType == MessageTypeV1Done {
 			hasDone = true
 		}
 	}
@@ -142,7 +143,7 @@ func TestV1StateMapMsgDoneOnlyFromBlocking(t *testing.T) {
 	for _, tr := range nonBlockEntry.Transitions {
 		assert.NotEqual(
 			t,
-			uint(MessageTypeDone),
+			uint8(MessageTypeV1Done),
 			tr.MsgType,
 			"V1 StMessageIdsNonBlocking must not have MsgDone transition",
 		)
@@ -189,10 +190,10 @@ func TestV2ClientStopIsNoop(t *testing.T) {
 	cfg := NewConfig()
 	c := NewClient(newTestProtoOptions(MessageSubmissionV2MinVersion), &cfg)
 	// Stop should be a no-op in V2 (no MsgDone sent)
-	err := c.Stop()
+	err := c.Stop(context.Background())
 	assert.NoError(t, err, "V2 client Stop() must succeed as a no-op")
 	// Calling Stop again should also be fine
-	err = c.Stop()
+	err = c.Stop(context.Background())
 	assert.NoError(t, err)
 }
 

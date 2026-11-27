@@ -15,7 +15,9 @@
 package cbor_test
 
 import (
+	"bytes"
 	"encoding/hex"
+	"errors"
 	"math"
 	"math/bits"
 	"testing"
@@ -321,6 +323,231 @@ func TestStreamDecoderDecodeArrayItems(t *testing.T) {
 	assert.Equal(t, 0, items[0].index)
 	assert.Equal(t, 1, items[0].offset)
 	assert.Equal(t, 1, items[0].length)
+}
+
+func TestStreamDecoderDecodeArrayItemsStopsOnCallbackError(t *testing.T) {
+	t.Parallel()
+	// [1, <reserved additional info 28>]: the second item is malformed.
+	data, err := hex.DecodeString("82011c")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+
+	errStop := errors.New("stop")
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return errStop
+		},
+	)
+	require.ErrorIs(t, err, errStop)
+	assert.Equal(
+		t,
+		[]int{0},
+		seen,
+		"callback must run for item 0 before item 1 is examined",
+	)
+}
+
+func TestStreamDecoderDecodeArrayItemsMalformedLaterItem(t *testing.T) {
+	t.Parallel()
+	data, err := hex.DecodeString("82011c")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return nil
+		},
+	)
+	require.Error(t, err)
+	assert.Equal(t, []int{0}, seen)
+}
+
+func TestStreamDecoderDecodeArrayItemsOffsets(t *testing.T) {
+	t.Parallel()
+	// 0x98 0x02: non-canonical one-byte count; items 0x01 and 0x42 0xaa 0xbb.
+	// A leading integer shifts the array start to offset 1.
+	data, err := hex.DecodeString("05980201" + "42aabb")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+	_, _, err = dec.Skip()
+	require.NoError(t, err)
+
+	type item struct {
+		index, offset, length int
+		data                  []byte
+	}
+	var got []item
+	start, length, err := dec.DecodeArrayItems(
+		func(index int, offset int, length int, data []byte) error {
+			got = append(got, item{index, offset, length, data})
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 1, start)
+	assert.Equal(t, len(data)-1, length)
+	assert.Equal(
+		t,
+		[]item{
+			{0, 3, 1, []byte{0x01}},
+			{1, 4, 3, []byte{0x42, 0xaa, 0xbb}},
+		},
+		got,
+	)
+	assert.True(t, dec.EOF())
+}
+
+func TestStreamDecoderDecodeArrayItemsNilCallback(t *testing.T) {
+	t.Parallel()
+	data, err := hex.DecodeString("83010203")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+	start, length, err := dec.DecodeArrayItems(nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, start)
+	assert.Equal(t, 4, length)
+	assert.True(t, dec.EOF())
+}
+
+func TestStreamDecoderDecodeArrayItemsCallbackMovesDecoder(t *testing.T) {
+	t.Parallel()
+	// [1, 2] followed by 3, 4: a callback that skips on the same decoder
+	// would otherwise shift item 1 and the returned range past the array.
+	data, err := hex.DecodeString("8201020304")
+	require.NoError(t, err)
+	dec, err := cbor.NewStreamDecoder(data)
+	require.NoError(t, err)
+
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			_, _, skipErr := dec.Skip()
+			return skipErr
+		},
+	)
+	require.ErrorContains(t, err, "moved the decoder")
+	assert.Equal(t, []int{0}, seen)
+}
+
+func TestStreamDecoderDecodeArrayItemsMaxArrayElements(t *testing.T) {
+	t.Parallel()
+	// 0x9a 0x00989681: a count of 10,000,001, one over the untrusted mode's
+	// MaxArrayElements, followed by a single item.
+	data, err := hex.DecodeString("9a0098968101")
+	require.NoError(t, err)
+	dec, err := cbor.NewUntrustedStreamDecoder(data)
+	require.NoError(t, err)
+
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return nil
+		},
+	)
+	require.ErrorContains(t, err, "exceeded max number of elements 10000000")
+	assert.Empty(t, seen, "the count must be rejected before any callback")
+}
+
+func TestStreamDecoderDecodeArrayItemsNestingCountsOuterArray(t *testing.T) {
+	t.Parallel()
+	// n nested one-element arrays around 0: the outer array read by
+	// DecodeArrayItems is one of the n levels.
+	nested := func(n int) []byte {
+		return append(bytes.Repeat([]byte{0x81}, n), 0x00)
+	}
+	limit := cbor.MaxUntrustedNestedLevels
+
+	dec, err := cbor.NewUntrustedStreamDecoder(nested(limit))
+	require.NoError(t, err)
+	_, length, err := dec.DecodeArrayItems(nil)
+	require.NoError(t, err)
+	assert.Equal(t, limit+1, length)
+
+	dec, err = cbor.NewUntrustedStreamDecoder(nested(limit + 1))
+	require.NoError(t, err)
+	var seen []int
+	_, _, err = dec.DecodeArrayItems(
+		func(index int, _ int, _ int, _ []byte) error {
+			seen = append(seen, index)
+			return nil
+		},
+	)
+	require.ErrorContains(t, err, "exceeded max nested level")
+	assert.Empty(t, seen)
+}
+
+func TestStreamDecoderDecodeArrayItemsBuiltinTagContent(t *testing.T) {
+	t.Parallel()
+	tests := map[string]struct {
+		hex     string
+		wantErr string
+	}{
+		"tag 2 with byte string": {hex: "81c24101"},
+		"tag 2 with integer": {
+			hex:     "81c201",
+			wantErr: "tag number 2 or 3 must be followed by byte string",
+		},
+		"tag 1 with map": {
+			hex:     "81c1a0",
+			wantErr: "tag number 1 must be followed by integer",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := hex.DecodeString(tc.hex)
+			require.NoError(t, err)
+			dec, err := cbor.NewStreamDecoder(data)
+			require.NoError(t, err)
+			var seen []int
+			_, _, err = dec.DecodeArrayItems(
+				func(index int, _ int, _ int, _ []byte) error {
+					seen = append(seen, index)
+					return nil
+				},
+			)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				assert.Equal(t, []int{0}, seen)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
+			assert.Empty(t, seen)
+		})
+	}
+}
+
+func TestStreamDecoderDecodeArrayItemsRejects(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"indefinite array": "9f0102ff",
+		"not an array":     "01",
+		"truncated items":  "830102",
+		"empty input":      "",
+	}
+	for name, h := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			data, err := hex.DecodeString(h)
+			require.NoError(t, err)
+			dec, err := cbor.NewStreamDecoder(data)
+			if err != nil {
+				return
+			}
+			_, _, err = dec.DecodeArrayItems(nil)
+			require.Error(t, err)
+		})
+	}
 }
 
 func TestArrayInfo(t *testing.T) {

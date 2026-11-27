@@ -19,9 +19,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
 )
 
 // Internal wire versions of a LedgerPeerSnapshot result. Version 1 answers
@@ -525,9 +527,11 @@ func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
 		if _, err := cbor.Decode(inner[0], &tmp.Slot); err != nil {
 			return err
 		}
-		if _, err := cbor.Decode(inner[1], &tmp.Pools); err != nil {
+		var pools growingArray[PoolLedgerPeers]
+		if _, err := cbor.Decode(inner[1], &pools); err != nil {
 			return err
 		}
+		tmp.Pools = pools
 		*l = tmp
 		return nil
 	}
@@ -547,44 +551,65 @@ func (l *LedgerPeerSnapshotResult) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(inner[1], &tmp.NetworkMagic); err != nil {
 		return fmt.Errorf("LedgerPeerSnapshot: network magic: %w", err)
 	}
-	var rawPools []cbor.RawMessage
-	if _, err := cbor.Decode(inner[2], &rawPools); err != nil {
-		return err
+	// Pools are appended as they decode: collecting the raw items first would
+	// size a slice from the peer-declared count before any pool is checked.
+	tmp.Pools = make([]PoolLedgerPeers, 0)
+	// A null pool list means no pools, matching the v1 decoder; VisitArray
+	// alone would reject it.
+	if pools := cbor.SkipTags(inner[2]); len(pools) == 1 &&
+		(pools[0] == 0xf6 || pools[0] == 0xf7) {
+		*l = tmp
+		return nil
 	}
-	tmp.Pools = make([]PoolLedgerPeers, 0, len(rawPools))
-	for _, rawPool := range rawPools {
-		// A pool is a fixed-shape record of at most three fields, so its
-		// length is bounded before a slice is allocated for it.
-		fields, err := decodeBoundedArray(rawPool, 3, "LedgerPeerSnapshot pool")
-		if err != nil {
-			return err
-		}
-		var pool PoolLedgerPeers
-		if version == ledgerPeerSnapshotWireVersionBig {
-			if len(fields) != 3 {
+	err = cborpreflight.VisitArray(
+		inner[2],
+		math.MaxInt,
+		"LedgerPeerSnapshot pools",
+		func(_ int, rawPool []byte) error {
+			// A pool is a fixed-shape record of at most three fields, so its
+			// length is bounded before a slice is allocated for it.
+			fields, err := decodeBoundedArray(
+				rawPool,
+				3,
+				"LedgerPeerSnapshot pool",
+			)
+			if err != nil {
+				return err
+			}
+			var pool PoolLedgerPeers
+			if version == ledgerPeerSnapshotWireVersionBig {
+				if len(fields) != 3 {
+					return fmt.Errorf(
+						"LedgerPeerSnapshot v2 pool: expected 3 elements, got %d",
+						len(fields),
+					)
+				}
+				acc, err := decodeRational(fields[0])
+				if err != nil {
+					return fmt.Errorf("accumulated stake: %w", err)
+				}
+				pool.AccumulatedStake = &cbor.Rat{Rat: acc}
+				fields = fields[1:]
+			} else if len(fields) != 2 {
 				return fmt.Errorf(
-					"LedgerPeerSnapshot v2 pool: expected 3 elements, got %d",
+					"LedgerPeerSnapshot v3 pool: expected 2 elements, got %d",
 					len(fields),
 				)
 			}
-			acc, err := decodeRational(fields[0])
+			stake, relays, err := decodeStakeAndRelays(fields[0], fields[1])
 			if err != nil {
-				return fmt.Errorf("accumulated stake: %w", err)
+				return err
 			}
-			pool.AccumulatedStake = &cbor.Rat{Rat: acc}
-			fields = fields[1:]
-		} else if len(fields) != 2 {
-			return fmt.Errorf(
-				"LedgerPeerSnapshot v3 pool: expected 2 elements, got %d",
-				len(fields),
-			)
-		}
-		stake, relays, err := decodeStakeAndRelays(fields[0], fields[1])
-		if err != nil {
-			return err
-		}
-		pool.Detail = PoolLedgerPeersDetail{PoolStake: stake, Relays: relays}
-		tmp.Pools = append(tmp.Pools, pool)
+			pool.Detail = PoolLedgerPeersDetail{
+				PoolStake: stake,
+				Relays:    relays,
+			}
+			tmp.Pools = append(tmp.Pools, pool)
+			return nil
+		},
+	)
+	if err != nil {
+		return err
 	}
 	*l = tmp
 	return nil

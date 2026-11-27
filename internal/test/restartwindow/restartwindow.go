@@ -62,8 +62,8 @@ func New(t *testing.T, protocolId uint16) *Harness {
 		protocolId: protocolId,
 	}
 	t.Cleanup(func() {
-		h.Client.Stop()
-		h.Server.Stop()
+		_ = h.Client.Stop(context.Background())
+		_ = h.Server.Stop(context.Background())
 		_ = clientConn.Close()
 		_ = serverConn.Close()
 	})

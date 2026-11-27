@@ -46,7 +46,7 @@ type PBFTIssuer struct {
 
 // ValidatePBFTHeader validates the stateless and delegation-ledger-view parts
 // of a Byron PBFT main-block header. It verifies the protocol magic, the exact
-// Byron block and proxy-certificate signatures, genesis issuer membership,
+// Byron block and delegation-certificate signatures, genesis issuer membership,
 // and that the signing delegate matches the caller's active delegation view.
 //
 // This deliberately does not apply OBFT round-robin leader selection. The
@@ -205,6 +205,24 @@ func validatePBFTDelegateBlockSignature(
 	blockSignature, ok := inner[1].([]byte)
 	if !ok || len(blockSignature) != ed25519.SignatureSize {
 		return errors.New("invalid Byron PBFT delegate block signature")
+	}
+	indexCbor, err := proxyCertIndexCbor(input.HeaderCbor)
+	if err != nil {
+		return fmt.Errorf(
+			"recover Byron PBFT delegation certificate index: %w",
+			err,
+		)
+	}
+	if err := validator.validateDelegationCertSignature(
+		issuerKey,
+		delegateKey,
+		certificateSignature,
+		indexCbor,
+	); err != nil {
+		return fmt.Errorf(
+			"delegation certificate signature verification failed: %w",
+			err,
+		)
 	}
 	toSign, _, err := validator.buildToSignWithEpoch(input)
 	if err != nil {

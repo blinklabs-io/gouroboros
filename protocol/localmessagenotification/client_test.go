@@ -16,6 +16,7 @@ package localmessagenotification
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
@@ -51,7 +52,7 @@ func clientTestMessage(
 	t.Helper()
 	msg := pcommon.DmqMessage{
 		Payload: pcommon.DmqMessagePayload{
-			MessageBody: []byte(body),
+			MessageBody: paddedTestBody(body),
 			KESPeriod:   1,
 			ExpiresAt:   expiresAt,
 		},
@@ -99,7 +100,7 @@ func clientTestSignedMessages(
 	messages := make([]pcommon.DmqMessage, len(bodies))
 	for i := range bodies {
 		payload := pcommon.DmqMessagePayload{
-			MessageBody: []byte(bodies[i]),
+			MessageBody: paddedTestBody(bodies[i]),
 			KESPeriod:   1,
 			ExpiresAt:   expiresAt[i],
 		}
@@ -130,6 +131,9 @@ func clientTestSignedMessages(
 	}
 	authenticator, err := pcommon.NewMessageAuthenticator(
 		pcommon.MessageAuthenticatorConfig{
+			// The fixtures sign several messages of one pool at once to
+			// test the opcert counter, so the rate limit is off.
+			MinSigDelay:    -1,
 			StakeAuthority: clientTestStakeAuthority{},
 			CurrentSlot: func() (uint64, error) {
 				return 129600, nil
@@ -437,7 +441,9 @@ func TestClientDefaultReplayBoundHoldsHonestMempool(t *testing.T) {
 
 	require.NoError(t, client.messageHandler(
 		NewMsgReplyMessagesNonBlocking(
-			[]pcommon.DmqMessage{clientTestMessage(t, "fresh", 1900)},
+			// 1899 is the furthest expiry the 1800 s bound admits at
+			// now = 100; the bound itself is excluded.
+			[]pcommon.DmqMessage{clientTestMessage(t, "fresh", 1899)},
 			false,
 		),
 	))
@@ -458,8 +464,8 @@ func TestNewClientUsesConfiguredReplyLimitInProtocolDecoder(t *testing.T) {
 		&cfg,
 	)
 	t.Cleanup(func() {
-		client.Protocol.Stop()
-		m.Stop()
+		client.Protocol.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})
@@ -545,26 +551,41 @@ func TestClientFullReplayCacheDoesNotRejectDuplicateAdmission(t *testing.T) {
 }
 
 func TestClientPreservesGenuineEmptyReplyCallback(t *testing.T) {
-	for _, blocking := range []bool{false, true} {
-		t.Run(fmt.Sprintf("blocking=%t", blocking), func(t *testing.T) {
-			var callbacks atomic.Int32
-			cfg := NewConfig(
-				WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
-				WithReplyMessagesFunc(
-					func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
-						callbacks.Add(1)
-						require.Empty(t, messages)
-					},
-				),
-			)
-			client := NewClient(protocol.ProtocolOptions{}, &cfg)
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(_ CallbackContext, messages []pcommon.DmqMessage, _ bool) {
+				callbacks.Add(1)
+				require.Empty(t, messages)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
 
-			require.NoError(t, client.messageHandler(
-				testReplyMessages(blocking, nil),
-			))
-			require.Equal(t, int32(1), callbacks.Load())
-		})
-	}
+	require.NoError(t, client.messageHandler(testReplyMessages(false, nil)))
+	require.Equal(t, int32(1), callbacks.Load())
+}
+
+// TestClientRefusesEmptyBlockingReply checks that an empty answer to a
+// blocking request is a protocol violation: CIP-0137 defines the blocking
+// reply as [2, [+ message]], and dmq-node's codec fails to decode an empty
+// one, so a server that sends it is broken and the callback must not see it.
+func TestClientRefusesEmptyBlockingReply(t *testing.T) {
+	var callbacks atomic.Int32
+	cfg := NewConfig(
+		WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		WithReplyMessagesFunc(
+			func(CallbackContext, []pcommon.DmqMessage, bool) {
+				callbacks.Add(1)
+			},
+		),
+	)
+	client := NewClient(protocol.ProtocolOptions{}, &cfg)
+
+	err := client.messageHandler(testReplyMessages(true, nil))
+	require.ErrorIs(t, err, protocol.ErrProtocolViolationInvalidMessage)
+	require.Zero(t, callbacks.Load())
 }
 
 func TestClientReplayCacheUsesBoundForZeroValueConfig(t *testing.T) {
@@ -764,4 +785,14 @@ func TestClientExpiryRejectionDoesNotCommitHigherOpCert(t *testing.T) {
 	require.ErrorContains(t, err, "TTL validation failed")
 	_, err = client.validateAndReserve(messages[1:])
 	require.NoError(t, err)
+}
+
+// paddedTestBody pads body to the minimum DMQ message body size, keeping
+// distinct bodies distinct.
+func paddedTestBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < pcommon.MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

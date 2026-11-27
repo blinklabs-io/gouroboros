@@ -15,6 +15,7 @@
 package handshake_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"reflect"
@@ -134,7 +135,7 @@ func TestClientAcceptVersionValidation(t *testing.T) {
 						},
 					)
 					protoMuxer := muxer.New(mockConn)
-					defer protoMuxer.Stop()
+					defer protoMuxer.Stop(context.Background())
 					errorChan := make(chan error, 1)
 					finishedChan := make(chan struct {
 						version uint16
@@ -161,7 +162,7 @@ func TestClientAcceptVersionValidation(t *testing.T) {
 						},
 						Muxer: protoMuxer, ErrorChan: errorChan, Mode: mode,
 					}, &config)
-					defer client.Stop()
+					defer client.Stop(context.Background())
 					client.Start()
 					protoMuxer.StartOnce()
 					select {
@@ -284,7 +285,7 @@ func TestClientNtCAccept(t *testing.T) {
 		)
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -338,7 +339,7 @@ func TestClientNtNAccept(t *testing.T) {
 		)
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -392,7 +393,7 @@ func TestClientNtNAcceptV11(t *testing.T) {
 		)
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -955,7 +956,7 @@ func TestClientAcceptsRequestedQueryReply(t *testing.T) {
 	require.Nil(t, protoVersionData)
 	require.NotEmpty(t, oConn.QueryReplyVersionMap())
 	require.Nil(t, oConn.ChainSync())
-	require.NoError(t, oConn.Close())
+	require.NoError(t, oConn.Close(context.Background()))
 	select {
 	case <-oConn.ErrorChan():
 	case <-time.After(10 * time.Second):

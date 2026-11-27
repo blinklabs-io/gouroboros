@@ -15,6 +15,7 @@
 package common
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
@@ -83,35 +84,6 @@ func TestMessageAuthenticatorRequiresStakeAuthority(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
 }
 
-func TestMessageAuthenticatorRequiresChainAuthorities(t *testing.T) {
-	stake := newStubStakeAuthority()
-	for _, test := range []struct {
-		name string
-		cfg  MessageAuthenticatorConfig
-	}{
-		{
-			name: "current slot",
-			cfg: MessageAuthenticatorConfig{
-				StakeAuthority:        stake,
-				PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-			},
-		},
-		{
-			name: "operational certificate",
-			cfg: MessageAuthenticatorConfig{
-				StakeAuthority: stake,
-				CurrentSlot:    testCurrentSlot,
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			auth, err := NewMessageAuthenticator(test.cfg)
-			require.Nil(t, auth)
-			require.ErrorIs(t, err, ErrAuthenticatorMisconfigured)
-		})
-	}
-}
-
 // TestVerifyMessageNil tests nil message verification
 func TestVerifyMessageNil(t *testing.T) {
 	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
@@ -137,7 +109,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 
 	msg := &DmqMessage{
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("test-body"),
+			MessageBody: paddedBody("test-body"),
 			KESPeriod:   100,
 			ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 		},
@@ -159,7 +131,7 @@ func TestVerifyMessageInvalidCertificate(t *testing.T) {
 	stake.register(poolID, 1000)
 
 	err = auth.VerifyMessage(msg)
-	assert.Error(t, err)
+	assert.ErrorContains(t, err, "operational certificate verification failed")
 }
 
 // TestVerifyMessageUnauthorizedPool tests that a message from a pool absent
@@ -674,7 +646,7 @@ func TestDmqMessageCBORUsesCurrentCIPShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -712,7 +684,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	msg := DmqMessage{
 		Payload: DmqMessagePayload{
 			MessageID:   []byte("legacy-id"),
-			MessageBody: []byte("body"),
+			MessageBody: paddedBody("body"),
 			KESPeriod:   1,
 			ExpiresAt:   2,
 		},
@@ -739,7 +711,7 @@ func TestDmqMessageCBORDecodesLegacyShape(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, []byte("legacy-id"), decoded.MessageID)
 	assert.Equal(t, []byte("legacy-id"), decoded.Payload.MessageID)
-	assert.Equal(t, []byte("body"), decoded.Payload.MessageBody)
+	assert.Equal(t, paddedBody("body"), decoded.Payload.MessageBody)
 }
 
 // TestVerifyKESSignatureInvalidSize tests KES signature verification with invalid size
@@ -774,7 +746,7 @@ func TestVerifyKESSignatureInvalidSize(t *testing.T) {
 		OperationalCertificate: opcert,
 		ColdVerificationKey:    []byte(pub),
 		Payload: DmqMessagePayload{
-			MessageBody: []byte("body"),
+			MessageBody: bytes.Repeat([]byte{0x42}, MinMessageBodySize),
 			KESPeriod:   1,
 			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
@@ -843,7 +815,7 @@ func buildSignedTestMessageOver(
 	))
 
 	payload := DmqMessagePayload{
-		MessageBody: []byte("hello"),
+		MessageBody: bytes.Repeat([]byte("hello"), MinMessageBodySize/5),
 		KESPeriod:   msgPeriod,
 		ExpiresAt:   uint32(time.Now().Add(time.Hour).Unix()),
 	}
@@ -960,7 +932,7 @@ func TestVerifyKESSignature_RejectsPayloadPeriodBeforeCertificateIssuance(
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, 80*129600)
+	err = auth.verifyKESSignature(msg)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "precedes certificate issuance period")
 }
@@ -986,7 +958,7 @@ func TestVerifyKESSignature_RejectsHugeClaimedPeriod(t *testing.T) {
 		KESSignature: make([]byte, kes.CardanoKesSignatureSize),
 	}
 
-	err = auth.verifyKESSignature(msg, 0)
+	err = auth.verifyKESSignature(msg)
 	assert.ErrorContains(t, err, "exceeds the maximum")
 }
 
@@ -1001,86 +973,11 @@ func TestVerifyKESSignatureEnforcesMaxKESEvolutions(t *testing.T) {
 	require.NoError(t, err)
 
 	lastValid := buildSignedTestMessage(t, 100, 102)
-	assert.NoError(t, auth.verifyKESSignature(lastValid, 102*129600))
+	assert.NoError(t, auth.verifyKESSignature(lastValid))
 
 	firstInvalid := buildSignedTestMessage(t, 100, 103)
-	err = auth.verifyKESSignature(firstInvalid, 103*129600)
+	err = auth.verifyKESSignature(firstInvalid)
 	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
-
-	// A supplied slot determines the evolution used for signature verification
-	// and must obey the same certificate window even if the payload claims an
-	// earlier, otherwise valid KES period.
-	validClaim := buildSignedTestMessage(t, 100, 101)
-	tooLateSlot := uint64(103) * 129600
-	err = auth.verifyKESSignature(validClaim, tooLateSlot)
-	assert.ErrorContains(t, err, "exceeds the maximum 3 evolutions")
-}
-
-// TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne proves an
-// explicit slot is honored over the slot implied by the message's own
-// claimed period.
-func TestVerifyMessageWithSlot_ExplicitSlotOverridesDerivedOne(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		CurrentSlot:           testCurrentSlot,
-		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-		StakeAuthority:        stake,
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, perr := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, perr)
-	stake.register(poolID, 1000)
-
-	// The real slot for period 100 at the default 129600 slots/period.
-	realSlot := uint64(100) * 129600
-	assert.NoError(t, auth.VerifyMessageWithSlot(msg, realSlot))
-
-	// A slot corresponding to an earlier period than the cert's own
-	// issuance period must fail (KES signature won't verify at that
-	// evolution).
-	assert.Error(t, auth.VerifyMessageWithSlot(msg, 0))
-}
-
-func TestVerifyMessageUsesAuthoritativeCurrentSlot(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
-		CurrentSlot: func() (uint64, error) {
-			return 101 * 129600, nil
-		},
-		PoolOpCertIssueNumber: testPoolOpCertIssueNumber,
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, err)
-	stake.register(poolID, 1000)
-
-	require.ErrorContains(t, auth.VerifyMessage(msg), "KES signature")
-	require.NoError(t, auth.VerifyMessageWithSlot(msg, 100*129600))
-}
-
-func TestVerifyMessageRejectsOpCertSupersededInChainState(t *testing.T) {
-	stake := newStubStakeAuthority()
-	auth, err := NewMessageAuthenticator(MessageAuthenticatorConfig{
-		StakeAuthority: stake,
-		CurrentSlot:    testCurrentSlot,
-		PoolOpCertIssueNumber: func(PoolKeyHash) (uint64, bool, error) {
-			return 2, true, nil
-		},
-	})
-	require.NoError(t, err)
-
-	msg := buildSignedTestMessage(t, 100, 100)
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	require.NoError(t, err)
-	stake.register(poolID, 1000)
-
-	require.ErrorContains(t, auth.VerifyMessage(msg), "issue number is stale")
-	require.Empty(t, auth.kesOpCertCache)
 }
 
 func TestVerifyMessageRejectsMismatchedPoolIdentity(t *testing.T) {
@@ -1188,4 +1085,13 @@ func TestOpCertCacheAdmitsOnlyAuthorizedPools(t *testing.T) {
 	require.NoError(t, auth.VerifyMessage(valid))
 	require.Len(t, auth.kesOpCertCache, 1)
 	require.Contains(t, auth.kesOpCertCache, validID)
+}
+
+// paddedBody pads body to the minimum DMQ message body size.
+func paddedBody(body string) []byte {
+	ret := []byte(body)
+	for len(ret) < MinMessageBodySize {
+		ret = append(ret, '.')
+	}
+	return ret
 }

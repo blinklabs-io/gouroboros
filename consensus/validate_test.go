@@ -483,6 +483,7 @@ func TestValidateHeaderFull(t *testing.T) {
 	prevHash := make([]byte, 32)
 
 	input := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
 		Slot:                 1, // slot 1, but opcert starts at period 0
 		BlockNumber:          1, // First block after genesis
 		PrevHash:             prevHash,
@@ -1039,6 +1040,8 @@ func TestValidateHeaderFullTPraosValid(t *testing.T) {
 
 	prevHash := make([]byte, 32)
 	input := &ValidateHeaderInput{
+		Envelope:             testEnvelope(),
+		Overlay:              testOverlayD0(),
 		Slot:                 slot,
 		BlockNumber:          1,
 		PrevHash:             prevHash,

@@ -15,6 +15,7 @@
 package txsubmission_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -80,7 +81,7 @@ func runTest(
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -108,7 +109,7 @@ func TestClientStartStopStart(t *testing.T) {
 			client.Start()
 			client.Start()
 			// Stop should work (no Done message sent since not in TxIdsBlocking state)
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected error when stopping client: %s", err)
 			}
 			// Start again after stop should work (#597)

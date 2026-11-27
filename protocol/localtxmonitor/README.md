@@ -26,7 +26,8 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
                                 │                  │
                    ┌────────────┼────────────┐     │
                    │            │            │     │
-         HasTx     │   NextTx   │  GetSizes  │     │
+         HasTx     │   NextTx   │  GetSizes, │     │
+                   │            │ GetMeasures│     │
                    │            │            │     │
                    ▼            ▼            ▼     │
               ┌────────────────────────────────┐   │
@@ -34,7 +35,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
               └────────────────┬───────────────┘   │
                                │                   │
                     ReplyHasTx │ ReplyNextTx       │
-                    ReplyGetSizes                  │
+                    ReplyGetSizes, ReplyGetMeasures│
                                │                   │
                                └───────────────────┘
 ```
@@ -63,6 +64,8 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `ReplyHasTx` | 8 | Server → Client | HasTx result (bool) |
 | `GetSizes` | 9 | Client → Server | Get mempool sizes |
 | `ReplyGetSizes` | 10 | Server → Client | Mempool size information |
+| `GetMeasures` | 11 | Client → Server | Get mempool measures (node-to-client v20+) |
+| `ReplyGetMeasures` | 12 | Server → Client | Transaction count and measures (v20+) |
 
 ## State Transitions
 
@@ -85,6 +88,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `HasTx` | Busy |
 | `NextTx` | Busy |
 | `GetSizes` | Busy |
+| `GetMeasures` | Busy |
 
 ### From Busy (Server Agency)
 | Message | New State | Accepted after |
@@ -92,6 +96,7 @@ The LocalTxMonitor protocol monitors the local node's mempool. It allows clients
 | `ReplyHasTx` | Acquired | `HasTx` |
 | `ReplyNextTx` | Acquired | `NextTx` |
 | `ReplyGetSizes` | Acquired | `GetSizes` |
+| `ReplyGetMeasures` | Acquired | `GetMeasures` |
 
 Busy accepts only the reply to the query that entered it. Any other reply is a
 protocol error and is refused before the transition to Acquired.
@@ -100,14 +105,21 @@ protocol error and is refused before the transition to Acquired.
 
 | Timeout | Default | Description |
 |---------|---------|-------------|
-| Acquire Timeout | 5 seconds | Time to acquire mempool snapshot |
-| Query Timeout | 30 seconds | Time to execute query |
+| Acquire Timeout | none | Time to acquire a mempool snapshot from Idle; a re-acquire from Acquired (`MsgAwaitAcquire`) waits for a mempool change and is not timed |
+| Query Timeout | none | Time to execute query |
+
+The specification sets no timeouts for node-to-client protocols, and the
+reference defines no time limits for this one. A node answers a re-acquire
+only once its mempool changes, so a default limit would tear down a working
+connection. `WithAcquireTimeout` and `WithQueryTimeout` set a client-side
+limit.
 
 ## Configuration Options
 
 ```go
 localtxmonitor.NewConfig(
     localtxmonitor.WithGetMempoolFunc(getMempoolCallback),
+    localtxmonitor.WithAwaitMempoolFunc(awaitMempoolCallback),
     localtxmonitor.WithAcquireTimeout(5 * time.Second),
     localtxmonitor.WithQueryTimeout(30 * time.Second),
 )
@@ -134,6 +146,9 @@ for {
 // Get mempool statistics
 capacity, size, numTxs, err := client.GetSizes()
 
+// Get mempool measures (node-to-client version 20 or later)
+measures, err := client.GetMeasures()
+
 // Release snapshot
 client.Release()
 ```
@@ -145,10 +160,26 @@ The `GetSizes` query returns:
 - **Size**: Current mempool size in bytes
 - **NumTxs**: Number of transactions in mempool
 
+`GetMeasures` exists from node-to-client version 20. On an older version the
+client returns `ErrGetMeasuresUnsupported` without sending it, and the server
+refuses it, as the reference encoder does. It returns the number of
+transactions and, by measure name, their size against the mempool's capacity.
+As in the reference server, both cover the transactions `NextTx` has not yet
+returned. The gOuroboros server reports `transaction_bytes`; the reference
+node also reports `ex_units_memory`, `ex_units_steps` and
+`reference_scripts_bytes`.
+
 ## Notes
 
 - Mempool snapshot is consistent during queries
-- Acquire again to get updated mempool state
+- Acquire again to get updated mempool state. An acquire sent while a
+  snapshot is held is `MsgAwaitAcquire`: the reference node answers it only
+  once the mempool differs from the held snapshot. The server does the same
+  when `AwaitMempoolFunc` is set, blocking until that callback returns;
+  without it the server answers at once with the current mempool
 - NextTx iterates through all transactions in snapshot
 - HasTx checks for specific transaction by ID; the ID must be 32 bytes
 - Release snapshot when done to free resources
+- After `Done` the server restarts in Idle, as the reference's inbound
+  governor restarts a responder, so a client can start another run on the
+  same connection

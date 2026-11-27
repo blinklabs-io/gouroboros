@@ -118,14 +118,22 @@ A server may pipeline `RequestTxIds` (non-blocking) and `RequestTxs` behind a re
 | `MaxPendingMessageBytes` | 721424 | Pending message bytes in every state |
 | `MaxRequestCount` | 65535 | Range of the `MsgRequestTxIds` request field (uint16) |
 | `MaxAckCount` | 65535 | Range of the `MsgRequestTxIds` ack field (uint16) |
-| `DefaultRequestLimit` | 1000 | Exported guidance constant; exceeds `MaxUnackedTxIds`, so a request of this size is refused |
+| `DefaultRequestLimit` | 1000 | Exported guidance constant; exceeds `MaxUnackedTxIds`, so a request of this size is refused before version 16 and clamped from it |
 | `DefaultAckLimit` | 1000 | Exported guidance constant; not applied automatically |
 
-A request for transaction IDs or bodies is refused with
+Before node-to-node version 16, a request for transaction IDs is refused with
 `ErrProtocolViolationRequestExceeded` when `unacknowledged - ack + req` exceeds
 `MaxUnackedTxIds`, matching `ProtocolErrorRequestedTooManyTxids` in the
-reference implementation. An acknowledgement larger than what is outstanding is
-refused the same way (`ProtocolErrorAckedTooManyTxids`).
+reference implementation. From version 16 the client clamps such a request
+instead, as the reference does: `RequestTxIdsFunc` receives the clamped count,
+`MaxUnackedTxIds - (unacknowledged - ack)`, which is zero for a non-blocking
+request on a full window (answered with an empty reply). A blocking request
+for no IDs or one that leaves IDs unacknowledged is refused in every version
+with `ErrProtocolViolationInvalidMessage`, so a blocking request is never
+clamped to zero. A request for more transaction bodies than `MaxUnackedTxIds`
+is refused with `ErrProtocolViolationRequestExceeded`, and an acknowledgement
+larger than what is outstanding is refused the same way
+(`ProtocolErrorAckedTooManyTxids`).
 
 ## Request Parameters
 

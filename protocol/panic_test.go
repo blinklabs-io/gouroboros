@@ -15,6 +15,7 @@
 package protocol
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -59,7 +60,7 @@ func startPanicTestProtocol(
 
 	m := muxer.New(serverConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 
 	errorChan := make(chan error, 1)
 	config.ErrorChan = errorChan
@@ -101,7 +102,7 @@ func startPanicTestProtocol(
 
 	p := New(config)
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	sendMessage := func() {
 		// A one-element CBOR array holding message type 1, which is what

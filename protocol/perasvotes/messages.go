@@ -36,6 +36,12 @@ const (
 	MessageTypeReplyObjects
 	// MessageTypeDone terminates object diffusion.
 	MessageTypeDone
+	// MessageTypeServerIdle ends a blocking ID request after MsgAwaitReply
+	// without IDs, returning agency to the client.
+	MessageTypeServerIdle
+	// MessageTypeAwaitReply tells the client that the server has no ID for a
+	// blocking request yet and will answer later.
+	MessageTypeAwaitReply
 )
 
 // VoteID is the reference vote key: [round number, seat index].
@@ -222,6 +228,27 @@ func NewMsgDone() *MsgDone {
 	}
 }
 
+// MsgServerIdle ends a blocking ID request without IDs after MsgAwaitReply.
+type MsgServerIdle struct{ protocol.MessageBase }
+
+// NewMsgServerIdle creates a server idle message.
+func NewMsgServerIdle() *MsgServerIdle {
+	return &MsgServerIdle{
+		MessageBase: protocol.MessageBase{MessageType: MessageTypeServerIdle},
+	}
+}
+
+// MsgAwaitReply tells the client that the server has no ID for a blocking
+// request yet; the server keeps agency.
+type MsgAwaitReply struct{ protocol.MessageBase }
+
+// NewMsgAwaitReply creates an await reply message.
+func NewMsgAwaitReply() *MsgAwaitReply {
+	return &MsgAwaitReply{
+		MessageBase: protocol.MessageBase{MessageType: MessageTypeAwaitReply},
+	}
+}
+
 // NewMsgFromCbor decodes a typed ObjectDiffusion protocol message.
 func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 	if err := cbor.ValidateUntrustedExact(data); err != nil {
@@ -333,6 +360,20 @@ func NewMsgFromCbor(msgType uint, data []byte) (protocol.Message, error) {
 			)
 		}
 		ret = NewMsgDone()
+	case MessageTypeServerIdle:
+		if len(fields) != 1 {
+			return nil, errors.New(
+				"peras-vote-diffusion: server idle message must have 1 field",
+			)
+		}
+		ret = NewMsgServerIdle()
+	case MessageTypeAwaitReply:
+		if len(fields) != 1 {
+			return nil, errors.New(
+				"peras-vote-diffusion: await reply message must have 1 field",
+			)
+		}
+		ret = NewMsgAwaitReply()
 	default:
 		return nil, fmt.Errorf(
 			"%s: unknown message type %d",

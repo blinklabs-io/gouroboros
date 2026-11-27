@@ -16,6 +16,7 @@ package txsubmission
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -92,13 +93,13 @@ func newReplyValidationPeerWithConfig(
 	}()
 	t.Cleanup(func() {
 		proto := server.ProtocolInstance()
-		proto.Stop()
+		proto.Stop(context.Background())
 		select {
 		case <-proto.DoneChan():
 		case <-time.After(5 * time.Second):
 			t.Error("TxSubmission server did not stop")
 		}
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = peerConn.Close()
 		select {
 		case <-peerDone:
@@ -151,7 +152,7 @@ func (p *replyValidationPeer) announceTxIds(
 	}
 	resultChan := make(chan result, 1)
 	go func() {
-		got, err := p.server.RequestTxIds(false, len(txIds))
+		got, err := p.server.RequestTxIds(true, len(txIds))
 		resultChan <- result{txIds: got, err: err}
 	}()
 	p.waitForRequest(t)
@@ -314,11 +315,11 @@ func TestServerShutdownClearsPendingTxIdRequest(t *testing.T) {
 	peer := newReplyValidationPeer(t)
 	resultChan := make(chan error, 1)
 	go func() {
-		_, err := peer.server.RequestTxIds(false, 1)
+		_, err := peer.server.RequestTxIds(true, 1)
 		resultChan <- err
 	}()
 	peer.waitForRequest(t)
-	peer.server.ProtocolInstance().Stop()
+	peer.server.ProtocolInstance().Stop(context.Background())
 	select {
 	case err := <-resultChan:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -497,7 +498,7 @@ func TestServerRequestTxIdsRejectsAdvertisedSizeOverLimit(t *testing.T) {
 			txId := testTxId(uint16(ledger.TxTypeShelley), 0x01)
 			resultChan := make(chan error, 1)
 			go func() {
-				_, err := peer.server.RequestTxIds(false, 1)
+				_, err := peer.server.RequestTxIds(true, 1)
 				resultChan <- err
 			}()
 			peer.waitForRequest(t)

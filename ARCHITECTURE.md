@@ -495,9 +495,14 @@ minimum for the serialized transaction size, except for redeem-only spends.
 genesis maxKESEvolutions) and fails closed when it is zero, unless
 `SkipKesEvolutionsValidation` is set; it rejects a header whose KES evolution
 is at or beyond that bound. `VerifyBlockLocal()` does not apply the bound.
+Unless `SkipStakePoolValidation` is set, `VerifyBlock()` and
+`VerifyBlockState()` check a Shelley-through-Alonzo issuer against
+`VerifyConfig.TPraosOverlay`, whose active slot coefficient classifies overlay
+slots: an active overlay slot admits only the scheduled genesis delegate and its
+VRF key, a non-active one admits no block, and the leader distribution is
+consulted only outside overlay slots.
 These helpers are not complete consensus gates. They do not receive the previous
-header, active stake distribution, active slot coefficient, or operational
-certificate sequence state. Production chain validation must combine these
+header, active stake distribution, or operational certificate sequence state. Production chain validation must combine these
 checks with pre-decode block-type resolution and ordered chain-context
 consensus validation before accepting a block.
 
@@ -564,8 +569,11 @@ The `pipeline` package provides a staged block processing pipeline with worker p
   and atomic state updates
 
 Normal pipelines require `VerifyConfigProvider` to read ledger state and protocol
-parameters after earlier blocks commit. The ordered stage checks certificates,
-block limits, transactions, and pool registration before calling `ApplyFunc`.
+parameters after earlier blocks commit. The ordered stage checks the header's
+KES evolution against `VerifyConfig.MaxKesEvolutions`, certificates, block
+limits, transactions, and pool registration before calling `ApplyFunc`. The
+provider must supply `MaxKesEvolutions`; normal pipelines reject
+`SkipKesEvolutionsValidation` like the other `Skip*` bypass flags.
 Parallel workers never read that mutable ledger state.
 
 `WithHeaderOnly()` returns ordered, cryptographically checked blocks to an
@@ -596,12 +604,24 @@ for result := range pipeline.Results() {
 ```
 
 Pipeline admission reserves the raw and decoded full block CBOR copies against
-`MaxRawCborBytes` before allocating a `BlockItem`. A result stays charged until
-the consumer receives it from the results channel. The consumer then owns the
-item and should call `BlockItem.Release()` when finished to clear the raw and
-decoded CBOR; received results are no longer included in the pipeline budget. A
-zero byte limit selects `DefaultMaxRawCborBytes`, and stopping the pipeline
-retires internally owned items and results that shutdown drains.
+`MaxRawCborBytes` before allocating a `BlockItem`. A block stays charged to
+admission until the apply runner commits it and hands it to the results
+forwarder. Committed results awaiting a reader are bounded separately: at most
+`PrefetchBufferSize` items retaining at most `MaxRawCborBytes` of CBOR.
+
+With an `ApplyFunc`, `Results` is observational and reading it is optional;
+committing, `Fence` and `WaitForDrain` never wait for a reader. When a new
+result would exceed either bound, the oldest undelivered result is released and
+counted in `PipelineStats.ResultsDropped`, which a reader sees as a gap in
+`SequenceNumber`. `WithLosslessResults()` instead makes committing wait for the
+reader, so every committed block is delivered. Header-only and trusted
+decode-only pipelines have no `ApplyFunc` and `Results` is their only output,
+so they are always lossless; their caller must read `Results` or call `Stop`.
+
+The consumer owns each received item and should call `BlockItem.Release()` when
+finished to clear the raw and decoded CBOR. A zero byte limit selects
+`DefaultMaxRawCborBytes`. Stopping the pipeline releases undelivered results,
+in every mode, so delivery is not guaranteed after `Stop` begins.
 
 ## Testing
 

@@ -588,10 +588,9 @@ func TestMsgVotes(t *testing.T) {
 func TestMsgVotesTypedHelpers(t *testing.T) {
 	votes := []lcommon.LeiosVote{
 		{
-			SlotNo:            100,
-			EndorserBlockHash: lcommon.NewBlake2b256([]byte{0x01}),
-			VoterId:           7,
-			VoteSignature:     testLeiosSignature(0xaa),
+			AnnouncingRbHash: lcommon.NewBlake2b256([]byte{0x01}),
+			VoterId:          7,
+			VoteSignature:    testLeiosSignature(0xaa),
 		},
 	}
 
@@ -601,11 +600,10 @@ func TestMsgVotesTypedHelpers(t *testing.T) {
 	decodedVotes, err := msg.DecodeVotes()
 	require.NoError(t, err)
 	require.Len(t, decodedVotes, len(votes))
-	assert.Equal(t, votes[0].SlotNo, decodedVotes[0].SlotNo)
 	assert.Equal(
 		t,
-		votes[0].EndorserBlockHash,
-		decodedVotes[0].EndorserBlockHash,
+		votes[0].AnnouncingRbHash,
+		decodedVotes[0].AnnouncingRbHash,
 	)
 	assert.Equal(t, votes[0].VoterId, decodedVotes[0].VoterId)
 	assert.Equal(t, votes[0].VoteSignature, decodedVotes[0].VoteSignature)

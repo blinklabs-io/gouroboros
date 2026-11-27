@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -27,11 +28,17 @@ import (
 
 // Server implements the ChainSync server
 type Server struct {
-	*protocol.Protocol
+	proto           *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu      sync.RWMutex
 	config          *Config
 	callbackContext CallbackContext
 	protoOptions    protocol.ProtocolOptions
+	// stopped is set by Stop under protocolMu. initProtocol checks it under
+	// the same lock, so a restart racing with Stop installs no new instance.
+	stopped bool
+	// restartHook is test-only synchronization for a Stop that lands after
+	// StopForRestart and before the restart installs a new instance.
+	restartHook func()
 }
 
 // NewServer returns a new ChainSync server object
@@ -62,7 +69,7 @@ func NewServer(
 	return s
 }
 
-func (s *Server) initProtocol() {
+func (s *Server) initProtocol() bool {
 	// Use node-to-client protocol ID
 	ProtocolId := ProtocolIdNtC
 	msgFromCborFunc := NewMsgFromCborNtC
@@ -112,14 +119,36 @@ func (s *Server) initProtocol() {
 	}
 	p := protocol.New(protoConfig)
 	s.protocolMu.Lock()
-	s.Protocol = p
+	if s.stopped {
+		s.protocolMu.Unlock()
+		return false
+	}
+	s.proto = p
 	s.protocolMu.Unlock()
+	return true
 }
 
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
+}
+
+// Stop stops the server. A restart that is in progress when Stop is called
+// does not start a new protocol instance.
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
+	s.protocolMu.Lock()
+	s.stopped = true
+	p := s.proto
+	s.protocolMu.Unlock()
+	return p.Stop(ctx)
 }
 
 func (s *Server) RollBackward(point pcommon.Point, tip Tip) error {
@@ -259,7 +288,7 @@ func (s *Server) handleRequestNext() error {
 			"received chain-sync RequestNext message but no callback function is defined",
 		)
 	}
-	return s.config.RequestNextFunc(s.callbackContext)
+	return s.config.RequestNextFunc(s.callbackContext.withOwner(s.ProtocolInstance()))
 }
 
 func (s *Server) handleFindIntersect(msg protocol.Message) error {
@@ -279,13 +308,13 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 	}
 	msgFindIntersect := msg.(*MsgFindIntersect)
 	point, tip, err := s.config.FindIntersectFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.ProtocolInstance()),
 		msgFindIntersect.Points,
 	)
 	if err != nil {
 		if errors.Is(err, ErrIntersectNotFound) {
 			msgResp := NewMsgIntersectNotFound(tip)
-			if err := s.SendMessage(msgResp); err != nil {
+			if err := s.ProtocolInstance().SendMessage(msgResp); err != nil {
 				return err
 			}
 			return nil
@@ -293,7 +322,7 @@ func (s *Server) handleFindIntersect(msg protocol.Message) error {
 		return err
 	}
 	msgResp := NewMsgIntersectFound(point, tip)
-	if err := s.SendMessage(msgResp); err != nil {
+	if err := s.ProtocolInstance().SendMessage(msgResp); err != nil {
 		return err
 	}
 	return nil
@@ -310,7 +339,14 @@ func (s *Server) handleDone() {
 			)
 	}
 	// Restart protocol
-	s.StopForRestart()
-	s.initProtocol()
+	old := s.ProtocolInstance()
+	_ = old.StopForRestart(old.CallbackContext())
+	if s.restartHook != nil {
+		s.restartHook()
+	}
+	if !s.initProtocol() {
+		old.CancelRestart()
+		return
+	}
 	s.Start()
 }

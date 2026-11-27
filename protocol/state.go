@@ -60,11 +60,16 @@ type StateTransitionMatchFunc func(any, Message) bool
 
 // StateMapEntry represents a protocol state, it's possible state transitions, and an optional timeout
 type StateMapEntry struct {
-	Agency                  ProtocolStateAgency
-	Transitions             []StateTransition
-	Timeout                 time.Duration        // Fixed timeout for this state (0 = no timeout)
-	TimeoutFunc             func() time.Duration // Dynamic timeout; if set, overrides Timeout
-	PendingMessageByteLimit int                  // Maximum pending message bytes allowed in this state (0 = no limit)
+	Agency      ProtocolStateAgency
+	Transitions []StateTransition
+	// Timeout bounds how long the side without agency waits for the peer's
+	// message in this state (0 = no timeout). The side holding agency is
+	// never timed.
+	Timeout time.Duration
+	// TimeoutFunc returns a fresh timeout on each entry to this state; if
+	// set, it overrides Timeout.
+	TimeoutFunc             func() time.Duration
+	PendingMessageByteLimit int // Maximum pending message bytes allowed in this state (0 = no limit)
 	// PendingReceiveByteBudget bounds the total size of received messages
 	// that are queued and not yet handled while this state is active (0 =
 	// use PendingMessageByteLimit). Unlike PendingMessageByteLimit it never
