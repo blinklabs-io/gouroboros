@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -62,6 +63,11 @@ type Server struct {
 	// stopped is set by Stop under protocolMu. initProtocol checks it under
 	// the same lock, so a restart racing with Stop installs no new instance.
 	stopped bool
+	// retired holds the instances replaced by a restart whose goroutines may
+	// still be running, guarded by protocolMu. A request source that ignores
+	// QuitChan outlives its run and hands its notification to
+	// ResponseSentFunc on the retired instance, so Stop waits for these too.
+	retired []*protocol.Protocol
 }
 
 func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
@@ -131,15 +137,56 @@ func (s *Server) ProtocolInstance() *protocol.Protocol {
 // Stop signals shutdown at once. When ctx is the Context of a
 // CallbackContext this server passed to a callback, Stop returns without
 // waiting, since the goroutine running the callback is one it would wait
-// for. Otherwise it waits until the protocol's goroutines have returned, or
-// until ctx is done, in which case it returns ctx.Err() and shutdown still
-// proceeds.
+// for. Otherwise it waits until the protocol's goroutines, and those of the
+// runs the client ended with MsgQuit, have returned, or until ctx is done,
+// in which case it returns ctx.Err() and shutdown still proceeds.
 func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
 	p := s.proto
+	retired := slices.Clone(s.retired)
 	s.protocolMu.Unlock()
-	return p.Stop(ctx)
+	// A callback of a retired instance is one of the goroutines the loop
+	// below waits for, and one of the current instance waits for nothing,
+	// so a callback's Stop only signals: Stop with a done context does not
+	// wait.
+	if owner := protocol.CallbackOwner(ctx); owner == p ||
+		(owner != nil && slices.Contains(retired, owner)) {
+		signal, cancel := context.WithCancel(ctx)
+		cancel()
+		_ = p.Stop(signal)
+		return nil
+	}
+	if err := p.Stop(ctx); err != nil {
+		return err
+	}
+	// A retired instance was stopped at its restart, so Stop only waits
+	// for it.
+	for _, old := range retired {
+		if err := old.Stop(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// retire records old, which a restart has stopped, for Stop to wait for,
+// and forgets the retired instances whose goroutines have all returned.
+func (s *Server) retire(old *protocol.Protocol) {
+	// A done context makes Protocol.Stop report, without waiting, whether
+	// the instance's goroutines have already returned.
+	done, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.protocolMu.Lock()
+	defer s.protocolMu.Unlock()
+	live := s.retired[:0]
+	for _, p := range s.retired {
+		if p.Stop(done) != nil {
+			live = append(live, p)
+		}
+	}
+	clear(s.retired[len(live):])
+	s.retired = append(live, old)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -302,6 +349,7 @@ func (s *Server) handleQuit() error {
 	// Restart protocol
 	old := s.ProtocolInstance()
 	_ = old.StopForRestart(old.CallbackContext())
+	s.retire(old)
 	if !s.initProtocol() {
 		old.CancelRestart()
 		return nil
