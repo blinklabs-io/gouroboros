@@ -1264,7 +1264,14 @@ func (m *Muxer) RegisterProtocol(
 	// A suspended role keeps its receiver, so ingress that arrived while
 	// its protocol was restarting is delivered to the new instance.
 	receiverChan := m.protocolReceivers[protocolId][protocolRole]
+	// A role registered again while still registered replaces its receiver
+	// and sender. Nothing else would stop them once they leave the maps: the
+	// read loop's exit sweep finds only mapped receivers, and Stop would wait
+	// for the replaced forwarder for ever.
+	var replacedReceiver *segmentChannel
+	replacedSender := m.protocolSenders[protocolId][protocolRole]
 	if receiverChan == nil || !receiverChan.resume() {
+		replacedReceiver = receiverChan
 		receiverChan = newSegmentChannel(
 			protocolId,
 			protocolRole,
@@ -1288,6 +1295,12 @@ func (m *Muxer) RegisterProtocol(
 	}
 	delete(m.protocolTombstones[protocolId], protocolRole)
 	m.protocolReceiversMutex.Unlock()
+	if replacedSender != nil {
+		replacedSender.stop()
+	}
+	if replacedReceiver != nil {
+		replacedReceiver.stop()
+	}
 	// Start Goroutine to handle outbound messages
 	m.waitGroup.Go(func() {
 		for {
@@ -1514,7 +1527,6 @@ func (m *Muxer) Send(msg *Segment) error {
 // protocol
 func (m *Muxer) readLoop() {
 	defer func() {
-		m.waitGroup.Done()
 		// Close receiver channels
 		m.protocolReceiversMutex.Lock()
 		for _, protocolRoles := range m.protocolReceivers {
@@ -1527,6 +1539,9 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		m.protocolReceiversMutex.Unlock()
+		// Done comes last so that Stop, which waits on waitGroup, does not
+		// return while this sweep still runs or holds the lock.
+		m.waitGroup.Done()
 	}()
 	started := false
 	for {
