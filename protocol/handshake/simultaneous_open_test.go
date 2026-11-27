@@ -253,6 +253,47 @@ func TestSimultaneousOpen(t *testing.T) {
 	}
 }
 
+// TestSimultaneousOpenAgreesDMQPeerSharing covers two dialling DMQ clients
+// that both offer peer sharing while one is initiator-only: each chooses the
+// version itself and agrees the data with that version's rule, so both
+// disable peer sharing as dmq-node's acceptableVersion does
+// (DMQ/NodeToNode/Version.hs).
+func TestSimultaneousOpenAgreesDMQPeerSharing(t *testing.T) {
+	const magic = 3141592
+	versions := protocol.GetProtocolVersionsDMQNtN()
+	require.NotEmpty(t, versions)
+	wantVersion := versions[len(versions)-1]
+	t.Cleanup(func() { goleak.VerifyNone(t) })
+	leftConn, rightConn := net.Pipe()
+	left := startSimOpenSide(
+		t,
+		leftConn,
+		protocol.GetProtocolVersionMapDMQNtN(
+			magic, protocol.DiffusionModeInitiatorAndResponder, true, false,
+		),
+	)
+	right := startSimOpenSide(
+		t,
+		rightConn,
+		protocol.GetProtocolVersionMapDMQNtN(
+			magic, protocol.DiffusionModeInitiatorOnly, true, false,
+		),
+	)
+	got := []simOpenResult{awaitSimOpen(t, left), awaitSimOpen(t, right)}
+	for i, result := range got {
+		require.NoError(t, result.err, "side %d", i)
+		require.Equal(t, wantVersion, result.version, "side %d", i)
+		require.Equal(
+			t,
+			protocol.DiffusionModeInitiatorOnly,
+			result.data.DiffusionMode(),
+			"side %d", i,
+		)
+		require.False(t, result.data.PeerSharing(), "side %d", i)
+	}
+	require.Equal(t, got[0].data, got[1].data)
+}
+
 // TestSimultaneousOpenVersionMismatchListsOwnVersions checks a side that
 // finds no common version reports its own versions, as the reference
 // acceptOrRefuse does, since it has no server to hear them from.
