@@ -93,6 +93,9 @@ func TestStartOnceGatesFollowingSegments(t *testing.T) {
 	}
 }
 
+// Not t.Parallel: goleak.VerifyNone inspects every goroutine in the process.
+// Start called while a StartOnce is still pending must stay in effect, so
+// that segments after the first are read too.
 func TestStartOverridesPendingStartOnce(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	local, peer := net.Pipe()
@@ -102,15 +105,28 @@ func TestStartOverridesPendingStartOnce(t *testing.T) {
 	_, recv, _ := m.RegisterProtocol(1, muxer.ProtocolRoleResponder)
 	m.StartOnce()
 	m.Start()
-	require.NoError(t, peer.SetWriteDeadline(time.Now().Add(time.Second)))
-	segment := muxer.NewSegment(1, []byte{1}, false)
-	require.NotNil(t, segment)
-	_, err := peer.Write(createSegmentData(segment))
-	require.NoError(t, err)
-	select {
-	case segment := <-recv:
-		require.NotNil(t, segment)
-	case <-time.After(time.Second):
-		t.Fatal("Start was lost behind pending protocol start")
+	written := make(chan error, 1)
+	go func() {
+		for range 2 {
+			segment := muxer.NewSegment(1, []byte{1}, false)
+			if segment == nil {
+				written <- fmt.Errorf("could not create segment")
+				return
+			}
+			if _, err := peer.Write(createSegmentData(segment)); err != nil {
+				written <- err
+				return
+			}
+		}
+		written <- nil
+	}()
+	for i := range 2 {
+		select {
+		case segment := <-recv:
+			require.NotNil(t, segment)
+		case <-time.After(time.Second):
+			t.Fatalf("segment %d was not delivered: Start was lost behind a pending StartOnce", i+1)
+		}
 	}
+	require.NoError(t, <-written)
 }
