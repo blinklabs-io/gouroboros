@@ -61,8 +61,8 @@ func newRawPeerPair(
 	send, recv, _ := peerMuxer.RegisterProtocol(ProtocolId, peerRole)
 	require.NotNil(t, send)
 	t.Cleanup(func() {
-		localMuxer.Stop()
-		peerMuxer.Stop()
+		_ = localMuxer.Stop(context.Background())
+		_ = peerMuxer.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})
@@ -156,7 +156,7 @@ func startClientAgainstRawServer(
 	client.Protocol.EnsureRegistered()
 	localMuxer.Start()
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	msgType, _ := peer.readType(t)
 	require.Equal(t, MessageTypeInit, msgType)
 	return client, peer, errs
@@ -276,10 +276,10 @@ func startServerAgainstRawClient(
 		ErrorChan:    errs,
 		ConnectionId: testConnectionId(),
 	}, cfg)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	localMuxer.Start()
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	peer.writeMsg(t, NewMsgInit())
 	peer.writeMsg(t, NewMsgRequestObjectIDs(true, 0, 1))
 	return server, peer, errs
@@ -417,17 +417,17 @@ func TestSyncAgainstServerWithNoVoteYet(t *testing.T) {
 	client := NewClient(protocol.ProtocolOptions{
 		Muxer: rightMuxer, ErrorChan: errs, ConnectionId: testConnectionId(),
 	}, &clientCfg)
-	server.Protocol.EnsureRegistered()
+	server.ProtocolInstance().EnsureRegistered()
 	client.Protocol.EnsureRegistered()
 	leftMuxer.Start()
 	rightMuxer.Start()
 	server.Start()
 	client.Start()
 	t.Cleanup(func() {
-		client.Stop()
-		server.Stop()
-		leftMuxer.Stop()
-		rightMuxer.Stop()
+		client.Stop(context.Background())
+		server.Stop(context.Background())
+		_ = leftMuxer.Stop(context.Background())
+		_ = rightMuxer.Stop(context.Background())
 		_ = leftConn.Close()
 		_ = rightConn.Close()
 	})

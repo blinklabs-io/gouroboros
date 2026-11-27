@@ -73,7 +73,7 @@ func TestSendLoopPromotesRacedPipelinedMessageInsteadOfRejecting(t *testing.T) {
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	// Drain whatever sendLoop writes so its segment write never blocks on
 	// an unread net.Pipe; this test only cares about state and errors.
 	go func() {
@@ -103,7 +103,7 @@ func TestSendLoopPromotesRacedPipelinedMessageInsteadOfRejecting(t *testing.T) {
 	}
 
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 	sendResult := make(chan error, 1)
 	go func() {
@@ -198,7 +198,7 @@ func newPipelineRaceProtocol(
 	})
 	m := muxer.New(localConn)
 	m.Start()
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	go func() {
 		buf := make([]byte, 4096)
 		for {
@@ -218,7 +218,7 @@ func newPipelineRaceProtocol(
 		InitialState: busy,
 	})
 	p.Start()
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	return p, errorChan
 }
 
@@ -503,7 +503,7 @@ func newStateLoopOnlyProtocol(
 	stateTransitionChan := make(chan protocolStateTransition)
 	p.stateTransitionChan = stateTransitionChan
 	go p.stateLoop(stateTransitionChan)
-	t.Cleanup(p.Stop)
+	t.Cleanup(func() { _ = p.Stop(context.Background()) })
 	return p, errorChan
 }
 
@@ -1023,7 +1023,7 @@ func TestResolvePipelinedDequeueUnsynchronizedTransitionNeverStrandsToken(
 			)
 		default:
 		}
-		p.Stop()
+		p.Stop(context.Background())
 	}
 	require.Greater(
 		t,

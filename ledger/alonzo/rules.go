@@ -1081,10 +1081,8 @@ func UtxoValidateMaxTxSizeUtxo(
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
-// protocol parameters. The fee-relevant transaction size is determined by
-// common.TxSizeForFee, which uses the original on-wire CBOR length and
-// subtracts 1 byte for Alonzo+ eras (the IsValid boolean is excluded from
-// the fee computation per the Cardano ledger spec toCBORForSizeComputation).
+// protocol parameters and the transaction size measured by
+// common.TxSizeForFee.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,

@@ -15,6 +15,7 @@
 package ouroboros_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
@@ -71,7 +72,7 @@ func dialBothWays(
 		select {
 		case r := <-ch:
 			if r.conn != nil {
-				t.Cleanup(func() { _ = r.conn.Close() })
+				t.Cleanup(func() { _ = r.conn.Close(context.Background()) })
 			}
 			return r
 		case <-time.After(5 * time.Second):

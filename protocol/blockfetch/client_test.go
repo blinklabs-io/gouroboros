@@ -15,6 +15,7 @@
 package blockfetch_test
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -113,7 +114,7 @@ func runTestWithExpectedProtocolError(
 		}
 	}()
 	defer func() {
-		if err := oConn.Close(); err != nil {
+		if err := oConn.Close(context.Background()); err != nil {
 			t.Errorf("unexpected error when closing Ouroboros object: %s", err)
 		}
 		select {
@@ -407,7 +408,7 @@ func TestClientStartStopStart(t *testing.T) {
 			client.Start()
 			client.Start()
 			// Stop should work
-			if err := client.Stop(); err != nil {
+			if err := client.Stop(context.Background()); err != nil {
 				t.Fatalf("unexpected error when stopping client: %s", err)
 			}
 			// Start again after stop should work (#597)
@@ -462,7 +463,7 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	// Close the connection first (simulating remote close)
 	require.NoError(
 		t,
-		oConn.Close(),
+		oConn.Close(context.Background()),
 		"unexpected error when closing connection",
 	)
 
@@ -476,7 +477,7 @@ func TestStopAfterConnectionClose(t *testing.T) {
 	// Now Stop() should not return an error even though connection is closed
 	require.NoError(
 		t,
-		client.Stop(),
+		client.Stop(context.Background()),
 		"Stop() should not return error after connection close",
 	)
 
@@ -539,7 +540,7 @@ func TestStopAfterConnectionCloseStress(t *testing.T) {
 			client := oConn.BlockFetch().Client
 			client.Start()
 
-			require.NoError(t, oConn.Close())
+			require.NoError(t, oConn.Close(context.Background()))
 			select {
 			case <-oConn.ErrorChan():
 			case <-time.After(5 * time.Second):
@@ -547,7 +548,7 @@ func TestStopAfterConnectionCloseStress(t *testing.T) {
 			}
 
 			for range 3 {
-				require.NoError(t, client.Stop())
+				require.NoError(t, client.Stop(context.Background()))
 			}
 			require.True(t, client.IsDone())
 

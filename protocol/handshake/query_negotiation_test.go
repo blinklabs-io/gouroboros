@@ -16,6 +16,7 @@ package handshake
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -44,7 +45,7 @@ func answerProposal(t *testing.T, proposal protocol.ProtocolVersionMap) uint8 {
 	serverConn, peerConn := net.Pipe()
 	m := muxer.New(serverConn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = serverConn.Close()
 		_ = peerConn.Close()
 	})
@@ -65,7 +66,7 @@ func answerProposal(t *testing.T, proposal protocol.ProtocolVersionMap) uint8 {
 		Role:      protocol.ProtocolRoleServer,
 	}, &cfg)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	data, err := cbor.Encode(NewMsgProposeVersions(proposal))
 	require.NoError(t, err)
 	segment := muxer.NewSegment(ProtocolId, data, false)

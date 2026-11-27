@@ -228,7 +228,7 @@ func (s *Server) handleProposeVersions(msg protocol.Message) error {
 		return err
 	}
 	return s.config.FinishedFunc(
-		s.callbackContext,
+		s.callbackContext.withOwner(s.Protocol),
 		proposedVersion,
 		agreedData,
 	)

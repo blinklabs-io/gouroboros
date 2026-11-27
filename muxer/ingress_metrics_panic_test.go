@@ -16,6 +16,7 @@ package muxer_test
 
 import (
 	"bytes"
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -119,7 +120,7 @@ func requireMuxerStops(t *testing.T, m *muxer.Muxer) {
 	stopped := make(chan struct{})
 	go func() {
 		defer close(stopped)
-		m.Stop()
+		_ = m.Stop(context.Background())
 	}()
 	select {
 	case <-stopped:
@@ -145,7 +146,7 @@ func TestIngressMetricsPanicsAreContained(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			conn := newMockConn()
 			m := muxer.New(conn)
-			t.Cleanup(m.Stop)
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
 			m.SetMetrics(tc.metrics)
 			_, recvChan, _ := m.RegisterProtocol(
 				0x01,
@@ -182,7 +183,7 @@ func TestIngressMetricsPanicsAreContained(t *testing.T) {
 func TestIngressQueueDepthPanicDuringCleanup(t *testing.T) {
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &panicMetrics{depth: true}
 	m.SetMetrics(metrics)
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -203,7 +204,7 @@ func TestIngressBackpressurePanicIsContained(t *testing.T) {
 	const segments = 40
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &panicMetrics{backpressure: true}
 	m.SetMetrics(metrics)
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -249,7 +250,7 @@ func TestIngressBackpressurePanicDuringStop(t *testing.T) {
 	)
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &panicMetrics{backpressure: true}
 	m.SetMetrics(metrics)
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -306,7 +307,7 @@ func TestIngressQueueDepthRunsOutsideQueueLock(t *testing.T) {
 	const segments = 15
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &lockCheckMetrics{m: m}
 	m.SetMetrics(metrics)
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -371,7 +372,7 @@ func (u *unregisterMetrics) IngressQueueDepth(
 func TestIngressQueueDepthMayUnregisterOtherRoles(t *testing.T) {
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &unregisterMetrics{m: m, done: make(chan struct{})}
 	m.SetMetrics(metrics)
 	_, recvChan, _ := m.RegisterProtocol(0x01, muxer.ProtocolRoleResponder)
@@ -434,7 +435,7 @@ func (u *reciprocalUnregisterMetrics) IngressDeliveryBlocked(
 func TestConcurrentMetricsCallbacksMayUnregisterEachOther(t *testing.T) {
 	conn := newMockConn()
 	m := muxer.New(conn)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	metrics := &reciprocalUnregisterMetrics{
 		m:       m,
 		started: make(map[uint16]bool),

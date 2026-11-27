@@ -388,6 +388,20 @@ type ShelleyTransactionPparamUpdate struct {
 	Epoch                uint64
 }
 
+// UnmarshalCBOR decodes the update proposals pair by pair so an oversized or
+// invalid map is refused before memory is committed for every declared pair.
+func (u *ShelleyTransactionPparamUpdate) UnmarshalCBOR(data []byte) error {
+	updates, epoch, err := common.DecodeProtocolParameterUpdateProposals[ShelleyProtocolParameterUpdate](
+		data,
+	)
+	if err != nil {
+		return err
+	}
+	u.ProtocolParamUpdates = updates
+	u.Epoch = epoch
+	return nil
+}
+
 type ShelleyTransactionBody struct {
 	common.TransactionBodyBase
 	TxInputs  ShelleyTransactionInputSet `cbor:"0,keyasint,omitempty"`
@@ -450,8 +464,10 @@ func (b *ShelleyTransactionBody) MarshalCBOR() ([]byte, error) {
 	if b.Cbor() != nil {
 		return b.Cbor(), nil
 	}
+	body := *b
+	body.TxCertificates = common.PreConwayCertificates(b.TxCertificates)
 	return common.EncodeTransactionBodyWithValidityIntervalUpperBound(
-		b,
+		&body,
 		0,
 		1,
 		2,
@@ -854,25 +870,25 @@ func (o *ShelleyTransactionOutput) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (o ShelleyTransactionOutput) ToPlutusData() data.PlutusData {
-	var valueData [][2]data.PlutusData
-	if o.OutputAmount > 0 {
-		valueData = append(
-			valueData,
-			[2]data.PlutusData{
-				data.NewByteString(nil),
-				data.NewMap(
-					[][2]data.PlutusData{
-						{
-							data.NewByteString(nil),
-							data.NewInteger(
-								new(big.Int).SetUint64(o.OutputAmount),
-							),
-						},
+	valueData := make([][2]data.PlutusData, 0, 1)
+	// The ada entry is present even at zero: cardano-ledger's
+	// transCoinToValue builds PV1.singleton adaSymbol adaToken c for any c.
+	valueData = append(
+		valueData,
+		[2]data.PlutusData{
+			data.NewByteString(nil),
+			data.NewMap(
+				[][2]data.PlutusData{
+					{
+						data.NewByteString(nil),
+						data.NewInteger(
+							new(big.Int).SetUint64(o.OutputAmount),
+						),
 					},
-				),
-			},
-		)
-	}
+				},
+			),
+		},
+	)
 	tmpData := data.NewConstr(
 		0,
 		o.OutputAddress.ToPlutusData(),
@@ -940,6 +956,9 @@ func (w *ShelleyTransactionWitnessSet) UnmarshalCBOR(cborData []byte) error {
 	type tShelleyTransactionWitnessSet ShelleyTransactionWitnessSet
 	var tmp tShelleyTransactionWitnessSet
 	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	if err := common.ValidatePreConwaySetTags(cborData, 0, 1, 2); err != nil {
 		return err
 	}
 	*w = ShelleyTransactionWitnessSet(tmp)

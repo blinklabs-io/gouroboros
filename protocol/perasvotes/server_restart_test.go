@@ -15,6 +15,7 @@
 package perasvotes_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
@@ -58,7 +59,7 @@ func TestServerAnswersRequestAfterRestart(t *testing.T) {
 	h := restartwindow.New(t, perasvotes.ProtocolId)
 	server := newRestartTestServer(h, "unused hold")
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 3 {
@@ -80,7 +81,7 @@ func TestServerAnswersInitSentDuringRestart(t *testing.T) {
 	h := restartwindow.New(t, perasvotes.ProtocolId)
 	server := newRestartTestServer(h, "done")
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(perasvotes.NewMsgInit())

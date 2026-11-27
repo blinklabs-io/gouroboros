@@ -15,6 +15,7 @@
 package txsubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -149,7 +150,7 @@ func (c *Client) Start() {
 
 			// If we were stopped, ensure the old instance is fully stopped before re-registering.
 			if oldDone != nil {
-				oldProto.Stop()
+				_ = oldProto.Stop(context.Background())
 				<-oldDone
 			}
 
@@ -198,7 +199,14 @@ func (c *Client) Start() {
 // Note: Unlike other protocols, TxSubmission can only send Done from the TxIdsBlocking
 // state per protocol spec. This method stops the protocol without sending Done.
 // To send Done gracefully, use the callback mechanism with ErrStopServerProcess.
-func (c *Client) Stop() error {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this client passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (c *Client) Stop(ctx context.Context) error {
 	c.lifecycleMutex.Lock()
 	defer c.lifecycleMutex.Unlock()
 
@@ -225,15 +233,21 @@ func (c *Client) Stop() error {
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
 
-	// Stop/unregister the underlying protocol instance.
-	c.Protocol.Stop()
+	// Stop/unregister the underlying protocol instance. The callback marker
+	// makes Stop only signal: lifecycleMutex is held, and a callback may
+	// need it to return.
+	proto := c.Protocol
+	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 	// Unblock any goroutine waiting for an in-progress start.
 	if c.startingDone != nil {
 		close(c.startingDone)
 		c.startingDone = nil
 	}
-	return nil
+	c.lifecycleMutex.Unlock()
+	err := proto.Stop(ctx)
+	c.lifecycleMutex.Lock()
+	return err
 }
 
 // Init tells the server to begin asking us for transactions
@@ -263,8 +277,10 @@ func (c *Client) Init() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 				"error", err,
 			)
-		// Init cannot return this error, so log it and still clean up.
-		c.Protocol.Stop()
+		// Init cannot return this error, so log it and still clean up. The
+		// callback marker makes Stop only signal, as lifecycleMutex is held.
+		proto := c.Protocol
+		_ = proto.Stop(proto.CallbackContext())
 		c.lifecycleState = clientStateStopped
 		return
 	}
@@ -310,7 +326,8 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	// implementation's condition in Ouroboros.Network.TxSubmission.Outbound:
 	// ProtocolErrorAckedTooManyTxids when the peer acknowledges more IDs than
 	// it was sent, and ProtocolErrorRequestedTooManyTxids when
-	// unackedNo - ackNo + reqNo exceeds maxUnacked. MaxPendingMessageBytes is
+	// unackedNo - ackNo + reqNo exceeds maxUnacked (before NodeToNodeV_16; the
+	// clamp below replaces it from then on). MaxPendingMessageBytes is
 	// derived from that same window, and a request far outside it can ask for
 	// a reply larger than our own outbound queue limit, so SendMessage would
 	// fail the protocol, dropping the connection over a request we should
@@ -328,7 +345,34 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
-	if len(unacked)-ack+req > MaxUnackedTxIds {
+	// A blocking request must ask for something and leave nothing
+	// unacknowledged (the reference's ProtocolErrorRequestedNothing and
+	// ProtocolErrorRequestBlocking). Refusing it before the clamp below is
+	// what keeps a blocking request from being clamped to zero: its reply
+	// must not be empty.
+	if msgRequestTxIds.Blocking {
+		if req == 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request for no transaction IDs",
+			)
+		}
+		if remaining := len(unacked) - ack; remaining != 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request leaves %d transaction IDs unacknowledged",
+				remaining,
+			)
+		}
+	}
+	// From NodeToNodeV_16 the window is a local setting of each side, so the
+	// peer cannot know ours and a request past it is not an error: the reply
+	// carries only as many IDs as fit (the reference's TxOutboundV_2). Only
+	// the reply size changes; req keeps the requested count, which the
+	// blocking-style rules are stated in.
+	reply := req
+	if c.protoOptions.Version >= txOutboundClampVersion {
+		reply = min(req, MaxUnackedTxIds-(len(unacked)-ack))
+	}
+	if len(unacked)-ack+reply > MaxUnackedTxIds {
 		c.Protocol.Logger().
 			Error("TxSubmission request count exceeded",
 				"req", req,
@@ -338,13 +382,21 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
+	if err := checkRequestTxIdsStyle(
+		msgRequestTxIds.Blocking,
+		ack,
+		req,
+		len(unacked),
+	); err != nil {
+		return err
+	}
 
 	// Call the user callback function
 	txIds, err := c.config.RequestTxIdsFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.ProtocolInstance()),
 		msgRequestTxIds.Blocking,
 		msgRequestTxIds.Ack,
-		msgRequestTxIds.Req,
+		uint16(reply), // #nosec G115 -- at most the request's own uint16
 	)
 	if err != nil {
 		if !errors.Is(err, ErrStopServerProcess) {
@@ -361,11 +413,11 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 		}
 		return nil
 	}
-	if len(txIds) > int(msgRequestTxIds.Req) {
+	if len(txIds) > reply {
 		c.Protocol.Logger().
 			Error("TxSubmission reply count exceeded request",
 				"returned", len(txIds),
-				"requested", msgRequestTxIds.Req,
+				"requested", reply,
 			)
 		return protocol.ErrProtocolViolationRequestExceeded
 	}
@@ -373,7 +425,7 @@ func (c *Client) handleRequestTxIds(msg protocol.Message) error {
 	nextUnacked, err := reconcileTxIds(
 		unacked,
 		ack,
-		req,
+		reply,
 		msgRequestTxIds.Blocking,
 		txIds,
 	)
@@ -433,7 +485,7 @@ func (c *Client) handleRequestTxs(msg protocol.Message) error {
 	}
 	// Call the user callback function
 	txs, err := c.config.RequestTxsFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.ProtocolInstance()),
 		append([]TxId(nil), requestedTxIds...),
 	)
 	if err != nil {

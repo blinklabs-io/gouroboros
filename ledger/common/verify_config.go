@@ -130,8 +130,10 @@ type VerifyConfig struct {
 	// When false (default), LedgerState and ProtocolParameters must be set.
 	SkipTransactionValidation bool
 	// SkipStakePoolValidation disables issuer membership and VRF-key checks
-	// against the active leader distribution in VerifyBlock and VerifyBlockState.
-	// When false (default), LeaderPoolVrfKeyHash must be set for non-Byron blocks.
+	// against the active leader distribution and the TPraos overlay schedule in
+	// VerifyBlock and VerifyBlockState. When false (default),
+	// LeaderPoolVrfKeyHash must be set for non-Byron blocks, and TPraosOverlay
+	// for Shelley-through-Alonzo blocks.
 	SkipStakePoolValidation bool
 	// SkipBlockLimitsValidation disables block-wide execution-unit and
 	// serialized-size limit enforcement in VerifyBlock() (the BBODY
@@ -170,6 +172,12 @@ type VerifyConfig struct {
 		slot uint64,
 		poolKeyHash PoolKeyHash,
 	) (*Blake2b256, error)
+	// TPraosOverlay is the overlay schedule a Shelley-through-Alonzo block's
+	// issuer is checked against. In an active overlay slot the issuer and VRF
+	// key must be the scheduled genesis delegation's, and LeaderPoolVrfKeyHash
+	// is not consulted; a block in a non-active overlay slot is rejected.
+	// Required for those eras unless SkipStakePoolValidation is set.
+	TPraosOverlay *TPraosOverlaySchedule
 	// ProtocolParameters provides the current protocol parameters for
 	// transaction validation and block-limits validation.
 	// Required for Shelley-family transaction validation when

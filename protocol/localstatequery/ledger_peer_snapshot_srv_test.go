@@ -15,6 +15,7 @@
 package localstatequery
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -117,10 +118,10 @@ func querySnapshotResultOverPipe(
 	t.Cleanup(func() {
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
-		serverMuxer.Stop()
-		clientMuxer.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
 	})
 	require.NoError(t, local.SetDeadline(time.Now().Add(10*time.Second)))
 	require.NoError(t, remote.SetDeadline(time.Now().Add(10*time.Second)))

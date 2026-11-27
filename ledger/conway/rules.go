@@ -691,14 +691,16 @@ func govActionTypePurpose(
 // per the cardano-ledger pvCanFollow predicate: either the major version
 // increments by exactly one and the minor version resets to zero, or the
 // major version is unchanged and the minor version increments by exactly
-// one.
+// one. The minor version is 32 bits wide and its successor is computed in
+// 32 bits, so it wraps from the maximum to zero.
 func protocolVersionCanFollow(
 	curMajor, curMinor, newMajor, newMinor uint,
 ) bool {
 	if newMajor == curMajor+1 && newMinor == 0 {
 		return true
 	}
-	return newMajor == curMajor && newMinor == curMinor+1
+	return newMajor == curMajor && curMinor <= math.MaxUint32 &&
+		newMinor == uint(uint32(curMinor)+1)
 }
 
 // txGovProposal is a governance action proposed by the transaction under
@@ -3135,10 +3137,8 @@ func UtxoValidateTooManyCollateralInputs(
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
-// protocol parameters. The fee-relevant transaction size is determined by
-// common.TxSizeForFee, which uses the original on-wire CBOR length and
-// subtracts 1 byte for Alonzo+ eras (the IsValid boolean is excluded from
-// the fee computation per the Cardano ledger spec toCBORForSizeComputation).
+// protocol parameters and the transaction size measured by
+// common.TxSizeForFee.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -3349,9 +3349,11 @@ func UtxoValidateDelegation(
 		return nil
 	}
 
-	// Helper to check if pool is registered (in state or in-tx)
-	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
-		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) (bool, error) {
+		if inTxPoolRegs[poolKeyHash] {
+			return true, nil
+		}
+		return common.PoolRegistered(ls, slot, poolKeyHash)
 	}
 
 	// Helper to convert Drep type to credential type. Any type other than
@@ -3511,7 +3513,9 @@ func UtxoValidateDelegation(
 		// Check delegations
 		case *common.StakeDelegationCertificate:
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			// Check if stake credential is registered
@@ -3530,7 +3534,9 @@ func UtxoValidateDelegation(
 
 		case *common.StakeVoteDelegationCertificate:
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			// Check if stake credential is registered
@@ -3546,7 +3552,9 @@ func UtxoValidateDelegation(
 				return err
 			}
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 
@@ -3563,7 +3571,9 @@ func UtxoValidateDelegation(
 				return err
 			}
 			// Check if pool is registered
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			if err := validateDRepTarget(c.Drep); err != nil {
@@ -4341,7 +4351,14 @@ func UtxoValidateUnknownVoters(
 			}
 
 		case common.VoterTypeStakingPoolKeyHash:
-			if !overlay.IsPoolRegistered(common.PoolKeyHash(voter.Hash)) {
+			registered, err := overlay.poolRegistered(
+				slot,
+				common.PoolKeyHash(voter.Hash),
+			)
+			if err != nil {
+				return err
+			}
+			if !registered {
 				return UnknownVoterError{Voter: *voter}
 			}
 

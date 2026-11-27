@@ -15,6 +15,7 @@
 package blockfetch_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
@@ -48,7 +49,7 @@ func TestServerAnswersRequestRangeSentDuringRestart(t *testing.T) {
 		},
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(blockfetch.NewMsgClientDone())

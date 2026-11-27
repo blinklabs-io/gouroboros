@@ -15,6 +15,7 @@
 package handshake_test
 
 import (
+	"context"
 	"errors"
 	"net"
 	"reflect"
@@ -102,7 +103,7 @@ func startSimOpenSide(
 	t.Helper()
 	results := make(chan simOpenResult, 2)
 	protoMuxer := muxer.New(conn)
-	t.Cleanup(protoMuxer.Stop)
+	t.Cleanup(func() { _ = protoMuxer.Stop(context.Background()) })
 	errorChan := make(chan error, 1)
 	config := handshake.NewConfig(
 		handshake.WithProtocolVersionMap(table),
@@ -124,7 +125,7 @@ func startSimOpenSide(
 		ErrorChan: errorChan,
 		Mode:      protocol.ProtocolModeNodeToNode,
 	}, &config)
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	go func() {
 		select {
 		case err := <-errorChan:

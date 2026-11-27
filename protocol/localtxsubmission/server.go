@@ -15,6 +15,7 @@
 package localtxsubmission
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -24,7 +25,7 @@ import (
 
 // Server implements the LocalTxSubmission server
 type Server struct {
-	*protocol.Protocol
+	proto        *protocol.Protocol // current instance; replaced on restart, guarded by protocolMu
 	protocolMu   sync.RWMutex
 	protoOptions protocol.ProtocolOptions
 	// stopped is set by Stop under protocolMu. initProtocol checks it under
@@ -74,7 +75,7 @@ func (s *Server) initProtocol() bool {
 	if s.stopped {
 		return false
 	}
-	s.Protocol = p
+	s.proto = p
 	return true
 }
 
@@ -83,17 +84,24 @@ func (s *Server) initProtocol() bool {
 func (s *Server) ProtocolInstance() *protocol.Protocol {
 	s.protocolMu.RLock()
 	defer s.protocolMu.RUnlock()
-	return s.Protocol
+	return s.proto
 }
 
 // Stop stops the server. A restart that is in progress when Stop is called
 // does not start a new protocol instance.
-func (s *Server) Stop() {
+//
+// Stop signals shutdown at once. When ctx is the Context of a
+// CallbackContext this server passed to a callback, Stop returns without
+// waiting, since the goroutine running the callback is one it would wait
+// for. Otherwise it waits until the protocol's goroutines have returned, or
+// until ctx is done, in which case it returns ctx.Err() and shutdown still
+// proceeds.
+func (s *Server) Stop(ctx context.Context) error {
 	s.protocolMu.Lock()
 	s.stopped = true
-	p := s.Protocol
+	p := s.proto
 	s.protocolMu.Unlock()
-	p.Stop()
+	return p.Stop(ctx)
 }
 
 func (s *Server) messageHandler(msg protocol.Message) error {
@@ -128,7 +136,7 @@ func (s *Server) handleSubmitTx(msg protocol.Message) error {
 	}
 	msgSubmitTx := msg.(*MsgSubmitTx)
 	// Call the user callback function and send Accept/RejectTx based on result
-	err := s.config.SubmitTxFunc(s.callbackContext, msgSubmitTx.Transaction)
+	err := s.config.SubmitTxFunc(s.callbackContext.withOwner(s.ProtocolInstance()), msgSubmitTx.Transaction)
 	if err == nil {
 		newMsg := NewMsgAcceptTx()
 		if err := s.ProtocolInstance().SendMessage(newMsg); err != nil {
@@ -159,7 +167,7 @@ func (s *Server) handleDone() {
 			"role", "server",
 			"connection_id", s.callbackContext.ConnectionId.String(),
 		)
-	p.StopForRestart()
+	_ = p.StopForRestart(p.CallbackContext())
 	if !s.initProtocol() {
 		p.CancelRestart()
 		return

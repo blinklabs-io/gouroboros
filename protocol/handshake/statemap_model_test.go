@@ -16,6 +16,7 @@ package handshake
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -343,7 +344,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -503,7 +504,7 @@ func driveToState(t *testing.T, row modelReceiveRow, mode protocol.ProtocolMode)
 	if row.role == protocol.ProtocolRoleServer {
 		server := NewServer(opts, h.config())
 		server.Start()
-		t.Cleanup(server.Stop)
+		t.Cleanup(func() { _ = server.Stop(context.Background()) })
 		if row.state == stateDone {
 			h.send(t, NewMsgProposeVersions(modelTable(mode)))
 			accept, ok := h.receive(t).(*MsgAcceptVersion)
@@ -515,7 +516,7 @@ func driveToState(t *testing.T, row modelReceiveRow, mode protocol.ProtocolMode)
 	}
 	client := NewClient(opts, h.config())
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	_, ok := h.receive(t).(*MsgProposeVersions)
 	require.True(t, ok, "client must open with MsgProposeVersions")
 	if row.state == stateDone {
@@ -615,7 +616,7 @@ func TestClientConfirmTimeoutMatchesSpec(t *testing.T) {
 			cfg.Timeout = 50 * time.Millisecond
 			client := NewClient(opts, cfg)
 			client.Start()
-			t.Cleanup(client.Stop)
+			t.Cleanup(func() { _ = client.Stop(context.Background()) })
 			_, ok := h.receive(t).(*MsgProposeVersions)
 			require.True(t, ok)
 			if test.wantTimeout {
@@ -708,7 +709,7 @@ func TestServerNegotiationMatchesModel(t *testing.T) {
 			cfg.ProtocolVersionMap = test.server
 			s := NewServer(opts, cfg)
 			s.Start()
-			t.Cleanup(s.Stop)
+			t.Cleanup(func() { _ = s.Stop(context.Background()) })
 			h.send(t, &MsgProposeVersions{
 				MessageBase: protocol.MessageBase{MessageType: MessageTypeProposeVersions},
 				VersionMap:  modelRawTable(t, test.proposal),

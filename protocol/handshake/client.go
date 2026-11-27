@@ -112,7 +112,7 @@ func (c *Client) Start() {
 					"error", c.proposalErr,
 				)
 			// Start cannot return this error, so log it and still clean up.
-			c.Stop()
+			_ = c.Stop(context.Background())
 		}()
 		// A peer that dials at the same moment sends its own proposal,
 		// which is only legal once ours has moved the client to Confirm;
@@ -188,7 +188,7 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 		)
 	}
 	return c.config.FinishedFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.Protocol),
 		msgAcceptVersion.Version,
 		versionData,
 	)
@@ -519,13 +519,13 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 		}
 	}
 	if c.config.QueryReplyFunc != nil {
-		if err := c.config.QueryReplyFunc(c.callbackContext, versionMap); err != nil {
+		if err := c.config.QueryReplyFunc(c.callbackContext.withOwner(c.Protocol), versionMap); err != nil {
 			return err
 		}
 	}
 	if c.config.FinishedFunc != nil {
 		return c.config.FinishedFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.Protocol),
 			0,
 			nil,
 		)

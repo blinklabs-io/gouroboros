@@ -15,6 +15,7 @@
 package localmessagenotification_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func TestServerAnswersRequestSentDuringRestart(t *testing.T) {
 	t.Parallel()
 	h := restartwindow.New(t, localmessagenotification.ProtocolID)
 	server := newRestartTestServer(h, "received client done message")
-	t.Cleanup(func() { _ = server.Stop() })
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(localmessagenotification.NewMsgClientDone())
@@ -72,7 +73,7 @@ func TestServerAnswersBackToBackRestarts(t *testing.T) {
 	t.Parallel()
 	h := restartwindow.New(t, localmessagenotification.ProtocolID)
 	server := newRestartTestServer(h, "unused hold")
-	t.Cleanup(func() { _ = server.Stop() })
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 50 {
@@ -93,14 +94,19 @@ func TestServerStopDuringRestartStopsServer(t *testing.T) {
 	t.Parallel()
 	h := restartwindow.New(t, localmessagenotification.ProtocolID)
 	server := newRestartTestServer(h, "received client done message")
-	t.Cleanup(func() { _ = server.Stop() })
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(localmessagenotification.NewMsgClientDone())
 	h.WaitHeld()
 	stopped := server.ProtocolInstance()
-	require.NoError(t, server.Stop())
+	// Waiting would wait for the held Done handler, so this Stop only
+	// signals; the join follows the release.
+	signalOnly, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, server.Stop(signalOnly), context.Canceled)
 	h.Release()
+	require.NoError(t, server.Stop(context.Background()))
 
 	restarted := func() bool { return server.ProtocolInstance() != stopped }
 	assert.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
@@ -116,7 +122,7 @@ func TestWaitForMessageOutlivesRestart(t *testing.T) {
 	t.Parallel()
 	h := restartwindow.New(t, localmessagenotification.ProtocolID)
 	server := newRestartTestServer(h, "unused hold")
-	t.Cleanup(func() { _ = server.Stop() })
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	waited := make(chan error, 1)
@@ -135,7 +141,7 @@ func TestWaitForMessageOutlivesRestart(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
 	select {
 	case err := <-waited:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)

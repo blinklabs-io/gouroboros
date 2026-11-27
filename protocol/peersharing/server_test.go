@@ -16,6 +16,7 @@ package peersharing
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"log/slog"
@@ -108,8 +109,8 @@ func testPeerSharingServer(
 	server.Start()
 	m.Start()
 	t.Cleanup(func() {
-		server.Stop()
-		m.Stop()
+		server.Stop(context.Background())
+		_ = m.Stop(context.Background())
 		connA.Close()
 		connB.Close()
 	})

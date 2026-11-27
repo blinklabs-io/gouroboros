@@ -15,6 +15,8 @@
 package localmessagesubmission_test
 
 import (
+	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -29,7 +31,8 @@ func restartTestSubmission() *localmessagesubmission.MsgSubmitMessage {
 	return localmessagesubmission.NewMsgSubmitMessage(pcommon.DmqMessage{
 		MessageID: []byte("restart-message-id"),
 		Payload: pcommon.DmqMessagePayload{
-			ExpiresAt: uint32(time.Now().Add(time.Minute).Unix()),
+			MessageBody: bytes.Repeat([]byte{0x2e}, pcommon.MinMessageBodySize),
+			ExpiresAt:   uint32(time.Now().Add(time.Minute).Unix()),
 		},
 	})
 }
@@ -53,7 +56,7 @@ func TestServerAnswersSubmitSentDuringRestart(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(localmessagesubmission.NewMsgDone())
@@ -82,7 +85,7 @@ func TestServerAnswersBackToBackRestarts(t *testing.T) {
 		nil,
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	for range 50 {

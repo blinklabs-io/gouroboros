@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"encoding/binary"
 	"net"
 	"testing"
@@ -46,7 +47,7 @@ func TestRequestNextBurstPipelinesWhileServerHasAgency(t *testing.T) {
 			})
 			m := muxer.New(localConn)
 			m.Start()
-			t.Cleanup(m.Stop)
+			t.Cleanup(func() { _ = m.Stop(context.Background()) })
 
 			payloadBytes := make(chan int, 100)
 			go func() {
@@ -81,7 +82,7 @@ func TestRequestNextBurstPipelinesWhileServerHasAgency(t *testing.T) {
 				InitialState: stateIdle,
 			})
 			p.Start()
-			t.Cleanup(p.Stop)
+			t.Cleanup(func() { _ = p.Stop(context.Background()) })
 
 			encoded, err := cbor.Encode(NewMsgRequestNext())
 			require.NoError(t, err)

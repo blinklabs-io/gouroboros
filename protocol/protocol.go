@@ -76,10 +76,21 @@ const DefaultRecvQueueSize = 55
 
 // Protocol implements the base functionality of an Ouroboros mini-protocol
 type Protocol struct {
-	config               ProtocolConfig
-	doneChan             chan struct{}
-	stopChan             chan struct{}
-	readDoneChan         chan struct{}
+	config   ProtocolConfig
+	doneChan chan struct{}
+	stopChan chan struct{}
+	// loopsMu guards the count of running loops: the four engine loops and
+	// every RunLoop goroutine. loopsDoneChan closes once shutdown has begun
+	// and the count is zero; Stop and StopForRestart wait on it. No loop
+	// starts after that.
+	loopsMu       sync.Mutex
+	loopsRunning  int
+	loopsEnding   bool
+	loopsClosed   bool
+	loopsDoneChan chan struct{}
+	// callbackCtx is the context returned by CallbackContext. It is built
+	// once so that a callback on a hot path does not allocate one.
+	callbackCtx          context.Context
 	muxerSendChan        chan *muxer.Segment
 	muxerRecvChan        chan *muxer.Segment
 	muxerDoneChan        chan bool
@@ -161,8 +172,13 @@ type Protocol struct {
 	// from the muxer but not processed. It is set before the protocol starts.
 	handoverIngress []byte
 	// carriedIngress is the same kind of data this instance leaves for its
-	// successor. readLoop writes it before it closes readDoneChan.
+	// successor. readLoop writes it before it sets readExited.
 	carriedIngress []byte
+	// restartMu guards readExited and finishCarry, which settle whether
+	// StopForRestart or readLoop's exit hands carriedIngress to the muxer.
+	restartMu   sync.Mutex
+	readExited  bool
+	finishCarry func([]byte)
 }
 
 type inboundMessage struct {
@@ -317,10 +333,17 @@ func New(config ProtocolConfig) *Protocol {
 		stateChangedChan: make(chan struct{}),
 		doneChan:         make(chan struct{}),
 		stopChan:         make(chan struct{}),
-		readDoneChan:     make(chan struct{}),
 		recvDoneChan:     make(chan struct{}),
 		sendDoneChan:     make(chan struct{}),
+		// The send queue exists from the start, so a message sent before
+		// Start is queued for sendLoop instead of blocking on a nil
+		// channel, and the field is never written after New.
+		sendQueueChan: make(chan outboundMessage, 80),
+		loopsDoneChan: make(chan struct{}),
 	}
+	p.callbackCtx = context.WithValue(
+		context.Background(), callbackOwnerKey{}, p,
+	)
 	return p
 }
 
@@ -440,11 +463,11 @@ func (p *Protocol) Start() {
 			p.lifecycleMu.Unlock()
 			p.SendError(errors.New("could not register protocol with muxer"))
 			p.closeDone()
+			p.endLoops()
 			return
 		}
 
 		// Create channels
-		p.sendQueueChan = make(chan outboundMessage, 80)
 		p.recvQueueChan = make(chan inboundMessage, p.config.RecvQueueSize)
 		p.recvStateChangedChan = make(chan struct{}, 1)
 		p.handlerDoneChan = make(chan struct{})
@@ -453,26 +476,53 @@ func (p *Protocol) Start() {
 		stateTransitionChan := make(chan protocolStateTransition)
 		p.stateTransitionChan = stateTransitionChan
 
-		// Start our send and receive Goroutines
+		// The loops run user callbacks, so the connection waits for them
+		// when it closes. It refuses new ones once it has begun to.
+		loops := []func(){
+			func() { p.stateLoop(stateTransitionChan) },
+			p.readLoop,
+			p.recvLoop,
+			p.sendLoop,
+		}
+		for i, loop := range loops {
+			p.addLoop()
+			loops[i] = func() {
+				defer p.loopDone()
+				loop()
+			}
+		}
+		if !p.config.Muxer.StartProtocolLoops(p, loops...) {
+			for range loops {
+				p.loopDone()
+			}
+			p.lifecycleMu.Unlock()
+			p.closeDone()
+			p.endLoops()
+			return
+		}
 		go func() {
 			<-p.recvDoneChan
 			<-p.sendDoneChan
 			p.closeDone()
 		}()
 
-		go p.stateLoop(stateTransitionChan)
-		go p.readLoop()
-		go p.recvLoop()
-		go p.sendLoop()
-
 		p.started = true
 		p.lifecycleMu.Unlock()
 	})
 }
 
-// Stop shuts down the mini-protocol
-func (p *Protocol) Stop() {
+// Stop shuts down the mini-protocol and waits for its goroutines to return.
+//
+// Stop signals shutdown at once. When ctx is the context of a callback this
+// instance is running (see CallbackContext), Stop returns without waiting,
+// since the goroutine running the callback is one of those it would wait
+// for. Otherwise it waits until every goroutine of this instance has
+// returned, or until ctx is done, in which case it returns ctx.Err() and
+// shutdown still proceeds. A ctx that is already done makes Stop only
+// signal.
+func (p *Protocol) Stop(ctx context.Context) error {
 	p.stop(false)
+	return p.join(ctx)
 }
 
 // StopForRestart shuts down the mini-protocol like Stop, for a server that
@@ -481,9 +531,33 @@ func (p *Protocol) Stop() {
 // the new instance registers is dropped. StopForRestart instead keeps the
 // role registered with its queued ingress, and passes the data this instance
 // had read but not processed to the next instance of the role, so the
-// client's first message of the new run is delivered to it.
-func (p *Protocol) StopForRestart() {
+// client's first message of the new run is delivered to it. It waits for
+// this instance's goroutines as Stop does, and with the same ctx rules, so
+// a callback of this instance, MessageReceivedFunc included, may call it
+// with its CallbackContext. The read loop hands its unread data over as it
+// exits, and the next instance's registration waits for it.
+func (p *Protocol) StopForRestart(ctx context.Context) error {
 	p.stop(true)
+	return p.join(ctx)
+}
+
+// join waits for the loops to return, unless ctx marks a callback of p.
+func (p *Protocol) join(ctx context.Context) error {
+	if CallbackOwner(ctx) == p || p.loopsDoneChan == nil {
+		return nil
+	}
+	// A join that has already happened wins over a done ctx.
+	select {
+	case <-p.loopsDoneChan:
+		return nil
+	default:
+	}
+	select {
+	case <-p.loopsDoneChan:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // CancelRestart releases what StopForRestart kept for this role's next
@@ -507,6 +581,12 @@ func (p *Protocol) stop(restart bool) {
 		p.lifecycleMu.Lock()
 		p.stopped = true
 		started := p.started
+		// The muxer keys ingress settings by protocol ID and role, not by
+		// instance, so once a successor may register for the same role, an
+		// update from this instance would overwrite the successor's.
+		p.ingressMu.Lock()
+		p.registered = false
+		p.ingressMu.Unlock()
 		p.lifecycleMu.Unlock()
 
 		p.restarting.Store(restart)
@@ -514,6 +594,7 @@ func (p *Protocol) stop(restart bool) {
 		if !started {
 			p.closeDone()
 		}
+		p.endLoops()
 
 		// Unregister protocol from muxer
 		muxerProtocolRole := muxer.ProtocolRoleInitiator
@@ -523,19 +604,8 @@ func (p *Protocol) stop(restart bool) {
 		if p.config.Muxer == nil {
 			return
 		}
-		if restart {
-			// The data read loop leaves behind is only complete once it
-			// has stopped reading. It stops on stopChan, which is closed.
-			if started {
-				<-p.readDoneChan
-			}
-			if p.config.Muxer.SuspendProtocol(
-				p.config.ProtocolId,
-				muxerProtocolRole,
-				p.carriedIngress,
-			) {
-				return
-			}
+		if restart && p.suspendForRestart(started, muxerProtocolRole) {
+			return
 		}
 		p.config.Muxer.UnregisterProtocol(
 			p.config.ProtocolId,
@@ -544,10 +614,80 @@ func (p *Protocol) stop(restart bool) {
 	})
 }
 
+// suspendForRestart suspends the role in the muxer for the next instance,
+// and reports false if the role is not registered. The data readLoop leaves
+// behind is only complete once it has stopped reading, but readLoop may be
+// the caller, from MessageReceivedFunc, so a running readLoop is not waited
+// for: the role is suspended with its carry pending, and readLoop hands the
+// carry over as it exits.
+func (p *Protocol) suspendForRestart(
+	started bool,
+	role muxer.ProtocolRole,
+) bool {
+	p.restartMu.Lock()
+	defer p.restartMu.Unlock()
+	if !started || p.readExited {
+		return p.config.Muxer.SuspendProtocol(
+			p.config.ProtocolId,
+			role,
+			p.carriedIngress,
+		)
+	}
+	finish := p.config.Muxer.SuspendProtocolPendingCarry(
+		p.config.ProtocolId,
+		role,
+	)
+	if finish == nil {
+		return false
+	}
+	p.finishCarry = finish
+	return true
+}
+
 func (p *Protocol) closeDone() {
 	p.doneOnce.Do(func() {
 		close(p.doneChan)
 	})
+}
+
+// addLoop counts a loop about to start, unless the loops have already been
+// joined, when it reports false.
+func (p *Protocol) addLoop() bool {
+	p.loopsMu.Lock()
+	defer p.loopsMu.Unlock()
+	if p.loopsClosed {
+		return false
+	}
+	p.loopsRunning++
+	return true
+}
+
+// loopDone counts a loop that has returned.
+func (p *Protocol) loopDone() {
+	p.loopsMu.Lock()
+	defer p.loopsMu.Unlock()
+	p.loopsRunning--
+	p.closeLoopsLocked()
+}
+
+// endLoops records that shutdown has begun, so the loops are joined once
+// none is running.
+func (p *Protocol) endLoops() {
+	p.loopsMu.Lock()
+	defer p.loopsMu.Unlock()
+	p.loopsEnding = true
+	p.closeLoopsLocked()
+}
+
+func (p *Protocol) closeLoopsLocked() {
+	if p.loopsClosed || !p.loopsEnding || p.loopsRunning > 0 {
+		return
+	}
+	p.loopsClosed = true
+	// A Protocol not built by New has no channel to close.
+	if p.loopsDoneChan != nil {
+		close(p.loopsDoneChan)
+	}
 }
 
 // Logger returns the protocol logger
@@ -571,6 +711,40 @@ func (p *Protocol) Role() ProtocolRole {
 // DoneChan returns the channel used to signal protocol shutdown
 func (p *Protocol) DoneChan() <-chan struct{} {
 	return p.doneChan
+}
+
+// callbackOwnerKey is the context key under which CallbackContext stores
+// the protocol instance whose loop runs a callback.
+type callbackOwnerKey struct{}
+
+// CallbackContext returns the context a mini-protocol passes to the user
+// callbacks it runs for this protocol instance, through its own
+// CallbackContext's Context method. It marks this instance as the
+// callback's owner: a callback that passes it to Stop, StopForRestart, a
+// mini-protocol client or server Stop, or the connection's Close is not
+// waited for by that call, which would otherwise wait for its own
+// goroutine. Owners are compared by identity, so it marks nothing for any
+// other instance. It carries no deadline and is never cancelled.
+func (p *Protocol) CallbackContext() context.Context {
+	if p == nil {
+		return context.Background()
+	}
+	if p.callbackCtx == nil {
+		// A Protocol not made by New has no stored context.
+		return context.WithValue(context.Background(), callbackOwnerKey{}, p)
+	}
+	return p.callbackCtx
+}
+
+// CallbackOwner returns the protocol instance that ctx, or a context derived
+// from it, marks as the owner of a running callback (see CallbackContext),
+// or nil when ctx carries none.
+func CallbackOwner(ctx context.Context) *Protocol {
+	if ctx == nil {
+		return nil
+	}
+	p, _ := ctx.Value(callbackOwnerKey{}).(*Protocol)
+	return p
 }
 
 // StopChan returns the channel closed when shutdown is requested. Unlike
@@ -863,9 +1037,18 @@ func (p *Protocol) waitForMessageDeliveryContext(
 		return deliveryResultOrShutdown(deliveryChan)
 	case <-p.doneChan:
 		return deliveryResultOrShutdown(deliveryChan)
-	case <-p.muxerDoneChan:
+	case <-p.muxerDone():
 		return deliveryResultOrShutdown(deliveryChan)
 	}
+}
+
+// muxerDone returns the muxer's done channel, or nil before the protocol is
+// registered. ensureRegistered writes it under lifecycleMu, so a sender that
+// is not on one of the protocol's loops reads it here.
+func (p *Protocol) muxerDone() <-chan bool {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+	return p.muxerDoneChan
 }
 
 // deliveryResultOrShutdown preserves a delivery result that was reported
@@ -887,13 +1070,14 @@ func (p *Protocol) enqueueMessage(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	muxerDone := p.muxerDone()
 	// Immediately return if we're already shutting down
 	select {
 	case <-p.stopChan:
 		return ErrProtocolShuttingDown
 	case <-p.doneChan:
 		return ErrProtocolShuttingDown
-	case <-p.muxerDoneChan:
+	case <-muxerDone:
 		return ErrProtocolShuttingDown
 	case <-p.recvDoneChan:
 		return ErrProtocolShuttingDown
@@ -943,7 +1127,7 @@ func (p *Protocol) enqueueMessage(
 		enqueueErr = ctx.Err()
 	case <-p.stopChan:
 	case <-p.doneChan:
-	case <-p.muxerDoneChan:
+	case <-muxerDone:
 	case <-p.recvDoneChan:
 	case <-p.sendDoneChan:
 	}
@@ -979,8 +1163,9 @@ func (p *Protocol) SendError(err error) {
 		// additional errors are unnecessary
 	}
 	// Stop the protocol on any error to prevent further errors from being generated
-	// and to ensure the connection is properly terminated
-	p.Stop()
+	// and to ensure the connection is properly terminated. This runs on
+	// the protocol's own loops, so it must not wait for them.
+	p.stop(false)
 }
 
 // flushQueuedStateTransitions applies each deferred pipelined-send state
@@ -1218,16 +1403,36 @@ func (p *Protocol) recoverLoop(where string) {
 			p.Logger().
 				Error("contained panic with a full error channel", "error", err)
 		}
-		p.Stop()
+		p.stop(false)
 	}
 }
 
-// RunLoop runs a mini-protocol-owned loop in the current goroutine with the
-// same panic containment as Protocol's common loops. Callers normally start it
-// with go and must supply a stable, diagnostic loop name.
-func (p *Protocol) RunLoop(where string, loop func()) {
-	defer p.recoverLoop(where)
-	loop()
+// RunLoop starts a mini-protocol-owned loop on its own goroutine with the
+// same panic containment as Protocol's common loops; where is a stable,
+// diagnostic loop name. The loop is one of this instance's goroutines: Stop
+// and StopForRestart wait for it, and so does the connection's Close, so it
+// must return once StopChan closes. A callback it runs is given this
+// instance's CallbackContext. RunLoop reports false, and starts nothing,
+// once the instance's goroutines have been joined or the connection has
+// begun to close.
+func (p *Protocol) RunLoop(where string, loop func()) bool {
+	if !p.addLoop() {
+		return false
+	}
+	run := func() {
+		defer p.loopDone()
+		defer p.recoverLoop(where)
+		loop()
+	}
+	if p.config.Muxer == nil {
+		go run()
+		return true
+	}
+	if !p.config.Muxer.StartProtocolLoops(p, run) {
+		p.loopDone()
+		return false
+	}
+	return true
 }
 
 func (p *Protocol) sendLoop() {
@@ -1886,12 +2091,6 @@ func consumeReadBuffer(
 
 func (p *Protocol) readLoop() {
 	defer p.recoverLoop("read loop")
-	defer func() {
-		// Absent on a Protocol not built by New, which nothing restarts.
-		if p.readDoneChan != nil {
-			close(p.readDoneChan)
-		}
-	}()
 	leftoverData := false
 	readBuffer := bytes.NewBuffer(nil)
 	// carryOnExit is set when this loop stops reading because the role is
@@ -1901,6 +2100,13 @@ func (p *Protocol) readLoop() {
 	defer func() {
 		if (carryOnExit || p.restarting.Load()) && readBuffer.Len() > 0 {
 			p.carriedIngress = bytes.Clone(readBuffer.Bytes())
+		}
+		p.restartMu.Lock()
+		p.readExited = true
+		finish := p.finishCarry
+		p.restartMu.Unlock()
+		if finish != nil {
+			finish(p.carriedIngress)
 		}
 	}()
 	scanner := messageScanner{}

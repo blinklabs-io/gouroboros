@@ -15,9 +15,12 @@
 package localstatequery
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborpreflight"
+	"github.com/blinklabs-io/gouroboros/protocol/internal/cborwalk"
 )
 
 // The GetGenesisConfig reply has three wire layouts, chosen by the negotiated
@@ -126,6 +129,9 @@ func (g *GenesisConfigResult) UnmarshalCBOR(data []byte) error {
 			genesisConfigFieldsCurrent,
 			len(fields),
 		)
+	}
+	if err := boundGenesisRational(fields[3]); err != nil {
+		return fmt.Errorf("genesis config field 4: %w", err)
 	}
 	decoded := GenesisConfigResult{}
 	targets := []any{
@@ -251,10 +257,10 @@ type genesisPParamsLegacy struct {
 	PoolDeposit           int
 	EMax                  int
 	NOpt                  int
-	A0                    []int
-	Rho                   []int
-	Tau                   []int
-	DecentralizationParam []int
+	A0                    legacyGenesisRational
+	Rho                   legacyGenesisRational
+	Tau                   legacyGenesisRational
+	DecentralizationParam legacyGenesisRational
 	ExtraEntropy          any
 	ProtocolVersionMajor  int
 	ProtocolVersionMinor  int
@@ -268,6 +274,60 @@ type genesisProtocolVersion struct {
 	cbor.StructAsArray
 	Major int
 	Minor int
+}
+
+// boundGenesisRational checks that data is a rational pair of scalars, under
+// any tags, before it decodes into a slice. A slice would otherwise be sized
+// from the declared count, and an untyped one would also hold nested
+// collections, both costing far more memory than the reply. A null still
+// decodes to a nil slice.
+func boundGenesisRational(data []byte) error {
+	if d := cbor.SkipTags(data); len(d) == 1 && (d[0] == 0xf6 || d[0] == 0xf7) {
+		return nil
+	}
+	return cborpreflight.ValidateArray(
+		data,
+		2,
+		"genesis rational",
+		func(_ int, item []byte) error {
+			head, ok, err := cborwalk.ReadHead(item, 0)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return errors.New("truncated genesis rational element")
+			}
+			switch {
+			case head.Major == cbor.CborTypeArray>>5,
+				head.Major == cbor.CborTypeMap>>5:
+				return errors.New("genesis rational element is a collection")
+			case head.Major == cbor.CborTypeTag>>5 &&
+				head.Argument != 2 && // unsigned bignum
+				head.Argument != 3: // negative bignum
+				return fmt.Errorf(
+					"genesis rational element has tag %d",
+					head.Argument,
+				)
+			}
+			return nil
+		},
+	)
+}
+
+// legacyGenesisRational is a rational in the legacy protocol parameters,
+// decoded as a plain pair once its shape is bounded.
+type legacyGenesisRational []int
+
+func (r *legacyGenesisRational) UnmarshalCBOR(data []byte) error {
+	if err := boundGenesisRational(data); err != nil {
+		return err
+	}
+	var pair []int
+	if _, err := cbor.Decode(data, &pair); err != nil {
+		return err
+	}
+	*r = pair
+	return nil
 }
 
 // genesisRational is a [numerator, denominator] pair. The reference codec

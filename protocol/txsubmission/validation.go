@@ -66,6 +66,45 @@ func requestedTxIdsAreOutstanding(
 	return nil
 }
 
+// checkRequestTxIdsStyle applies the rules on the blocking flag of a
+// MsgRequestTxIds, given the number of transaction IDs unacknowledged before
+// it. The flag is not a choice: a blocking request must leave nothing
+// unacknowledged after its acknowledgement and ask for at least one ID, and a
+// non-blocking request must leave something unacknowledged and acknowledge or
+// ask for something. These are the reference implementation's
+// ProtocolErrorRequestedNothing, ProtocolErrorRequestBlocking and
+// ProtocolErrorRequestNonBlocking (Ouroboros.Network.TxSubmission.Outbound).
+// The caller has already checked that ack does not exceed unacked.
+func checkRequestTxIdsStyle(blocking bool, ack, req, unacked int) error {
+	remaining := unacked - ack
+	if blocking {
+		if req == 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request for no transaction IDs",
+			)
+		}
+		if remaining != 0 {
+			return invalidTxSubmissionMessage(
+				"blocking request leaves %d transaction IDs unacknowledged",
+				remaining,
+			)
+		}
+		return nil
+	}
+	if req == 0 && ack == 0 {
+		return invalidTxSubmissionMessage(
+			"non-blocking request neither acknowledges nor requests" +
+				" transaction IDs",
+		)
+	}
+	if remaining == 0 {
+		return invalidTxSubmissionMessage(
+			"non-blocking request leaves no transaction IDs unacknowledged",
+		)
+	}
+	return nil
+}
+
 // checkAdvertisedTxSizes refuses an announcement whose advertised size
 // exceeds MaxTxSizeBytes, as the reference implementation does for
 // max_TX_SIZE. It deliberately ignores Config.MaxTxSize: a peer advertises the

@@ -495,9 +495,14 @@ minimum for the serialized transaction size, except for redeem-only spends.
 genesis maxKESEvolutions) and fails closed when it is zero, unless
 `SkipKesEvolutionsValidation` is set; it rejects a header whose KES evolution
 is at or beyond that bound. `VerifyBlockLocal()` does not apply the bound.
+Unless `SkipStakePoolValidation` is set, `VerifyBlock()` and
+`VerifyBlockState()` check a Shelley-through-Alonzo issuer against
+`VerifyConfig.TPraosOverlay`, whose active slot coefficient classifies overlay
+slots: an active overlay slot admits only the scheduled genesis delegate and its
+VRF key, a non-active one admits no block, and the leader distribution is
+consulted only outside overlay slots.
 These helpers are not complete consensus gates. They do not receive the previous
-header, active stake distribution, active slot coefficient, or operational
-certificate sequence state. Production chain validation must combine these
+header, active stake distribution, or operational certificate sequence state. Production chain validation must combine these
 checks with pre-decode block-type resolution and ordered chain-context
 consensus validation before accepting a block.
 

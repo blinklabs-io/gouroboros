@@ -433,8 +433,12 @@ func validateDijkstraBlockCertificatesWith(
 			nil,
 		)
 	}
-	if err := dijkstraBlock.BlockBody.LeiosCertificate.Validate(
-		uint64(pparams.LeiosCommitteeSize),
+	// The exact bitfield length depends on the seated committee, which can
+	// be smaller than LeiosCommitteeSize, so only its upper bound is checked
+	// before the committee is looked up.
+	if err := validateLeiosCertificateShape(
+		dijkstraBlock.BlockBody.LeiosCertificate,
+		pparams.LeiosCommitteeSize,
 	); err != nil {
 		return common.NewValidationError(
 			common.ValidationErrorTypeProtocol,
@@ -465,6 +469,16 @@ func validateDijkstraBlockCertificatesWith(
 			err,
 		)
 	}
+	keyAge, err := state.DijkstraLeiosKeyAgeContext(dijkstraBlock.Header())
+	if err != nil {
+		return common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"failed to resolve Dijkstra Leios voting key age",
+			nil,
+			err,
+		)
+	}
+	context.KeyAge = keyAge
 	if err := leios.VerifyDijkstraCertificateForMessage(
 		dijkstraBlock.BlockBody.LeiosCertificate.Signers,
 		dijkstraBlock.BlockBody.LeiosCertificate.AggregatedSignature,
@@ -484,6 +498,31 @@ func validateDijkstraBlockCertificatesWith(
 			"invalid Dijkstra Leios certificate",
 			map[string]any{"committee_size": pparams.LeiosCommitteeSize},
 			err,
+		)
+	}
+	return nil
+}
+
+// validateLeiosCertificateShape checks what a certificate's shape allows
+// without the committee: the signature size, and a signer bitfield no longer
+// than a committee of committeeSize seats needs.
+func validateLeiosCertificateShape(
+	cert *dijkstra.DijkstraLeiosCertificate,
+	committeeSize uint16,
+) error {
+	if err := common.ValidateLeiosSignature(
+		"DijkstraLeiosCertificate: AggregatedSignature",
+		cert.AggregatedSignature,
+	); err != nil {
+		return err
+	}
+	maxSize := common.LeiosSignerBitfieldSize(uint64(committeeSize))
+	if uint64(len(cert.Signers)) > maxSize {
+		return fmt.Errorf(
+			"leios signer bitfield of %d bytes exceeds %d for committee size %d",
+			len(cert.Signers),
+			maxSize,
+			committeeSize,
 		)
 	}
 	return nil
@@ -838,7 +877,7 @@ func verifyBlockTransactions(
 	pp common.ProtocolParameters,
 	rules []common.UtxoValidationRuleFunc,
 ) (int, error) {
-	blockState := common.NewBlockLedgerState(ls)
+	blockState := common.NewBlockLedgerStateAt(ls, slot)
 	for idx, tx := range txs {
 		err := common.VerifyTransaction(tx, slot, blockState, pp, rules)
 		if err != nil {
@@ -870,11 +909,15 @@ func verifyBlockTransactions(
 // its collateral. It never writes to config.LedgerState, so the caller
 // applies the block itself once it is accepted.
 //
+// For a Shelley-through-Alonzo block, unless config.SkipStakePoolValidation is
+// set, VerifyBlock classifies the slot with config.TPraosOverlay, using its
+// ActiveSlotCoeff: an active overlay slot admits only the scheduled genesis
+// delegate and its VRF key, and a non-active overlay slot admits no block.
+//
 // VerifyBlock is not full chain-context consensus validation. It does not
-// receive the previous header, active stake distribution, active slot
-// coefficient, or operational certificate sequence state, so callers must
-// combine it with chain-state validation before using a block
-// as a production consensus decision.
+// receive the previous header, active stake distribution, or operational
+// certificate sequence state, so callers must combine it with chain-state
+// validation before using a block as a production consensus decision.
 func VerifyBlock(
 	block Block,
 	eta0Hex string,
@@ -1369,6 +1412,86 @@ func verifyBlock(
 	return true, vrfHex, blockNo, slot, nil
 }
 
+// isTPraosEra reports whether era's headers follow TPraos, the eras with a
+// decentralization parameter and its overlay schedule.
+func isTPraosEra(era common.Era) bool {
+	switch era.Id {
+	case shelley.EraShelley.Id, allegra.EraAllegra.Id, mary.EraMary.Id,
+		alonzo.EraAlonzo.Id:
+		return true
+	}
+	return false
+}
+
+// verifyTPraosOverlayIssuer applies the OVERLAY rule's slot classification
+// (cardano-ledger Cardano/Protocol/TPraos/Rules/Overlay.hs): a non-active
+// overlay slot admits no block, and an active one admits only the scheduled
+// genesis delegate with its VRF key, whatever the stake distribution says. It
+// reports true when the slot is an overlay slot and the issuer passed, so the
+// pool distribution check does not apply.
+func verifyTPraosOverlayIssuer(
+	schedule *common.TPraosOverlaySchedule,
+	slot uint64,
+	issuer common.Blake2b224,
+	vrfKey []byte,
+) (bool, error) {
+	if schedule == nil {
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"TPraosOverlay is required for TPraos issuer validation",
+			map[string]any{"block_slot": slot},
+			nil,
+		)
+	}
+	kind, delegation, err := schedule.Classify(slot)
+	if err != nil {
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeConfiguration,
+			"invalid TPraos overlay schedule",
+			map[string]any{"block_slot": slot},
+			err,
+		)
+	}
+	switch kind {
+	case common.OverlaySlotNonActive:
+		return false, common.NewValidationError(
+			common.ValidationErrorTypeStakePool,
+			"block in a non-active overlay slot",
+			map[string]any{"block_slot": slot},
+			nil,
+		)
+	case common.OverlaySlotActive:
+		if issuer != delegation.DelegateKeyHash {
+			return false, common.NewValidationError(
+				common.ValidationErrorTypeStakePool,
+				"issuer is not the scheduled genesis delegate",
+				map[string]any{
+					"block_slot": slot,
+					"issuer":     issuer.String(),
+					"delegate":   delegation.DelegateKeyHash.String(),
+				},
+				nil,
+			)
+		}
+		vrfKeyHash := common.Blake2b256Hash(vrfKey)
+		if vrfKeyHash != delegation.VrfKeyHash {
+			return false, common.NewValidationError(
+				common.ValidationErrorTypeVRF,
+				"VRF key does not match the scheduled genesis delegation",
+				map[string]any{
+					"block_slot":        slot,
+					"block_vrf_hash":    vrfKeyHash.String(),
+					"delegate_vrf_hash": delegation.VrfKeyHash.String(),
+				},
+				nil,
+			)
+		}
+		return true, nil
+	case common.OverlaySlotNone:
+	}
+	return false, nil
+}
+
 func verifyByronBlockLocal(
 	block Block,
 ) (bool, string, uint64, uint64, error) {
@@ -1394,7 +1517,10 @@ func verifyByronBlockLocal(
 
 // VerifyBlockState checks the Dijkstra header rules, certificates, block
 // limits and transactions against current ledger state, and the issuer against
-// the active leader distribution supplied by config.LeaderPoolVrfKeyHash.
+// the active leader distribution supplied by config.LeaderPoolVrfKeyHash. For a
+// Shelley-through-Alonzo block the issuer is first checked against
+// config.TPraosOverlay: in an overlay slot the schedule decides and the leader
+// distribution is not consulted.
 // Callers must first verify the same immutable block with VerifyBlockLocal and
 // serialize this check with application of preceding blocks.
 func VerifyBlockState(block Block, config common.VerifyConfig) error {
@@ -1667,7 +1793,10 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 					nil,
 				)
 			}
-			blockState := common.NewBlockLedgerState(config.LedgerState)
+			blockState := common.NewBlockLedgerStateAt(
+				config.LedgerState,
+				slot,
+			)
 			for idx := range mainBlock.Body.TxPayload {
 				tx := &mainBlock.Body.TxPayload[idx]
 				if err := tx.ValidateAgainstUtxo(
@@ -1827,6 +1956,21 @@ func VerifyBlockState(block Block, config common.VerifyConfig) error {
 		}
 
 		poolKeyHash := common.Blake2b224Hash(issuerVkey)
+
+		if isTPraosEra(block.Era()) {
+			overlaySlot, err := verifyTPraosOverlayIssuer(
+				config.TPraosOverlay,
+				slot,
+				poolKeyHash,
+				blockVrfKey,
+			)
+			if err != nil {
+				return err
+			}
+			if overlaySlot {
+				return nil
+			}
+		}
 
 		snapshotVrfKeyHash, err := config.LeaderPoolVrfKeyHash(
 			slot,

@@ -16,6 +16,7 @@ package localstatequery
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -407,7 +408,7 @@ func newModelHarness(
 	// net.Pipe writes block until read, so the peer must always be reading.
 	go h.readPeer()
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = connA.Close()
 		_ = connB.Close()
 	})
@@ -577,7 +578,7 @@ func newModelServer(t *testing.T, h *modelHarness, opts protocol.ProtocolOptions
 		},
 	})
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	return server
 }
 
@@ -624,7 +625,7 @@ func driveClient(t *testing.T, state protocol.State) (*modelHarness, modelCall) 
 		QueryTimeout:   time.Minute,
 	})
 	client.Start()
-	t.Cleanup(client.Stop)
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
 	call := make(modelCall, 1)
 	switch state {
 	case stateAcquiring, stateAcquired:
@@ -768,10 +769,10 @@ func newModelPair(
 	t.Cleanup(func() {
 		_ = local.Close()
 		_ = remote.Close()
-		server.Stop()
-		client.Stop()
-		serverMuxer.Stop()
-		clientMuxer.Stop()
+		server.Stop(context.Background())
+		client.Stop(context.Background())
+		_ = serverMuxer.Stop(context.Background())
+		_ = clientMuxer.Stop(context.Background())
 	})
 	server.Start()
 	client.Start()
@@ -865,7 +866,7 @@ func TestStopWithQueryOutstanding(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("query did not reach the server")
 	}
-	client.Stop()
+	client.Stop(context.Background())
 	require.ErrorIs(t, call.wait(t), protocol.ErrProtocolShuttingDown)
 	client.Start()
 	again := make(modelCall, 1)

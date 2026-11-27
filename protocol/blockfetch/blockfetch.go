@@ -18,6 +18,7 @@
 package blockfetch
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -223,10 +224,14 @@ const DefaultRangeTimeout = BusyTimeout +
 // RangeRequest.ExpectedBytes).
 const IngressLimit = 10 * 2_097_154 * 11 / 10
 
-// BusyTimeout is the timeout for the server to start a batch or respond no blocks.
+// BusyTimeout is the timeout for the server to start a batch or respond no
+// blocks: the reference implementation's longWait, and the NewConfig default
+// for Config.BatchStartTimeout.
 const BusyTimeout = 60 * time.Second
 
-// StreamingTimeout is the timeout for the server to send the next block in a batch.
+// StreamingTimeout is the timeout for the server to send the next block in a
+// batch: the reference implementation's longWait, and the NewConfig default
+// for Config.BlockTimeout.
 const StreamingTimeout = 60 * time.Second
 
 // CallbackContext provides context for Block Fetch callbacks.
@@ -240,6 +245,27 @@ type CallbackContext struct {
 	// and completion to the MsgRequestRange that asked for it. It is zero
 	// for server-side callbacks.
 	RequestId uint64
+	// ctx is returned by Context.
+	ctx context.Context
+}
+
+// Context returns the context of this callback. A callback that stops its
+// own protocol, or closes its own connection, passes it to that Stop or
+// Close: the call then signals shutdown and returns without waiting for the
+// goroutine running the callback. It carries no deadline and is never
+// cancelled. It is context.Background for a CallbackContext that the package
+// did not build.
+func (c CallbackContext) Context() context.Context {
+	if c.ctx == nil {
+		return context.Background()
+	}
+	return c.ctx
+}
+
+// withOwner returns c with the context of a callback that p runs.
+func (c CallbackContext) withOwner(p *protocol.Protocol) CallbackContext {
+	c.ctx = p.CallbackContext()
+	return c
 }
 
 // BlockFunc is a callback for handling decoded blocks.
@@ -253,11 +279,12 @@ type BlockRawFunc func(CallbackContext, uint, []byte) error
 // completion through RangeDoneFunc instead.
 type BatchDoneFunc func(CallbackContext) error
 
-// RangeDoneFunc is a callback invoked exactly once for each request made
-// through Client.RequestRange. The error is nil when the peer completed the
-// batch, and otherwise reports why the request will not be completed: the
-// range was unavailable, the peer violated the protocol, or the protocol shut
-// down with the request still outstanding.
+// RangeDoneFunc is a callback invoked exactly once for each request for which
+// Client.RequestRange returned an id, and never for a call that returned an
+// error. It can run before RequestRange returns. The error is nil when the
+// peer completed the batch, and otherwise reports why the request will not be
+// completed: the range was unavailable, the peer violated the protocol, or the
+// protocol shut down with the request still outstanding.
 type RangeDoneFunc func(CallbackContext, error) error
 
 // RequestRangeFunc is a callback for handling block range requests.
@@ -279,8 +306,8 @@ type BlockFetchOptionFunc func(*Config)
 // It returns an error if the resulting configuration is invalid.
 func NewConfig(options ...BlockFetchOptionFunc) (Config, error) {
 	c := Config{
-		BatchStartTimeout: 5 * time.Second,
-		BlockTimeout:      60 * time.Second,
+		BatchStartTimeout: BusyTimeout,
+		BlockTimeout:      StreamingTimeout,
 		RecvQueueSize:     DefaultRecvQueueSize,
 		MaxInFlightBytes:  DefaultMaxInFlightBytes,
 		MaxBlocksPerRange: DefaultMaxBlocksPerRange,

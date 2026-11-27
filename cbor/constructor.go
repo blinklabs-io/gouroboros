@@ -15,8 +15,17 @@
 package cbor
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"math"
+	"math/big"
+	"reflect"
+	"sort"
 	"strconv"
+
+	_cbor "github.com/fxamacker/cbor/v2"
 )
 
 // alternativeToTag converts a constructor/alternative number to its CBOR tag number.
@@ -60,16 +69,220 @@ func (ce ConstructorEncoder) Tag() uint {
 }
 
 // MarshalCBOR encodes the constructor as a CBOR tagged value.
+//
+// The fields are written as plutus's encodeData writes Data: every list
+// (a Go slice or array other than bytes, or an IndefLengthList, at any
+// depth) as an indefinite-length list when non-empty and an empty definite
+// list (0x80) otherwise, and every byte string longer than 64 bytes, or
+// bignum magnitude longer than 64 bytes, as an indefinite-length byte string
+// of 64-byte chunks. A map (a Go map, Map or IndefLengthMap) is a definite
+// map whose keys and values are written the same way; a Go map has no order,
+// so its pairs follow their encoded keys. Items are matched by kind: any
+// byte slice or byte array, named or not, is a byte string, and a big.Int
+// value is an integer, unless the type has its own MarshalCBOR. A nil fields
+// value is an empty list. Any other value, including one with its own
+// MarshalCBOR, is encoded as given, and must encode as a list: a plutus
+// constructor's fields are a list, and ConstructorDecoder refuses any other
+// fields.
 func (ce ConstructorEncoder) MarshalCBOR() ([]byte, error) {
 	tagNum, wrap := alternativeToTag(ce.tag)
+	fieldData, err := Encode(plutusFieldList(ce.fields))
+	if err != nil {
+		return nil, err
+	}
+	if len(fieldData) == 0 || fieldData[0]&CborTypeMask != CborTypeArray {
+		return nil, errors.New("constructor fields are not a CBOR list")
+	}
+	fields := RawMessage(fieldData)
 	var content any
 	if wrap {
-		content = []any{ce.tag, ce.fields}
+		content = []any{ce.tag, fields}
 	} else {
-		content = ce.fields
+		content = fields
 	}
 	tmpTag := Tag{Number: tagNum, Content: content}
 	return Encode(&tmpTag)
+}
+
+// plutusChunkSize is the longest byte string plutus writes in one piece.
+const plutusChunkSize = 64
+
+func plutusFieldList(fields any) any {
+	if fields == nil {
+		return []any{}
+	}
+	items, ok := plutusListItems(fields)
+	if !ok {
+		return fields
+	}
+	return plutusList(items)
+}
+
+// plutusListItems returns the items of a value that encodes as a Data
+// list: an IndefLengthList, or a slice or array whose elements are not
+// bytes and which has no MarshalCBOR of its own.
+func plutusListItems(value any) ([]any, bool) {
+	switch list := value.(type) {
+	case IndefLengthList:
+		return list, true
+	case []any:
+		return list, true
+	case _cbor.Marshaler:
+		return nil, false
+	}
+	v := reflect.ValueOf(value)
+	if (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) ||
+		v.Type().Elem().Kind() == reflect.Uint8 {
+		return nil, false
+	}
+	items := make([]any, v.Len())
+	for i := range items {
+		items[i] = v.Index(i).Interface()
+	}
+	return items, true
+}
+
+func plutusList(items []any) any {
+	if len(items) == 0 {
+		return []any{}
+	}
+	list := make(IndefLengthList, len(items))
+	for i, item := range items {
+		list[i] = plutusItem(item)
+	}
+	return list
+}
+
+func plutusItem(item any) any {
+	switch value := item.(type) {
+	case []byte:
+		return plutusBytes(value)
+	case ByteString:
+		return plutusBytes(value.Bytes())
+	case *big.Int:
+		return plutusInteger(value)
+	case big.Int:
+		return plutusInteger(&value)
+	case IndefLengthMap:
+		return plutusMap(value)
+	}
+	if data, ok := plutusByteKind(item); ok {
+		return plutusBytes(data)
+	}
+	if items, ok := plutusListItems(item); ok {
+		return plutusList(items)
+	}
+	if v := reflect.ValueOf(item); v.Kind() == reflect.Map {
+		if _, ok := item.(_cbor.Marshaler); !ok {
+			pairs := make(map[any]any, v.Len())
+			for it := v.MapRange(); it.Next(); {
+				pairs[it.Key().Interface()] = it.Value().Interface()
+			}
+			return plutusMap(pairs)
+		}
+	}
+	return item
+}
+
+// plutusByteKind returns the bytes of a byte slice or byte array of any
+// named type without its own MarshalCBOR, which the encoder writes as a byte
+// string.
+func plutusByteKind(item any) ([]byte, bool) {
+	if _, ok := item.(_cbor.Marshaler); ok {
+		return nil, false
+	}
+	v := reflect.ValueOf(item)
+	if (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) ||
+		v.Type().Elem().Kind() != reflect.Uint8 {
+		return nil, false
+	}
+	// reflect.Copy needs identical element types, and the element may be a
+	// named uint8 type.
+	data := make([]byte, v.Len())
+	for i := range data {
+		data[i] = byte(v.Index(i).Uint()) //nolint:gosec // the element kind is uint8
+	}
+	return data, true
+}
+
+// plutusMap is a Data map: a definite map whose keys and values are
+// converted like any other item, its pairs in the order of their encoded
+// keys.
+type plutusMap map[any]any
+
+func (m plutusMap) MarshalCBOR() ([]byte, error) {
+	type pair struct{ key, value []byte }
+	pairs := make([]pair, 0, len(m))
+	for key, value := range m {
+		keyData, err := Encode(plutusItem(key))
+		if err != nil {
+			return nil, err
+		}
+		valueData, err := Encode(plutusItem(value))
+		if err != nil {
+			return nil, err
+		}
+		pairs = append(pairs, pair{keyData, valueData})
+	}
+	sort.Slice(pairs, func(a, b int) bool {
+		return bytes.Compare(pairs[a].key, pairs[b].key) < 0
+	})
+	ret := mapHead(uint64(len(pairs)))
+	for _, p := range pairs {
+		ret = append(ret, p.key...)
+		ret = append(ret, p.value...)
+	}
+	return ret, nil
+}
+
+// mapHead is the shortest head of a definite map of n pairs.
+func mapHead(n uint64) []byte {
+	switch {
+	case n < 24:
+		return []byte{CborTypeMap | byte(n)}
+	case n <= math.MaxUint8:
+		return []byte{CborTypeMap | 24, byte(n)}
+	case n <= math.MaxUint16:
+		return binary.BigEndian.AppendUint16([]byte{CborTypeMap | 25}, uint16(n))
+	case n <= math.MaxUint32:
+		return binary.BigEndian.AppendUint32([]byte{CborTypeMap | 26}, uint32(n))
+	default:
+		return binary.BigEndian.AppendUint64([]byte{CborTypeMap | 27}, n)
+	}
+}
+
+// plutusBytes writes a byte string longer than plutusChunkSize as an
+// indefinite-length byte string of chunks of at most that size.
+func plutusBytes(data []byte) any {
+	if len(data) <= plutusChunkSize {
+		return data
+	}
+	chunks := make(IndefLengthByteString, 0, (len(data)+plutusChunkSize-1)/plutusChunkSize)
+	for len(data) > plutusChunkSize {
+		chunks = append(chunks, data[:plutusChunkSize])
+		data = data[plutusChunkSize:]
+	}
+	return append(chunks, data)
+}
+
+// plutusInteger writes an integer whose bignum magnitude is longer than
+// plutusChunkSize as tag 2 or 3 around chunked bytes. Shorter integers are
+// written by the encoder as they are.
+func plutusInteger(n *big.Int) any {
+	if n == nil {
+		return n
+	}
+	tagNum := uint64(2) // positive bignum
+	magnitude := n
+	if n.Sign() < 0 {
+		tagNum = 3 // negative bignum
+		magnitude = new(big.Int).Sub(new(big.Int).Neg(n), big.NewInt(1))
+	}
+	data := magnitude.Bytes()
+	if len(data) <= plutusChunkSize {
+		return n
+	}
+	return Tag{Number: tagNum, Content: plutusBytes(data)}
 }
 
 // ConstructorDecoder decodes a CBOR constructor/alternative, keeping fields as
@@ -180,29 +393,72 @@ func (cd *ConstructorDecoder) UnmarshalCBOR(data []byte) error {
 		cd.fields = RawMessage(tmpTag.Content)
 	case tmpTag.Number == PlutusConstrGeneral:
 		// General constructors (tag 102): content is [constructor_number, fields]
-		var outerArray []RawMessage
-		if _, err := Decode(tmpTag.Content, &outerArray); err != nil {
-			return fmt.Errorf("decode alternative 128+ content: %w", err)
-		}
-		if len(outerArray) != 2 {
-			return fmt.Errorf(
-				"expected 2 elements for alternative 128+, got %d",
-				len(outerArray),
-			)
-		}
-		var altNum uint64
-		if _, err := Decode(outerArray[0], &altNum); err != nil {
-			return fmt.Errorf("decode alternative number: %w", err)
+		altNum, fields, err := decodeGeneralConstructor(tmpTag.Content)
+		if err != nil {
+			return err
 		}
 		if altNum > uint64(^uint(0)) {
 			return fmt.Errorf("alternative number %d overflows uint", altNum)
 		}
 		cd.tag = uint(altNum)
-		cd.fields = outerArray[1]
+		cd.fields = fields
 	default:
 		return fmt.Errorf("unsupported constructor tag: %d", tmpTag.Number)
 	}
+	// Plutus decodes the fields with decodeListOf, so they must be a list.
+	if len(cd.fields) == 0 || cd.fields[0]&CborTypeMask != CborTypeArray {
+		return errors.New("constructor fields are not a CBOR list")
+	}
 	return nil
+}
+
+// decodeGeneralConstructor reads the [constructor_number, fields] content of
+// a tag 102 constructor. The two items are read in place, so a content array
+// of any other length is rejected without a slice sized from, or grown to,
+// its item count.
+func decodeGeneralConstructor(content []byte) (uint64, RawMessage, error) {
+	count, headerSize, indefinite := ArrayInfo(content)
+	if count < 0 && !indefinite {
+		return 0, nil, errors.New(
+			"decode alternative 128+ content: expected an array",
+		)
+	}
+	if !indefinite && count != 2 {
+		return 0, nil, fmt.Errorf(
+			"expected 2 elements for alternative 128+, got %d",
+			count,
+		)
+	}
+	rest := content[headerSize:]
+	if len(rest) > 0 && rest[0] == cborBreak {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got 0",
+		)
+	}
+	var altNum uint64
+	n, err := Decode(rest, &altNum)
+	if err != nil {
+		return 0, nil, fmt.Errorf("decode alternative number: %w", err)
+	}
+	rest = rest[n:]
+	if len(rest) > 0 && rest[0] == cborBreak {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got 1",
+		)
+	}
+	var fields RawMessage
+	if n, err = Decode(rest, &fields); err != nil {
+		return 0, nil, fmt.Errorf("decode alternative 128+ content: %w", err)
+	}
+	rest = rest[n:]
+	// The tag content is one complete item, so a definite array ends here
+	// and an indefinite one must have only its break left.
+	if indefinite && (len(rest) != 1 || rest[0] != cborBreak) {
+		return 0, nil, errors.New(
+			"expected 2 elements for alternative 128+, got more",
+		)
+	}
+	return altNum, fields, nil
 }
 
 // MarshalCBOR encodes the constructor as CBOR. If original bytes are available
