@@ -147,6 +147,9 @@ type Connection struct {
 	// setupConnection after the handshake and before the protocol-error
 	// forwarder is started.
 	beforeProtocolErrorForwarderHook func()
+	// beforeHandshakeHook, when set by a test, runs in setupConnection after
+	// the muxer is created and before the handshake protocol is.
+	beforeHandshakeHook func()
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -994,6 +997,9 @@ func (c *Connection) setupConnection() error {
 			},
 		),
 	)
+	if c.beforeHandshakeHook != nil {
+		c.beforeHandshakeHook()
+	}
 	c.handshake = handshake.New(protoOptions, &handshakeConfig)
 	if c.server {
 		c.handshake.Server.Start()
