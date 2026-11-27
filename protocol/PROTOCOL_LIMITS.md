@@ -388,7 +388,7 @@ The Leios Votes server holds agency in Busy, so it sets no Busy timeout and
 
 Leios Fetch `Block` and `BlockTxs` requests are bounded by the caller's
 context, not by a protocol state timeout. Leios Fetch admits at most 65,535
-bytes while the client holds agency, 660,000 bytes of `Block` reply and 550,000
+bytes while the client holds agency, 600,010 bytes of `Block` reply and 550,000
 bytes of `BlockTxs` reply, the limits of the reference node. Leios Notify waits
 indefinitely in Idle and Busy and times only the wait for `Done` after `Quit`. Leios Fetch `BlockRangeRequest` retains at most 1,000 response
 messages and 64 MiB of encoded response data per request by default; both

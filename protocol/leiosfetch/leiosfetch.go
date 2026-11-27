@@ -49,9 +49,8 @@ const (
 	MaxIdleMessageBytes = 0xffff
 	// MaxBlockMessageBytes is the largest message the reference node accepts
 	// in reply to a block request: an endorser block of at most 600,000 bytes
-	// plus a tenth of margin for the framing.
-	MaxBlockMessageBytes = pcommon.MaxLeiosEndorserBlockSize +
-		pcommon.MaxLeiosEndorserBlockSize/10
+	// plus ten bytes, the most a MsgLeiosBlock adds around it in tight CBOR.
+	MaxBlockMessageBytes = pcommon.MaxLeiosEndorserBlockSize + 10
 	// MaxBlockTxsMessageBytes is the largest message the reference node
 	// accepts in reply to a block transactions request: 500,000 bytes of
 	// transactions plus a tenth of margin for the framing.
