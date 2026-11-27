@@ -45,8 +45,8 @@ type Client struct {
 	pendingIDRequest  *messageIDRequest
 	pendingMsgRequest *messageRequest
 	requestGeneration uint64
-	// runEnded is set by the V2 requester's MsgDone and cleared by its next
-	// request; the wait for that request is not timed.
+	// runEnded is set by the V2 requester's MsgDone and cleared by whichever
+	// request starts its next run; the wait for that request is not timed.
 	runEnded           atomic.Bool
 	testReplyPublished func()
 	testReplyEnqueued  func()
@@ -365,6 +365,11 @@ func (c *Client) GetPendingMessageIDs() [][]byte {
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
+	// V2 StIdle may be left by a request for IDs or for messages, an empty
+	// one included, and either starts a run after MsgDone.
+	if _, done := msg.(*MsgDone); !done {
+		c.runEnded.Store(false)
+	}
 	var err error
 	switch msg.(type) {
 	case *MsgRequestMessageIds:
@@ -399,7 +404,6 @@ func (c *Client) handleRequestMessageIds(msg protocol.Message) error {
 			"ack_count", msgRequest.AckCount,
 			"request_count", msgRequest.RequestCount,
 		)
-	c.runEnded.Store(false)
 
 	c.lock.Lock()
 	if c.pendingIDRequest != nil || c.pendingMsgRequest != nil {

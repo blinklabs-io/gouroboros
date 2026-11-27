@@ -15,12 +15,14 @@
 package messagesubmission_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/internal/test/restartwindow"
 	"github.com/blinklabs-io/gouroboros/protocol"
+	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/messagesubmission"
 	"github.com/stretchr/testify/require"
 )
@@ -144,5 +146,174 @@ func TestV2ClientIdleTimeoutAfterMsgDone(t *testing.T) {
 				t.Fatal("the client never handled the next run's request")
 			}
 		})
+	}
+}
+
+// TestV2ClientIdleTimedAfterRestart starts the run after MsgDone with each
+// request V2 StIdle allows, including an empty request for messages, and
+// checks that the Idle timeout applies again once that request is answered.
+func TestV2ClientIdleTimedAfterRestart(t *testing.T) {
+	t.Parallel()
+	const idleTimeout = 50 * time.Millisecond
+	version := messagesubmission.MessageSubmissionV2MinVersion
+	for _, tc := range []struct {
+		name    string
+		request any
+		reply   func(*messagesubmission.Client) error
+		replyTy uint8
+	}{
+		{
+			name:    "request for IDs",
+			request: messagesubmission.NewMsgRequestMessageIds(version, true, 0, 1),
+			reply:   (*messagesubmission.Client).ReplyNoMessageIds,
+			replyTy: messagesubmission.MessageTypeV2ReplyNoMessageIds,
+		},
+		{
+			name:    "empty request for messages",
+			request: messagesubmission.NewMsgRequestMessages(version, [][]byte{}),
+			reply: func(c *messagesubmission.Client) error {
+				return c.ReplyMessages([]pcommon.DmqMessage{})
+			},
+			replyTy: messagesubmission.MessageTypeV2ReplyMessages,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := restartwindow.New(t, messagesubmission.ProtocolID)
+			requests := make(chan struct{}, 4)
+			errs := make(chan error, 4)
+			cfg := messagesubmission.NewConfig(
+				messagesubmission.WithIdleTimeout(idleTimeout),
+				messagesubmission.WithRequestMessageIdsFunc(func(
+					messagesubmission.CallbackContext, bool, uint16, uint16,
+				) {
+					requests <- struct{}{}
+				}),
+				messagesubmission.WithRequestMessagesFunc(func(
+					messagesubmission.CallbackContext, [][]byte,
+				) {
+					requests <- struct{}{}
+				}),
+			)
+			opts := protocol.ProtocolOptions{
+				Muxer:     h.Server,
+				Logger:    h.Logger("unused hold"),
+				ErrorChan: errs,
+				Mode:      protocol.ProtocolModeNodeToNode,
+				Version:   version,
+			}
+			client := messagesubmission.NewClient(opts, &cfg)
+			client.Start()
+			t.Cleanup(func() { _ = client.Stop(context.Background()) })
+			h.Start()
+
+			h.Send(messagesubmission.NewMsgRequestMessageIds(version, true, 0, 1))
+			awaitRequest(t, requests, "first run")
+			require.NoError(t, client.ReplyNoMessageIds())
+			require.Equal(
+				t,
+				uint(messagesubmission.MessageTypeV2ReplyNoMessageIds),
+				h.RecvType("ReplyNoMessageIds"),
+			)
+			h.Send(messagesubmission.NewMsgDone(version))
+
+			h.Send(tc.request)
+			awaitRequest(t, requests, "restarted run")
+			require.NoError(t, tc.reply(client))
+			require.Equal(t, uint(tc.replyTy), h.RecvType("restarted run reply"))
+			select {
+			case err := <-errs:
+				require.ErrorContains(t, err, "timeout")
+			case <-time.After(40 * idleTimeout):
+				t.Fatal("the Idle timeout never fired in the restarted run")
+			}
+		})
+	}
+}
+
+// TestV2ClientForgetsRunOnMsgDone ends a run with one message ID announced
+// and its body requested, then starts the next run with a window of one. The
+// next run's blocking request is valid only if MsgDone forgot the announced
+// ID, and its request for the same ID only if it forgot the requested body.
+func TestV2ClientForgetsRunOnMsgDone(t *testing.T) {
+	t.Parallel()
+	version := messagesubmission.MessageSubmissionV2MinVersion
+	id := bytes.Repeat([]byte{1}, 32)
+	h := restartwindow.New(t, messagesubmission.ProtocolID)
+	requests := make(chan struct{}, 4)
+	errs := make(chan error, 4)
+	cfg := messagesubmission.NewConfig(
+		messagesubmission.WithMaxUnacknowledgedMessageIDs(1),
+		messagesubmission.WithRequestMessageIdsFunc(func(
+			messagesubmission.CallbackContext, bool, uint16, uint16,
+		) {
+			requests <- struct{}{}
+		}),
+		messagesubmission.WithRequestMessagesFunc(func(
+			messagesubmission.CallbackContext, [][]byte,
+		) {
+			requests <- struct{}{}
+		}),
+	)
+	opts := protocol.ProtocolOptions{
+		Muxer:     h.Server,
+		Logger:    h.Logger("unused hold"),
+		ErrorChan: errs,
+		Mode:      protocol.ProtocolModeNodeToNode,
+		Version:   version,
+	}
+	client := messagesubmission.NewClient(opts, &cfg)
+	client.Start()
+	t.Cleanup(func() { _ = client.Stop(context.Background()) })
+	h.Start()
+
+	for run := range 2 {
+		h.Send(messagesubmission.NewMsgRequestMessageIds(version, true, 0, 1))
+		awaitRequestOrError(t, requests, errs, run, "request for IDs")
+		require.NoError(t, client.ReplyMessageIds([]pcommon.MessageIDAndSize{
+			{MessageID: id, SizeInBytes: 1},
+		}))
+		require.Equal(
+			t,
+			uint(messagesubmission.MessageTypeV2ReplyMessageIds),
+			h.RecvType("ReplyMessageIds"),
+		)
+		h.Send(messagesubmission.NewMsgRequestMessages(version, [][]byte{id}))
+		awaitRequestOrError(t, requests, errs, run, "request for messages")
+		require.NoError(t, client.ReplyMessages([]pcommon.DmqMessage{
+			{MessageID: id},
+		}))
+		require.Equal(
+			t,
+			uint(messagesubmission.MessageTypeV2ReplyMessages),
+			h.RecvType("ReplyMessages"),
+		)
+		h.Send(messagesubmission.NewMsgDone(version))
+	}
+}
+
+func awaitRequest(t *testing.T, requests <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-requests:
+	case <-time.After(restartwindow.Timeout):
+		t.Fatalf("%s: the client never handled the request", what)
+	}
+}
+
+func awaitRequestOrError(
+	t *testing.T,
+	requests <-chan struct{},
+	errs <-chan error,
+	run int,
+	what string,
+) {
+	t.Helper()
+	select {
+	case <-requests:
+	case err := <-errs:
+		t.Fatalf("run %d, %s: %v", run, what, err)
+	case <-time.After(restartwindow.Timeout):
+		t.Fatalf("run %d, %s: the client never handled it", run, what)
 	}
 }
