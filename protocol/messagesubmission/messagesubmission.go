@@ -43,8 +43,11 @@ const (
 )
 
 // DefaultMaxUnacknowledgedMessageIDs bounds the number of message IDs that may
-// be outstanding for a peer when no explicit limit is configured.
-const DefaultMaxUnacknowledgedMessageIDs = 100
+// be outstanding for a peer when no explicit limit is configured. It is
+// dmq-node's window (maxUnacknowledgedTxIds, 4 * 33, in DMQ/Policy.hs): its
+// requester fills that window, and the window is not negotiated, so a
+// smaller one refuses requests a dmq-node peer is entitled to send.
+const DefaultMaxUnacknowledgedMessageIDs = 132
 
 const defaultMaxQueueSize = 100
 
