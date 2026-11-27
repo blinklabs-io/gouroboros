@@ -86,18 +86,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 // negotiated version's state map, unless the server was stopped. It reports
 // whether it installed one.
 func (s *Server) initProtocol() bool {
-	// Select state map and initial state based on negotiated version
-	isV2 := isMessageSubmissionV2(s.protoOptions.Version)
-	var baseStateMap protocol.StateMap
-	var initialState protocol.State
-	if isV2 {
-		baseStateMap = stateMapV2
-		initialState = protocolStateIdle
-	} else {
-		baseStateMap = stateMapV1
-		initialState = protocolStateInit
-	}
-
+	stateMap, initialState := stateMapFor(s.protoOptions.Version, s.config)
 	protoConfig := protocol.ProtocolConfig{
 		Name:               ProtocolName,
 		ProtocolId:         ProtocolID,
@@ -115,7 +104,7 @@ func (s *Server) initProtocol() bool {
 				s.collectionLimit(msgType),
 			)
 		},
-		StateMap:     baseStateMap,
+		StateMap:     stateMap,
 		InitialState: initialState,
 	}
 	p := protocol.New(protoConfig)

@@ -296,6 +296,43 @@ var (
 	}
 )
 
+// stateMapFor returns the state map of the negotiated version, with cfg's
+// timeouts in the states they name, and its initial state. The engine arms a
+// state's timer only on the side waiting for the peer there, so the Client
+// and the Server install the same map: the Server is timed by the replies to
+// its requests, the Client by Idle.
+//
+// A V1 blocking request for IDs keeps the map's own timeout:
+// tx-submission's outbound answers it only once it has an ID, so
+// MessageIdsBlockingTimeout bounds only the V2 one. Init is the initial
+// state, which the engine never times, and Done has no agency, so
+// InitTimeout and DoneTimeout bound nothing.
+func stateMapFor(
+	version uint16,
+	cfg *Config,
+) (protocol.StateMap, protocol.State) {
+	isV2 := isMessageSubmissionV2(version)
+	base, initial := stateMapV1, protocolStateInit
+	if isV2 {
+		base, initial = stateMapV2, protocolStateIdle
+	}
+	timeouts := map[protocol.State]time.Duration{
+		protocolStateIdle:             cfg.IdleTimeout,
+		protocolStateMessageIdsNonBlk: cfg.MessageIdsNonblockingTimeout,
+		protocolStateMessages:         cfg.MessagesTimeout,
+	}
+	if isV2 {
+		timeouts[protocolStateMessageIdsBlock] = cfg.MessageIdsBlockingTimeout
+	}
+	stateMap := base.Copy()
+	for state, timeout := range timeouts {
+		entry := stateMap[state]
+		entry.Timeout = timeout
+		stateMap[state] = entry
+	}
+	return stateMap, initial
+}
+
 // roleFor maps a side to its connection role. In V1 the Client (which has the
 // messages) is the initiator, as tx-submission's outbound is. In V2 the
 // Server (which wants them) is the initiator, as dmq-node runs its V2 inbound
@@ -331,7 +368,9 @@ type Config struct {
 	ReplyMessageIdsFunc ReplyMessageIdsFunc
 	ReplyMessagesFunc   ReplyMessagesFunc
 
-	// Client timeouts (use defaults from state machine constants if not set)
+	// State timeouts; zero selects the package default. Each bounds the
+	// wait of the side without agency in the state it names; see the
+	// With...Timeout options.
 	InitTimeout                  time.Duration
 	IdleTimeout                  time.Duration
 	MessageIdsBlockingTimeout    time.Duration
@@ -357,7 +396,8 @@ type Config struct {
 	// wire shape for peers that still expect messageId inside messagePayload.
 	// The default false value uses the current CIP-0137 message shape.
 	LegacyV1MessageEncoding bool
-	// Done callback invoked when peer sends Done
+	// DoneFunc is called when the peer sends Done. In V2 the Client then
+	// returns to Idle for the peer's next run on the connection.
 	DoneFunc func(CallbackContext) error
 }
 
@@ -538,21 +578,26 @@ func WithMaxReplayEntries(maxReplayEntries int) MessageSubmissionOptionFunc {
 	}
 }
 
-// WithInitTimeout specifies the timeout for the Init state
+// WithInitTimeout sets Config.InitTimeout. It has no effect: Init is the
+// initial state, which is never timed, and the reference waits for MsgInit
+// without a limit.
 func WithInitTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.InitTimeout = timeout
 	}
 }
 
-// WithIdleTimeout specifies the timeout for the Idle state
+// WithIdleTimeout bounds how long the side without agency in Idle waits for
+// the next request: the Client. A V2 Client does not time its first Idle.
 func WithIdleTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.IdleTimeout = timeout
 	}
 }
 
-// WithMessageIdsBlockingTimeout specifies the timeout for blocking MessageIds requests
+// WithMessageIdsBlockingTimeout bounds how long a Server waits for the reply
+// to a V2 blocking request for message IDs. It does not apply to V1, whose
+// outbound answers a blocking request only once it has an ID.
 func WithMessageIdsBlockingTimeout(
 	timeout time.Duration,
 ) MessageSubmissionOptionFunc {
@@ -561,7 +606,8 @@ func WithMessageIdsBlockingTimeout(
 	}
 }
 
-// WithMessageIdsNonblockingTimeout specifies the timeout for non-blocking MessageIds requests
+// WithMessageIdsNonblockingTimeout bounds how long a Server waits for the
+// reply to a non-blocking request for message IDs. Zero selects the default.
 func WithMessageIdsNonblockingTimeout(
 	timeout time.Duration,
 ) MessageSubmissionOptionFunc {
@@ -570,14 +616,16 @@ func WithMessageIdsNonblockingTimeout(
 	}
 }
 
-// WithMessagesTimeout specifies the timeout for the Messages state
+// WithMessagesTimeout bounds how long a Server waits for the reply to a
+// request for messages.
 func WithMessagesTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.MessagesTimeout = timeout
 	}
 }
 
-// WithDoneTimeout specifies the timeout for the Done state
+// WithDoneTimeout sets Config.DoneTimeout. It has no effect: Done is
+// terminal and nothing waits in it.
 func WithDoneTimeout(timeout time.Duration) MessageSubmissionOptionFunc {
 	return func(c *Config) {
 		c.DoneTimeout = timeout

@@ -18,7 +18,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -36,12 +39,15 @@ type Client struct {
 	protoVersion    uint16
 
 	// Client-side state for message ID tracking
-	lock               sync.Mutex
-	pendingMessageIDs  [][]byte
-	requestedIDs       map[string]struct{}
-	pendingIDRequest   *messageIDRequest
-	pendingMsgRequest  *messageRequest
-	requestGeneration  uint64
+	lock              sync.Mutex
+	pendingMessageIDs [][]byte
+	requestedIDs      map[string]struct{}
+	pendingIDRequest  *messageIDRequest
+	pendingMsgRequest *messageRequest
+	requestGeneration uint64
+	// runEnded is set by the V2 requester's MsgDone and cleared by whichever
+	// request starts its next run; the wait for that request is not timed.
+	runEnded           atomic.Bool
 	testReplyPublished func()
 	testReplyEnqueued  func()
 	onceStart          sync.Once
@@ -65,41 +71,13 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		ConnectionId: protoOptions.ConnectionId,
 	}
 
-	// Select state map and initial state based on negotiated version
-	isV2 := isMessageSubmissionV2(protoOptions.Version)
-	var baseStateMap protocol.StateMap
-	var initialState protocol.State
-	if isV2 {
-		baseStateMap = stateMapV2
-		initialState = protocolStateIdle
-	} else {
-		baseStateMap = stateMapV1
-		initialState = protocolStateInit
+	stateMap, initialState := stateMapFor(protoOptions.Version, c.config)
+	if isMessageSubmissionV2(protoOptions.Version) {
+		stateMap[protocolStateIdle] = restartOnDone(
+			stateMap[protocolStateIdle],
+			&c.runEnded,
+		)
 	}
-
-	// Update state map with configurable timeouts
-	stateMapCopy := baseStateMap.Copy()
-	if entry, ok := stateMapCopy[protocolStateInit]; ok {
-		entry.Timeout = c.config.InitTimeout
-		stateMapCopy[protocolStateInit] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateIdle]; ok {
-		entry.Timeout = c.config.IdleTimeout
-		stateMapCopy[protocolStateIdle] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessageIdsBlock]; ok {
-		entry.Timeout = c.config.MessageIdsBlockingTimeout
-		stateMapCopy[protocolStateMessageIdsBlock] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessageIdsNonBlk]; ok {
-		entry.Timeout = c.config.MessageIdsNonblockingTimeout
-		stateMapCopy[protocolStateMessageIdsNonBlk] = entry
-	}
-	if entry, ok := stateMapCopy[protocolStateMessages]; ok {
-		entry.Timeout = c.config.MessagesTimeout
-		stateMapCopy[protocolStateMessages] = entry
-	}
-	// Done state has no timeout
 
 	// Configure underlying Protocol
 	protoConfig := protocol.ProtocolConfig{
@@ -119,11 +97,41 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 				c.collectionLimit(msgType),
 			)
 		},
-		StateMap:     stateMapCopy,
+		StateMap:     stateMap,
 		InitialState: initialState,
 	}
 	c.Protocol = protocol.New(protoConfig)
 	return c
+}
+
+// restartOnDone returns the V2 StIdle entry with MsgDone leading back to
+// StIdle. In V2 the Client is the responder, and dmq-node runs its responders
+// under the inbound governor, which restarts one that ended cleanly: its V2
+// inbound sends MsgDone when the peer is demoted and requests again on the
+// same connection when it is promoted. The client answers that next run as
+// a restarted responder would, from StIdle with no IDs outstanding. Nothing
+// bounds how long the peer stays demoted, so while runEnded is set StIdle is
+// not timed.
+func restartOnDone(
+	entry protocol.StateMapEntry,
+	runEnded *atomic.Bool,
+) protocol.StateMapEntry {
+	idleTimeout := entry.Timeout
+	// The state loop arms the timer after handleDone has returned, so it
+	// sees the flag that handler set.
+	entry.TimeoutFunc = func() time.Duration {
+		if runEnded.Load() {
+			return 0
+		}
+		return idleTimeout
+	}
+	entry.Transitions = slices.Clone(entry.Transitions)
+	for i := range entry.Transitions {
+		if entry.Transitions[i].MsgType == MessageTypeV2Done {
+			entry.Transitions[i].NewState = protocolStateIdle
+		}
+	}
+	return entry
 }
 
 // collectionLimit bounds an inbound collection before it is decoded. A
@@ -357,6 +365,11 @@ func (c *Client) GetPendingMessageIDs() [][]byte {
 }
 
 func (c *Client) messageHandler(msg protocol.Message) error {
+	// V2 StIdle may be left by a request for IDs or for messages, an empty
+	// one included, and either starts a run after MsgDone.
+	if _, done := msg.(*MsgDone); !done {
+		c.runEnded.Store(false)
+	}
 	var err error
 	switch msg.(type) {
 	case *MsgRequestMessageIds:
@@ -486,6 +499,16 @@ func (c *Client) handleDone() error {
 			"role", "client",
 			"connection_id", c.callbackContext.ConnectionId.String(),
 		)
+	if isMessageSubmissionV2(c.protoVersion) {
+		// The run is over; the next one starts with nothing outstanding.
+		// MsgDone is legal only in StIdle, so no request is pending.
+		c.lock.Lock()
+		c.pendingMessageIDs = [][]byte{}
+		c.requestedIDs = map[string]struct{}{}
+		c.requestGeneration++
+		c.lock.Unlock()
+		c.runEnded.Store(true)
+	}
 	if c.config != nil && c.config.DoneFunc != nil {
 		return c.config.DoneFunc(c.callbackContext.withOwner(c.Protocol))
 	}
