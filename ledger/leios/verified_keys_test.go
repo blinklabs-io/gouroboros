@@ -66,8 +66,8 @@ func TestInvalidPossessionProofIsNeverCached(t *testing.T) {
 		leiosSignatureDST,
 	)
 	context := common.DijkstraLeiosCertificateContext{
-		AnnouncingBlockHash: messageHash,
-		TotalActiveStake:    1,
+		KeyAge: testLeiosKeyAge, AnnouncingBlockHash: messageHash,
+		TotalActiveStake: 1,
 		Committee: []common.DijkstraLeiosCommitteeMember{
 			{Stake: 1, Key: &forged},
 		},

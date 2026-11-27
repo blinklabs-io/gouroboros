@@ -15,6 +15,7 @@
 package handshake
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -96,7 +97,7 @@ func (c *Client) Start() {
 					"error", err,
 				)
 			// Start cannot return this error, so log it and still clean up.
-			c.Stop()
+			_ = c.Stop(context.Background())
 		}
 	})
 }
@@ -163,7 +164,7 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 		)
 	}
 	return c.config.FinishedFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.Protocol),
 		msgAcceptVersion.Version,
 		versionData,
 	)
@@ -401,13 +402,13 @@ func (c *Client) handleQueryReply(msgGeneric protocol.Message) error {
 		}
 	}
 	if c.config.QueryReplyFunc != nil {
-		if err := c.config.QueryReplyFunc(c.callbackContext, versionMap); err != nil {
+		if err := c.config.QueryReplyFunc(c.callbackContext.withOwner(c.Protocol), versionMap); err != nil {
 			return err
 		}
 	}
 	if c.config.FinishedFunc != nil {
 		return c.config.FinishedFunc(
-			c.callbackContext,
+			c.callbackContext.withOwner(c.Protocol),
 			0,
 			nil,
 		)

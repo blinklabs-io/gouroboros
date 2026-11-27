@@ -15,6 +15,7 @@
 package muxer
 
 import (
+	"context"
 	"net"
 	"testing"
 	"time"
@@ -40,7 +41,11 @@ func TestRegisterProtocolRacingStopDoesNotLeak(t *testing.T) {
 	_, _, _ = m.RegisterProtocol(1, ProtocolRoleInitiator)
 
 	m.registerHook = func() {
-		m.Stop()
+		// Only signal: the hook runs inside RegisterProtocol, which the
+		// shutdown Stop would wait for.
+		signalOnly, cancel := context.WithCancel(context.Background())
+		cancel()
+		_ = m.Stop(signalOnly)
 		require.Eventually(t, func() bool {
 			m.protocolReceiversMutex.Lock()
 			defer m.protocolReceiversMutex.Unlock()

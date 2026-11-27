@@ -273,11 +273,40 @@ func UtxoValidateBadInputsUtxo(
 	ls common.LedgerState,
 	pp common.ProtocolParameters,
 ) error {
+	return ValidateBadInputs(ls, tx.Inputs())
+}
+
+// ValidateBadInputs returns a BadInputsUtxoError listing every input of
+// inputSets that is not in the ledger state, or nil when all are. The sets
+// are treated as one union, as cardano-ledger's validateBadInputsUTxO
+// receives it: an input named in more than one set is listed once, in the
+// order it is first seen. Later eras pass their collateral and reference
+// inputs here as well as the spent inputs. A nil ledger state resolves no
+// input, so every input is listed.
+func ValidateBadInputs(
+	ls common.LedgerState,
+	inputSets ...[]common.TransactionInput,
+) error {
+	type inputKey struct {
+		id    common.Blake2b256
+		index uint32
+	}
 	var badInputs []common.TransactionInput
-	for _, tmpInput := range tx.Inputs() {
-		_, err := ls.UtxoById(tmpInput)
-		if err != nil {
-			badInputs = append(badInputs, tmpInput)
+	seen := make(map[inputKey]struct{})
+	for _, inputs := range inputSets {
+		for _, tmpInput := range inputs {
+			key := inputKey{id: tmpInput.Id(), index: tmpInput.Index()}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			if ls == nil {
+				badInputs = append(badInputs, tmpInput)
+				continue
+			}
+			if _, err := ls.UtxoById(tmpInput); err != nil {
+				badInputs = append(badInputs, tmpInput)
+			}
 		}
 	}
 	if len(badInputs) == 0 {
@@ -578,10 +607,8 @@ func UtxoValidateProtocolParameterUpdates(
 }
 
 // MinFeeTx calculates the minimum required fee for a transaction based on
-// protocol parameters. The fee-relevant transaction size is determined by
-// common.TxSizeForFee, which uses the original on-wire CBOR length. For
-// pre-Alonzo eras the full CBOR length is the fee-relevant size; for Alonzo+
-// the IsValid byte is subtracted.
+// protocol parameters and the transaction size measured by
+// common.TxSizeForFee.
 func MinFeeTx(
 	tx common.Transaction,
 	pparams common.ProtocolParameters,
@@ -787,8 +814,11 @@ func UtxoValidateDelegation(
 		return ls.IsStakeCredentialRegistered(cred)
 	}
 
-	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) bool {
-		return ls.IsPoolRegistered(poolKeyHash) || inTxPoolRegs[poolKeyHash]
+	isPoolRegistered := func(poolKeyHash common.PoolKeyHash) (bool, error) {
+		if inTxPoolRegs[poolKeyHash] {
+			return true, nil
+		}
+		return common.PoolRegistered(ls, slot, poolKeyHash)
 	}
 
 	// Withdrawals are applied before the certificates, and
@@ -861,7 +891,9 @@ func UtxoValidateDelegation(
 			// POOLREAP removes it only after the retirement epoch.
 
 		case *common.StakeDelegationCertificate:
-			if !isPoolRegistered(c.PoolKeyHash) {
+			if registered, err := isPoolRegistered(c.PoolKeyHash); err != nil {
+				return err
+			} else if !registered {
 				return DelegateToUnregisteredPoolError{PoolKeyHash: c.PoolKeyHash}
 			}
 			if c.StakeCredential != nil && !isStakeRegistered(*c.StakeCredential) {
@@ -1649,8 +1681,15 @@ func validatePoolRetirement(
 	inTxPoolRegs map[common.PoolKeyHash]bool,
 ) error {
 	// StakePoolNotRegisteredOnKeyPOOL: Map.member sppId psStakePools.
-	if !ls.IsPoolRegistered(cert.PoolKeyHash) &&
-		!inTxPoolRegs[cert.PoolKeyHash] {
+	registered := inTxPoolRegs[cert.PoolKeyHash]
+	if !registered {
+		var err error
+		registered, err = common.PoolRegistered(ls, slot, cert.PoolKeyHash)
+		if err != nil {
+			return err
+		}
+	}
+	if !registered {
 		return StakePoolNotRegisteredOnKeyError{
 			PoolKeyHash: cert.PoolKeyHash,
 		}

@@ -162,6 +162,22 @@ func (r *DebugChainDepStateResult) UnmarshalCBOR(data []byte) error {
 	switch outer.Version {
 	case chainDepStateVersionPraos:
 		// Praos (Babbage era and later): an 8-element array.
+		fields, err := tpraosItems(
+			outer.Inner,
+			chainDepStateFieldsPraos,
+			"praos chain dependent state",
+		)
+		if err != nil {
+			return err
+		}
+		if err := cborpreflight.ValidateMap(
+			fields[1],
+			maxLocalStateQuerySetItems,
+			"praos operational certificate counters",
+			nil,
+		); err != nil {
+			return err
+		}
 		var p struct {
 			cbor.StructAsArray
 			LastSlot            WithOriginSlot

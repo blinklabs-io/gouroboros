@@ -28,8 +28,14 @@ import (
 // https://github.com/cardano-foundation/CIPs/tree/master/CIP-0137
 
 // DmqMessagePayload represents the unsigned message payload for DMQ messages.
+//
+// A payload decoded in the current CIP-0137 shape keeps the bytes it was
+// decoded from: the message ID hashes them, the KES signature covers them,
+// and MarshalCBOR emits them unchanged. Call SetCbor(nil) after changing a
+// decoded payload's fields, or the old bytes are hashed and sent.
 type DmqMessagePayload struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	// MessageID is a legacy alias kept for source compatibility. It is not
 	// part of the current CIP-0137 messagePayload CBOR encoding.
 	MessageID []byte `cbor:"-"`
@@ -69,9 +75,14 @@ type DmqMessage struct {
 	ColdVerificationKey []byte
 }
 
-// MarshalCBOR encodes the payload using the current CIP-0137 shape:
-// [messageBody, kesPeriod, expiresAt].
+// MarshalCBOR returns the bytes the payload was decoded from, if any, and
+// otherwise encodes it in the current CIP-0137 shape:
+// [messageBody, kesPeriod, expiresAt]. dmq-node signs, hashes and relays a
+// payload's bytes as received, so a decoded payload is never re-encoded.
 func (p DmqMessagePayload) MarshalCBOR() ([]byte, error) {
+	if raw := p.Cbor(); raw != nil {
+		return raw, nil
+	}
 	return cbor.Encode([]any{
 		p.MessageBody,
 		p.KESPeriod,
@@ -89,10 +100,14 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 		ExpiresAt   uint32
 	}
 	if _, err := cbor.Decode(data, &current); err == nil {
+		if err := checkMessageBodySize(current.MessageBody); err != nil {
+			return err
+		}
 		p.MessageID = nil
 		p.MessageBody = current.MessageBody
 		p.KESPeriod = current.KESPeriod
 		p.ExpiresAt = current.ExpiresAt
+		p.SetCbor(data)
 		return nil
 	}
 
@@ -106,10 +121,33 @@ func (p *DmqMessagePayload) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &legacy); err != nil {
 		return err
 	}
+	if err := checkMessageBodySize(legacy.MessageBody); err != nil {
+		return err
+	}
 	p.MessageID = legacy.MessageID
 	p.MessageBody = legacy.MessageBody
 	p.KESPeriod = legacy.KESPeriod
 	p.ExpiresAt = legacy.ExpiresAt
+	// The legacy shape carries the message ID inside the payload, so its
+	// bytes are not the payload the ID and signature cover.
+	p.SetCbor(nil)
+	return nil
+}
+
+// checkMessageBodySize refuses a body outside [MinMessageBodySize,
+// MaxMessageBodySize]. dmq-node checks it while decoding (Codec.hs
+// decodeBody), before any other check, so a node-to-node peer that sends
+// one is disconnected even when the message has also expired.
+func checkMessageBodySize(body []byte) error {
+	if n := len(body); n < MinMessageBodySize || n > MaxMessageBodySize {
+		return fmt.Errorf(
+			"%w: %d bytes, want %d to %d",
+			ErrMessageBodySize,
+			n,
+			MinMessageBodySize,
+			MaxMessageBodySize,
+		)
+	}
 	return nil
 }
 
@@ -146,7 +184,11 @@ func (m *DmqMessage) UnmarshalCBOR(data []byte) error {
 		OperationalCertificate OperationalCertificate
 		ColdVerificationKey    []byte
 	}
-	if _, err := cbor.Decode(data, &current); err == nil {
+	_, err := cbor.Decode(data, &current)
+	if errors.Is(err, ErrMessageBodySize) {
+		return err
+	}
+	if err == nil {
 		m.MessageID = current.MessageID
 		m.Payload = current.Payload
 		m.Payload.MessageID = current.MessageID
@@ -198,7 +240,8 @@ func (m *DmqMessage) SetComputedMessageID() error {
 	return nil
 }
 
-// ComputeDmqMessageID returns Blake2b-256(cbor(messagePayload)).
+// ComputeDmqMessageID returns Blake2b-256(cbor(messagePayload)), over the
+// payload's decoded bytes when it has them.
 func ComputeDmqMessageID(payload DmqMessagePayload) ([]byte, error) {
 	payload.MessageID = nil
 	payloadCbor, err := cbor.Encode(payload)
@@ -257,20 +300,19 @@ type MessageIDAndSize struct {
 	SizeInBytes uint32
 }
 
-// IsValid checks if a message has not yet expired by comparing its expiration time
-// against the current Unix timestamp.
+// IsValid reports whether the message has not yet expired at the current
+// time. See IsValidAt.
 func (m *DmqMessage) IsValid() bool {
-	// Delegate to IsValidAt using current time for testability
-	// #nosec G115 -- Unix timestamp will not overflow uint32 until year 2106
 	return m.IsValidAt(time.Now())
 }
 
-// IsValidAt checks if a message has not yet expired when evaluated at the provided time.
-// This variant is provided for testability so callers can validate expiration behavior
-// deterministically by passing a specific timestamp.
+// IsValidAt reports whether the message is still held at time t: true while
+// t is strictly before its expiresAt, compared at t's full precision. This is
+// when dmq-node's mempool drops a message (expiresAt <= now), which is one
+// instant earlier than TTLValidator, whose admission rule accepts a message
+// arriving exactly at its expiresAt.
 func (m *DmqMessage) IsValidAt(t time.Time) bool {
-	// #nosec G115 -- Unix timestamp will not overflow uint32 until year 2106
-	return uint32(t.Unix()) <= m.Payload.ExpiresAt
+	return t.Before(time.Unix(int64(m.Payload.ExpiresAt), 0))
 }
 
 // RejectReason provides information about why a submitted message was rejected.

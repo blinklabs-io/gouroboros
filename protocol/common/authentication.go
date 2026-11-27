@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"time"
 
@@ -33,6 +32,17 @@ import (
 // PoolKeyHashSize is the byte width of a Cardano pool ID: Blake2b-224 of the
 // pool's cold verification key.
 const PoolKeyHashSize = 28
+
+// MinMessageBodySize and MaxMessageBodySize bound a DMQ message body, in
+// bytes: CIP-0137 messageBody = bstr .size (90..2000).
+const (
+	MinMessageBodySize = 90
+	MaxMessageBodySize = 2000
+)
+
+// DefaultMinSigDelay is dmq-node's minimum delay between two messages from
+// one pool (DMQ.Policy.minSigDelay).
+const DefaultMinSigDelay = 60 * time.Second
 
 // DefaultMaxKESEvolutions is the Cardano mainnet maxKESEvolutions genesis value.
 const DefaultMaxKESEvolutions uint64 = 62
@@ -70,11 +80,27 @@ var (
 	ErrPoolNotInStakeDistribution = errors.New(
 		"protocol/common: issuing pool holds no stake in the current distribution",
 	)
+	// ErrMessageBodySize is returned when a message body is outside
+	// [MinMessageBodySize, MaxMessageBodySize].
+	ErrMessageBodySize = errors.New(
+		"protocol/common: message body size out of range",
+	)
+	// ErrMessageTooFrequent is returned when a pool's message arrives less
+	// than the minimum delay after the last message accepted from that pool.
+	ErrMessageTooFrequent = errors.New(
+		"protocol/common: message too soon after the pool's last message",
+	)
+	// ErrStakeDistributionUnavailable wraps a StakeAuthority error: the
+	// node cannot tell yet whether the issuing pool holds stake.
+	ErrStakeDistributionUnavailable = errors.New(
+		"protocol/common: stake distribution unavailable",
+	)
 	// ErrKESPeriodOverflow reported a claimed KES period too large to convert
 	// to a slot.
 	//
-	// Deprecated: verification always uses a trusted slot and never converts
-	// a claimed KES period to a slot, so this error is no longer returned.
+	// Deprecated: verification checks the claimed KES period against the
+	// operational certificate's window and never converts it to a slot, so
+	// this error is no longer returned.
 	ErrKESPeriodOverflow = errors.New(
 		"protocol/common: message KES period would overflow when converted to a slot",
 	)
@@ -94,9 +120,7 @@ type MessageAuthenticator struct {
 
 	// stakeAuthority backs pool authorization. Immutable after construction,
 	// so it needs no lock.
-	stakeAuthority        StakeAuthority
-	currentSlot           func() (uint64, error)
-	poolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
+	stakeAuthority StakeAuthority
 
 	// KES period tracking from opcerts, keyed by pool ID. Only
 	// verifyKESPeriodRotation writes here, and it runs after stake
@@ -113,10 +137,36 @@ type MessageAuthenticator struct {
 	mu             sync.Mutex
 	kesOpCertCache map[PoolKeyHash]uint64
 
-	// Slots per KES period used for KES verification. Default is Cardano standard.
-	slotsPerKesPeriod uint64
+	// lastSig and acceptedIDs back the per-pool rate limit, guarded by mu.
+	// lastSig holds the time of each pool's last accepted message;
+	// acceptedIDs the IDs of accepted, unexpired messages, which verify
+	// again without the rate limit or the opcert counter check, as dmq-node
+	// never re-validates a message already in its mempool. Both are written only once every
+	// check has passed, so their keys are staked pools and the messages
+	// those pools signed: at most one per pool per minSigDelay, kept until
+	// expiry.
+	lastSig     map[PoolKeyHash]time.Time
+	acceptedIDs map[string]uint32
+	lastPrune   time.Time
+	minSigDelay time.Duration
+	now         func() time.Time
+
+	// parent and batchAccepted are set only on PrepareMessages' private
+	// authenticator: rate-limit lookups fall through to parent, and the
+	// batch's acceptances wait in batchAccepted until commit.
+	parent        *MessageAuthenticator
+	batchAccepted []rateRecord
+
 	// Maximum evolution distance allowed from an operational certificate.
 	maxKESEvolutions uint64
+}
+
+// rateRecord is one accepted message, as the rate limit records it.
+type rateRecord struct {
+	pool      PoolKeyHash
+	id        string
+	expiresAt uint32
+	at        time.Time
 }
 
 // MessageAuthenticatorConfig configures a MessageAuthenticator.
@@ -125,26 +175,39 @@ type MessageAuthenticatorConfig struct {
 	// StakeAuthority is a configuration error rather than a silent skip of
 	// the check.
 	StakeAuthority StakeAuthority
-	// CurrentSlot returns the authoritative current chain slot used for live
-	// KES verification. Required; it must not derive the slot from a message.
+	// CurrentSlot is not used. A message's KES signature is checked at the
+	// period the message claims, inside its operational certificate's window,
+	// and the node's own slot plays no part, as in dmq-node.
+	//
+	// Deprecated: ignored; leave it nil.
 	CurrentSlot func() (uint64, error)
-	// PoolOpCertIssueNumber returns the latest operational-certificate issue
-	// number known from authoritative chain state. A pool absent from that
-	// state should return (0, false, nil). Required.
+	// PoolOpCertIssueNumber is not used. A message's operational-certificate
+	// counter is compared only with the counters seen in earlier messages from
+	// the same pool, as dmq-node does; comparing it with the chain's counter
+	// would refuse messages dmq-node accepts and relays.
+	//
+	// Deprecated: ignored; leave it nil.
 	PoolOpCertIssueNumber func(PoolKeyHash) (uint64, bool, error)
-	// SlotsPerKESPeriod is the Shelley genesis slotsPerKESPeriod parameter.
-	// Defaults to 129600 (Cardano mainnet) when zero.
+	// SlotsPerKESPeriod is not used: no slot is converted to a KES period.
+	//
+	// Deprecated: ignored; leave it zero.
 	SlotsPerKESPeriod uint64
 	// MaxKESEvolutions is the Shelley genesis maxKESEvolutions parameter.
 	// Defaults to 62 (Cardano mainnet) when zero.
 	MaxKESEvolutions uint64
+	// MinSigDelay is the least time between two messages accepted from one
+	// pool. Defaults to DefaultMinSigDelay when zero; a negative value turns
+	// the limit off, as a vcMinSigDelay of zero does in dmq-node.
+	MinSigDelay time.Duration
+	// Now returns the current time, read once per verification call.
+	// Defaults to time.Now.
+	Now func() time.Time
 	// Logger, when nil, defaults to slog.Default().
 	Logger *slog.Logger
 }
 
 // NewMessageAuthenticator constructs a MessageAuthenticator. It returns
-// ErrAuthenticatorMisconfigured when any authoritative chain-state lookup is
-// missing.
+// ErrAuthenticatorMisconfigured when StakeAuthority is nil.
 func NewMessageAuthenticator(
 	cfg MessageAuthenticatorConfig,
 ) (*MessageAuthenticator, error) {
@@ -154,39 +217,34 @@ func NewMessageAuthenticator(
 			ErrAuthenticatorMisconfigured,
 		)
 	}
-	if cfg.CurrentSlot == nil {
-		return nil, fmt.Errorf(
-			"%w: CurrentSlot is required",
-			ErrAuthenticatorMisconfigured,
-		)
-	}
-	if cfg.PoolOpCertIssueNumber == nil {
-		return nil, fmt.Errorf(
-			"%w: PoolOpCertIssueNumber is required",
-			ErrAuthenticatorMisconfigured,
-		)
-	}
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.Default()
-	}
-	slotsPerKesPeriod := cfg.SlotsPerKESPeriod
-	if slotsPerKesPeriod == 0 {
-		// Default Cardano slots per KES period (standard mainnet value)
-		slotsPerKesPeriod = 129600
 	}
 	maxKESEvolutions := cfg.MaxKESEvolutions
 	if maxKESEvolutions == 0 {
 		maxKESEvolutions = DefaultMaxKESEvolutions
 	}
+	minSigDelay := cfg.MinSigDelay
+	switch {
+	case minSigDelay == 0:
+		minSigDelay = DefaultMinSigDelay
+	case minSigDelay < 0:
+		minSigDelay = 0
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &MessageAuthenticator{
-		logger:                logger,
-		stakeAuthority:        cfg.StakeAuthority,
-		currentSlot:           cfg.CurrentSlot,
-		poolOpCertIssueNumber: cfg.PoolOpCertIssueNumber,
-		kesOpCertCache:        make(map[PoolKeyHash]uint64),
-		slotsPerKesPeriod:     slotsPerKesPeriod,
-		maxKESEvolutions:      maxKESEvolutions,
+		lastSig:          make(map[PoolKeyHash]time.Time),
+		acceptedIDs:      make(map[string]uint32),
+		minSigDelay:      minSigDelay,
+		now:              now,
+		logger:           logger,
+		stakeAuthority:   cfg.StakeAuthority,
+		kesOpCertCache:   make(map[PoolKeyHash]uint64),
+		maxKESEvolutions: maxKESEvolutions,
 	}, nil
 }
 
@@ -201,19 +259,16 @@ func NewNoOpAuthenticator(logger *slog.Logger) *MessageAuthenticator {
 	return &MessageAuthenticator{
 		logger:            logger,
 		kesOpCertCache:    make(map[PoolKeyHash]uint64),
-		slotsPerKesPeriod: 129600,
 		maxKESEvolutions:  DefaultMaxKESEvolutions,
 		disableValidation: true,
 	}
 }
 
-// VerifyMessage performs complete message authentication as per CIP-0137 at
-// the authoritative current chain slot. It verifies: message ID, pool-ID
-// derivation and stake-distribution authorization, operational certificate,
-// KES signature, and KES period rotation. Returns error if verification fails
-// (which is a protocol violation and should result in peer disconnection).
-// Use VerifyMessageWithSlot when the caller already holds a trusted slot from
-// the state being processed.
+// VerifyMessage performs complete message authentication as per CIP-0137.
+// It verifies: message ID, pool-ID derivation and stake-distribution
+// authorization, operational certificate, KES signature, and KES period
+// rotation. Returns error if verification fails (which is a protocol
+// violation and should result in peer disconnection).
 func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
@@ -221,82 +276,222 @@ func (m *MessageAuthenticator) VerifyMessage(msg *DmqMessage) error {
 	if msg == nil {
 		return errors.New("message is nil")
 	}
-	slot, err := m.currentSlot()
-	if err != nil {
-		return fmt.Errorf("look up current slot: %w", err)
-	}
-	return m.verifyMessageInternal(msg, slot)
+	// Prepare and commit, so that the counter and the rate limit are
+	// recorded together or not at all.
+	return m.VerifyMessages([]DmqMessage{*msg})
 }
 
-// PrepareMessages verifies a batch at one authoritative current slot and
-// returns a function that atomically commits its operational-certificate
-// observations. Verification does not mutate the authenticator until the
-// returned function succeeds.
+// PrepareMessages verifies a batch and returns a function that atomically
+// commits its observations. Verification does not mutate the authenticator
+// until the returned function succeeds. One failing message fails the batch.
 func (m *MessageAuthenticator) PrepareMessages(
 	messages []DmqMessage,
 ) (func() error, error) {
-	if m.disableValidation || len(messages) == 0 {
-		return func() error { return nil }, nil
-	}
-	slot, err := m.currentSlot()
-	if err != nil {
-		return nil, fmt.Errorf("look up current slot: %w", err)
-	}
+	return m.prepareAll(messages, true)
+}
 
+// PrepareAdmitted verifies a batch another node has already admitted, such
+// as a local node's notifications, as PrepareMessages does but without the
+// per-pool rate limit: the admitting node applied it at the times it
+// accepted each message, which the receiver cannot see, so two messages of
+// one pool accepted a minute apart may arrive together. Nothing is recorded
+// for the rate limit.
+func (m *MessageAuthenticator) PrepareAdmitted(
+	messages []DmqMessage,
+) (func() error, error) {
+	return m.prepareAll(messages, false)
+}
+
+// PrepareEach verifies each message of a batch on its own: errs[i] is
+// message i's verdict, and a refused message leaves the state the later ones
+// are checked against unchanged. The returned function re-checks each
+// accepted message against the state at commit, records the ones that still
+// pass, and returns their verdicts: commitErrs[i] is non-nil for a message
+// accepted when prepared but refused at commit, such as one whose pool had
+// another message accepted meanwhile. A refusal at commit refuses only that
+// message.
+func (m *MessageAuthenticator) PrepareEach(
+	messages []DmqMessage,
+) (errs []error, commit func() (commitErrs []error)) {
+	errs, judge := m.prepare(messages, false, true)
+	return errs, func() []error { return judge(false) }
+}
+
+func (m *MessageAuthenticator) prepareAll(
+	messages []DmqMessage,
+	rateLimit bool,
+) (func() error, error) {
+	errs, judge := m.prepare(messages, true, rateLimit)
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("message %d authentication failed: %w", i, err)
+		}
+	}
+	return func() error {
+		for _, err := range judge(true) {
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}, nil
+}
+
+// preparedMessage is what commit re-checks for one message that passed
+// verification: its pool's counter and, unless it was already held or the
+// rate limit is off, its rate-limit record.
+type preparedMessage struct {
+	index int
+	pool  PoolKeyHash
+	issue uint64
+	rate  *rateRecord
+}
+
+// prepare verifies messages against a private copy of the state and returns
+// each message's verdict and a commit function. commit(atomic) re-checks
+// every message that passed, in order, against the state at commit and the
+// earlier messages of the batch, and returns a verdict per message. With
+// atomic set, one refusal records nothing; otherwise the messages that pass
+// are recorded and the rest are not.
+func (m *MessageAuthenticator) prepare(
+	messages []DmqMessage,
+	stopOnError bool,
+	rateLimit bool,
+) ([]error, func(atomic bool) []error) {
+	errs := make([]error, len(messages))
+	noCommit := func(bool) []error { return make([]error, len(messages)) }
+	if m.disableValidation || len(messages) == 0 {
+		return errs, noCommit
+	}
 	m.mu.Lock()
 	cacheSnapshot := make(map[PoolKeyHash]uint64, len(m.kesOpCertCache))
 	for poolID, issueNumber := range m.kesOpCertCache {
 		cacheSnapshot[poolID] = issueNumber
 	}
 	m.mu.Unlock()
-	batchAuthenticator := &MessageAuthenticator{
-		logger:                m.logger,
-		stakeAuthority:        m.stakeAuthority,
-		currentSlot:           m.currentSlot,
-		poolOpCertIssueNumber: m.poolOpCertIssueNumber,
-		kesOpCertCache:        cacheSnapshot,
-		slotsPerKesPeriod:     m.slotsPerKesPeriod,
-		maxKESEvolutions:      m.maxKESEvolutions,
+	batchNow := m.now()
+	minSigDelay := m.minSigDelay
+	if !rateLimit {
+		minSigDelay = 0
 	}
-	touchedPools := make(map[PoolKeyHash]struct{})
+	batchAuthenticator := &MessageAuthenticator{
+		parent:           m,
+		minSigDelay:      minSigDelay,
+		now:              func() time.Time { return batchNow },
+		logger:           m.logger,
+		stakeAuthority:   m.stakeAuthority,
+		kesOpCertCache:   cacheSnapshot,
+		maxKESEvolutions: m.maxKESEvolutions,
+	}
+	// Every message is re-checked at commit against the pool's recorded
+	// counter, as if it were validated then; checking only the batch's final
+	// counter would let an earlier, lower one through after a concurrent
+	// commit recorded a higher one.
+	var prepared []preparedMessage
 	for i := range messages {
-		if err := batchAuthenticator.verifyMessageInternal(&messages[i], slot); err != nil {
-			return nil, fmt.Errorf(
-				"message %d authentication failed: %w",
-				i,
-				err,
-			)
+		// Looked up before verifying, which records the message.
+		held := batchAuthenticator.holds(&messages[i])
+		records := len(batchAuthenticator.batchAccepted)
+		if err := batchAuthenticator.verifyMessageInternal(&messages[i]); err != nil {
+			errs[i] = err
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
 		poolID, err := poolKeyHash(messages[i].ColdVerificationKey)
 		if err != nil {
-			return nil, fmt.Errorf("message %d compute pool id: %w", i, err)
+			errs[i] = fmt.Errorf("compute pool id: %w", err)
+			if stopOnError {
+				return errs, noCommit
+			}
+			continue
 		}
-		touchedPools[poolID] = struct{}{}
+		// A held message is a duplicate: commit neither re-checks nor
+		// records it.
+		if held {
+			continue
+		}
+		p := preparedMessage{
+			index: i,
+			pool:  poolID,
+			issue: messages[i].OperationalCertificate.IssueNumber,
+		}
+		if rateLimit && len(batchAuthenticator.batchAccepted) > records {
+			r := batchAuthenticator.batchAccepted[records]
+			p.rate = &r
+		}
+		prepared = append(prepared, p)
 	}
 
-	return func() error {
+	return errs, func(atomic bool) []error {
+		verdicts := make([]error, len(messages))
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		for poolID := range touchedPools {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-			if currentIssue, exists := m.kesOpCertCache[poolID]; exists &&
-				issueNumber < currentIssue {
-				return fmt.Errorf(
+		// The batch's own acceptances so far, over the recorded state.
+		issues := make(map[PoolKeyHash]uint64)
+		lastAt := make(map[PoolKeyHash]time.Time)
+		ids := make(map[string]struct{})
+		var passed []preparedMessage
+		for _, p := range prepared {
+			current, exists := issues[p.pool]
+			if !exists {
+				current, exists = m.kesOpCertCache[p.pool]
+			}
+			if exists && p.issue < current {
+				verdicts[p.index] = fmt.Errorf(
 					"opcert number went backwards: previous=%d, current=%d",
-					currentIssue,
-					issueNumber,
+					current,
+					p.issue,
 				)
+				continue
+			}
+			// A message accepted meanwhile by another commit is a
+			// duplicate: valid, and already recorded, so it is neither
+			// refused nor recorded again.
+			rate := p.rate
+			if rate != nil {
+				_, heldBefore := m.acceptedIDs[rate.id]
+				_, heldInBatch := ids[rate.id]
+				if heldBefore || heldInBatch {
+					rate = nil
+				}
+			}
+			if rate != nil {
+				last, seen := lastAt[p.pool]
+				if !seen {
+					last, seen = m.lastSig[p.pool]
+				}
+				if seen && m.tooSoon(rate.at, last) {
+					verdicts[p.index] = fmt.Errorf(
+						"%w: %s since the last",
+						ErrMessageTooFrequent,
+						rate.at.Sub(last),
+					)
+					continue
+				}
+				lastAt[p.pool] = rate.at
+				ids[rate.id] = struct{}{}
+			}
+			if !exists || p.issue > current {
+				issues[p.pool] = p.issue
+			}
+			p.rate = rate
+			passed = append(passed, p)
+		}
+		if atomic && len(passed) < len(prepared) {
+			return verdicts
+		}
+		for _, p := range passed {
+			if p.rate != nil {
+				m.recordRateLocked(*p.rate)
 			}
 		}
-		for poolID := range touchedPools {
-			issueNumber := batchAuthenticator.kesOpCertCache[poolID]
-			if currentIssue, exists := m.kesOpCertCache[poolID]; !exists ||
-				issueNumber > currentIssue {
-				m.kesOpCertCache[poolID] = issueNumber
-			}
+		for poolID, issueNumber := range issues {
+			m.kesOpCertCache[poolID] = issueNumber
 		}
-		return nil
-	}, nil
+		return verdicts
+	}
 }
 
 // VerifyMessages verifies a batch and commits its authentication state.
@@ -308,30 +503,27 @@ func (m *MessageAuthenticator) VerifyMessages(messages []DmqMessage) error {
 	return commit()
 }
 
-// VerifyMessageWithSlot verifies a message using an explicit slot value. When available,
-// callers should supply the slot (e.g., from the block header) so KES period/current period
-// checks are accurate.
+// VerifyMessageWithSlot verifies a message as VerifyMessage does. The slot
+// is not used.
+//
+// Deprecated: use VerifyMessage; no check depends on the slot.
 func (m *MessageAuthenticator) VerifyMessageWithSlot(
 	msg *DmqMessage,
-	slot uint64,
+	_ uint64,
 ) error {
-	return m.verifyMessageInternal(msg, slot)
+	return m.verifyMessageInternal(msg)
 }
 
-// verifyMessageInternal contains the core verification logic. The slot must
-// come from trusted chain state, never from the message.
+// verifyMessageInternal contains the core verification logic.
 //
-// Stake authorization runs before either signature check. Deriving a pool ID
-// from ColdVerificationKey needs no signature -- anyone can self-sign an
-// internally consistent opcert/KES chain over freshly generated keys, so the
-// signature checks only prove the sender holds the claimed private keys, not
-// that those keys belong to a real, staked pool. Checking authorization
-// first turns away a message from an unregistered identity before paying
-// for an ed25519 verify and the KES verify, rather than after.
-func (m *MessageAuthenticator) verifyMessageInternal(
-	msg *DmqMessage,
-	slot uint64,
-) error {
+// After the body size and the rate limit, the checks run in dmq-node's
+// order (Validate.hs 150-212): message ID, the claimed KES period against
+// the opcert's window, the pool's stake, the opcert counter, then the cold
+// and KES signatures. The first failure names the error, and a
+// node-to-node receiver drops a message for some errors (the pool holds no
+// stake) but disconnects for others (a KES period past the window), so the
+// order decides what happens to a message with both.
+func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 	if m.disableValidation {
 		return nil
 	}
@@ -340,26 +532,64 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		return errors.New("message is nil")
 	}
 
+	// A decoded message was size-checked already; this covers one built
+	// locally, before it is relayed.
+	if err := checkMessageBodySize(msg.Payload.MessageBody); err != nil {
+		return err
+	}
+
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return fmt.Errorf("compute pool id: %w", err)
+	}
+
+	// The rate limit comes first, as in dmq-node (Validate.hs 124-145,
+	// after only the expiry checks), so a too-frequent message is refused
+	// as such whatever else is wrong with it.
+	now := m.now()
+	held, last, seen := m.rateLookup(poolID, string(msg.ID()))
+	if !held && seen && m.tooSoon(now, last) {
+		return fmt.Errorf(
+			"%w: %s since the last",
+			ErrMessageTooFrequent,
+			now.Sub(last),
+		)
+	}
+
 	// Step 1: Verify deterministic message ID before heavier auth checks.
 	if err := m.verifyMessageID(msg); err != nil {
 		return fmt.Errorf("message ID verification failed: %w", err)
 	}
 
-	// Step 2: Stake authorization before either signature check -- see the
-	// doc comment above for why.
-	poolID, err := poolKeyHash(msg.ColdVerificationKey)
-	if err != nil {
-		return fmt.Errorf("compute pool id: %w", err)
+	// Step 2: The claimed KES period lies in the opcert's window.
+	if err := m.checkClaimedKESPeriod(msg); err != nil {
+		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
+
+	// Step 3: Stake authorization, before either signature check.
 	stake, err := m.stakeAuthority.PoolActiveStake(poolID)
 	if err != nil {
-		return fmt.Errorf("look up pool stake: %w", err)
+		return fmt.Errorf(
+			"%w: look up pool stake: %w",
+			ErrStakeDistributionUnavailable,
+			err,
+		)
 	}
 	if stake == 0 {
 		return ErrPoolNotInStakeDistribution
 	}
 
-	// Step 3: Verify operational certificate validity
+	// Step 4: The opcert counter has not gone backwards. Recorded only in
+	// the last step, once every check has passed. A held message is exempt:
+	// dmq-node drops a message it already holds before validating it, so a
+	// pool's later, higher counter never refuses it.
+	if !held {
+		if err := m.checkKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
+	}
+
+	// Step 5: Verify operational certificate validity
 	if err := m.verifyOperationalCertificate(&msg.OperationalCertificate, msg.ColdVerificationKey); err != nil {
 		return fmt.Errorf(
 			"operational certificate verification failed: %w",
@@ -367,33 +597,119 @@ func (m *MessageAuthenticator) verifyMessageInternal(
 		)
 	}
 
-	// Step 4: Compare the certificate with authoritative chain state.
-	latestIssue, exists, err := m.poolOpCertIssueNumber(poolID)
-	if err != nil {
-		return fmt.Errorf("look up pool operational certificate: %w", err)
-	}
-	if exists && msg.OperationalCertificate.IssueNumber < latestIssue {
-		return fmt.Errorf(
-			"operational certificate issue number is stale: chain=%d, message=%d",
-			latestIssue,
-			msg.OperationalCertificate.IssueNumber,
-		)
-	}
-
-	// Step 5: Verify KES signature over message payload.
-	if err := m.verifyKESSignature(msg, slot); err != nil {
+	// Step 6: Verify KES signature over message payload.
+	if err := m.verifyKESSignature(msg); err != nil {
 		return fmt.Errorf("KES signature verification failed: %w", err)
 	}
 
-	// Step 6: Verify KES period rotation (opcert number doesn't go backwards).
+	// Step 7: Verify KES period rotation (opcert number doesn't go backwards).
 	// Not updated until every earlier check has passed, so a message that
 	// fails an earlier check cannot poison replay protection for a later,
 	// legitimately higher-numbered certificate from the same pool.
-	if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
-		return fmt.Errorf("KES period rotation verification failed: %w", err)
+	if !held {
+		if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
+			return fmt.Errorf("KES period rotation verification failed: %w", err)
+		}
+		return m.recordRate(rateRecord{
+			pool:      poolID,
+			id:        string(msg.ID()),
+			expiresAt: msg.Payload.ExpiresAt,
+			at:        now,
+		})
 	}
-
 	return nil
+}
+
+// holds reports whether msg is already accepted and unexpired, in this
+// batch or by the authenticator.
+func (m *MessageAuthenticator) holds(msg *DmqMessage) bool {
+	poolID, err := poolKeyHash(msg.ColdVerificationKey)
+	if err != nil {
+		return false
+	}
+	held, _, _ := m.rateLookup(poolID, string(msg.ID()))
+	return held
+}
+
+// rateLookup reports whether message id is already accepted, and the time
+// of pool's last accepted message. In a batch the batch's own acceptances
+// come first.
+func (m *MessageAuthenticator) rateLookup(
+	pool PoolKeyHash,
+	id string,
+) (bool, time.Time, bool) {
+	var last time.Time
+	seen := false
+	for _, r := range m.batchAccepted {
+		if r.id == id {
+			return true, time.Time{}, false
+		}
+		if r.pool == pool {
+			last, seen = r.at, true
+		}
+	}
+	owner := m
+	if m.parent != nil {
+		owner = m.parent
+	}
+	owner.mu.Lock()
+	defer owner.mu.Unlock()
+	if _, held := owner.acceptedIDs[id]; held {
+		return true, time.Time{}, false
+	}
+	if !seen {
+		last, seen = owner.lastSig[pool]
+	}
+	return false, last, seen
+}
+
+// recordRate records an accepted message: in a batch, until commit;
+// otherwise at once, re-checking the limit under the lock in case another
+// message of the pool was accepted since the lookup.
+func (m *MessageAuthenticator) recordRate(r rateRecord) error {
+	if m.parent != nil {
+		m.batchAccepted = append(m.batchAccepted, r)
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, held := m.acceptedIDs[r.id]; held {
+		return nil
+	}
+	if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
+		return fmt.Errorf(
+			"%w: %s since the last",
+			ErrMessageTooFrequent,
+			r.at.Sub(last),
+		)
+	}
+	m.recordRateLocked(r)
+	return nil
+}
+
+// tooSoon reports whether a message of a pool at time at comes less than
+// the minimum delay after the pool's last accepted message, at last. With the
+// limit off nothing is too soon, even a time before last: a batch's time is
+// read before the batch is verified, so another message of the pool can be
+// accepted after it.
+func (m *MessageAuthenticator) tooSoon(at, last time.Time) bool {
+	return m.minSigDelay > 0 && at.Sub(last) < m.minSigDelay
+}
+
+// recordRateLocked stores r and, at most once a minute, forgets accepted IDs
+// whose messages have expired. The caller holds m.mu.
+func (m *MessageAuthenticator) recordRateLocked(r rateRecord) {
+	m.lastSig[r.pool] = r.at
+	m.acceptedIDs[r.id] = r.expiresAt
+	if r.at.Sub(m.lastPrune) < time.Minute {
+		return
+	}
+	m.lastPrune = r.at
+	for id, expiresAt := range m.acceptedIDs {
+		if !r.at.Before(time.Unix(int64(expiresAt), 0)) {
+			delete(m.acceptedIDs, id)
+		}
+	}
 }
 
 // verifyOperationalCertificate verifies the operational certificate signature by the cold key.
@@ -467,16 +783,13 @@ func opCertSignableBytes(
 }
 
 // verifyKESSignature verifies the KES signature over the message payload (CBOR
-// encoded) at the given trusted slot. The certificate's own issuance
-// period (msg.OperationalCertificate.KESPeriod) — not the message's claimed
-// signing period (msg.Payload.KESPeriod) — is what a real KES evolution check
-// needs as its baseline; this function keeps them distinct and rejects a
-// message that claims to have been signed before its own certificate was
-// issued.
-func (m *MessageAuthenticator) verifyKESSignature(
-	msg *DmqMessage,
-	slot uint64,
-) error {
+// encoded). The signature is checked at the evolution from the certificate's
+// issuance period (msg.OperationalCertificate.KESPeriod) to the message's
+// claimed signing period (msg.Payload.KESPeriod), which must lie in the
+// certificate's window. As in dmq-node, the node's own slot is not
+// consulted: a certificate that has ended, or not yet started, at the
+// node's current period does not by itself make a message invalid.
+func (m *MessageAuthenticator) verifyKESSignature(msg *DmqMessage) error {
 	if len(msg.KESSignature) != kes.CardanoKesSignatureSize {
 		return fmt.Errorf(
 			"KES signature must be %d bytes, got %d",
@@ -514,30 +827,22 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		return err
 	}
 
-	currentKesPeriod := slot / m.slotsPerKesPeriod
-	if err := m.checkKESWindow(currentKesPeriod, certPeriod); err != nil {
-		return err
-	}
-
 	m.logger.Debug(
-		"KES verification using slot",
-		"slot", slot,
+		"KES verification",
 		"cert_period", certPeriod,
 		"msg_period", msgPeriod,
 	)
 
-	valid, err := verifyKesComponents(
+	// The signer evolves its key to the period it claims, so the signature
+	// is checked at that evolution, not at the node's current period: a
+	// message signed late in one period is still valid in the next
+	// (dmq-node Validate.hs verifyKES at sigKESPeriod - ocertKESPeriod).
+	if !kes.VerifySignedKES(
+		msg.OperationalCertificate.KESVerificationKey,
+		msgPeriod-certPeriod,
 		payloadCbor,
 		msg.KESSignature,
-		msg.OperationalCertificate.KESVerificationKey,
-		certPeriod,
-		slot,
-		m.slotsPerKesPeriod,
-	)
-	if err != nil {
-		return fmt.Errorf("KES verification failed: %w", err)
-	}
-	if !valid {
+	) {
 		return errors.New("KES signature verification failed")
 	}
 	m.logger.Debug(
@@ -545,6 +850,21 @@ func (m *MessageAuthenticator) verifyKESSignature(
 		"payload_size", len(payloadCbor),
 	)
 	return nil
+}
+
+// checkClaimedKESPeriod checks that the message's claimed KES period lies in
+// [opcert KES period, opcert KES period + maxKESEvolutions).
+func (m *MessageAuthenticator) checkClaimedKESPeriod(msg *DmqMessage) error {
+	certPeriod := msg.OperationalCertificate.KESPeriod
+	msgPeriod := msg.Payload.KESPeriod
+	if msgPeriod < certPeriod {
+		return fmt.Errorf(
+			"message KES period %d precedes certificate issuance period %d",
+			msgPeriod,
+			certPeriod,
+		)
+	}
+	return m.checkKESWindow(msgPeriod, certPeriod)
 }
 
 func (m *MessageAuthenticator) checkKESWindow(
@@ -561,40 +881,6 @@ func (m *MessageAuthenticator) checkKESWindow(
 		)
 	}
 	return nil
-}
-
-// verifyKesComponents verifies a KES signature the same way
-// ledger.VerifyKesComponents does for block headers: it converts (kesPeriod,
-// slot, slotsPerKesPeriod) into a KES evolution index and checks the
-// signature at that evolution with kes.VerifySignedKES. Reimplemented
-// locally (rather than imported) to avoid the import cycle importing
-// ledger would create (ledger -> ledger/common -> protocol/common); the kes
-// package itself has no such dependency and is imported directly.
-func verifyKesComponents(
-	message []byte,
-	signature []byte,
-	hotVkey []byte,
-	kesPeriod uint64,
-	slot uint64,
-	slotsPerKesPeriod uint64,
-) (bool, error) {
-	if slotsPerKesPeriod == 0 {
-		return false, errors.New("slotsPerKesPeriod must be greater than 0")
-	}
-	if len(signature) != kes.CardanoKesSignatureSize {
-		return false, fmt.Errorf(
-			"invalid KES signature length: expected %d bytes, got %d",
-			kes.CardanoKesSignatureSize,
-			len(signature),
-		)
-	}
-	currentKesPeriod := slot / slotsPerKesPeriod
-	if currentKesPeriod < kesPeriod {
-		// Certificate start period is in the future - invalid.
-		return false, nil
-	}
-	t := currentKesPeriod - kesPeriod
-	return kes.VerifySignedKES(hotVkey, t, message, signature), nil
 }
 
 // verifyMessageID verifies the message ID format and size constraints.
@@ -667,6 +953,25 @@ func (m *MessageAuthenticator) verifyKESPeriodRotation(
 	// Update cache with latest opcert number
 	m.kesOpCertCache[poolID] = opcert.IssueNumber
 
+	return nil
+}
+
+// checkKESPeriodRotation reports whether opcert's counter is below the one
+// last recorded for the pool, without recording anything.
+func (m *MessageAuthenticator) checkKESPeriodRotation(
+	poolID PoolKeyHash,
+	opcert *OperationalCertificate,
+) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if last, exists := m.kesOpCertCache[poolID]; exists &&
+		opcert.IssueNumber < last {
+		return fmt.Errorf(
+			"opcert number went backwards: previous=%d, current=%d",
+			last,
+			opcert.IssueNumber,
+		)
+	}
 	return nil
 }
 
@@ -756,52 +1061,30 @@ func (v *TTLValidator) ValidateMessageTTLAt(
 		return errors.New("message is nil")
 	}
 
-	nowUnix := now.Unix()
+	// Compare at the clock's full precision: dmq-node's now is a POSIXTime
+	// with sub-second precision, so a message is already expired half a
+	// second after its whole-second expiresAt. Truncating now to seconds
+	// would accept it.
 	expiresAt := msg.Payload.ExpiresAt
-	// Reject `now` past the uint32 domain explicitly: clamping to MaxUint32
-	// would leave a message with expiresAt == MaxUint32 looking valid even
-	// though any uint32 expiresAt is strictly in the past relative to such
-	// a time.
-	if nowUnix > math.MaxUint32 {
+	expiry := time.Unix(int64(expiresAt), 0)
+	if now.After(expiry) {
 		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
+			"%w: now=%s, expiresAt=%d",
 			ErrMessageExpired,
-			nowUnix,
-			expiresAt,
-		)
-	}
-	if nowUnix < 0 {
-		nowUnix = 0
-	}
-	// #nosec G115 -- bounded to [0, MaxUint32] above
-	nowSec := uint32(nowUnix)
-
-	// Check if message has already expired
-	if nowSec > expiresAt {
-		return fmt.Errorf(
-			"%w: now=%d, expiresAt=%d",
-			ErrMessageExpired,
-			nowSec,
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
 		)
 	}
 
-	// Check if expiration is too far in the future (protocol violation).
-	// Compute in uint64 to avoid overflow when adding TTL seconds to current time.
-	maxAllowedTTLSeconds := uint64(v.maxAllowedTTL.Seconds())
-	nowUint64 := uint64(nowSec)
-	maxAllowedExpirationUint64 := min(
-		nowUint64+maxAllowedTTLSeconds,
-		math.MaxUint32,
-	)
-	// #nosec G115 -- overflow prevented by clamping to MaxUint32 above
-	maxAllowedExpiration := uint32(maxAllowedExpirationUint64)
-	if expiresAt > maxAllowedExpiration {
+	// The bound is exclusive, as in dmq-node (expiresAt < now + maxTTL): an
+	// expiry exactly maxTTL ahead is a protocol violation.
+	bound := now.Add(v.maxAllowedTTL)
+	if !expiry.Before(bound) {
 		return fmt.Errorf(
-			"message expiration too far in future: now=%d, expiresAt=%d, max_allowed=%d",
-			nowSec,
+			"message expiration too far in future: now=%s, expiresAt=%d, bound=%s",
+			now.UTC().Format(time.RFC3339Nano),
 			expiresAt,
-			maxAllowedExpiration,
+			bound.UTC().Format(time.RFC3339Nano),
 		)
 	}
 

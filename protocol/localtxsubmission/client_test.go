@@ -15,6 +15,7 @@
 package localtxsubmission_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -87,7 +88,7 @@ func runTest(
 		t.Fatalf("did not complete within timeout")
 	}
 	// Close Ouroboros connection
-	if err := oConn.Close(); err != nil {
+	if err := oConn.Close(context.Background()); err != nil {
 		t.Fatalf("unexpected error when closing Ouroboros object: %s", err)
 	}
 	// Wait for connection shutdown
@@ -156,7 +157,7 @@ func TestSubmitTxAcceptThenDone(t *testing.T) {
 			); err != nil {
 				t.Fatalf("received unexpected error on SubmitTx: %s", err)
 			}
-			if err := oConn.LocalTxSubmission().Client.Stop(); err != nil {
+			if err := oConn.LocalTxSubmission().Client.Stop(context.Background()); err != nil {
 				t.Fatalf("received unexpected error on Stop: %s", err)
 			}
 		},

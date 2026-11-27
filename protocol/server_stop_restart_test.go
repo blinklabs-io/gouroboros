@@ -15,6 +15,7 @@
 package protocol_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -26,15 +27,20 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/leiosfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosnotify"
 	"github.com/blinklabs-io/gouroboros/protocol/leiosvotes"
+	"github.com/blinklabs-io/gouroboros/protocol/localmessagesubmission"
+	"github.com/blinklabs-io/gouroboros/protocol/localstatequery"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxmonitor"
+	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // restartingServer is a mini-protocol server that replaces its protocol
 // instance when the client ends the protocol.
 type restartingServer interface {
 	Start()
-	Stop()
+	Stop(context.Context) error
 	ProtocolInstance() *protocol.Protocol
 }
 
@@ -113,6 +119,46 @@ var restartingServerCases = []restartingServerCase{
 		},
 	},
 	{
+		name:       "localtxmonitor",
+		protocolId: localtxmonitor.ProtocolId,
+		hold:       "done",
+		done:       localtxmonitor.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localtxmonitor.NewServer(o, nil)
+		},
+	},
+	{
+		name:       "localtxsubmission",
+		protocolId: localtxsubmission.ProtocolId,
+		hold:       "done",
+		done:       localtxsubmission.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localtxsubmission.NewServer(o, nil)
+		},
+	},
+	{
+		name:       "localmessagesubmission",
+		protocolId: localmessagesubmission.ProtocolID,
+		hold:       "received done message",
+		done:       localmessagesubmission.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localmessagesubmission.NewServer(o, nil)
+		},
+	},
+	{
+		name:       "localstatequery",
+		protocolId: localstatequery.ProtocolId,
+		hold:       "done",
+		done:       localstatequery.NewMsgDone(),
+		newServer: func(o protocol.ProtocolOptions) restartingServer {
+			o.Mode = protocol.ProtocolModeNodeToClient
+			return localstatequery.NewServer(o, nil)
+		},
+	},
+	{
 		name:       "peersharing",
 		protocolId: peersharing.ProtocolId,
 		hold:       "done",
@@ -139,14 +185,23 @@ func TestServerStopDuringRestartStopsServer(t *testing.T) {
 				Logger: h.Logger(tc.hold),
 			})
 			server.Start()
-			t.Cleanup(server.Stop)
+			t.Cleanup(func() { _ = server.Stop(context.Background()) })
 			h.Start()
 
 			h.Send(tc.done)
 			h.WaitHeld()
 			stopped := server.ProtocolInstance()
-			server.Stop()
+			// Waiting would wait for the held Done handler, so this Stop
+			// only signals; the join follows the release.
+			signalOnly, cancel := context.WithCancel(context.Background())
+			cancel()
+			_ = server.Stop(signalOnly)
 			h.Release()
+			joinCtx, cancelJoin := context.WithTimeout(
+				context.Background(), 5*time.Second,
+			)
+			defer cancelJoin()
+			require.NoError(t, server.Stop(joinCtx))
 
 			restarted := func() bool { return server.ProtocolInstance() != stopped }
 			if !assert.Never(t, restarted, 200*time.Millisecond, 5*time.Millisecond,
@@ -181,11 +236,11 @@ func TestCancelRestartReleasesSuspendedReceiver(t *testing.T) {
 		&chainsync.Config{},
 	)
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	p := server.ProtocolInstance()
-	p.StopForRestart()
+	p.StopForRestart(context.Background())
 	p.CancelRestart()
 	// More segments than a receiver's channel and forwarder hold.
 	for range 20 {

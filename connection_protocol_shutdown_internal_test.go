@@ -15,6 +15,7 @@
 package ouroboros
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestConnectionShutdownStopsRestartingServer(t *testing.T) {
 	conn.chainSync = &chainsync.ChainSync{Server: server}
 	conn.protocolsReady = true
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(chainsync.NewMsgDone())
@@ -152,7 +153,7 @@ func TestConnectionShutdownStopsRestartingKeepAliveServer(t *testing.T) {
 	conn.keepAlive = &keepalive.KeepAlive{Server: server}
 	conn.protocolsReady = true
 	server.Start()
-	t.Cleanup(server.Stop)
+	t.Cleanup(func() { _ = server.Stop(context.Background()) })
 	h.Start()
 
 	h.Send(keepalive.NewMsgDone())

@@ -16,6 +16,7 @@ package muxer
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"io"
 	"net"
@@ -232,7 +233,7 @@ func newTestMuxer(t *testing.T, conn net.Conn) *Muxer {
 	t.Helper()
 	m := New(conn)
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		for range m.ErrorChan() {
 		}
 	})

@@ -63,8 +63,8 @@ func newStopDeliveryClient(t *testing.T) (
 		gate.unblock()
 		_ = local.Close()
 		_ = peer.Close()
-		_ = c.Stop()
-		m.Stop()
+		_ = c.Stop(context.Background())
+		_ = m.Stop(context.Background())
 	})
 	require.NoError(t, local.SetDeadline(time.Now().Add(3*time.Second)))
 	require.NoError(t, peer.SetDeadline(time.Now().Add(3*time.Second)))
@@ -76,7 +76,7 @@ func newStopDeliveryClient(t *testing.T) (
 func TestClientStopWaitsForClientDoneDelivery(t *testing.T) {
 	c, gate, peer := newStopDeliveryClient(t)
 	stopped := make(chan error, 1)
-	go func() { stopped <- c.Stop() }()
+	go func() { stopped <- c.Stop(context.Background()) }()
 	select {
 	case <-gate.started:
 	case <-time.After(2 * time.Second):
@@ -106,7 +106,7 @@ func TestClientStopWaitsForClientDoneDelivery(t *testing.T) {
 func TestClientStopBoundsBlockedClientDoneDelivery(t *testing.T) {
 	c, gate, _ := newStopDeliveryClient(t)
 	stopped := make(chan error, 1)
-	go func() { stopped <- c.Stop() }()
+	go func() { stopped <- c.Stop(context.Background()) }()
 	select {
 	case <-gate.started:
 	case <-time.After(2 * time.Second):

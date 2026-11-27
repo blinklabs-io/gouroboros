@@ -16,6 +16,7 @@ package localtxmonitor
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -68,6 +69,15 @@ func testQueries() []testQuery {
 			reply:     NewMsgReplyGetSizes(1, 2, 3),
 			call: func(c *Client) error {
 				_, _, _, err := c.GetSizes()
+				return err
+			},
+		},
+		{
+			name:      "GetMeasures",
+			queryType: MessageTypeGetMeasures,
+			reply:     NewMsgReplyGetMeasures(0, nil),
+			call: func(c *Client) error {
+				_, err := c.GetMeasures()
 				return err
 			},
 		},
@@ -172,7 +182,7 @@ func startAcquiredTestClient(t *testing.T) (*Client, net.Conn, chan error) {
 		connB.Close()
 	})
 	m := muxer.New(connA)
-	t.Cleanup(m.Stop)
+	t.Cleanup(func() { _ = m.Stop(context.Background()) })
 	errorChan := make(chan error, 10)
 	client := NewClient(protocol.ProtocolOptions{
 		ConnectionId: connection.ConnectionId{
@@ -185,7 +195,7 @@ func startAcquiredTestClient(t *testing.T) (*Client, net.Conn, chan error) {
 	}, nil)
 	client.Start()
 	m.Start()
-	t.Cleanup(client.Protocol.Stop)
+	t.Cleanup(func() { _ = client.Protocol.Stop(context.Background()) })
 
 	acquired := make(chan error, 1)
 	go func() { acquired <- client.Acquire() }()
@@ -265,7 +275,7 @@ func TestClientStopReleasesCaller(t *testing.T) {
 		result <- err
 	}()
 	requireQueryTestMessageType(t, conn, MessageTypeHasTx)
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	select {
 	case err := <-result:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -289,7 +299,7 @@ func TestReplyDeliveryStopsAtShutdown(t *testing.T) {
 		t.Fatal("reply was delivered with no caller waiting")
 	case <-time.After(100 * time.Millisecond):
 	}
-	client.Protocol.Stop()
+	client.Protocol.Stop(context.Background())
 	select {
 	case <-delivered:
 	case <-time.After(5 * time.Second):

@@ -15,6 +15,7 @@
 package chainsync
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,18 +55,16 @@ func TestReintersectLoopBetweenSignalAndBusyLock(t *testing.T) {
 	require.NoError(t, res.err)
 }
 
-// Stop abandons the pipelined requests of the stopped protocol instance. A
-// restarted client must not wait for their replies.
-func TestReintersectAfterStopStartDoesNotWaitForAbandonedRequests(
-	t *testing.T,
-) {
+// Stop abandons the pipelined requests of the stopped protocol instance, which
+// the server may still answer, so Start must not restart the client on this
+// connection.
+func TestStartAfterStopWithPipelinedRequestsStaysStopped(t *testing.T) {
 	t.Parallel()
 	h := newReintersectHarness(t)
 	h.startPipelined()
 
 	// MsgDone cannot be delivered while requests are outstanding.
-	_ = h.client.Stop()
+	require.ErrorIs(t, h.client.Stop(context.Background()), context.DeadlineExceeded)
 	h.client.Start()
-	require.Equal(t, 0, h.outstanding(),
-		"requests of the stopped protocol instance still counted")
+	syncRefused(t, h.client)
 }

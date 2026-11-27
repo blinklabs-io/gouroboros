@@ -15,6 +15,7 @@
 package localmessagenotification
 
 import (
+	"context"
 	"net"
 	"testing"
 	"testing/synctest"
@@ -29,14 +30,14 @@ import (
 func TestServerStopBeforeStartCompletesLifecycle(t *testing.T) {
 	server := NewServer(protocol.ProtocolOptions{}, nil)
 
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
 	select {
 	case <-server.DoneChan():
 	default:
 		t.Fatal("DoneChan was not closed after stopping before Start")
 	}
 
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
 	require.NotPanics(t, server.Start)
 	select {
 	case <-server.DoneChan():
@@ -51,15 +52,15 @@ func TestServerRepeatedStopAfterStartCompletesLifecycle(t *testing.T) {
 		_ = remoteConn.Close()
 	})
 	protocolMuxer := muxer.New(localConn)
-	t.Cleanup(protocolMuxer.Stop)
+	t.Cleanup(func() { _ = protocolMuxer.Stop(context.Background()) })
 	server := NewServer(
 		protocol.ProtocolOptions{Muxer: protocolMuxer},
 		nil,
 	)
 	server.Start()
 
-	require.NoError(t, server.Stop())
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
+	require.NoError(t, server.Stop(context.Background()))
 	select {
 	case <-server.DoneChan():
 	case <-time.After(time.Second):
@@ -76,7 +77,7 @@ func TestServerStopUnblocksWaitingRequest(t *testing.T) {
 		// Wait until WaitForMessage is durably blocked in its select before
 		// stopping the server.
 		synctest.Wait()
-		require.NoError(t, server.Stop())
+		require.NoError(t, server.Stop(context.Background()))
 		select {
 		case err := <-result:
 			require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -88,7 +89,7 @@ func TestServerStopUnblocksWaitingRequest(t *testing.T) {
 
 func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
 	server := NewServer(protocol.ProtocolOptions{}, nil)
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
 
 	select {
 	case <-server.expirationStopChan:
@@ -104,7 +105,7 @@ func TestServerStopStopsExpirationCleanerBeforeStart(t *testing.T) {
 
 func TestServerStopJoinsExpirationCleaner(t *testing.T) {
 	server := NewServer(protocol.ProtocolOptions{}, nil)
-	require.NoError(t, server.Stop())
+	require.NoError(t, server.Stop(context.Background()))
 
 	select {
 	case <-server.expirationDoneChan:
@@ -126,7 +127,7 @@ func TestServerQueueFullDoesNotCommitHigherOpCert(t *testing.T) {
 		WithMaxQueueSize(1),
 	)
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	require.NoError(t, server.AddMessage(&messages[0]))
 	require.ErrorContains(t, server.AddMessage(&messages[1]), "queue full")
@@ -146,7 +147,7 @@ func TestServerDuplicateDoesNotCommitHigherOpCert(t *testing.T) {
 	)
 	cfg := NewConfig(WithAuthenticator(authenticator))
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	require.NoError(t, server.AddMessage(&messages[0]))
 	server.lock.Lock()
@@ -171,7 +172,7 @@ func TestServerRejectsQueuedDuplicate(t *testing.T) {
 	)
 	cfg := NewConfig(WithAuthenticator(authenticator))
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	require.NoError(t, server.AddMessage(&messages[0]))
 	require.ErrorContains(t, server.AddMessage(&messages[1]), "already queued")
@@ -192,7 +193,7 @@ func TestServerOwnsAuthenticatedQueuedMessage(t *testing.T) {
 	)
 	cfg := NewConfig(WithAuthenticator(authenticator))
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 	expected := cloneDmqMessage(messages[0])
 
 	require.NoError(t, server.AddMessage(&messages[0]))
@@ -225,7 +226,7 @@ func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(
 	)
 	cfg := NewConfig(WithAuthenticator(authenticator))
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 	times := []time.Time{
 		initial,
 		initial.Add(time.Second),
@@ -245,7 +246,7 @@ func TestServerExpiryDuringAuthenticationDoesNotCommitHigherOpCert(
 func TestServerRequiresTTLValidator(t *testing.T) {
 	cfg := Config{Authenticator: pcommon.NewNoOpAuthenticator(nil)}
 	server := NewServer(protocol.ProtocolOptions{}, &cfg)
-	t.Cleanup(func() { require.NoError(t, server.Stop()) })
+	t.Cleanup(func() { require.NoError(t, server.Stop(context.Background())) })
 
 	err := server.AddMessage(&pcommon.DmqMessage{})
 	require.ErrorContains(t, err, "TTL validator not configured")
@@ -284,7 +285,7 @@ func TestMuxerDoneCancelsStandaloneBlockingRequestAndCleaner(t *testing.T) {
 	result := make(chan error, 1)
 	go func() { result <- server.handleBlockingRequest() }()
 
-	protocolMuxer.Stop()
+	_ = protocolMuxer.Stop(context.Background())
 	select {
 	case err := <-result:
 		require.ErrorIs(t, err, protocol.ErrProtocolShuttingDown)
@@ -296,4 +297,49 @@ func TestMuxerDoneCancelsStandaloneBlockingRequestAndCleaner(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("expiration cleaner did not observe muxer shutdown")
 	}
+}
+
+// TestAddMessageWakesBlockingRequestAndWaiter waits for a message in two
+// places at once: a blocking request inside the handler and an application
+// call to WaitForMessage. One AddMessage must wake both. If the application
+// took the only wakeup, the blocking request would stay unanswered with the
+// message sitting in the queue until some later AddMessage.
+func TestAddMessageWakesBlockingRequestAndWaiter(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cfg := NewConfig(
+			WithAuthenticator(pcommon.NewNoOpAuthenticator(nil)),
+		)
+		server := NewServer(protocol.ProtocolOptions{}, &cfg)
+		handled := make(chan error, 1)
+		go func() { handled <- server.handleBlockingRequest() }()
+		waited := make(chan error, 1)
+		go func() { waited <- server.WaitForMessage(0) }()
+		synctest.Wait()
+
+		msg := clientTestMessage(
+			t,
+			"wake",
+			uint32(time.Now().Add(time.Minute).Unix()),
+		)
+		require.NoError(t, server.AddMessage(&msg))
+		synctest.Wait()
+
+		server.lock.Lock()
+		queued := len(server.messageQueue)
+		server.lock.Unlock()
+		applicationWoken := false
+		select {
+		case err := <-waited:
+			require.NoError(t, err)
+			applicationWoken = true
+		default:
+		}
+		require.NoError(t, server.Stop(context.Background()))
+		<-handled
+		if !applicationWoken {
+			<-waited
+		}
+		require.Zero(t, queued, "the blocking request did not take the message")
+		require.True(t, applicationWoken, "WaitForMessage was not woken")
+	})
 }

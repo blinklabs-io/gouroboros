@@ -16,6 +16,7 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net"
 	"sync"
@@ -52,7 +53,7 @@ func newBudgetProtocol(t *testing.T, entry StateMapEntry) *budgetProtocol {
 	// Registered after the connection teardown below, so it runs first and a
 	// failing test cannot leave a handler blocking the protocol's Stop.
 	t.Cleanup(func() {
-		m.Stop()
+		_ = m.Stop(context.Background())
 		_ = localConn.Close()
 		_ = peerConn.Close()
 	})
@@ -87,7 +88,7 @@ func newBudgetProtocol(t *testing.T, entry StateMapEntry) *budgetProtocol {
 		IngressLimit: 1 << 20,
 	})
 	bp.p.Start()
-	t.Cleanup(bp.p.Stop)
+	t.Cleanup(func() { _ = bp.p.Stop(context.Background()) })
 	return bp
 }
 

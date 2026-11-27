@@ -101,10 +101,14 @@ func TestPoolCertificateOwnerSetIdentity(t *testing.T) {
 							t.Run(
 								era,
 								func(t *testing.T) {
-									require.NoError(
-										t,
-										newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub")),
-									)
+									err := newBody().UnmarshalCBOR(withRequiredBodyFields(t, body, era == "dijkstra_sub"))
+									// Before protocol version 9 an owner set
+									// may not carry tag 258 (decodeSet).
+									if name == "tagged reordered owners" {
+										require.ErrorContains(t, err, "pool owner set is tagged")
+										return
+									}
+									require.NoError(t, err)
 								},
 							)
 						}

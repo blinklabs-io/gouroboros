@@ -40,6 +40,7 @@
 package peersharinginterop
 
 import (
+	"context"
 	"net"
 	"os"
 	"testing"
@@ -89,7 +90,7 @@ func dialNode(
 		require.NoErrorf(t, err, "ouroboros handshake with %s", addr)
 	}
 	t.Cleanup(func() {
-		_ = oConn.Close()
+		_ = oConn.Close(context.Background())
 	})
 	return oConn
 }
