@@ -1515,7 +1515,6 @@ func (m *Muxer) Send(msg *Segment) error {
 // protocol
 func (m *Muxer) readLoop() {
 	defer func() {
-		m.waitGroup.Done()
 		// Close receiver channels
 		m.protocolReceiversMutex.Lock()
 		for _, protocolRoles := range m.protocolReceivers {
@@ -1528,6 +1527,9 @@ func (m *Muxer) readLoop() {
 			}
 		}
 		m.protocolReceiversMutex.Unlock()
+		// Done comes last so that Stop, which waits on waitGroup, does not
+		// return while this sweep still runs or holds the lock.
+		m.waitGroup.Done()
 	}()
 	started := false
 	for {

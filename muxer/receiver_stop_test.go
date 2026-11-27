@@ -1,0 +1,113 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package muxer
+
+import (
+	"context"
+	"net"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+func newPipeMuxer(t *testing.T) (*Muxer, net.Conn) {
+	t.Helper()
+	local, remote := net.Pipe()
+	m := New(local)
+	t.Cleanup(func() {
+		_ = remote.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = m.Stop(ctx)
+	})
+	return m, remote
+}
+
+// Stop returns only after the read loop has finished, including the sweep
+// that stops every receiver. The test holds the lock that sweep takes, so the
+// read loop cannot finish while it is held.
+func TestStopWaitsForReadLoopSweep(t *testing.T) {
+	m, _ := newPipeMuxer(t)
+	m.protocolReceiversMutex.Lock()
+	held := true
+	defer func() {
+		if held {
+			m.protocolReceiversMutex.Unlock()
+		}
+	}()
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		100*time.Millisecond,
+	)
+	defer cancel()
+	require.ErrorIs(t, m.Stop(ctx), context.DeadlineExceeded,
+		"Stop returned while the read loop was still in its exit sweep")
+	m.protocolReceiversMutex.Unlock()
+	held = false
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel2()
+	require.NoError(t, m.Stop(ctx2))
+}
+
+// forward parks in cond.Wait while its queue is empty; each change that makes
+// its predicate true (a segment queued, the receiver stopped) wakes it. Each
+// row is one wake source.
+func TestForwarderWakesOnEveryPredicateChange(t *testing.T) {
+	tests := []struct {
+		name string
+		wake func(*Muxer, *segmentChannel)
+		// delivered is whether a segment reaches the receive channel
+		// before it closes.
+		delivered bool
+	}{
+		{
+			name: "segment queued",
+			wake: func(_ *Muxer, sc *segmentChannel) {
+				_ = sc.enqueue(newTestSegment(1))
+			},
+			delivered: true,
+		},
+		{
+			name: "receiver unregistered",
+			wake: func(m *Muxer, _ *segmentChannel) {
+				m.UnregisterProtocol(1, ProtocolRoleResponder)
+			},
+		},
+		{
+			name: "muxer stopped",
+			wake: func(m *Muxer, _ *segmentChannel) {
+				_ = m.Stop(context.Background())
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			m, _ := newPipeMuxer(t)
+			_, recv, _ := m.RegisterProtocol(1, ProtocolRoleResponder)
+			require.NotNil(t, recv)
+			m.protocolReceiversMutex.Lock()
+			sc := m.protocolReceivers[1][ProtocolRoleResponder]
+			m.protocolReceiversMutex.Unlock()
+			tc.wake(m, sc)
+			select {
+			case seg, ok := <-recv:
+				require.Equal(t, tc.delivered, ok && seg != nil)
+			case <-time.After(5 * time.Second):
+				t.Fatal("forwarder was not woken")
+			}
+		})
+	}
+}
