@@ -196,3 +196,74 @@ func TestStopFromCallbackDoesNotWaitForRetiredRun(t *testing.T) {
 	defer cancel()
 	require.NoError(t, server.Stop(ctx))
 }
+
+// TestStopFromRetiredRunCallbackDoesNotWait checks that Stop called with the
+// Context of a callback of a run the client ended with MsgQuit returns
+// without waiting, while the source of that run and of the current run are
+// both still running. Waiting on the current run would block the retired
+// callback on a source that need not ever return.
+func TestStopFromRetiredRunCallbackDoesNotWait(t *testing.T) {
+	// Registered first, so it runs after every other cleanup. Goroutines
+	// left by earlier tests in the package are not this test's.
+	before := goleak.IgnoreCurrent()
+	t.Cleanup(func() { goleak.VerifyNone(t, before) })
+	retiredEntered := make(chan struct{})
+	currentEntered := make(chan struct{})
+	releaseRetired := make(chan struct{})
+	releaseCurrent := make(chan struct{})
+	var retiredOnce, currentOnce sync.Once
+	releaseRetiredSource := func() {
+		retiredOnce.Do(func() { close(releaseRetired) })
+	}
+	releaseCurrentSource := func() {
+		currentOnce.Do(func() { close(releaseCurrent) })
+	}
+	t.Cleanup(releaseRetiredSource)
+	t.Cleanup(releaseCurrentSource)
+	var calls atomic.Int32
+	var srv atomic.Pointer[Server]
+	stopped := make(chan error, 1)
+	server, conn := newQuitTestServer(t, NewConfig(
+		// Both sources ignore QuitChan.
+		WithRequestNextFunc(func(ctx CallbackContext) (protocol.Message, error) {
+			if calls.Add(1) > 1 {
+				close(currentEntered)
+				<-releaseCurrent
+				return nil, errors.New("released")
+			}
+			close(retiredEntered)
+			<-releaseRetired
+			stopped <- srv.Load().Stop(ctx.Context())
+			return nil, errors.New("stopped")
+		}),
+	))
+	srv.Store(server)
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	select {
+	case <-retiredEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request source did not run")
+	}
+	writeQuitTestMessage(t, conn, NewMsgQuit())
+	require.IsType(t, &MsgCanceled{}, readQuitTestMessage(t, conn))
+	require.IsType(t, &MsgDone{}, readQuitTestMessage(t, conn))
+	writeQuitTestMessage(t, conn, NewMsgNotificationRequestNext())
+	select {
+	case <-currentEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request source of the current run did not run")
+	}
+	// Only the retired run's source is released; the current run's source
+	// keeps running while the retired callback calls Stop.
+	releaseRetiredSource()
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop from a retired run's callback waited for the current run")
+	}
+	releaseCurrentSource()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, server.Stop(ctx))
+}
