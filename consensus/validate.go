@@ -118,6 +118,11 @@ type ValidateHeaderInput struct {
 	PrevSlot        uint64
 	PrevBlockNumber uint64
 	PrevHeaderHash  []byte
+	// PrevIsOrigin reports that the header is the first on the chain, with
+	// no previous header. Its block number must then be 0, any slot is
+	// allowed, PrevHash must be empty or the zero hash (the genesis), and
+	// PrevSlot, PrevBlockNumber and PrevHeaderHash are ignored.
+	PrevIsOrigin bool
 
 	// Epoch nonce for VRF verification
 	EpochNonce []byte
@@ -161,7 +166,9 @@ type ValidateResult struct {
 //
 //  1. The envelope: block number is previous + 1, slot strictly increases,
 //     PrevHash matches the previous header's hash, and the protocol
-//     version, header size and body size are within their limits.
+//     version, header size and body size are within their limits. With
+//     PrevIsOrigin the block number must be 0, any slot is allowed, and
+//     PrevHash must name the genesis.
 //  2. CPraos: the KES side, then the VRF side. TPraos: the VRF side, then
 //     the KES side.
 //
@@ -290,10 +297,14 @@ func (v *HeaderValidator) validateOpCertSequence(
 	return current, nil
 }
 
-// validateSlotOrdering checks that the slot strictly increases.
+// validateSlotOrdering checks that the slot strictly increases. The first
+// header on a chain may have any slot.
 func (v *HeaderValidator) validateSlotOrdering(
 	input *ValidateHeaderInput,
 ) error {
+	if input.PrevIsOrigin {
+		return nil
+	}
 	if input.Slot <= input.PrevSlot {
 		return fmt.Errorf(
 			"slot must be greater than previous slot: current=%d, previous=%d",
@@ -304,11 +315,15 @@ func (v *HeaderValidator) validateSlotOrdering(
 	return nil
 }
 
-// validateBlockNumber checks that block number is previous + 1.
+// validateBlockNumber checks that block number is previous + 1, or 0 for the
+// first header on a chain.
 func (v *HeaderValidator) validateBlockNumber(
 	input *ValidateHeaderInput,
 ) error {
 	expectedBlockNumber := input.PrevBlockNumber + 1
+	if input.PrevIsOrigin {
+		expectedBlockNumber = 0
+	}
 	if input.BlockNumber != expectedBlockNumber {
 		return fmt.Errorf(
 			"block number must be previous + 1: current=%d, expected=%d",
@@ -319,8 +334,20 @@ func (v *HeaderValidator) validateBlockNumber(
 	return nil
 }
 
-// validatePrevHash checks that prev hash matches.
+// validatePrevHash checks that prev hash matches. The first header on a
+// chain must name the genesis as its predecessor: the reference's
+// validateEnvelope accepts only GenesisHash after Origin, which a Shelley
+// header encodes as null and gOuroboros decodes as the zero hash.
 func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
+	if input.PrevIsOrigin {
+		if !isGenesisPrevHash(input.PrevHash) {
+			return fmt.Errorf(
+				"first header must follow the genesis, got previous hash %x",
+				input.PrevHash,
+			)
+		}
+		return nil
+	}
 	if input.BlockNumber > 0 && len(input.PrevHeaderHash) == 0 {
 		return errors.New(
 			"previous header hash is required for non-genesis blocks",
@@ -335,6 +362,23 @@ func (v *HeaderValidator) validatePrevHash(input *ValidateHeaderInput) error {
 		)
 	}
 	return nil
+}
+
+// isGenesisPrevHash reports whether prevHash is the genesis representation:
+// absent, or the 32-byte zero hash a null predecessor decodes to.
+func isGenesisPrevHash(prevHash []byte) bool {
+	if len(prevHash) == 0 {
+		return true
+	}
+	if len(prevHash) != 32 {
+		return false
+	}
+	for _, b := range prevHash {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyCertifiedVRF verifies a VRF certificate (proof + output) against the
