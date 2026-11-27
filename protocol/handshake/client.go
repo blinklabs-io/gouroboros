@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/blinklabs-io/gouroboros/protocol"
@@ -29,6 +30,10 @@ type Client struct {
 	config          *Config
 	callbackContext CallbackContext
 	onceStart       sync.Once
+	// proposalSent is closed once the proposal is written or has failed,
+	// with the failure, if any, in proposalErr.
+	proposalSent chan struct{}
+	proposalErr  error
 }
 
 // NewClient returns a new Handshake client object
@@ -38,7 +43,8 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
-		config: cfg,
+		config:       cfg,
+		proposalSent: make(chan struct{}),
 	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
@@ -79,7 +85,9 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	return c
 }
 
-// Start begins the handshake process
+// Start begins the handshake process. It returns once the proposal is queued
+// and the client is waiting for the answer, so a muxer started afterwards
+// cannot deliver the peer's messages too early.
 func (c *Client) Start() {
 	c.onceStart.Do(func() {
 		c.Protocol.Logger().
@@ -89,9 +97,19 @@ func (c *Client) Start() {
 				"connection_id", c.callbackContext.ConnectionId.String(),
 			)
 		c.Protocol.Start()
-		// Send our ProposeVersions message
 		msg := NewMsgProposeVersions(c.config.ProtocolVersionMap)
-		if err := c.SendMessage(msg); err != nil {
+		// The write is awaited in the background: on a connection that
+		// cannot buffer it, it completes only once the peer reads.
+		go func() {
+			err := c.SendMessageAndWait(msg)
+			// Publish the outcome before stopping: a handler waiting for it
+			// runs on a loop that Stop joins.
+			c.proposalErr = err
+			close(c.proposalSent)
+			if err == nil ||
+				errors.Is(err, protocol.ErrProtocolShuttingDown) {
+				return
+			}
 			c.Protocol.Logger().
 				Warn("failed to send handshake propose versions",
 					"component", "network",
@@ -101,7 +119,14 @@ func (c *Client) Start() {
 				)
 			// Start cannot return this error, so log it and still clean up.
 			_ = c.Stop(context.Background())
-		}
+		}()
+		// A peer that dials at the same moment sends its own proposal,
+		// which is only legal once ours has moved the client to Confirm;
+		// arriving in Propose it would be a protocol violation. Returning
+		// after that transition lets the caller start reading safely.
+		// An error here means the protocol is already shutting down and
+		// has reported why.
+		_ = c.WaitForStateExit(context.Background(), statePropose)
 	})
 }
 
@@ -114,6 +139,8 @@ func (c *Client) messageHandler(msg protocol.Message) error {
 		err = c.handleRefuse(msg)
 	case MessageTypeQueryReply:
 		err = c.handleQueryReply(msg)
+	case MessageTypeProposeVersions:
+		err = c.handleReplyVersions(msg)
 	default:
 		err = fmt.Errorf(
 			"%s: received unexpected message type %d",
@@ -166,10 +193,106 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 			proposedData.NetworkMagic(),
 		)
 	}
+	// End with this side's own agreement of its data with the server's, as
+	// the reference client does, so a server that sends anything but the
+	// agreed data cannot set a flag this side did not offer.
 	return c.config.FinishedFunc(
 		c.callbackContext.withOwner(c.Protocol),
 		msgAcceptVersion.Version,
-		versionData,
+		agreedVersionData(msgAcceptVersion.Version, proposedData, versionData),
+	)
+}
+
+// handleReplyVersions handles the peer's MsgProposeVersions, received in
+// Confirm when both sides dialled at once (MsgReplyVersions in the
+// specification). As the reference client does, it chooses the version
+// itself, with the same rule the server applies, so that both sides reach the
+// same choice, and ends with the agreed version data. A refusal is returned
+// as the typed error a server would have sent; nothing is sent to the peer,
+// which makes its own choice and sees the connection close.
+func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
+	c.Protocol.Logger().
+		Debug("received peer proposal in simultaneous open",
+			"component", "network",
+			"protocol", ProtocolName,
+			"role", "client",
+			"connection_id", c.callbackContext.ConnectionId.String(),
+		)
+	msg, ok := msgGeneric.(*MsgProposeVersions)
+	if !ok {
+		return fmt.Errorf(
+			"%s: malformed reply versions message: expected *MsgProposeVersions, got %T",
+			ProtocolName,
+			msgGeneric,
+		)
+	}
+	if c.config.FinishedFunc == nil {
+		return errors.New(
+			"received handshake ReplyVersions message but no callback function is defined",
+		)
+	}
+	// Ending the handshake stops the protocol, and the muxer drops a
+	// message it has not yet written, so the peer, which is waiting for
+	// this side's proposal to make its own choice, would never get it. The
+	// reference cannot end first: its send is a synchronous bearer write
+	// that completes before it reads (network-mux Mux/Types.hs 327-330).
+	<-c.proposalSent
+	if c.proposalErr != nil {
+		return fmt.Errorf(
+			"%s: sending proposal: %w",
+			ProtocolName,
+			c.proposalErr,
+		)
+	}
+	var version uint16
+	found := false
+	for proposed := range msg.VersionMap {
+		if _, ok := c.config.ProtocolVersionMap[proposed]; !ok {
+			continue
+		}
+		if !found || proposed > version {
+			version = proposed
+			found = true
+		}
+	}
+	if !found {
+		supported := make([]uint16, 0, len(c.config.ProtocolVersionMap))
+		for v := range c.config.ProtocolVersionMap {
+			supported = append(supported, v)
+		}
+		slices.Sort(supported)
+		return &VersionMismatchError{SupportedVersions: supported}
+	}
+	ownData := c.config.ProtocolVersionMap[version]
+	decode := protocol.GetProtocolVersion(version).NewVersionDataFromCborFunc
+	if ownData == nil || decode == nil {
+		return &DecodeError{
+			Version: version,
+			Message: "no version data for the chosen version",
+		}
+	}
+	peerData, err := decode(msg.VersionMap[version])
+	if err != nil {
+		return &DecodeError{Version: version, Message: err.Error()}
+	}
+	if peerData == nil {
+		return &DecodeError{
+			Version: version,
+			Message: "empty version data",
+		}
+	}
+	if peerData.NetworkMagic() != ownData.NetworkMagic() {
+		return &RefusedError{
+			Version: version,
+			Message: "network magic mismatch",
+		}
+	}
+	// Both sides end with the agreed data, as the reference acceptOrRefuse
+	// returns it, so their connections derive the same diffusion mode.
+	return c.config.FinishedFunc(
+		c.callbackContext.withOwner(c.Protocol),
+		version,
+		agreedVersionData(version, ownData, peerData),
 	)
 }
 

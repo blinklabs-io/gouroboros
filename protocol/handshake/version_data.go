@@ -14,19 +14,29 @@
 
 package handshake
 
-import "github.com/blinklabs-io/gouroboros/protocol"
+import (
+	"slices"
+
+	"github.com/blinklabs-io/gouroboros/protocol"
+)
 
 // agreedVersionData returns the version data both sides agree on, the
 // reference acceptableVersion local remote: the server sends it back in
-// MsgAcceptVersion, and a client in a simultaneous open ends with it. The
+// MsgAcceptVersion, the client agrees its own data with the data in that
+// message and ends with the result, and a client in a simultaneous open
+// ends with it. The
 // network magic is the local one, already checked equal; the diffusion mode
 // is initiator-only if either side is; peer sharing and Peras support hold
 // only if both sides offer them; query is set if either side asks. Every
 // rule is commutative and idempotent, so a peer that combines the agreed
-// data with its own again reaches the same result. Data of a type it does
-// not know, or of mismatched types, is returned as local. A table entry
-// held as a pointer agrees as the value it points to.
+// data with its own again reaches the same result. DMQ node-to-node
+// versions share the Cardano data type but not its rule: dmq-node also
+// disables peer sharing when the agreed mode is initiator-only, so the
+// version decides. Data of a type it does not know, or of mismatched types,
+// is returned as local. A table entry held as a pointer agrees as the value
+// it points to.
 func agreedVersionData(
+	version uint16,
 	local, remote protocol.VersionData,
 ) protocol.VersionData {
 	local, remote = versionDataValue(local), versionDataValue(remote)
@@ -52,6 +62,10 @@ func agreedVersionData(
 				l.VersionDataNtN11to12,
 				r.VersionDataNtN11to12,
 			)
+			if slices.Contains(protocol.GetProtocolVersionsDMQNtN(), version) &&
+				l.CborInitiatorAndResponderDiffusionMode == protocol.DiffusionModeInitiatorOnly {
+				l.CborPeerSharing = protocol.PeerSharingModeNoPeerSharing
+			}
 			return l
 		}
 	case protocol.VersionDataNtN16andUp:

@@ -61,6 +61,12 @@ var confirmTransitions = []protocol.StateTransition{
 		MsgType:  MessageTypeQueryReply,
 		NewState: stateDone,
 	},
+	// MsgReplyVersions: in a simultaneous open the peer's own
+	// MsgProposeVersions arrives here, and it ends the protocol.
+	{
+		MsgType:  MessageTypeProposeVersions,
+		NewState: stateDone,
+	},
 }
 
 // proposeTransitions are shared between N2N and N2C state maps.

@@ -82,3 +82,66 @@ func TestCallbackStopsItsServer(t *testing.T) {
 	defer cancel()
 	require.NoError(t, s.Stop(ctx), "server was not joined")
 }
+
+// TestSimultaneousOpenCallbackStopsItsClient checks that the FinishedFunc of
+// a simultaneous open, which runs on the client's receive loop, can pass its
+// context to its own client's Stop and return, and that the client is fully
+// joined afterwards.
+func TestSimultaneousOpenCallbackStopsItsClient(t *testing.T) {
+	defer goleak.VerifyNone(t)
+	clientConn, peerConn := net.Pipe()
+	m := muxer.New(clientConn)
+	versions := protocol.ProtocolVersionMap{
+		10: protocol.VersionDataNtN7to10{
+			CborNetworkMagic: ouroboros_mock.MockNetworkMagic,
+		},
+	}
+	var c *handshake.Client
+	stopped := make(chan error, 1)
+	cfg := handshake.NewConfig(
+		handshake.WithProtocolVersionMap(versions),
+		handshake.WithFinishedFunc(
+			func(ctx handshake.CallbackContext, _ uint16, _ protocol.VersionData) error {
+				stopped <- c.Stop(ctx.Context())
+				return nil
+			},
+		),
+	)
+	c = handshake.NewClient(protocol.ProtocolOptions{
+		Muxer:     m,
+		ErrorChan: make(chan error, 4),
+		Mode:      protocol.ProtocolModeNodeToNode,
+		Role:      protocol.ProtocolRoleClient,
+	}, &cfg)
+	defer func() {
+		_ = peerConn.Close()
+		_ = m.Stop(context.Background())
+		for range m.ErrorChan() {
+		}
+	}()
+	// The client's proposal is written only once the peer reads it, so it
+	// is read concurrently with Start.
+	proposal := make(chan *muxer.Segment, 1)
+	go func() { proposal <- readSegment(t, peerConn) }()
+	c.Start()
+	m.StartOnce()
+	select {
+	case <-proposal:
+	case <-time.After(5 * time.Second):
+		t.Fatal("client proposal was not written")
+	}
+	// The peer dialled at the same moment, so it sends its own proposal,
+	// which the client reads in Confirm and ends with FinishedFunc.
+	payload, err := cbor.Encode(handshake.NewMsgProposeVersions(versions))
+	require.NoError(t, err)
+	writeSegment(t, peerConn, muxer.NewSegment(handshake.ProtocolId, payload, false))
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop from the callback did not return")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, c.Stop(ctx), "client was not joined")
+}
