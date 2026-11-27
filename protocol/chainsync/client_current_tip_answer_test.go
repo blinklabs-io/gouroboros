@@ -17,7 +17,6 @@ package chainsync
 import (
 	"context"
 	"net"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,15 +27,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetCurrentTipWaitsForItsOwnAnswer runs GetCurrentTip while a sync at
-// the chain tip has a MsgRequestNext outstanding. The roll that answers it
-// carries a tip and arrives before GetCurrentTip's MsgFindIntersect is even
-// sent. GetCurrentTip must still wait for the MsgIntersectNotFound answering
-// its own request: if it returned on the roll, that answer would be given to
-// the next call waiting for an intersect answer, and the Jump below would
-// report no intersection for a point the server has, then fail on its own
-// MsgIntersectFound.
-func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
+// TestGetCurrentTipWithRequestOutstandingSendsNothing runs GetCurrentTip
+// while a sync at the chain tip has a MsgRequestNext outstanding. It must
+// return the tip of the last reply without sending MsgFindIntersect: that
+// message would wait for the roll answering the sync's request, and an
+// answer the roll overtook would go to the next call waiting for an
+// intersect answer, so the Jump below would report no intersection for a
+// point the server has.
+func TestGetCurrentTipWithRequestOutstandingSendsNothing(t *testing.T) {
 	t.Parallel()
 	clientConn, serverConn := net.Pipe()
 	t.Cleanup(func() {
@@ -48,25 +46,23 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 	t.Cleanup(func() { _ = clientMuxer.Stop(context.Background()) })
 	t.Cleanup(func() { _ = serverMuxer.Stop(context.Background()) })
 
-	// The roll and the answer carry different tips, so the test can tell
-	// which one GetCurrentTip returned.
+	// The sync's intersect answer and the roll carry different tips, so the
+	// test can tell which one GetCurrentTip returned.
+	syncTip := Tip{BlockNumber: 5}
 	rollTip := Tip{BlockNumber: 7}
 	answerTip := Tip{BlockNumber: 42}
+	var tipQueries atomic.Int32
 	requested := make(chan struct{}, 1)
 	releaseRoll := make(chan struct{})
-	releaseNotFound := make(chan struct{})
-	var releaseOnce sync.Once
-	releaseAnswer := func() { releaseOnce.Do(func() { close(releaseNotFound) }) }
-	t.Cleanup(releaseAnswer)
 	serverCfg := NewConfig(
 		WithFindIntersectFunc(func(
 			_ CallbackContext, points []pcommon.Point,
 		) (pcommon.Point, Tip, error) {
 			if len(points) == 0 {
-				<-releaseNotFound
+				tipQueries.Add(1)
 				return pcommon.Point{}, answerTip, ErrIntersectNotFound
 			}
-			return points[0], Tip{}, nil
+			return points[0], syncTip, nil
 		}),
 		WithRequestNextFunc(func(ctx CallbackContext) error {
 			if err := ctx.Server.AwaitReply(); err != nil {
@@ -113,40 +109,22 @@ func TestGetCurrentTipWaitsForItsOwnAnswer(t *testing.T) {
 		t.Fatal("server never received MsgRequestNext")
 	}
 
-	type tipResult struct {
-		tip *Tip
-		err error
-	}
-	var tipReturned atomic.Bool
-	tipDone := make(chan tipResult, 1)
-	go func() {
-		tip, err := client.GetCurrentTip()
-		tipReturned.Store(true)
-		tipDone <- tipResult{tip, err}
-	}()
-	require.Eventually(t, func() bool {
-		return len(client.wantCurrentTipChan)+
-			len(client.wantIntersectFoundChan) == 1
-	}, 5*time.Second, time.Millisecond, "GetCurrentTip never sent its request")
+	tip := getCurrentTipWithin(t, client, 5*time.Second)
+	require.Equal(t, syncTip, tip,
+		"GetCurrentTip did not return the last reply's tip")
 
 	close(releaseRoll)
-	require.Never(t, tipReturned.Load, 300*time.Millisecond, time.Millisecond,
-		"GetCurrentTip returned on the roll's tip before its own answer")
-
-	releaseAnswer()
-	select {
-	case res := <-tipDone:
-		require.NoError(t, res.err)
-		require.Equal(t, answerTip.BlockNumber, res.tip.BlockNumber,
-			"GetCurrentTip returned the roll's tip, not its own answer's")
-	case <-time.After(5 * time.Second):
-		t.Fatal("GetCurrentTip did not return after its answer")
-	}
-
-	jumpPoint := pcommon.NewPoint(5, testPointHash(0x05))
 	require.Eventually(t, func() bool {
 		return client.prepareIdleProtocol(make(chan bool)) == nil
 	}, 5*time.Second, time.Millisecond, "sync did not stop")
+	require.Zero(t, tipQueries.Load(),
+		"GetCurrentTip sent MsgFindIntersect while a request was outstanding")
+	// With nothing outstanding it asks the server, and takes its own answer.
+	tip = getCurrentTipWithin(t, client, 5*time.Second)
+	require.Equal(t, answerTip, tip)
+	require.Equal(t, int32(1), tipQueries.Load())
+
+	jumpPoint := pcommon.NewPoint(5, testPointHash(0x05))
 	point, _, found, err := client.Jump([]pcommon.Point{jumpPoint})
 	require.NoError(t, err)
 	require.True(t, found, "Jump received another call's MsgIntersectNotFound")

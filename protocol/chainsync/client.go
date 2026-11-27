@@ -96,12 +96,19 @@ type Client struct {
 	testAwaitReplyBeforeFence       func()
 	testQuiesceBeforeLoopStopClose  func()
 	testRollForwardBeforeAnswered   func()
+	testTipAfterSyncCheck           func()
 
 	// want* only processes one request per message reply received from the server. If the message
 	// request fails, it is the responsibility of the caller to clear the channel.
 	wantCurrentTipChan     chan chan<- Tip
 	wantFirstBlockChan     chan chan<- clientPointResult
 	wantIntersectFoundChan chan intersectRequest
+
+	// lastTip is the server's tip from the last reply handled on the
+	// current protocol instance; haveLastTip is false until one arrives.
+	// Guarded by lifecycleMutex.
+	lastTip     Tip
+	haveLastTip bool
 }
 
 type clientPointResult struct {
@@ -369,6 +376,7 @@ func (c *Client) Start() {
 				// the client stopped (stoppedWithoutDone).
 				c.outstandingRequestNext = 0
 				c.requestNextDrained = nil
+				c.haveLastTip = false
 			}
 
 			proto := c.ProtocolInstance()
@@ -664,13 +672,28 @@ func (c *Client) waitStopped(
 	}
 }
 
-// GetCurrentTip returns the current chain tip
+// GetCurrentTip returns the server's current chain tip.
+//
+// While a MsgRequestNext is unanswered, as during a Sync, it returns the tip
+// carried by the last reply the client handled, without a round trip: every
+// MsgRollForward, MsgRollBackward and intersect answer carries the server's
+// tip, and MsgFindIntersect could not be sent until every outstanding
+// request is answered, which at the chain tip means until the chain grows.
+// Otherwise it sends MsgFindIntersect with no points and returns the tip in
+// the server's answer, after waiting for any operation that holds the
+// client, such as Jump.
 func (c *Client) GetCurrentTip() (*Tip, error) {
 	proto, _, doneChan, endOperation, err := c.beginOperation()
 	if err != nil {
 		return nil, err
 	}
 	defer endOperation()
+	if tip, ok := c.tipDuringSync(); ok {
+		return &tip, nil
+	}
+	if c.testTipAfterSyncCheck != nil {
+		c.testTipAfterSyncCheck()
+	}
 	proto.Logger().
 		Debug("calling GetCurrentTip()",
 			"component", "network",
@@ -696,6 +719,14 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 			case requestErrorChan <- protocol.ErrProtocolShuttingDown:
 			default:
 			}
+			return
+		}
+		// A sync loop may have sent a MsgRequestNext since the check
+		// above. With busyMutex held none can be sent until this returns,
+		// so the protocol stays idle for MsgFindIntersect if none is
+		// unanswered now.
+		if tip, ok := c.tipDuringSync(); ok {
+			requestResultChan <- tip
 			return
 		}
 
@@ -747,6 +778,18 @@ func (c *Client) GetCurrentTip() (*Tip, error) {
 	case err := <-requestErrorChan:
 		return nil, err
 	}
+}
+
+// tipDuringSync returns the last reply's tip if a MsgRequestNext is
+// unanswered. Every MsgRequestNext follows an intersect answer on the same
+// protocol instance, so a tip is then always known.
+func (c *Client) tipDuringSync() (Tip, bool) {
+	c.lifecycleMutex.Lock()
+	defer c.lifecycleMutex.Unlock()
+	if c.outstandingRequestNext == 0 || !c.haveLastTip {
+		return Tip{}, false
+	}
+	return c.lastTip, true
 }
 
 // GetAvailableBlockRange returns the start and end of the range of available blocks given the provided intersect
@@ -1506,7 +1549,13 @@ func (c *Client) syncLoop(
 	}
 }
 
+// sendCurrentTip records the tip a reply carries, then hands it to a waiting
+// GetAvailableBlockRange.
 func (c *Client) sendCurrentTip(tip Tip) {
+	c.lifecycleMutex.Lock()
+	c.lastTip = tip
+	c.haveLastTip = true
+	c.lifecycleMutex.Unlock()
 	select {
 	case ch := <-c.wantCurrentTipChan:
 		ch <- tip
