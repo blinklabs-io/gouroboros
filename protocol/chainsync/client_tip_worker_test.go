@@ -142,21 +142,24 @@ func TestStopFromCallbackDoesNotWaitForBusyMutex(t *testing.T) {
 	recv(t, jumpDone, "Jump")
 }
 
-// A callback that calls GetCurrentTip blocks the goroutine that would
-// deliver its answer; Stop must still release it and return, which waiting
-// on DoneChan alone cannot do because DoneChan closes only after that
-// goroutine returns.
-func TestStopReleasesGetCurrentTipCalledFromCallback(t *testing.T) {
-	entered := make(chan struct{}, 1)
-	tipErr := make(chan error, 1)
+// A roll callback runs while its MsgRequestNext is still unanswered, so a
+// GetCurrentTip there returns the tip of the reply being delivered instead
+// of sending MsgFindIntersect, whose answer the callback would block; Stop
+// then returns as usual.
+func TestGetCurrentTipFromRollCallbackReturnsReplyTip(t *testing.T) {
+	type tipResult struct {
+		tip *Tip
+		err error
+	}
+	tipDone := make(chan tipResult, 1)
 	serverCfg := NewConfig(
 		WithFindIntersectFunc(func(
 			_ CallbackContext, points []pcommon.Point,
 		) (pcommon.Point, Tip, error) {
 			if len(points) == 0 {
-				return pcommon.Point{}, Tip{BlockNumber: 3}, ErrIntersectNotFound
+				return pcommon.Point{}, Tip{BlockNumber: 4}, ErrIntersectNotFound
 			}
-			return points[0], Tip{BlockNumber: 3}, nil
+			return points[0], Tip{BlockNumber: 2}, nil
 		}),
 		WithRequestNextFunc(func(ctx CallbackContext) error {
 			return ctx.Server.RollBackward(
@@ -168,26 +171,23 @@ func TestStopReleasesGetCurrentTipCalledFromCallback(t *testing.T) {
 	clientCfg := NewConfig(
 		WithPipelineLimit(1),
 		WithRollBackwardFunc(func(CallbackContext, pcommon.Point, Tip) error {
-			entered <- struct{}{}
-			_, err := client.GetCurrentTip()
-			tipErr <- err
-			return nil
+			tip, err := client.GetCurrentTip()
+			select {
+			case tipDone <- tipResult{tip, err}:
+			default:
+			}
+			return ErrStopSyncProcess
 		}),
 	)
 	client, _ = newTipWorkerPair(t, serverCfg, clientCfg)
-	client.testStopBusyLockTimeout = 10 * time.Millisecond
 
 	require.NoError(t, client.Sync([]pcommon.Point{pcommon.NewPointOrigin()}))
-	recv(t, entered, "the RollBackward callback")
-	require.Eventually(t, func() bool {
-		return len(client.wantIntersectFoundChan) == 1
-	}, 5*time.Second, time.Millisecond, "GetCurrentTip never sent its request")
-
-	stopDone := make(chan error, 1)
-	go func() { stopDone <- client.Stop(context.Background()) }()
-	require.ErrorIs(t, recv(t, tipErr, "GetCurrentTip in the callback"),
-		protocol.ErrProtocolShuttingDown)
-	recv(t, stopDone, "Stop")
+	res := recv(t, tipDone, "GetCurrentTip in the callback")
+	require.NoError(t, res.err)
+	require.Equal(t, uint64(3), res.tip.BlockNumber)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, client.Stop(ctx))
 }
 
 // Jump holds busyMutex until the answer whose IntersectFoundFunc is running
