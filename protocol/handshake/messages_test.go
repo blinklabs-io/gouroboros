@@ -334,7 +334,9 @@ func TestHandshakeRejectsDeepScalarBeforeTypedDecode(t *testing.T) {
 				append([]byte{0x82, MessageTypeProposeVersions, 0xa1}, deepTags...),
 				0x00, 0xf4,
 			),
-			want: "handshake version must be an unsigned integer",
+			// A tagged key is skipped as no version, but only once its
+			// nesting is within the bound.
+			want: "CBOR nesting exceeds maximum depth",
 		},
 		{
 			name:    "refusal reason",
