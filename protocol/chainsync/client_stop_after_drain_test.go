@@ -87,7 +87,7 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 		_ = clientMuxer.Stop(context.Background())
 		_ = serverMuxer.Stop(context.Background())
 	})
-	tip := Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
+	tip := harnessTip
 	var reqCount int
 	server := NewServer(
 		protocol.ProtocolOptions{
@@ -117,10 +117,7 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 				case <-h.stop:
 					return nil
 				}
-				return ctx.Server.RollBackward(
-					pcommon.NewPoint(uint64(n), testPointHash(byte(n))),
-					tip,
-				)
+				return rollForwardTo(t, ctx, n, tip)
 			},
 		},
 	)
@@ -132,16 +129,8 @@ func newStopDrainHarness(t *testing.T) *stopDrainHarness {
 			Mode:         protocol.ProtocolModeNodeToClient,
 		},
 		&Config{
-			PipelineLimit: 3,
-			RollBackwardFunc: func(
-				_ CallbackContext,
-				point pcommon.Point,
-				_ Tip,
-			) error {
-				h.log("rb:%d", point.Slot)
-				h.rollbacks <- point.Slot
-				return nil
-			},
+			PipelineLimit:      3,
+			RollForwardRawFunc: h.deliver(func(uint64) bool { return false }),
 		},
 	)
 	server.Start()

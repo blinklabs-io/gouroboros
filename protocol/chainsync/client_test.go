@@ -522,24 +522,13 @@ func TestSyncPipelining(t *testing.T) {
 			ProtocolId:  chainsync.ProtocolIdNtC,
 			MessageType: chainsync.MessageTypeRequestNext,
 		},
-		// Fourth block
+		// Fourth block, the server's tip. The window never reached past
+		// it, and the callback stops the sync here, so nothing more is
+		// requested.
 		ouroboros_mock.ConversationEntryOutput{
 			ProtocolId: chainsync.ProtocolIdNtC,
 			IsResponse: true,
 			Messages:   []protocol.Message{makeRollForward(3)},
-		},
-		// Fifth RequestNext, fourth of pipelined batch
-		ouroboros_mock.ConversationEntryInput{
-			ProtocolId:  chainsync.ProtocolIdNtC,
-			MessageType: chainsync.MessageTypeRequestNext,
-		},
-		// Signal that we're at tip
-		ouroboros_mock.ConversationEntryOutput{
-			ProtocolId: chainsync.ProtocolIdNtC,
-			IsResponse: true,
-			Messages: []protocol.Message{
-				chainsync.NewMsgAwaitReply(),
-			},
 		},
 	}
 

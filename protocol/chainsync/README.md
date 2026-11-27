@@ -126,6 +126,14 @@ NtC mode has no timeouts per Ouroboros spec Table 3.9.
 
 ChainSync supports request pipelining for improved throughput. The client can send multiple `RequestNext` messages before receiving responses. The pipeline count tracks outstanding requests.
 
+The client keeps one `RequestNext` outstanding per block it is behind the
+server's tip, up to `PipelineLimit`, from the block number of the last
+delivered header and the tip's block number. At the tip one request is
+outstanding, so `Reintersect` and `StopAfterDrain` wait for at most the next
+block. After a `RollBackward`, whose point has no block number, one request is
+outstanding until the next `RollForward`. Byron deliveries are not measured and
+keep the full window.
+
 ## Configuration Options
 
 ```go

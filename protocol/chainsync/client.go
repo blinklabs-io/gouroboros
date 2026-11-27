@@ -70,6 +70,11 @@ type Client struct {
 	syncLoopDone chan struct{}
 	// syncStopRequests counts callbacks that returned ErrStopSyncProcess.
 	syncStopRequests int
+	// The client's position for the sync window, from the last reply
+	// delivered; see windowTarget. Guarded by lifecycleMutex.
+	windowPlacement  windowPlacement
+	windowPosBlock   uint64
+	windowTipBlock   uint64
 	awaitReplyCtx    context.Context
 	awaitReplyCancel context.CancelFunc
 	protoOptions     protocol.ProtocolOptions
@@ -1379,6 +1384,7 @@ func (c *Client) sendInitialRequestAndStartSyncLoop() error {
 	proto := c.ProtocolInstance()
 	readyForNextBlockChan := c.readyForNextBlockChan
 	doneChan := proto.DoneChan()
+	c.windowPlacement = windowUnplaced
 	// Reserve the sync-loop wait-group slot before Stop can begin waiting. The
 	// reservation is released below if the request cannot be queued.
 	c.syncLoopWaitGroup.Add(1)
@@ -1462,11 +1468,11 @@ func (c *Client) syncLoop(
 			c.busyMutex.Unlock()
 			return
 		}
-		// One reply was consumed: top the window back up so PipelineLimit
-		// requests stay outstanding. Sending only after the window empties
-		// leaves the link idle for a round trip per batch.
+		// One reply was consumed: top the window back up. Sending only
+		// after the window empties leaves the link idle for a round trip
+		// per batch.
 		inFlight--
-		msgCount := max(c.config.PipelineLimit, 1) - inFlight
+		msgCount := c.windowTarget() - inFlight
 		if msgCount <= 0 {
 			c.lifecycleMutex.Unlock()
 			c.busyMutex.Unlock()
@@ -1736,6 +1742,9 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 		)
 	}
 	var callbackErr error
+	var tip Tip
+	var blockNumber uint64
+	var measured bool
 	if c.Mode() == protocol.ProtocolModeNodeToNode {
 		msg := msgGeneric.(*MsgRollForwardNtN)
 
@@ -1761,6 +1770,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			blockHeaderBytes = msg.WrappedHeader.HeaderCbor()
 		}
 		c.sendCurrentTip(msg.Tip)
+		tip = msg.Tip
+		blockNumber, measured = headerBlockNumber(blockType, blockHeaderBytes)
 		if firstBlockChan != nil || c.config.RollForwardFunc != nil {
 			// Decode header
 			var err error
@@ -1815,6 +1826,8 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	} else {
 		msg := msgGeneric.(*MsgRollForwardNtC)
 		c.sendCurrentTip(msg.Tip)
+		tip = msg.Tip
+		blockNumber, measured = blockBlockNumber(msg.BlockType(), msg.BlockCbor())
 
 		// Pipeline path. GetAvailableBlockRange (firstBlockChan set) takes the
 		// normal path below instead, which reports the first block.
@@ -1860,6 +1873,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 			}
 			// Signal ready only after ordered acceptance.
 			c.lifecycleMutex.Lock()
+			c.placeWindow(blockNumber, measured, tip)
 			if c.readyForNextBlockChan != nil {
 				select {
 				case c.readyForNextBlockChan <- true:
@@ -1946,6 +1960,7 @@ func (c *Client) handleRollForward(msgGeneric protocol.Message) error {
 	}
 	// Signal that we're ready for the next block
 	c.lifecycleMutex.Lock()
+	c.placeWindow(blockNumber, measured, tip)
 	if c.readyForNextBlockChan != nil {
 		select {
 		case c.readyForNextBlockChan <- true:
@@ -2042,6 +2057,7 @@ func (c *Client) handleRollBackward(msgGeneric protocol.Message) error {
 	}
 	// Signal that we're ready for the next block
 	c.lifecycleMutex.Lock()
+	c.unplaceWindow(msgRollBackward.Tip)
 	if c.readyForNextBlockChan != nil {
 		select {
 		case c.readyForNextBlockChan <- true:

@@ -62,7 +62,7 @@ func (h *reintersectHarness) requireNoStreaming(window time.Duration) {
 }
 
 func jumpTestTip() Tip {
-	return Tip{Point: pcommon.NewPoint(1000, testPointHash(0xff))}
+	return harnessTip
 }
 
 func TestJumpWithoutSyncFindsIntersectionsAndDoesNotStream(t *testing.T) {

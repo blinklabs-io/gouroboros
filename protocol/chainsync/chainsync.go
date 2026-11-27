@@ -498,7 +498,9 @@ func WithByronSlotsPerEpoch(slotsPerEpoch uint64) ChainSyncOptionFunc {
 	}
 }
 
-// WithPipelineLimit specifies the maximum number of block requests to pipeline
+// WithPipelineLimit specifies the maximum number of block requests to
+// pipeline. The client pipelines fewer near the server's tip: one per block it
+// is behind, so at the tip a single request is outstanding.
 func WithPipelineLimit(limit int) ChainSyncOptionFunc {
 	return func(c *Config) {
 		if limit < 0 {
