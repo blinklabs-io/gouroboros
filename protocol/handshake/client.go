@@ -74,7 +74,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	}
 	protoConfig.MessageIncompleteFunc = resumeWhileUnfinished(
 		protoOptions.Muxer,
-		func() bool { return c.Protocol.IsDone() },
+		func() bool { return c.IsDone() },
 	)
 	c.Protocol = protocol.New(protoConfig)
 	return c

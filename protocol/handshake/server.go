@@ -68,7 +68,7 @@ func NewServer(protoOptions protocol.ProtocolOptions, cfg *Config) *Server {
 	}
 	protoConfig.MessageIncompleteFunc = resumeWhileUnfinished(
 		protoOptions.Muxer,
-		func() bool { return s.Protocol.IsDone() },
+		func() bool { return s.IsDone() },
 	)
 	s.Protocol = protocol.New(protoConfig)
 	return s
