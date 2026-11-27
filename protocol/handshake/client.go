@@ -98,10 +98,13 @@ func (c *Client) Start() {
 		// The write is awaited in the background: on a connection that
 		// cannot buffer it, it completes only once the peer reads.
 		go func() {
-			defer close(c.proposalSent)
-			c.proposalErr = c.SendMessageAndWait(msg)
-			if c.proposalErr == nil ||
-				errors.Is(c.proposalErr, protocol.ErrProtocolShuttingDown) {
+			err := c.SendMessageAndWait(msg)
+			// Publish the outcome before stopping: a handler waiting for it
+			// runs on a loop that Stop joins.
+			c.proposalErr = err
+			close(c.proposalSent)
+			if err == nil ||
+				errors.Is(err, protocol.ErrProtocolShuttingDown) {
 				return
 			}
 			c.Protocol.Logger().
@@ -109,7 +112,7 @@ func (c *Client) Start() {
 					"component", "network",
 					"protocol", ProtocolName,
 					"connection_id", c.callbackContext.ConnectionId.String(),
-					"error", c.proposalErr,
+					"error", err,
 				)
 			// Start cannot return this error, so log it and still clean up.
 			_ = c.Stop(context.Background())

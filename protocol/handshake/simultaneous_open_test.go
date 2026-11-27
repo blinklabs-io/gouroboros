@@ -321,3 +321,76 @@ func TestSimultaneousOpenEndsOnlyAfterProposalWritten(t *testing.T) {
 	require.True(t, errors.As(awaitSimOpen(t, right).err, &mismatch))
 	require.Equal(t, []uint16{14}, mismatch.SupportedVersions)
 }
+
+// failingConn holds its first write until release is closed, then fails it
+// without writing.
+type failingConn struct {
+	net.Conn
+	writing chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *failingConn) Write(b []byte) (int, error) {
+	failed := false
+	c.once.Do(func() {
+		close(c.writing)
+		<-c.release
+		failed = true
+	})
+	if failed {
+		return 0, errors.New("write failed")
+	}
+	return c.Conn.Write(b)
+}
+
+// TestSimultaneousOpenProposalWriteFailureStops checks a client whose
+// proposal write fails while it handles the peer's proposal still stops.
+// The handler waits for the write's outcome, and Stop waits for the handler,
+// so the outcome must be published before the failed send stops the client.
+func TestSimultaneousOpenProposalWriteFailureStops(t *testing.T) {
+	leftConn, rightConn := net.Pipe()
+	failing := &failingConn{
+		Conn:    rightConn,
+		writing: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	left := startSimOpenSide(t, leftConn, simOpenTable(t, 1, 14))
+	protoMuxer := muxer.New(failing)
+	config := handshake.NewConfig(
+		handshake.WithProtocolVersionMap(simOpenTable(t, 1, 14)),
+		handshake.WithFinishedFunc(func(
+			handshake.CallbackContext,
+			uint16,
+			protocol.VersionData,
+		) error {
+			return nil
+		}),
+	)
+	client := handshake.NewClient(protocol.ProtocolOptions{
+		ConnectionId: connection.ConnectionId{
+			LocalAddr:  &net.TCPAddr{},
+			RemoteAddr: &net.TCPAddr{},
+		},
+		Muxer:     protoMuxer,
+		ErrorChan: make(chan error, 4),
+		Mode:      protocol.ProtocolModeNodeToNode,
+	}, &config)
+	client.Start()
+	protoMuxer.StartOnce()
+	select {
+	case <-failing.writing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("client never started writing its proposal")
+	}
+	// Give the client time to read the left proposal and wait in its
+	// handler for the held write.
+	time.Sleep(100 * time.Millisecond)
+	close(failing.release)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	require.NoError(t, client.Stop(ctx), "client did not stop")
+	_ = protoMuxer.Stop(ctx)
+	_ = leftConn.Close()
+	awaitSimOpen(t, left)
+}
