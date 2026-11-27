@@ -147,6 +147,9 @@ type Connection struct {
 	// setupConnection after the handshake and before the protocol-error
 	// forwarder is started.
 	beforeProtocolErrorForwarderHook func()
+	// beforeHandshakeHook, when set by a test, runs in setupConnection after
+	// the muxer is created and before the handshake protocol is.
+	beforeHandshakeHook func()
 }
 
 // NewConnection returns a new Connection object with the specified options. If a connection is provided, the
@@ -1005,7 +1008,18 @@ func (c *Connection) setupConnection() error {
 			},
 		),
 	)
+	if c.beforeHandshakeHook != nil {
+		c.beforeHandshakeHook()
+	}
+	// shutdown reads c.handshake under protocolMu. Publishing it there,
+	// after checking doneChan, orders the two: shutdown either finds the
+	// handshake and stops it, or setup finds doneChan closed and creates
+	// none, instead of starting one that nothing stops.
+	if err := c.lockProtocolSetup(); err != nil {
+		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
+	}
 	c.handshake = handshake.New(protoOptions, &handshakeConfig)
+	c.protocolMu.Unlock()
 	if c.server {
 		c.handshake.Server.Start()
 	} else {
@@ -1017,7 +1031,10 @@ func (c *Connection) setupConnection() error {
 	defer handshakeTimer.Stop()
 	select {
 	case <-c.doneChan:
-		// Return an error if we're shutting down
+		// Wait for the teardown, as the other cases do: it joins the
+		// handshake's loops, so FinishedFunc cannot write handshakeVersion
+		// after Dial has returned.
+		_ = c.Close(context.Background())
 		return fmt.Errorf("connection shutdown initiated: %w", io.EOF)
 	case err := <-c.protoErrorChan:
 		// Shutdown the connection and return the error
