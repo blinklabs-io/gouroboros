@@ -287,7 +287,7 @@ func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
 	// Both sides end with the agreed data, as the reference acceptOrRefuse
 	// returns it, so their connections derive the same diffusion mode.
 	return c.config.FinishedFunc(
-		c.callbackContext,
+		c.callbackContext.withOwner(c.Protocol),
 		version,
 		agreedVersionData(version, ownData, peerData),
 	)
