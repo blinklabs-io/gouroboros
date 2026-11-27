@@ -289,7 +289,7 @@ func (c *Client) handleReplyVersions(msgGeneric protocol.Message) error {
 	return c.config.FinishedFunc(
 		c.callbackContext,
 		version,
-		agreedVersionData(ownData, peerData),
+		agreedVersionData(version, ownData, peerData),
 	)
 }
 
