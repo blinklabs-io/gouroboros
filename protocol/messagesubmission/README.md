@@ -62,8 +62,8 @@ with nothing to announce should send it before then.
 |-------|---------|-------------|
 | Init | 30 seconds | Client must send Init |
 | Idle | 300 seconds | Server must request messages |
-| MessageIdsBlocking | 30 seconds | Client must reply with IDs |
-| MessageIdsNonBlocking | 0 (immediate) | Non-blocking, no timeout |
+| MessageIdsBlocking | V1: none; V2: 30 seconds | Client must reply with IDs; in V1 it may wait until it has one |
+| MessageIdsNonBlocking | 10 seconds | Client must reply at once, possibly with no IDs |
 | Messages | 30 seconds | Client must reply with messages |
 | Done | 10 seconds | Cleanup timeout |
 
@@ -76,7 +76,7 @@ messagesubmission.NewConfig(
     messagesubmission.WithReplyMessageIdsFunc(replyIdsCallback),
     messagesubmission.WithReplyMessagesFunc(replyMsgsCallback),
     messagesubmission.WithMaxQueueSize(100),
-    messagesubmission.WithMaxUnacknowledgedMessageIDs(100),
+    messagesubmission.WithMaxUnacknowledgedMessageIDs(132),
     messagesubmission.WithInitTimeout(30 * time.Second),
     messagesubmission.WithIdleTimeout(300 * time.Second),
     messagesubmission.WithMessageIdsBlockingTimeout(30 * time.Second),
@@ -86,8 +86,10 @@ messagesubmission.NewConfig(
 )
 ```
 
-`MaxUnacknowledgedMessageIDs` defaults to 100. Both roles reject a request that
-would make the IDs awaiting acknowledgement exceed this limit.
+`MaxUnacknowledgedMessageIDs` defaults to 132, dmq-node's window. Both roles
+reject a request that would make the IDs awaiting acknowledgement exceed this
+limit. The window is not negotiated, and dmq-node's requester fills its own,
+so a Client configured below 132 refuses requests a dmq-node peer may send.
 Non-blocking ID requests must leave at least one ID outstanding after applying
 their acknowledgement count.
 

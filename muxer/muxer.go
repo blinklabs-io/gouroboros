@@ -130,7 +130,9 @@ type Muxer struct {
 	errorChan              chan error
 	conn                   net.Conn
 	egress                 egress
-	startChan              chan bool
+	startChan              chan struct{}
+	startedChan            chan struct{}
+	onceStart              sync.Once
 	doneChan               chan bool
 	waitGroup              sync.WaitGroup
 	waitGroupMutex         sync.Mutex
@@ -1080,7 +1082,8 @@ func NewWithSegmentReadTimeout(
 ) *Muxer {
 	m := &Muxer{
 		conn:               conn,
-		startChan:          make(chan bool, 1),
+		startChan:          make(chan struct{}, 1),
+		startedChan:        make(chan struct{}),
 		doneChan:           make(chan bool),
 		errorChan:          make(chan error, 10),
 		protocolSenders:    make(map[uint16]map[ProtocolRole]*segmentSender),
@@ -1121,17 +1124,13 @@ func (m *Muxer) ErrorChan() chan error {
 
 // Start unblocks the read loop after the initial handshake to allow it to start processing messages
 func (m *Muxer) Start() {
-	select {
-	case m.startChan <- true:
-	default:
-	}
+	m.onceStart.Do(func() { close(m.startedChan) })
 }
 
-// StartOnce unblocks the read loop for one iteration. This is generally used to perform the handshake before registering
-// additional protocols and calling Start
+// StartOnce unblocks the read loop for one segment.
 func (m *Muxer) StartOnce() {
 	select {
-	case m.startChan <- false:
+	case m.startChan <- struct{}{}:
 	default:
 	}
 }
@@ -1543,9 +1542,9 @@ func (m *Muxer) readLoop() {
 			case <-m.doneChan:
 				// Break out of read loop if we're shutting down
 				return
-			case v := <-m.startChan:
-				// We block again on the next iteration of we get 'false' from startChan
-				started = v
+			case <-m.startedChan:
+				started = true
+			case <-m.startChan:
 			}
 		}
 		// Set read deadline to prevent slowloris-style DoS attacks against an
@@ -1589,6 +1588,7 @@ func (m *Muxer) readLoop() {
 			m.sendError(readLoopError("reading payload", err))
 			return
 		}
+
 		// Check for message from initiator when we're not configured as a responder
 		if DiffusionMode(m.diffusionMode.Load()) == DiffusionModeInitiator &&
 			!msg.IsResponse() {

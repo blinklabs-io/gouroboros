@@ -139,13 +139,17 @@ func (c *Client) Sync() error {
 	}
 	// Reset pipelined message counter
 	c.pipelinedRequestNext = 0
+	// The loop cannot start once the protocol's goroutines have been joined
+	// or the connection has begun to close.
+	if !c.startNotificationLoop() {
+		return protocol.ErrProtocolShuttingDown
+	}
 	c.notificationRunning = true
-	c.startNotificationLoop()
 	return nil
 }
 
-func (c *Client) startNotificationLoop() {
-	c.RunLoop("notification loop", c.notificationLoop)
+func (c *Client) startNotificationLoop() bool {
+	return c.RunLoop("notification loop", c.notificationLoop)
 }
 
 func (c *Client) notificationLoop() {

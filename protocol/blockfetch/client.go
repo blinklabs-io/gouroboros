@@ -250,6 +250,10 @@ type Client struct {
 	// was enqueued and before its sender takes queueMutex again: the window
 	// in which a shutdown drain leaves a sent request to its sender.
 	afterRangeSend func()
+	// afterAcquireBusy is a test synchronization point after a
+	// GetBlockRange or GetBlock caller has taken the busy lock and before it
+	// reads the protocol instance to send on.
+	afterAcquireBusy func()
 }
 
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
@@ -375,11 +379,15 @@ func (c *Client) acquireBusy() (uint64, <-chan struct{}) {
 	c.busyMutex.Lock()
 
 	c.busyStateMutex.Lock()
-	defer c.busyStateMutex.Unlock()
 	c.busyToken++
 	c.busyLocked = true
 	c.busyDoneChan = make(chan struct{})
-	return c.busyToken, c.busyDoneChan
+	token, done := c.busyToken, c.busyDoneChan
+	c.busyStateMutex.Unlock()
+	if c.afterAcquireBusy != nil {
+		c.afterAcquireBusy()
+	}
+	return token, done
 }
 
 func (c *Client) releaseBusy(token uint64) {
@@ -396,19 +404,6 @@ func (c *Client) releaseBusy(token uint64) {
 		close(doneChan)
 		c.busyMutex.Unlock()
 	}
-}
-
-// heldBusyToken returns the token of the busy lock held now, or 0 when it
-// is free. Stop releases that token, not whatever is held once it has
-// waited: by then a Start may have installed a new protocol instance whose
-// caller holds the lock.
-func (c *Client) heldBusyToken() uint64 {
-	c.busyStateMutex.Lock()
-	defer c.busyStateMutex.Unlock()
-	if !c.busyLocked {
-		return 0
-	}
-	return c.busyToken
 }
 
 func (c *Client) releaseBusyOnProtocolDone(
@@ -650,7 +645,15 @@ func (c *Client) stop(ctx context.Context) error {
 		c.pipelineCancel()
 		proto, group := c.Protocol, c.goroutines
 		started := c.protoStarted
-		busyToken := c.heldBusyToken()
+		if !started {
+			// A fetch may already hold the busy lock and send on this
+			// instance. Never started, it would neither refuse the send nor
+			// finish, so the fetch would wait forever with the lock held;
+			// stopped, it refuses. Signalled under lifecycleMutex because
+			// the stop unregisters the role, which must not remove the
+			// registration of an instance a concurrent Start installs.
+			_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
+		}
 		// The callbacks below must not run under lifecycleMutex: one that
 		// calls Stop or Start would wait for it forever. Once it is released
 		// a concurrent Start may install a new protocol, so only proto's
@@ -669,7 +672,6 @@ func (c *Client) stop(ctx context.Context) error {
 			return err
 		}
 		c.failOutstandingAfterDelivery(proto, protocol.ErrProtocolShuttingDown)
-		c.releaseBusy(busyToken)
 		return nil
 	}
 	defer c.lifecycleMutex.Unlock()
@@ -702,7 +704,6 @@ func (c *Client) stop(ctx context.Context) error {
 	// The callback marker makes this Stop only signal; the wait follows
 	// once lifecycleMutex is released.
 	proto, group := c.Protocol, c.goroutines
-	busyToken := c.heldBusyToken()
 	_ = proto.Stop(proto.CallbackContext()) //nolint:contextcheck // the callback marker makes this Stop only signal
 	c.lifecycleState = clientStateStopped
 
@@ -722,7 +723,6 @@ func (c *Client) stop(ctx context.Context) error {
 		// With lifecycleMutex released, a Start may have installed a new
 		// instance and queued requests on it, so only proto's are failed.
 		c.failOutstandingAfterDelivery(proto, protocol.ErrProtocolShuttingDown)
-		c.releaseBusy(busyToken)
 	}
 
 	c.lifecycleMutex.Lock()

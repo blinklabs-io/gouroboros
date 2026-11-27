@@ -237,10 +237,15 @@ func (c *Connection) Muxer() *muxer.Muxer {
 
 // ErrorChan returns the channel for asynchronous errors. A channel created by
 // the Connection is closed during shutdown; a channel supplied with
-// WithErrorChan remains open and caller-owned. Delivery is non-blocking. A
-// supplied channel should have capacity of at least one for reliable delivery
-// while the connection is active; errors may be dropped when the channel is
-// full or has no receiver ready.
+// WithErrorChan remains open and caller-owned. A connection delivers at most
+// one error: the muxer or mini-protocol error that began its shutdown, sent
+// once that shutdown has begun (the ConnectionDoneChan of every callback
+// context is closed by then). A shutdown begun by Close, by a failed Dial or
+// New (which return their error instead), or by the peer closing while every
+// mini-protocol is idle delivers none, even if another error races it.
+// Delivery is non-blocking. A supplied channel should have capacity of at
+// least one for reliable delivery while the connection is active; the error
+// is dropped when the channel is full or has no receiver ready.
 func (c *Connection) ErrorChan() chan error {
 	return c.errorChan
 }
@@ -534,14 +539,22 @@ var signalOnly = func() context.Context {
 	return ctx
 }()
 
-// forwardError attempts immediate best-effort delivery without allowing a full
-// or undrained consumer channel to prevent connection shutdown.
-func (c *Connection) forwardError(err error) {
-	select {
-	case c.errorChan <- err:
-	case <-c.doneChan:
-	default:
-	}
+// closeWithError begins shutdown with err as its cause. Only the call that
+// closes doneChan delivers its error: once shutdown has begun, for any
+// reason, a later error is a consequence of it and is dropped. doneChan
+// closes first, so a consumer woken by the error finds every callback's
+// ConnectionDoneChan already closed. The send is non-blocking, so a full or
+// undrained consumer channel cannot hold up shutdown. Only the tracked
+// forwarders call this: shutdown closes an owned errorChan after waiting for
+// them, so the send cannot meet a closed channel.
+func (c *Connection) closeWithError(err error) {
+	c.onceClose.Do(func() {
+		close(c.doneChan)
+		select {
+		case c.errorChan <- err:
+		default:
+		}
+	})
 }
 
 // allProtocolsIdle returns true if every active protocol is in a terminal or
@@ -911,13 +924,11 @@ func (c *Connection) setupConnection() error {
 			}
 			if errors.As(err, &connErr) {
 				// Pass through ConnectionClosedError from muxer
-				c.forwardError(err)
+				c.closeWithError(err)
 			} else {
 				// Wrap error message to denote it comes from the muxer
-				c.forwardError(fmt.Errorf("muxer error: %w", err))
+				c.closeWithError(fmt.Errorf("muxer error: %w", err))
 			}
-			// Close connection on muxer errors
-			c.requestClose()
 		}
 	})
 	protoOptions := protocol.ProtocolOptions{
@@ -1042,9 +1053,7 @@ func (c *Connection) setupConnection() error {
 			if !ok {
 				return
 			}
-			c.forwardError(fmt.Errorf("protocol error: %w", err))
-			// Close connection on mini-protocol errors
-			c.requestClose()
+			c.closeWithError(fmt.Errorf("protocol error: %w", err))
 		}
 	})
 	// Configure the relevant mini-protocols

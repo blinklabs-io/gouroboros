@@ -343,6 +343,7 @@ func (m *MessageAuthenticator) prepareAll(
 type preparedMessage struct {
 	index int
 	pool  PoolKeyHash
+	id    string
 	issue uint64
 	rate  *rateRecord
 }
@@ -415,6 +416,7 @@ func (m *MessageAuthenticator) prepare(
 		p := preparedMessage{
 			index: i,
 			pool:  poolID,
+			id:    string(messages[i].ID()),
 			issue: messages[i].OperationalCertificate.IssueNumber,
 		}
 		if rateLimit && len(batchAuthenticator.batchAccepted) > records {
@@ -434,6 +436,16 @@ func (m *MessageAuthenticator) prepare(
 		ids := make(map[string]struct{})
 		var passed []preparedMessage
 		for _, p := range prepared {
+			// A message accepted meanwhile by another commit is a
+			// duplicate: valid, and already recorded, so it is neither
+			// refused nor recorded again. This comes before the counter
+			// re-check, which a later message of the pool may since have
+			// raised past it.
+			if _, held := m.acceptedIDs[p.id]; held {
+				p.rate = nil
+				passed = append(passed, p)
+				continue
+			}
 			current, exists := issues[p.pool]
 			if !exists {
 				current, exists = m.kesOpCertCache[p.pool]
@@ -446,14 +458,9 @@ func (m *MessageAuthenticator) prepare(
 				)
 				continue
 			}
-			// A message accepted meanwhile by another commit is a
-			// duplicate: valid, and already recorded, so it is neither
-			// refused nor recorded again.
 			rate := p.rate
 			if rate != nil {
-				_, heldBefore := m.acceptedIDs[rate.id]
-				_, heldInBatch := ids[rate.id]
-				if heldBefore || heldInBatch {
+				if _, heldInBatch := ids[rate.id]; heldInBatch {
 					rate = nil
 				}
 			}
@@ -511,10 +518,12 @@ func (m *MessageAuthenticator) VerifyMessageWithSlot(
 	msg *DmqMessage,
 	_ uint64,
 ) error {
-	return m.verifyMessageInternal(msg)
+	return m.VerifyMessage(msg)
 }
 
-// verifyMessageInternal contains the core verification logic.
+// verifyMessageInternal contains the core verification logic. It runs on a
+// batch's private authenticator, so the counter it records goes to the batch's
+// snapshot and the rate record to batchAccepted, both until commit.
 //
 // After the body size and the rate limit, the checks run in dmq-node's
 // order (Validate.hs 150-212): message ID, the claimed KES period against
@@ -610,7 +619,9 @@ func (m *MessageAuthenticator) verifyMessageInternal(msg *DmqMessage) error {
 		if err := m.verifyKESPeriodRotation(poolID, &msg.OperationalCertificate); err != nil {
 			return fmt.Errorf("KES period rotation verification failed: %w", err)
 		}
-		return m.recordRate(rateRecord{
+		// Held until commit, which re-checks the rate limit against the
+		// state at that time.
+		m.batchAccepted = append(m.batchAccepted, rateRecord{
 			pool:      poolID,
 			id:        string(msg.ID()),
 			expiresAt: msg.Payload.ExpiresAt,
@@ -661,30 +672,6 @@ func (m *MessageAuthenticator) rateLookup(
 		last, seen = owner.lastSig[pool]
 	}
 	return false, last, seen
-}
-
-// recordRate records an accepted message: in a batch, until commit;
-// otherwise at once, re-checking the limit under the lock in case another
-// message of the pool was accepted since the lookup.
-func (m *MessageAuthenticator) recordRate(r rateRecord) error {
-	if m.parent != nil {
-		m.batchAccepted = append(m.batchAccepted, r)
-		return nil
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, held := m.acceptedIDs[r.id]; held {
-		return nil
-	}
-	if last, ok := m.lastSig[r.pool]; ok && m.tooSoon(r.at, last) {
-		return fmt.Errorf(
-			"%w: %s since the last",
-			ErrMessageTooFrequent,
-			r.at.Sub(last),
-		)
-	}
-	m.recordRateLocked(r)
-	return nil
 }
 
 // tooSoon reports whether a message of a pool at time at comes less than
