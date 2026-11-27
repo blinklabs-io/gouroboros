@@ -15,22 +15,35 @@
 package handshake
 
 import (
+	"sync/atomic"
+
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/protocol"
 )
 
-// resumeWhileUnfinished returns the callback a handshake protocol runs when it
-// needs another segment to complete a message. It lets a delayed-start muxer
-// read one more segment only while the handshake is unfinished: once the
-// protocol is done, leftover bytes behind the final message stay incomplete
-// for the rest of the connection and must not keep the muxer reading before
-// Start. It returns nil when there is no muxer.
-func resumeWhileUnfinished(m *muxer.Muxer, done func() bool) func() {
+// startupCallbacks returns the MessageReceivedFunc and MessageIncompleteFunc
+// that let a delayed-start muxer read the segments of the one message a
+// handshake role receives, and nothing behind it. Before Start the muxer
+// reads one segment per StartOnce, so a message split across segments asks
+// for each next one when reassembly comes up short. Each role receives
+// exactly one handshake message; bytes behind it never complete a valid one
+// and must not keep the muxer reading before Start.
+//
+// The protocol's Done state cannot gate this: the state loop applies it after
+// the read loop has already scanned the bytes behind the final message. Both
+// callbacks run on the read loop, which decodes a message before scanning
+// what follows it, so every scan after the message sees received set. It
+// returns nil callbacks when there is no muxer.
+func startupCallbacks(m *muxer.Muxer) (func(protocol.Message), func()) {
 	if m == nil {
-		return nil
+		return nil, nil
 	}
-	return func() {
-		if !done() {
-			m.StartOnce()
+	var received atomic.Bool
+	return func(protocol.Message) {
+			received.Store(true)
+		}, func() {
+			if !received.Load() {
+				m.StartOnce()
+			}
 		}
-	}
 }

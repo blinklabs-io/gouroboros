@@ -59,23 +59,22 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		}
 	}
 	// Configure underlying Protocol
+	onReceived, onIncomplete := startupCallbacks(protoOptions.Muxer)
 	protoConfig := protocol.ProtocolConfig{
-		Name:                ProtocolName,
-		ProtocolId:          ProtocolId,
-		Muxer:               protoOptions.Muxer,
-		Logger:              protoOptions.Logger,
-		ErrorChan:           protoOptions.ErrorChan,
-		Mode:                protoOptions.Mode,
-		Role:                protocol.ProtocolRoleClient,
-		MessageHandlerFunc:  c.messageHandler,
-		MessageFromCborFunc: NewMsgFromCbor,
-		StateMap:            stateMap,
-		InitialState:        statePropose,
+		Name:                  ProtocolName,
+		ProtocolId:            ProtocolId,
+		Muxer:                 protoOptions.Muxer,
+		Logger:                protoOptions.Logger,
+		ErrorChan:             protoOptions.ErrorChan,
+		Mode:                  protoOptions.Mode,
+		Role:                  protocol.ProtocolRoleClient,
+		MessageHandlerFunc:    c.messageHandler,
+		MessageFromCborFunc:   NewMsgFromCbor,
+		MessageReceivedFunc:   onReceived,
+		MessageIncompleteFunc: onIncomplete,
+		StateMap:              stateMap,
+		InitialState:          statePropose,
 	}
-	protoConfig.MessageIncompleteFunc = resumeWhileUnfinished(
-		protoOptions.Muxer,
-		func() bool { return c.IsDone() },
-	)
 	c.Protocol = protocol.New(protoConfig)
 	return c
 }

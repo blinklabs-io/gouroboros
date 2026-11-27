@@ -280,10 +280,6 @@ func TestHandshakeTrailingBytesDoNotOpenMuxer(t *testing.T) {
 		// A segment the muxer does not read leaves the peer's write
 		// blocked, so a missed segment is never delivered late.
 		blockedWrite = 150 * time.Millisecond
-		// The peer can write a segment the muxer took before the final
-		// message was recorded as handled; two or more mean the muxer is
-		// reading on its own.
-		allowedExtra = 1
 	)
 	for _, server := range []bool{false, true} {
 		t.Run(fmt.Sprintf("server=%v", server), func(t *testing.T) {
@@ -348,10 +344,9 @@ func TestHandshakeTrailingBytesDoNotOpenMuxer(t *testing.T) {
 			)
 			require.NoError(t, err)
 			defer conn.Close(t.Context())
-			require.LessOrEqual(
+			require.Zero(
 				t,
 				<-admitted,
-				allowedExtra,
 				"muxer read segments after the handshake finished, before Start",
 			)
 		})
