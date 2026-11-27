@@ -469,16 +469,17 @@ func (h *modelHarness) requireFinished(t *testing.T, version uint16) {
 }
 
 // requireQuiet checks that, for a short while, the role under test neither
-// reports an error nor sends anything.
+// reports an error, sends anything, nor closes the connection.
 func (h *modelHarness) requireQuiet(t *testing.T) {
 	t.Helper()
 	select {
 	case err := <-h.errs:
 		t.Fatalf("unexpected protocol error: %v", err)
 	case data, ok := <-h.payload:
-		if ok {
-			t.Fatalf("unexpected message %x", data)
+		if !ok {
+			t.Fatal("connection closed")
 		}
+		t.Fatalf("unexpected message %x", data)
 	case v := <-h.finished:
 		t.Fatalf("unexpected second finish with version %d", v)
 	case <-time.After(200 * time.Millisecond):
