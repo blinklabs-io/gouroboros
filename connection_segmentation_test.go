@@ -269,3 +269,91 @@ func TestIncompleteHandshakeQueryReplyBeforePeerClose(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "handshake did not complete within")
 }
+
+// A peer can follow the final handshake message with the start of another
+// one in the same segment. The leftover is incomplete for the rest of the
+// connection, and it must not keep the muxer reading before Start.
+func TestHandshakeTrailingBytesDoNotOpenMuxer(t *testing.T) {
+	t.Parallel()
+	const (
+		extraSegments = 8
+		// A segment the muxer does not read leaves the peer's write
+		// blocked, so a missed segment is never delivered late.
+		blockedWrite = 150 * time.Millisecond
+		// The peer can write a segment the muxer took before the final
+		// message was recorded as handled; two or more mean the muxer is
+		// reading on its own.
+		allowedExtra = 1
+	)
+	for _, server := range []bool{false, true} {
+		t.Run(fmt.Sprintf("server=%v", server), func(t *testing.T) {
+			t.Parallel()
+			versions := protocol.GetProtocolVersionMap(
+				protocol.ProtocolModeNodeToNode, 42, false, false, false,
+			)
+			var message protocol.Message = handshake.NewMsgAcceptVersion(
+				14, versions[14],
+			)
+			if server {
+				message = handshake.NewMsgProposeVersions(versions)
+			}
+			wire, err := cbor.Encode(message)
+			require.NoError(t, err)
+			// An indefinite-length array start never completes.
+			wire = append(wire, 0x9f)
+			local, peer := net.Pipe()
+			defer local.Close()
+			defer peer.Close()
+			require.NoError(
+				t, peer.SetDeadline(time.Now().Add(10*time.Second)),
+			)
+			admitted := make(chan int, 1)
+			go func() {
+				if !server {
+					if err := readHandshakeSegment(peer); err != nil {
+						admitted <- -1
+						return
+					}
+				}
+				if err := writeHandshakeSegment(peer, wire, !server); err != nil {
+					admitted <- -1
+					return
+				}
+				if server {
+					if err := readHandshakeSegment(peer); err != nil {
+						admitted <- -1
+						return
+					}
+				}
+				count := 0
+				for range extraSegments {
+					_ = peer.SetWriteDeadline(time.Now().Add(blockedWrite))
+					if err := writeHandshakeSegment(
+						peer, make([]byte, 1000), !server,
+					); err != nil {
+						break
+					}
+					count++
+				}
+				admitted <- count
+			}()
+			conn, err := ouroboros.NewConnection(
+				ouroboros.WithConnection(local),
+				ouroboros.WithServer(server),
+				ouroboros.WithNodeToNode(true),
+				ouroboros.WithNetworkMagic(42),
+				ouroboros.WithHandshakeTimeout(5*time.Second),
+				ouroboros.WithDelayProtocolStart(true),
+				ouroboros.WithDelayMuxerStart(true),
+			)
+			require.NoError(t, err)
+			defer conn.Close(t.Context())
+			require.LessOrEqual(
+				t,
+				<-admitted,
+				allowedExtra,
+				"muxer read segments after the handshake finished, before Start",
+			)
+		})
+	}
+}
