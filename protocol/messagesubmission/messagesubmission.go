@@ -37,7 +37,7 @@ const (
 	InitTimeout                  = 30 * time.Second  // Timeout for client to send Init
 	IdleTimeout                  = 300 * time.Second // Timeout for server to send RequestMessageIds when idle
 	MessageIdsBlockingTimeout    = 30 * time.Second  // Timeout for client to reply to a V2 blocking RequestMessageIds; V1 is untimed
-	MessageIdsNonblockingTimeout = 0 * time.Second   // Non-blocking doesn't timeout (server sends when ready)
+	MessageIdsNonblockingTimeout = 10 * time.Second  // Timeout for client to reply to non-blocking RequestMessageIds, which it answers at once
 	MessagesTimeout              = 30 * time.Second  // Timeout for client to reply with messages
 	DoneTimeout                  = 10 * time.Second  // Timeout for Done state cleanup
 )
@@ -461,6 +461,9 @@ func normalizeConfig(cfg *Config) Config {
 	}
 	if ret.MessageIdsBlockingTimeout == 0 {
 		ret.MessageIdsBlockingTimeout = MessageIdsBlockingTimeout
+	}
+	if ret.MessageIdsNonblockingTimeout == 0 {
+		ret.MessageIdsNonblockingTimeout = MessageIdsNonblockingTimeout
 	}
 	if ret.MessagesTimeout == 0 {
 		ret.MessagesTimeout = MessagesTimeout
