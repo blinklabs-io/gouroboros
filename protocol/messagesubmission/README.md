@@ -62,8 +62,8 @@ with nothing to announce should send it before then.
 |-------|---------|-------------|
 | Init | 30 seconds | Client must send Init |
 | Idle | 300 seconds | Server must request messages |
-| MessageIdsBlocking | 30 seconds | Client must reply with IDs |
-| MessageIdsNonBlocking | 0 (immediate) | Non-blocking, no timeout |
+| MessageIdsBlocking | V1: none; V2: 30 seconds | Client must reply with IDs; in V1 it may wait until it has one |
+| MessageIdsNonBlocking | 10 seconds | Client must reply at once, possibly with no IDs |
 | Messages | 30 seconds | Client must reply with messages |
 | Done | 10 seconds | Cleanup timeout |
 
