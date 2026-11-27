@@ -75,3 +75,42 @@ func TestClientEndsWithItsAgreement(t *testing.T) {
 		}
 	}
 }
+
+// The client agrees DMQ data under the DMQ rule as well: an initiator-only
+// dmq-node client that offers peer sharing ends without it, whatever the
+// server sends (DMQ/NodeToNode/Version.hs acceptableVersion).
+func TestClientAgreesDMQPeerSharingAsReference(t *testing.T) {
+	const magic = 3141592
+	own := protocol.GetProtocolVersionMapDMQNtN(magic, true, true, false)
+	serverOwn := protocol.GetProtocolVersionMapDMQNtN(magic, false, true, false)
+	for _, version := range protocol.GetProtocolVersionsDMQNtN() {
+		var got protocol.VersionData
+		cfg := NewConfig(
+			WithProtocolVersionMap(own),
+			WithFinishedFunc(
+				func(_ CallbackContext, _ uint16, data protocol.VersionData) error {
+					got = data
+					return nil
+				},
+			),
+		)
+		client := NewClient(protocol.ProtocolOptions{
+			ConnectionId: connection.ConnectionId{
+				LocalAddr:  &net.TCPAddr{},
+				RemoteAddr: &net.TCPAddr{},
+			},
+			Mode: protocol.ProtocolModeNodeToNode,
+		}, &cfg)
+		data := serverOwn[version]
+		encoded, err := cbor.Encode(&data)
+		require.NoError(t, err)
+		require.NoError(t, client.handleAcceptVersion(&MsgAcceptVersion{
+			MessageBase: protocol.MessageBase{MessageType: MessageTypeAcceptVersion},
+			Version:     version,
+			VersionData: encoded,
+		}))
+		require.NotNil(t, got)
+		require.Equal(t, protocol.DiffusionModeInitiatorOnly, got.DiffusionMode(), "version %d", version)
+		require.False(t, got.PeerSharing(), "version %d", version)
+	}
+}

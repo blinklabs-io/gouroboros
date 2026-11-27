@@ -169,7 +169,7 @@ func (c *Client) handleAcceptVersion(msg protocol.Message) error {
 	return c.config.FinishedFunc(
 		c.callbackContext.withOwner(c.Protocol),
 		msgAcceptVersion.Version,
-		agreedVersionData(proposedData, versionData),
+		agreedVersionData(msgAcceptVersion.Version, proposedData, versionData),
 	)
 }
 
