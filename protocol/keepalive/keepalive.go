@@ -106,9 +106,14 @@ type Config struct {
 	DoneFunc                    DoneFunc
 	OnKeepAliveReceived         func(connection.ConnectionId, uint16)
 	OnKeepAliveResponseReceived func(connection.ConnectionId, uint16)
-	Timeout                     time.Duration
-	Period                      time.Duration
-	Cookie                      uint16
+	// Timeout is how long the client waits for the server's answer to a
+	// ping. A value that is not positive uses DefaultKeepAliveTimeout.
+	Timeout time.Duration
+	// Period is how long the client waits between pings. A value that is
+	// not positive uses DefaultKeepAlivePeriod. Keep it below
+	// ClientTimeout, the server's limit on the next ping.
+	Period time.Duration
+	Cookie uint16
 }
 
 // KeepAliveFunc is the legacy keep-alive callback type.
