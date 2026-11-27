@@ -90,7 +90,6 @@ func TestAgreedVersionDataMatchesReference(t *testing.T) {
 			want := refAgreeNtN(l, r)
 			name := fmt.Sprintf("%+v/%+v", l, r)
 			require.Equal(t, ntn16(want), agreedVersionData(16, ntn16(l), ntn16(r)), name)
-			want.peras, l.peras, r.peras = false, false, false
 			require.Equal(t, ntn13(want), agreedVersionData(14, ntn13(l), ntn13(r)), name)
 		}
 	}
