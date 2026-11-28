@@ -1492,10 +1492,14 @@ func (m *Muxer) fenceRegistrations() {
 // waiting Praos segments go before Leios ones, each class in arrival order, and a waiting Leios segment
 // goes next after a bounded run of Praos segments. Leios segments are never dropped for waiting: segments
 // carry no message boundary, so a dropped one would desynchronize the peer's stream.
-func (m *Muxer) Send(msg *Segment) error {
+func (m *Muxer) Send(msg *Segment) (retErr error) {
+	for span := msg.writeSpans; span != nil; span = span.next {
+		span.trace.claim()
+	}
 	// Immediately return if we're already shutting down
 	select {
 	case <-m.doneChan:
+		msg.failWrite(WriteFailureAbandoned)
 		return errors.New("shutting down")
 	default:
 	}
@@ -1504,10 +1508,14 @@ func (m *Muxer) Send(msg *Segment) error {
 	blocked, err := m.egress.acquire(msg, m.doneChan)
 	em, _ := m.getMetrics().(EgressMetrics)
 	if err != nil {
+		msg.failWrite(WriteFailureAbandoned)
 		return err
 	}
 	waitDuration := time.Since(waitStart)
 	defer func() {
+		if retErr != nil {
+			msg.failWrite(WriteFailureTransport)
+		}
 		m.egress.release()
 		if blocked && em != nil {
 			callMetrics(func() {
@@ -1528,9 +1536,25 @@ func (m *Muxer) Send(msg *Segment) error {
 	if err := m.conn.SetWriteDeadline(time.Now().Add(segmentWriteTimeout)); err != nil {
 		return err
 	}
-	_, err = m.conn.Write(buf.Bytes())
+	if msg.writeSpans != nil {
+		at := time.Now()
+		for span := msg.writeSpans; span != nil; span = span.next {
+			span.started(at)
+		}
+	}
+	n, err := m.conn.Write(buf.Bytes())
+	completedAt := time.Time{}
+	if msg.writeSpans != nil {
+		completedAt = time.Now()
+	}
 	if err != nil {
 		return err
+	}
+	if n != buf.Len() {
+		return io.ErrShortWrite
+	}
+	for span := msg.writeSpans; span != nil; span = span.next {
+		span.completed(completedAt)
 	}
 	return nil
 }

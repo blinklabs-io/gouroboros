@@ -4,8 +4,8 @@ go 1.26.11
 
 require (
 	filippo.io/edwards25519 v1.2.0
-	github.com/blinklabs-io/ouroboros-mock v0.21.4
-	github.com/blinklabs-io/plutigo v0.13.0
+	github.com/blinklabs-io/ouroboros-mock v0.22.0
+	github.com/blinklabs-io/plutigo v0.13.1
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/consensys/gnark-crypto v0.22.0
 	github.com/fxamacker/cbor/v2 v2.10.0

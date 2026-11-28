@@ -319,6 +319,7 @@ type outboundMessage struct {
 	data          []byte
 	deliveryChan  chan error
 	waitForAgency bool
+	writeTrace    *muxer.WriteTrace
 }
 
 // MessageHandlerFunc represents a function that handles an incoming message
@@ -1001,13 +1002,23 @@ func (p *Protocol) takeAgencyToken() (State, StateMapEntry, bool) {
 
 // SendMessage appends a message to the send queue
 func (p *Protocol) SendMessage(msg Message) error {
-	return p.enqueueMessage(context.Background(), msg, nil)
+	return p.enqueueMessage(context.Background(), msg, nil, nil)
 }
 
 // SendMessageContext appends a message to the send queue, or returns the
 // context's error if the message cannot be queued before the context ends.
 func (p *Protocol) SendMessageContext(ctx context.Context, msg Message) error {
-	return p.enqueueMessage(ctx, msg, nil)
+	return p.enqueueMessage(ctx, msg, nil, nil)
+}
+
+// SendMessageContextObserved queues a message with optional transport-write
+// correlation. It has the same admission/cancellation contract as
+// SendMessageContext. The caller owns trace retirement if shutdown abandons
+// the message before the muxer can report a result.
+func (p *Protocol) SendMessageContextObserved(
+	ctx context.Context, msg Message, trace *muxer.WriteTrace,
+) error {
+	return p.enqueueMessage(ctx, msg, nil, trace)
 }
 
 // SendMessageAndWait queues a message and waits until its final muxer segment
@@ -1029,6 +1040,7 @@ func (p *Protocol) SendMessageContextAndWait(
 		ctx,
 		msg,
 		deliveryChan,
+		nil,
 	); err != nil {
 		return err
 	}
@@ -1077,6 +1089,7 @@ func (p *Protocol) enqueueMessage(
 	ctx context.Context,
 	msg Message,
 	deliveryChan chan error,
+	writeTrace *muxer.WriteTrace,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -1129,7 +1142,9 @@ func (p *Protocol) enqueueMessage(
 		message:      msg,
 		data:         data,
 		deliveryChan: deliveryChan,
+		writeTrace:   writeTrace,
 	}
+	writeTrace.Enqueue()
 	var enqueueErr error
 	select {
 	case p.sendQueueChan <- outbound:
@@ -1507,6 +1522,7 @@ waitSendReadyChan:
 					// We're shutting down
 					return
 				}
+				outbound.writeTrace.Dequeue()
 				tmpOutbound := outbound
 				if p.pipelinedDequeueHook != nil {
 					p.pipelinedDequeueHook()
@@ -1584,6 +1600,12 @@ waitSendReadyChan:
 		// messages batched behind it.
 		queueTransition := !haveAgency
 		var deliveryChan chan error
+		type observedMessage struct {
+			trace *muxer.WriteTrace
+			start int
+			end   int
+		}
+		var observed []observedMessage
 	readSendQueueLoop:
 		for {
 			// Get next message from send queue
@@ -1604,6 +1626,7 @@ waitSendReadyChan:
 						// We're shutting down
 						return
 					}
+					queued.writeTrace.Dequeue()
 					outbound = queued
 				}
 			}
@@ -1661,6 +1684,13 @@ waitSendReadyChan:
 			msgCount = msgCount + 1
 
 			data := outbound.data
+			if outbound.writeTrace != nil {
+				observed = append(observed, observedMessage{
+					trace: outbound.writeTrace,
+					start: payloadBuf.Len(),
+					end:   payloadBuf.Len() + len(data),
+				})
+			}
 			payloadBuf.Write(data)
 			// After sending, decrement pendingSendBytes
 			p.pendingBytesMu.Lock()
@@ -1717,6 +1747,7 @@ waitSendReadyChan:
 		}
 
 		// Send messages in multiple segments (if needed)
+		segmentOffset := 0
 		for {
 			// Determine segment payload length
 			segmentPayloadLength := min(
@@ -1740,6 +1771,18 @@ waitSendReadyChan:
 				)
 				return
 			}
+			segmentEnd := segmentOffset + segmentPayloadLength
+			for _, observation := range observed {
+				if observation.start < segmentEnd && observation.end > segmentOffset {
+					segment.AddWriteSpan(
+						observation.trace,
+						observation.start >= segmentOffset,
+						observation.end <= segmentEnd,
+						max(0, observation.start-segmentOffset),
+					)
+				}
+			}
+			segmentOffset = segmentEnd
 			if deliveryChan != nil && segmentPayloadLength == payloadBuf.Len() {
 				segment.SetDeliveryChan(deliveryChan)
 			}

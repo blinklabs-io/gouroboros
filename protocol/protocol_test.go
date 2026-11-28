@@ -357,6 +357,7 @@ func TestEnqueueMessageReturnsWhenFullQueueShutsDown(t *testing.T) {
 					context.Background(),
 					msg,
 					nil,
+					nil,
 				)
 			}()
 
