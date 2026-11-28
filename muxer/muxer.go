@@ -1493,6 +1493,9 @@ func (m *Muxer) fenceRegistrations() {
 // goes next after a bounded run of Praos segments. Leios segments are never dropped for waiting: segments
 // carry no message boundary, so a dropped one would desynchronize the peer's stream.
 func (m *Muxer) Send(msg *Segment) (retErr error) {
+	for span := msg.writeSpans; span != nil; span = span.next {
+		span.trace.claim()
+	}
 	// Immediately return if we're already shutting down
 	select {
 	case <-m.doneChan:

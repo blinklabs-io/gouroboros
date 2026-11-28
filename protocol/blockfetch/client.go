@@ -1561,7 +1561,7 @@ func (c *Client) resolve(req *rangeRequest, err error) error {
 	var callbackErr error
 	req.resolveOnce.Do(func() {
 		if err != nil && !errors.Is(err, ErrNoBlocks) {
-			req.writeTrace.Fail(muxer.WriteFailureAbandoned)
+			req.writeTrace.Abandon()
 		}
 		if req.retired != nil {
 			close(req.retired)

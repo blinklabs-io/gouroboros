@@ -16,10 +16,15 @@ package blockfetch
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/muxer"
+	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/stretchr/testify/require"
 )
@@ -141,6 +146,79 @@ func TestRangeWriteObservationImmutablePointsAndSessions(t *testing.T) {
 	defer disabled.pipelineCancel()
 	require.Zero(
 		t,
-		testing.AllocsPerRun(1000, func() { disabled.observeRange(start, start) }),
+		testing.AllocsPerRun(
+			1000,
+			func() { disabled.observeRange(start, start) },
+		),
 	)
+}
+
+type retireAfterWriteConn struct {
+	net.Conn
+	retire func()
+	once   sync.Once
+}
+
+func (c *retireAfterWriteConn) Write(data []byte) (int, error) {
+	n, err := c.Conn.Write(data)
+	if err == nil {
+		c.once.Do(c.retire)
+	}
+	return n, err
+}
+
+func TestRangeWriteCompletionSurvivesRetirementDuringWrite(t *testing.T) {
+	local, remote := net.Pipe()
+	accepted := make(chan struct{})
+	var release sync.Once
+	allowRetirement := func() { release.Do(func() { close(accepted) }) }
+	defer allowRetirement()
+	wrapper := &retireAfterWriteConn{Conn: local}
+	m := muxer.New(wrapper)
+	recorder, err := muxer.NewWriteRecorder(1)
+	require.NoError(t, err)
+	cfg, err := NewConfig(
+		WithWriteRecorder(recorder),
+		WithRequestPipelining(true),
+		WithRangeDoneFunc(func(CallbackContext, error) error { return nil }),
+	)
+	require.NoError(t, err)
+	c := NewClient(
+		protocol.ProtocolOptions{
+			Muxer: m,
+			Mode:  protocol.ProtocolModeNodeToNode,
+		},
+		&cfg,
+	)
+	wrapper.retire = func() {
+		<-accepted
+		c.failOutstandingForProtocol(
+			c.ProtocolInstance(),
+			errors.New("request retired after transport accepted bytes"),
+		)
+	}
+	drained := make(chan struct{})
+	go func() { _, _ = io.Copy(io.Discard, remote); close(drained) }()
+	c.Start()
+	t.Cleanup(func() {
+		allowRetirement()
+		_ = m.Stop(context.Background())
+		_ = c.Stop(context.Background())
+		_ = remote.Close()
+		<-drained
+	})
+	id, err := c.RequestRange(context.Background(), RangeRequest{})
+	require.NoError(t, err)
+	allowRetirement()
+	require.True(t, c.ProtocolInstance().WaitSendQueueDrained(time.Second))
+	record := recorder.Snapshot()[0]
+	require.Equal(t, id, record.Metadata.RequestID)
+	require.False(
+		t,
+		record.WriteCompletedAt.IsZero(),
+		"successful final-SDU write must survive request retirement",
+	)
+	require.True(t, record.FailedAt.IsZero())
+	require.Equal(t, muxer.WriteFailureNone, record.Failure)
+	require.Zero(t, recorder.Lost())
 }

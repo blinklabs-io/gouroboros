@@ -185,7 +185,71 @@ func TestWriteObservationDisabledAllocations(t *testing.T) {
 		trace.Dequeue()
 		trace.SetRequestID(1)
 		trace.Fail(WriteFailureAbandoned)
+		trace.Abandon()
+		trace.claim()
 		segment.AddWriteSpan(trace, true, true, 0)
 	}))
 	require.Nil(t, segment.writeSpans)
+}
+
+func TestWriteObservationAbandonmentOwnership(t *testing.T) {
+	for _, test := range []struct {
+		name             string
+		dispatched       bool
+		last             bool
+		transportFailure bool
+		complete         bool
+		failure          WriteFailure
+	}{
+		{name: "unowned", failure: WriteFailureAbandoned},
+		{name: "final in flight", dispatched: true, last: true, complete: true},
+		{name: "nonfinal in flight", dispatched: true, failure: WriteFailureAbandoned},
+		{name: "transport failure", dispatched: true, last: true, transportFailure: true, failure: WriteFailureTransport},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder, err := NewWriteRecorder(1)
+			require.NoError(t, err)
+			trace := recorder.Begin(WriteMetadata{})
+			require.NotNil(t, trace)
+			span := writeSpan{trace: trace, first: true, last: test.last}
+			if test.dispatched {
+				trace.claim()
+				span.started(time.Now())
+			}
+			trace.Abandon()
+			if test.dispatched {
+				require.True(
+					t,
+					recorder.Snapshot()[0].FailedAt.IsZero(),
+					"in-flight SDU owns the transport result",
+				)
+				if test.transportFailure {
+					trace.Fail(WriteFailureTransport)
+				} else {
+					span.completed(time.Now())
+				}
+			}
+			record := recorder.Snapshot()[0]
+			require.Equal(t, test.complete, !record.WriteCompletedAt.IsZero())
+			require.Equal(t, test.failure, record.Failure)
+			require.Equal(t, !test.complete, !record.FailedAt.IsZero())
+			require.Zero(t, recorder.Lost())
+		})
+	}
+}
+
+func TestWriteObservationAbandonsBetweenFragments(t *testing.T) {
+	recorder, err := NewWriteRecorder(1)
+	require.NoError(t, err)
+	trace := recorder.Begin(WriteMetadata{})
+	require.NotNil(t, trace)
+	trace.claim()
+	first := writeSpan{trace: trace, first: true}
+	first.started(time.Now())
+	first.completed(time.Now())
+	trace.Abandon()
+	record := recorder.Snapshot()[0]
+	require.Equal(t, WriteFailureAbandoned, record.Failure)
+	require.True(t, record.WriteCompletedAt.IsZero())
+	require.Zero(t, recorder.Lost())
 }

@@ -152,14 +152,16 @@ func (r *WriteRecorder) Snapshot() []WriteRecord {
 
 // WriteTrace correlates one message through queuing, batching and fragments.
 // Only a recorder creates traces. Callers must retire an abandoned queued
-// message with Fail; canceling an enqueue context after enqueue does not
+// message with Abandon; canceling an enqueue context after enqueue does not
 // retract bytes that may already be owned by the muxer.
 type WriteTrace struct {
-	mu       sync.Mutex
-	ready    atomic.Bool
-	lost     atomic.Bool
-	recorder *WriteRecorder
-	record   WriteRecord
+	mu               sync.Mutex
+	ready            atomic.Bool
+	lost             atomic.Bool
+	recorder         *WriteRecorder
+	record           WriteRecord
+	writing          bool
+	abandonRequested bool
 }
 
 func (t *WriteTrace) lock() bool {
@@ -209,12 +211,43 @@ func (t *WriteTrace) Dequeue() {
 	t.mu.Unlock()
 }
 
-// Fail retires an incomplete write. A completed write remains completed even
-// if the peer later refuses the range or the request's response times out.
+// Abandon retires an unowned message immediately. A segment dispatched to
+// Muxer.Send retains its transport outcome: successful final-SDU completion
+// wins over concurrent request retirement, while an incomplete message is
+// abandoned after that segment finishes. It never retracts queued bytes.
+func (t *WriteTrace) Abandon() {
+	if t == nil || !t.lock() {
+		return
+	}
+	if t.record.WriteCompletedAt.IsZero() && t.record.FailedAt.IsZero() {
+		if t.writing {
+			t.abandonRequested = true
+		} else {
+			t.record.FailedAt = time.Now()
+			t.record.Failure = WriteFailureAbandoned
+		}
+	}
+	t.mu.Unlock()
+}
+
+func (t *WriteTrace) claim() {
+	if t == nil || !t.lock() {
+		return
+	}
+	if t.record.WriteCompletedAt.IsZero() && t.record.FailedAt.IsZero() {
+		t.writing = true
+	}
+	t.mu.Unlock()
+}
+
+// Fail records an enqueue or transport failure. Request owners use Abandon
+// so retirement cannot override an in-flight final write. A completed write
+// remains completed even if the peer later refuses the range.
 func (t *WriteTrace) Fail(reason WriteFailure) {
 	if t == nil || !t.lock() {
 		return
 	}
+	t.writing = false
 	if t.record.WriteCompletedAt.IsZero() && t.record.FailedAt.IsZero() {
 		t.record.FailedAt = time.Now()
 		t.record.Failure = reason
@@ -234,7 +267,8 @@ func (s writeSpan) started(at time.Time) {
 	if !s.first || s.trace == nil || !s.trace.lock() {
 		return
 	}
-	if s.trace.record.FailedAt.IsZero() && s.trace.record.WriteStartedAt.IsZero() {
+	if s.trace.record.FailedAt.IsZero() &&
+		s.trace.record.WriteStartedAt.IsZero() {
 		s.trace.record.WriteStartedAt = at
 		s.trace.record.FirstPayloadOffset = s.offset
 	}
@@ -242,11 +276,17 @@ func (s writeSpan) started(at time.Time) {
 }
 
 func (s writeSpan) completed(at time.Time) {
-	if !s.last || s.trace == nil || !s.trace.lock() {
+	if s.trace == nil || !s.trace.lock() {
 		return
 	}
+	s.trace.writing = false
 	if s.trace.record.FailedAt.IsZero() {
-		s.trace.record.WriteCompletedAt = at
+		if s.last {
+			s.trace.record.WriteCompletedAt = at
+		} else if s.trace.abandonRequested {
+			s.trace.record.FailedAt = at
+			s.trace.record.Failure = WriteFailureAbandoned
+		}
 	}
 	s.trace.mu.Unlock()
 }

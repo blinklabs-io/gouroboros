@@ -195,6 +195,10 @@ and shutdown before delivery leave completion unset and record a failure.
 Cancellation after enqueue retains the existing enqueue API contract: it does
 not retract a message from the muxer. A later peer refusal or response timeout
 does not turn an already completed transport write into a write failure.
+Request retirement also leaves an in-flight SDU's outcome to the muxer: an
+accepted final SDU remains a completed write; a remaining, undispatched fragment
+is abandoned. Enqueue cancellation and transport failures still cannot produce
+a successful completion.
 
 Recording uses preallocated slots, copied point hashes, and connection labels
 limited to 1024 bytes. It never calls user code or performs disk/network export
