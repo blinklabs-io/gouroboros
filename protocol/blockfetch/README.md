@@ -157,8 +157,9 @@ id, err := client.RequestRange(ctx, blockfetch.RangeRequest{
 })
 ```
 
-`RequestRange` returns as soon as the request is queued and sent, and blocks
-only while admitting it would exceed `MaxInFlightBytes`. The bound is in bytes
+`RequestRange` returns after enqueue, before mux scheduling or the connection
+write. It can wait for byte admission, the range send token, or send-queue
+capacity. The byte bound is in bytes
 rather than requests because consumer range sizes vary by orders of magnitude;
 a caller that supplies no estimate is charged one maximum-size block body per
 request, which reproduces `cardano-node`'s limit of 100 outstanding requests.
@@ -166,6 +167,49 @@ request, which reproduces `cardano-node`'s limit of 100 outstanding requests.
 `RequestPipelining` is protocol request pipelining. It is unrelated to the
 `Pipeline` option, which is a processing pipeline for blocks that have already
 been received.
+
+## Connection-write measurements
+
+Pass `WithWriteRecorder(recorder)` in the BlockFetch configuration to observe
+client range writes without changing request/response behavior. Construct the
+recorder with `muxer.NewWriteRecorder(capacity)` before starting connections.
+The recorder can be shared across connections; connection addresses, a unique
+client session, the assigned request ID, protocol ID, and complete range points
+identify each record. Failed enqueue attempts can have an assigned ID even
+though the API returns an error. Client restarts retain their session and
+monotonic request IDs; a new client gets a new session even if addresses are
+reused.
+
+A record begins before byte admission. `EnqueueStartedAt` marks offering the
+message to the protocol queue, including any wait for queue space. `DequeuedAt`
+marks its first dequeue; waiting for agency can follow it. `WriteStartedAt` is
+captured immediately before the first `net.Conn.Write` call covering the
+message, after mux arbitration and deadline setup. Coalesced messages share a
+write-call timestamp; `FirstPayloadOffset` locates the first message byte after
+the eight-byte mux header. `WriteCompletedAt` is captured immediately after the
+successful write of the final SDU containing the message. Neither timestamp
+measures physical NIC departure or the peer's receive time.
+
+Partial writes, write/deadline failures, canceled admission, failed enqueue,
+and shutdown before delivery leave completion unset and record a failure.
+Cancellation after enqueue retains the existing enqueue API contract: it does
+not retract a message from the muxer. A later peer refusal or response timeout
+does not turn an already completed transport write into a write failure.
+
+Recording uses preallocated slots, copied point hashes, and connection labels
+limited to 1024 bytes. It never calls user code or performs disk/network export
+on the write path. Full capacity rejects new records without overwriting old
+ones; a contended record update is discarded rather than blocking transport.
+`Rejected()` and `Lost()` expose those failures without changing protocol
+verdicts. Invalid observation metadata is rejected independently of protocol
+validation. With recording disabled, no trace or fragment metadata is allocated.
+
+After protocol and mux writers are quiescent, copy `Snapshot()` and require
+**zero rejected and lost updates** before deriving measurements. Records with
+`Lost` set or an unresolved write are incomplete. A live snapshot is diagnostic
+and can itself cause visible recording loss. Snapshot does not reset capacity;
+use a fresh recorder for each bounded measurement window. Serialize/export the
+copied records outside protocol and mux goroutines.
 
 ## Block Format
 

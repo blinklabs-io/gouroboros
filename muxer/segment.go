@@ -43,6 +43,22 @@ type Segment struct {
 	Payload      []byte
 	deliveryChan chan<- error
 	writtenFunc  func()
+	writeSpans   *writeSpan
+}
+
+// AddWriteSpan attaches a message fragment to its transport trace. offset is
+// the first message byte's offset in this segment's payload. first and last
+// identify the message boundaries, independently of other coalesced messages.
+// It retains only the trace, not the protocol message or its CBOR buffer.
+func (s *Segment) AddWriteSpan(
+	trace *WriteTrace, first, last bool, offset int,
+) {
+	if trace != nil {
+		s.writeSpans = &writeSpan{
+			trace: trace, first: first, last: last, offset: offset,
+			next: s.writeSpans,
+		}
+	}
 }
 
 // SetDeliveryChan registers a channel that receives the result of writing the
@@ -61,6 +77,9 @@ func (s *Segment) SetWrittenFunc(fn func()) {
 }
 
 func (s *Segment) reportDelivery(err error) {
+	if err != nil {
+		s.failWrite(WriteFailureAbandoned)
+	}
 	if err == nil && s.writtenFunc != nil {
 		s.writtenFunc()
 	}
@@ -70,6 +89,12 @@ func (s *Segment) reportDelivery(err error) {
 	select {
 	case s.deliveryChan <- err:
 	default:
+	}
+}
+
+func (s *Segment) failWrite(reason WriteFailure) {
+	for span := s.writeSpans; span != nil; span = span.next {
+		span.trace.Fail(reason)
 	}
 }
 

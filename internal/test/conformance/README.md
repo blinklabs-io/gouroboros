@@ -37,7 +37,7 @@ The consensus package's `TestLeaderEligibilityElectionValidatorAgreement`
 also checks legitimate assigned and unassigned proofs and complete signed
 header validation in both modes against the shared 120-slot schedules.
 
-The module configuration pins `github.com/blinklabs-io/ouroboros-mock` v0.21.1.
+The module configuration pins `github.com/blinklabs-io/ouroboros-mock` v0.22.0.
 Go downloads the checksum-verified upstream module normally; no replacement,
 local checkout, or workspace is required.
 

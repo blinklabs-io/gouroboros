@@ -25,6 +25,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/pipeline"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -114,6 +115,9 @@ type BlockFetch struct {
 
 // Config holds configuration options for the Block Fetch protocol.
 type Config struct {
+	// WriteRecorder opts into bounded connection-write observations for
+	// client range requests. Nil leaves recording disabled.
+	WriteRecorder *muxer.WriteRecorder
 	// CompressionEnabled opts into network-wide experimental CIP-0150 at
 	// Dijkstra protocol versions. All peers must use compatible settings.
 	CompressionEnabled  bool
@@ -371,6 +375,12 @@ func WithBlockRawFunc(blockRawFunc BlockRawFunc) BlockFetchOptionFunc {
 	return func(c *Config) {
 		c.BlockRawFunc = blockRawFunc
 	}
+}
+
+// WithWriteRecorder enables bounded range-request connection-write recording.
+// The recorder is shared safely across connections and client restarts.
+func WithWriteRecorder(recorder *muxer.WriteRecorder) BlockFetchOptionFunc {
+	return func(c *Config) { c.WriteRecorder = recorder }
 }
 
 // WithRangeDoneFunc sets the RangeDoneFunc callback in the Config.

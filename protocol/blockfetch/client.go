@@ -29,6 +29,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	ledgerbyron "github.com/blinklabs-io/gouroboros/ledger/byron"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/muxer"
 	"github.com/blinklabs-io/gouroboros/protocol"
 	pcommon "github.com/blinklabs-io/gouroboros/protocol/common"
 )
@@ -96,6 +97,7 @@ const (
 // client's FIFO queue identifies the response it will receive; the head entry
 // owns the next MsgStartBatch, MsgNoBlocks, MsgBlock, and MsgBatchDone.
 type rangeRequest struct {
+	writeTrace   *muxer.WriteTrace
 	id           uint64
 	start        pcommon.Point
 	end          pcommon.Point
@@ -178,6 +180,9 @@ type RangeRequest struct {
 
 // Client implements the Block Fetch protocol client, which requests blocks from a server.
 type Client struct {
+	writeSession    uint64
+	writeConnection string
+	writeRecorder   *muxer.WriteRecorder
 	*protocol.Protocol
 	protocolMu      sync.RWMutex
 	config          *Config         // Protocol configuration
@@ -256,6 +261,8 @@ type Client struct {
 	afterAcquireBusy func()
 }
 
+var nextWriteSession atomic.Uint64
+
 // NewClient creates a new Block Fetch protocol client with the given options and configuration.
 func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 	if cfg == nil {
@@ -263,6 +270,7 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		cfg = &tmpCfg
 	}
 	c := &Client{
+		writeRecorder:  cfg.WriteRecorder,
 		config:         cfg,
 		protoOptions:   protoOptions,
 		lifecycleState: clientStateNew,
@@ -270,6 +278,10 @@ func NewClient(protoOptions protocol.ProtocolOptions, cfg *Config) *Client {
 		rangeSendToken: make(chan struct{}, 1),
 	}
 	c.rangeSendToken <- struct{}{}
+	if cfg.WriteRecorder != nil {
+		c.writeSession = nextWriteSession.Add(1)
+		c.writeConnection = protoOptions.ConnectionId.String()
+	}
 	c.callbackContext = CallbackContext{
 		Client:       c,
 		ConnectionId: protoOptions.ConnectionId,
@@ -1153,6 +1165,32 @@ func (c *Client) waitForInFlightCapacity(
 	}
 }
 
+func (c *Client) observeRange(start, end pcommon.Point) *muxer.WriteTrace {
+	if c.writeRecorder == nil {
+		return nil
+	}
+	point := func(p pcommon.Point) muxer.WritePoint {
+		ret := muxer.WritePoint{Slot: p.Slot}
+		switch len(p.Hash) {
+		case 0:
+		case 32:
+			ret.HashLength = 32
+			copy(ret.Hash[:], p.Hash)
+		default:
+			// Reject only the observation; protocol validation remains
+			// responsible for the request's wire semantics.
+			ret.HashLength = 1
+		}
+		return ret
+	}
+	return c.writeRecorder.Begin(muxer.WriteMetadata{
+		Connection: c.writeConnection,
+		Session:    c.writeSession,
+		ProtocolID: ProtocolId,
+		Start:      point(start), End: point(end),
+	})
+}
+
 // sendRequestRange appends a request to the outstanding queue and sends its
 // MsgRequestRange. A context-aware send token covers only the queue append and
 // the MsgRequestRange enqueue, so FIFO queue order always matches wire order
@@ -1168,7 +1206,19 @@ func (c *Client) sendRequestRange(
 	expectedBytes uint64,
 	estimated bool,
 	busyToken uint64,
-) (*rangeRequest, error) {
+) (_ *rangeRequest, retErr error) {
+	trace := c.observeRange(start, end)
+	defer func() {
+		if retErr != nil {
+			reason := muxer.WriteFailureEnqueue
+			if errors.Is(retErr, context.Canceled) ||
+				errors.Is(retErr, context.DeadlineExceeded) ||
+				errors.Is(retErr, ErrRangeTimeout) {
+				reason = muxer.WriteFailureCanceled
+			}
+			trace.Fail(reason)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -1210,6 +1260,7 @@ func (c *Client) sendRequestRange(
 			ingressBytes = saturatingAdd(expectedBytes, expectedBytes/10)
 		}
 		req = &rangeRequest{
+			writeTrace:    trace,
 			id:            c.nextRequestId,
 			start:         start,
 			end:           end,
@@ -1229,6 +1280,7 @@ func (c *Client) sendRequestRange(
 			retired:       make(chan struct{}),
 			sending:       true,
 		}
+		trace.SetRequestID(req.id)
 		c.queue = append(c.queue, req)
 		c.inFlightBytes = saturatingAdd(c.inFlightBytes, expectedBytes)
 		c.updateIngressAllowanceLocked(proto)
@@ -1244,7 +1296,9 @@ func (c *Client) sendRequestRange(
 	if c.beforeRangeSend != nil {
 		c.beforeRangeSend()
 	}
-	err := proto.SendMessageContext(rangeCtx, NewMsgRequestRange(start, end))
+	err := proto.SendMessageContextObserved(
+		rangeCtx, NewMsgRequestRange(start, end), trace,
+	)
 	if err == nil && c.afterRangeSend != nil {
 		c.afterRangeSend()
 	}
@@ -1506,6 +1560,9 @@ func (c *Client) headForResponse(
 func (c *Client) resolve(req *rangeRequest, err error) error {
 	var callbackErr error
 	req.resolveOnce.Do(func() {
+		if err != nil && !errors.Is(err, ErrNoBlocks) {
+			req.writeTrace.Fail(muxer.WriteFailureAbandoned)
+		}
 		if req.retired != nil {
 			close(req.retired)
 		}
@@ -1554,7 +1611,12 @@ func (c *Client) failOutstandingForProtocol(
 	proto *protocol.Protocol,
 	err error,
 ) {
-	c.resolveOutstanding(proto, c.takeOutstandingForProtocol(proto, err), err, false)
+	c.resolveOutstanding(
+		proto,
+		c.takeOutstandingForProtocol(proto, err),
+		err,
+		false,
+	)
 }
 
 // failOutstandingAfterDelivery is failOutstandingForProtocol for a caller
@@ -1565,7 +1627,12 @@ func (c *Client) failOutstandingAfterDelivery(
 	proto *protocol.Protocol,
 	err error,
 ) {
-	c.resolveOutstanding(proto, c.takeOutstandingForProtocol(proto, err), err, true)
+	c.resolveOutstanding(
+		proto,
+		c.takeOutstandingForProtocol(proto, err),
+		err,
+		true,
+	)
 }
 
 // takeOutstandingForProtocol removes proto's requests from the queue and
