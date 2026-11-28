@@ -126,13 +126,14 @@ func (c *Client) Start() {
 // protocol.ErrProtocolShuttingDown; the server then holds agency, so Stop
 // closes the protocol without sending MsgDone.
 //
-// Stop sends the message that ends the client's run and waits up to 250ms
-// for it to be written, then stops the protocol. It signals shutdown at
-// once. When ctx is the Context of a CallbackContext this client passed to a
-// callback, Stop returns without waiting for the protocol's goroutines,
-// since the goroutine running the callback is one of them. Otherwise it
-// waits until they have returned, or until ctx is done, in which case it
-// returns ctx.Err() and shutdown still proceeds.
+// Stop releases an acquired snapshot before sending the message that ends
+// the client's run, and waits up to 250ms in total for those messages to be
+// written before stopping the protocol. It signals shutdown at once. When
+// ctx is the Context of a CallbackContext this client passed to a callback,
+// Stop returns without waiting for the protocol's goroutines, since the
+// goroutine running the callback is one of them. Otherwise it waits until
+// they have returned, or until ctx is done, in which case it returns
+// ctx.Err() and shutdown still proceeds.
 func (c *Client) Stop(ctx context.Context) error {
 	var err error
 	c.onceStop.Do(func() {
@@ -148,8 +149,16 @@ func (c *Client) Stop(ctx context.Context) error {
 		if c.abandoned {
 			return
 		}
-		msg := NewMsgDone()
-		if err = stopping.SendDone(ctx, c.Protocol, msg); err != nil {
+		sendCtx, cancel := context.WithTimeout(ctx, stopping.DoneTimeout)
+		defer cancel()
+		if c.acquired {
+			err = c.SendMessageContextAndWait(sendCtx, NewMsgRelease())
+			if err != nil {
+				return
+			}
+			c.acquired = false
+		}
+		if err = c.SendMessageContextAndWait(sendCtx, NewMsgDone()); err != nil {
 			return
 		}
 	})
