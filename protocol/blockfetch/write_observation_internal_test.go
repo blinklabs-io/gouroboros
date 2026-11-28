@@ -142,8 +142,14 @@ func TestRangeWriteObservationImmutablePointsAndSessions(t *testing.T) {
 		records[0].Metadata.Session,
 		records[1].Metadata.Session,
 	)
+	require.Equal(t, records[0].Metadata.Session, a.WriteObservationSession())
+	require.Equal(t, records[1].Metadata.Session, b.WriteObservationSession())
+	a.initProtocol()
+	defer a.pipelineCancel()
+	require.Equal(t, records[0].Metadata.Session, a.WriteObservationSession())
 	disabled := newQueueTestClient(&Config{})
 	defer disabled.pipelineCancel()
+	require.Zero(t, disabled.WriteObservationSession())
 	require.Zero(
 		t,
 		testing.AllocsPerRun(

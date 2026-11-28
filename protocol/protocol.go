@@ -547,23 +547,28 @@ func (p *Protocol) StopForRestart(ctx context.Context) error {
 	return p.join(ctx)
 }
 
-// join waits for the loops to return, unless ctx marks a callback of p.
+// join waits for the loops and completion publication, unless ctx marks a
+// callback of p.
 func (p *Protocol) join(ctx context.Context) error {
 	if CallbackOwner(ctx) == p || p.loopsDoneChan == nil {
 		return nil
 	}
-	// A join that has already happened wins over a done ctx.
-	select {
-	case <-p.loopsDoneChan:
-		return nil
-	default:
+	// The receive/send completion publisher can run after the last counted
+	// loop returns. Both signals must be visible before a join succeeds.
+	for _, done := range [...]<-chan struct{}{p.loopsDoneChan, p.doneChan} {
+		// Published completion wins over a done context.
+		select {
+		case <-done:
+			continue
+		default:
+		}
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	select {
-	case <-p.loopsDoneChan:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return nil
 }
 
 // CancelRestart releases what StopForRestart kept for this role's next

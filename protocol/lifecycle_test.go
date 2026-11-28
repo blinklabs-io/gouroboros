@@ -28,6 +28,18 @@ import (
 
 const lifecycleTestTimeout = 5 * time.Second
 
+func TestJoinWaitsForCompletionPublication(t *testing.T) {
+	t.Parallel()
+	p := New(ProtocolConfig{Name: "completion"})
+	p.endLoops()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, p.join(ctx), context.Canceled,
+		"joining finished loops must still wait for protocol completion")
+	p.closeDone()
+	require.NoError(t, p.join(ctx), "published completion wins over cancellation")
+}
+
 func requireClosed(t *testing.T, ch <-chan struct{}, what string) {
 	t.Helper()
 	select {

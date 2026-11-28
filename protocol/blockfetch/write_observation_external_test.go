@@ -43,6 +43,8 @@ func TestRangeWriteObservationSharedPeerNoBlocks(t *testing.T) {
 	require.ErrorIs(t, result.err, blockfetch.ErrNoBlocks)
 	require.True(t, h.client.ProtocolInstance().WaitSendQueueDrained(time.Second))
 	record := recorder.Snapshot()[0]
+	require.NotZero(t, h.client.WriteObservationSession())
+	require.Equal(t, h.client.WriteObservationSession(), record.Metadata.Session)
 	require.Equal(t, id, record.Metadata.RequestID)
 	require.False(t, record.WriteStartedAt.IsZero())
 	require.False(t, record.WriteCompletedAt.IsZero())
