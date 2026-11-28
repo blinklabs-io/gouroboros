@@ -373,6 +373,14 @@ func (c *Client) protocolStateMap() protocol.StateMap {
 	return stateMap
 }
 
+// WriteObservationSession returns the session in this client's transport-write
+// records. It is zero when recording is disabled and remains unchanged across
+// protocol restarts. Combine it with a callback's RequestId to identify the
+// corresponding request record, including when connection addresses are reused.
+func (c *Client) WriteObservationSession() uint64 {
+	return c.writeSession
+}
+
 func (c *Client) ProtocolInstance() *protocol.Protocol {
 	c.protocolMu.RLock()
 	defer c.protocolMu.RUnlock()
